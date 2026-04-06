@@ -1,12 +1,9 @@
 {
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
-		"module": "Node16",
-		"moduleResolution": "Node16",
 		"outDir": "dist",
 		"rootDir": "src",
-		"declaration": true,
-		"verbatimModuleSyntax": false
+		"declaration": true
 	},
 	"include": ["src"],
 	"exclude": ["src/__tests__"]

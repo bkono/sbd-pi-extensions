@@ -68,6 +68,12 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["**/scripts/**"],
+			"linter": {
+				"enabled": false
+			}
 		}
 	]
 }
