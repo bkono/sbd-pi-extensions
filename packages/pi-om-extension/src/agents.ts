@@ -98,12 +98,15 @@ export class ObservationAgents {
 
   // ---- public API ----
 
-  async observe(input: {
-    existingObservations: string;
-    serializedMessages: string;
-    customInstruction?: string;
-    includeContinuationHint?: boolean;
-  }): Promise<ObserverResult> {
+  async observe(
+    input: {
+      existingObservations: string;
+      serializedMessages: string;
+      customInstruction?: string;
+      includeContinuationHint?: boolean;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<ObserverResult> {
     const systemPrompt = buildObserverSystemPrompt(
       input.customInstruction ?? this.config.observation.customInstruction,
     );
@@ -156,6 +159,7 @@ export class ObservationAgents {
       systemPrompt,
       userPrompt,
       this.config.observation.temperature,
+      options?.signal,
     );
 
     const result = parseObserverOutput(response);
@@ -163,10 +167,13 @@ export class ObservationAgents {
     return result;
   }
 
-  async reflect(input: {
-    observations: string;
-    customInstruction?: string;
-  }): Promise<ObserverResult> {
+  async reflect(
+    input: {
+      observations: string;
+      customInstruction?: string;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<ObserverResult> {
     const systemPrompt = buildReflectorSystemPrompt(
       input.customInstruction ?? this.config.reflection.customInstruction,
     );
@@ -187,6 +194,7 @@ export class ObservationAgents {
       systemPrompt,
       userPrompt,
       this.config.reflection.temperature,
+      options?.signal,
     );
 
     const result = parseObserverOutput(response);
@@ -202,6 +210,7 @@ export class ObservationAgents {
     systemPrompt: string,
     userPrompt: string,
     temperature: number | undefined,
+    signal?: AbortSignal,
   ): Promise<string> {
     // getModel's generic expects literal provider/modelId types at compile time.
     // At runtime we have string values, so we cast through the registry lookup.
@@ -236,11 +245,14 @@ export class ObservationAgents {
     // Only pass temperature when explicitly configured. Reasoning models
     // (GPT-5.x, some Opus variants) reject the parameter entirely, so we let
     // the provider use its default unless the user opts in via config.
-    const simpleOptions: { temperature?: number; apiKey?: string } = {
+    const simpleOptions: { temperature?: number; apiKey?: string; signal?: AbortSignal } = {
       apiKey: resolvedApiKey,
     };
     if (temperature !== undefined) {
       simpleOptions.temperature = temperature;
+    }
+    if (signal) {
+      simpleOptions.signal = signal;
     }
 
     const response: AssistantMessage = await completeSimple(

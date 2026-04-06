@@ -162,11 +162,19 @@ export async function runObservationCycle(
       // Serialize messages for the observer
       const serializedMessages = messagesToObserve.map(serializeMessage).join("\n\n");
 
-      const observed = await agents.observe({
-        existingObservations: state.observations,
-        serializedMessages,
-        customInstruction: config.observation.customInstruction,
-      });
+      // Create a timeout signal so a slow/hung LLM call cannot block forever
+      const observeSignal = config.observation.timeout
+        ? AbortSignal.timeout(config.observation.timeout)
+        : undefined;
+
+      const observed = await agents.observe(
+        {
+          existingObservations: state.observations,
+          serializedMessages,
+          customInstruction: config.observation.customInstruction,
+        },
+        { signal: observeSignal },
+      );
 
       if (!observed.observations.trim()) {
         await saveSessionState(config.storage.stateDir, {
@@ -193,10 +201,17 @@ export async function runObservationCycle(
           threshold: config.reflection.observationTokens,
         });
 
-        const reflected = await agents.reflect({
-          observations,
-          customInstruction: config.reflection.customInstruction,
-        });
+        const reflectSignal = config.reflection.timeout
+          ? AbortSignal.timeout(config.reflection.timeout)
+          : undefined;
+
+        const reflected = await agents.reflect(
+          {
+            observations,
+            customInstruction: config.reflection.customInstruction,
+          },
+          { signal: reflectSignal },
+        );
 
         if (reflected.observations.trim()) {
           observations = reflected.observations;

@@ -12,6 +12,12 @@ export interface OMConfig {
      * supports it and you want deterministic observation output.
      */
     temperature?: number;
+    /**
+     * Timeout in milliseconds for the observer LLM call. Defaults to 120 000
+     * (2 minutes). Prevents a slow or hung API call from blocking the agent
+     * lifecycle indefinitely.
+     */
+    timeout?: number;
     customInstruction?: string;
   };
   reflection: {
@@ -20,6 +26,11 @@ export interface OMConfig {
     modelId: string;
     /** See observation.temperature. */
     temperature?: number;
+    /**
+     * Timeout in milliseconds for the reflector LLM call. Defaults to 120 000
+     * (2 minutes).
+     */
+    timeout?: number;
     customInstruction?: string;
   };
   storage: {

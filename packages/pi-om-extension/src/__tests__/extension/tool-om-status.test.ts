@@ -1,4 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionStatePath } from "../../config.js";
 import piObservationalMemory from "../../index.js";
@@ -9,6 +11,15 @@ import {
 import { MockObservationAgents } from "../helpers/mock-agents.js";
 import { __clearMockAgents, __installMockAgents } from "../helpers/mock-agents-module.js";
 import { createTempStateDir, type TempStateDir } from "../helpers/temp-state-dir.js";
+
+// Mock homedir so loadConfig() never reads the real ~/.pi/om-config.json.
+// Without this, user-specific overrides (e.g. provider, thresholds) leak into
+// tests and cause assertion failures.
+let currentFakeHome = "";
+vi.mock("node:os", async () => {
+  const actual = await vi.importActual<typeof import("node:os")>("node:os");
+  return { ...actual, homedir: () => currentFakeHome };
+});
 
 vi.mock("../../agents.js", async () => {
   const actual = await vi.importActual<typeof import("../../agents.js")>("../../agents.js");
@@ -31,6 +42,8 @@ const OM_ENV_KEYS = [
   "OM_REFLECTION_MODEL",
   "OM_OBSERVATION_TEMPERATURE",
   "OM_REFLECTION_TEMPERATURE",
+  "OM_OBSERVATION_TIMEOUT",
+  "OM_REFLECTION_TIMEOUT",
   "OM_DEBUG",
 ];
 
@@ -40,6 +53,7 @@ describe("extension: om_status tool", () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
+    currentFakeHome = mkdtempSync(join(tmpdir(), "om-home-"));
     for (const key of OM_ENV_KEYS) {
       savedEnv[key] = process.env[key];
       delete process.env[key];

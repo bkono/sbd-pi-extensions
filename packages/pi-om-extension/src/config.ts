@@ -15,17 +15,22 @@ function projectConfigPath(cwd: string): string {
   return join(cwd, ".pi", "om-config.json");
 }
 
+/** Default timeout for observer/reflector LLM calls (ms). */
+const DEFAULT_TIMEOUT_MS = 120_000;
+
 function defaults(cwd: string): OMConfig {
   return {
     observation: {
       messageTokens: 70_000,
       provider: "google",
       modelId: "gemini-2.5-flash",
+      timeout: DEFAULT_TIMEOUT_MS,
     },
     reflection: {
       observationTokens: 50_000,
       provider: "google",
       modelId: "gemini-2.5-flash",
+      timeout: DEFAULT_TIMEOUT_MS,
     },
     storage: {
       stateDir: join(cwd, ".pi", "om-state"),
@@ -38,7 +43,16 @@ function readJsonFile(path: string): Record<string, unknown> | undefined {
   try {
     const raw = readFileSync(path, "utf-8");
     return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    // Distinguish "file not found" (expected) from parse errors (actionable)
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      console.error(
+        `[om:config] Failed to parse config file: ${path}\n` +
+          `  ${err instanceof Error ? err.message : String(err)}\n` +
+          "  This config file will be ignored — defaults will be used instead.",
+      );
+    }
     return undefined;
   }
 }
@@ -102,6 +116,16 @@ function applyEnvOverrides(config: OMConfig): OMConfig {
   if (env.OM_REFLECTION_TEMPERATURE !== undefined) {
     const v = Number.parseFloat(env.OM_REFLECTION_TEMPERATURE);
     if (Number.isFinite(v)) config.reflection.temperature = v;
+  }
+
+  if (env.OM_OBSERVATION_TIMEOUT !== undefined) {
+    const v = Number.parseInt(env.OM_OBSERVATION_TIMEOUT, 10);
+    if (!Number.isNaN(v) && v > 0) config.observation.timeout = v;
+  }
+
+  if (env.OM_REFLECTION_TIMEOUT !== undefined) {
+    const v = Number.parseInt(env.OM_REFLECTION_TIMEOUT, 10);
+    if (!Number.isNaN(v) && v > 0) config.reflection.timeout = v;
   }
 
   if (env.OM_DEBUG !== undefined) {

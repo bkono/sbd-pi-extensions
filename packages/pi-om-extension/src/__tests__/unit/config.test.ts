@@ -30,6 +30,8 @@ describe("loadConfig", () => {
     "OM_REFLECTION_MODEL",
     "OM_OBSERVATION_TEMPERATURE",
     "OM_REFLECTION_TEMPERATURE",
+    "OM_OBSERVATION_TIMEOUT",
+    "OM_REFLECTION_TIMEOUT",
     "OM_DEBUG",
   ];
 
@@ -140,6 +142,43 @@ describe("loadConfig", () => {
     const config = loadConfig(fakeCwd);
     expect(config.observation.provider).toBe("google");
     expect(config.observation.modelId).toBe("gemini-2.5-flash");
+  });
+
+  it("includes default timeout values", () => {
+    const config = loadConfig(fakeCwd);
+    expect(config.observation.timeout).toBe(120_000);
+    expect(config.reflection.timeout).toBe(120_000);
+  });
+
+  it("env OM_OBSERVATION_TIMEOUT and OM_REFLECTION_TIMEOUT override defaults", () => {
+    process.env.OM_OBSERVATION_TIMEOUT = "30000";
+    process.env.OM_REFLECTION_TIMEOUT = "60000";
+    const config = loadConfig(fakeCwd);
+    expect(config.observation.timeout).toBe(30_000);
+    expect(config.reflection.timeout).toBe(60_000);
+  });
+
+  it("invalid timeout env var is ignored", () => {
+    process.env.OM_OBSERVATION_TIMEOUT = "not-a-number";
+    const config = loadConfig(fakeCwd);
+    expect(config.observation.timeout).toBe(120_000);
+  });
+
+  it("warns to stderr when config file has invalid JSON", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const configDir = join(currentFakeHome, ".pi");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "om-config.json"), "{ invalid json ,,,");
+
+    const config = loadConfig(fakeCwd);
+
+    // Falls back to defaults
+    expect(config.observation.messageTokens).toBe(70_000);
+    // Logged a warning
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("[om:config] Failed to parse config file"),
+    );
+    spy.mockRestore();
   });
 });
 
