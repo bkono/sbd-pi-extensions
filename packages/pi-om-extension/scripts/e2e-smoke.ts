@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * End-to-end smoke test for @alfred-ts/pi-om-extension.
+ * End-to-end smoke test for @solvedbydev/pi-om-extension.
  *
  * Runs a real pi coding-agent session with our extension + a companion
  * verification extension loaded. Uses the same config/auth/provider resolution

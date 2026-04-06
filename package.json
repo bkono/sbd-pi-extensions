@@ -21,6 +21,13 @@
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": [
+      "packages/pi-om-extension/src/index.ts",
+      "packages/pi-hello-world-extension/src/index.ts"
+    ]
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
     "tsdown": "^0.21.7",

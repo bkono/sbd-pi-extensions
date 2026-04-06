@@ -30,11 +30,13 @@
       "./src/index.ts"
     ]
   },
-  "dependencies": {
-    "@sinclair/typebox": "^0.34.49"
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.65.2",
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "^0.34.49",
     "tsdown": "^0.21.7",
     "typescript": "^6.0.2"
   }

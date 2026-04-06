@@ -43,7 +43,7 @@ await session.bindExtensions({});
 
 ```json
 {
-  "extensions": ["/path/to/alfred-ts/packages/pi-om-extension/src/index.ts"]
+  "extensions": ["/path/to/sbd-pi-extensions/packages/pi-om-extension/src/index.ts"]
 }
 ```
 

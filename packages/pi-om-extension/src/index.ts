@@ -16,7 +16,7 @@ import type { OMConfig } from "./types.js";
 
 /**
  * Load the merged OM config for a given cwd. Exposed so host runtimes
- * (e.g. @alfred-ts/assistant-runtime) can log the resolved config at
+ * (e.g. a host runtime) can log the resolved config at
  * startup to verify env vars and JSON overrides landed as expected.
  * Same resolution chain the extension itself uses at session_start.
  */

@@ -6,13 +6,6 @@ export default defineConfig({
 	dts: true,
 	clean: true,
 	platform: "node",
-	deps: {
-		// pi loads extensions via jiti — these are runtime externals
-		neverBundle: [
-			"@mariozechner/pi-coding-agent",
-			"@mariozechner/pi-ai",
-			"@mariozechner/pi-tui",
-			"@sinclair/typebox",
-		],
-	},
+	// Pi extensions — keep all deps external (resolved by pi at runtime via jiti)
+	unbundle: true,
 });
