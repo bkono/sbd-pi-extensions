@@ -1,5 +1,21 @@
 # CLAUDE.md — @solvedbydev/pi-extensions
 
+## Work Management
+
+Committing and closing issues are part of completing a task — not separate
+actions requiring additional permission.
+
+We often have multiple agents working at the same time. Because of this, it is
+imperative you create atomic commits by staging only your changed files:
+
+```sh
+git add <your changed files> && git commit -m "<conventional commit style message>"
+```
+
+Use conventional commit prefixes: `feat:`, `fix:`, `chore:`, `refactor:`,
+`docs:`, `test:`, `ci:`, etc. Scope to the package when it helps clarity
+(e.g., `feat(pi-hello-world): add greet command`).
+
 ## Project Structure
 
 npm workspace monorepo using tsdown for builds.
