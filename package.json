@@ -1,0 +1,22 @@
+{
+  "name": "@solvedbydev/pi-extensions",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsdown -W",
+    "build:packages": "tsdown -W -F './packages/*'",
+    "build:apps": "tsdown -W -F './apps/*'",
+    "clean": "npm run clean --workspaces --if-present",
+    "check": "tsc --build",
+    "dev": "tsdown -W --watch"
+  },
+  "devDependencies": {
+    "tsdown": "^0.21.7",
+    "typescript": "^6.0.2"
+  }
+}
