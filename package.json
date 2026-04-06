@@ -27,7 +27,8 @@
   "pi": {
     "extensions": [
       "packages/pi-om-extension/src/index.ts",
-      "packages/pi-hello-world-extension/src/index.ts"
+      "packages/pi-hello-world-extension/src/index.ts",
+      "packages/pi-files-extension/src/index.ts"
     ]
   },
   "devDependencies": {
