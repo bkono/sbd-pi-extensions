@@ -1,0 +1,386 @@
+import type { Message } from "@mariozechner/pi-ai";
+import { Type } from "@mariozechner/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AuthResolver } from "./agents.js";
+import { ObservationAgents } from "./agents.js";
+import { loadConfig, sessionStatePath } from "./config.js";
+import {
+	buildContinuationReminder,
+	buildObservationContext,
+	getUnobservedMessages,
+	runObservationCycle,
+} from "./engine.js";
+import { loadSessionState, saveSessionState } from "./state.js";
+import { countMessageTokens } from "./tokens.js";
+import type { OMConfig } from "./types.js";
+
+/**
+ * Load the merged OM config for a given cwd. Exposed so host runtimes
+ * (e.g. @alfred-ts/assistant-runtime) can log the resolved config at
+ * startup to verify env vars and JSON overrides landed as expected.
+ * Same resolution chain the extension itself uses at session_start.
+ */
+export { loadConfig } from "./config.js";
+export type { CursorMode, CycleReason, ObserverResult, OMConfig, SessionState } from "./types.js";
+
+function debugLog(config: OMConfig, message: string, details?: Record<string, unknown>): void {
+	if (!config.debug) return;
+	const payload = details ? ` ${JSON.stringify(details)}` : "";
+	console.error(`[om:ext] ${message}${payload}`);
+}
+
+/**
+ * Pi coding-agent extension for observational memory.
+ *
+ * Hooks into the agent lifecycle to:
+ * 1. Observe conversation history and extract dense observations via LLM
+ * 2. Reflect/consolidate when observations grow too large
+ * 3. Prune raw message history and inject observation context before each LLM call
+ * 4. Force a final observation pass before compaction
+ */
+export default function piObservationalMemory(pi: ExtensionAPI) {
+	let config: OMConfig | undefined;
+	let agents: ObservationAgents | undefined;
+
+	// Instance-scoped deduplication map for concurrent observation cycles
+	const inflight = new Map<string, Promise<void>>();
+
+	function ensureInitialized(ctx: ExtensionContext): {
+		config: OMConfig;
+		agents: ObservationAgents;
+	} {
+		if (!config || !agents) {
+			config = loadConfig(ctx.cwd);
+			// Use pi's ModelRegistry as our auth resolver — this gives the observer
+			// and reflector access to the same auth.json / env var resolution chain
+			// that the agent itself uses, including OAuth refresh.
+			const resolver: AuthResolver = {
+				getApiKeyAndHeaders: (model) => ctx.modelRegistry.getApiKeyAndHeaders(model),
+			};
+			agents = new ObservationAgents(config, resolver);
+		}
+		return { config, agents };
+	}
+
+	// -------------------------------------------------------------------------
+	// session_start — initialize/load state
+	// -------------------------------------------------------------------------
+	pi.on("session_start", async (_event, ctx) => {
+		const { config: cfg } = ensureInitialized(ctx);
+		const sessionId = ctx.sessionManager.getSessionId();
+
+		debugLog(cfg, "session_start", { sessionId });
+
+		const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+		await saveSessionState(cfg.storage.stateDir, state);
+	});
+
+	// -------------------------------------------------------------------------
+	// before_agent_start — inject observation context into system prompt
+	// -------------------------------------------------------------------------
+	pi.on("before_agent_start", async (event, ctx) => {
+		const { config: cfg } = ensureInitialized(ctx);
+		const sessionId = ctx.sessionManager.getSessionId();
+		const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+
+		const observationContext = buildObservationContext(state);
+		if (!observationContext) return;
+
+		// Append observation context and continuation reminder to the system prompt.
+		// The chaining in pi's extension runner means we receive the current system
+		// prompt and return the modified version. Subsequent extensions (if any) will
+		// see our modifications.
+		const appendix = [observationContext, "", buildContinuationReminder()].join("\n");
+
+		debugLog(cfg, "before_agent_start: injecting observations into system prompt", {
+			sessionId,
+			observationTokens: state.observationTokens,
+		});
+
+		return { systemPrompt: `${event.systemPrompt}\n\n${appendix}` };
+	});
+
+	// -------------------------------------------------------------------------
+	// context — prune messages to unobserved window before each LLM call
+	// -------------------------------------------------------------------------
+	pi.on("context", async (event, ctx) => {
+		const { config: cfg } = ensureInitialized(ctx);
+		const sessionId = ctx.sessionManager.getSessionId();
+		const allMessages = [...event.messages] as Message[];
+
+		debugLog(cfg, "context", {
+			sessionId,
+			messageCount: allMessages.length,
+		});
+
+		// Observation cycles are NOT run here — they run in agent_end only.
+		// This prevents a drift where the cursor advances (pruning messages) but
+		// the system prompt still has stale observations from before_agent_start.
+		// By only observing in agent_end, the system prompt and pruning cursor
+		// are always derived from the same state snapshot.
+		const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+
+		// Compute the unobserved window
+		const unobservedWindow = getUnobservedMessages(
+			allMessages,
+			state.lastObservedEntryId,
+			state.lastObservedTimestamp,
+		);
+
+		let boundedMessages = unobservedWindow.messages;
+		let cursorMode = unobservedWindow.mode;
+
+		// Always include at least the latest message
+		if (boundedMessages.length === 0) {
+			const latest = allMessages.at(-1);
+			if (latest) {
+				boundedMessages = [latest];
+				cursorMode = "fallback-latest";
+			}
+		}
+
+		// Track pruning metrics
+		await saveSessionState(cfg.storage.stateDir, {
+			...state,
+			lastCycleAt: Date.now(),
+			lastCycleReason: "context",
+			lastCursorMode: cursorMode,
+			tailEntriesBeforePrune: allMessages.length,
+			tailTokensBeforePrune: countMessageTokens(allMessages),
+			tailEntriesAfterPrune: boundedMessages.length,
+			tailTokensAfterPrune: countMessageTokens(boundedMessages),
+			prunedEntriesCount: Math.max(0, allMessages.length - boundedMessages.length),
+		});
+
+		debugLog(cfg, "context pruned", {
+			sessionId,
+			before: allMessages.length,
+			after: boundedMessages.length,
+		});
+
+		return { messages: boundedMessages };
+	});
+
+	// -------------------------------------------------------------------------
+	// agent_end — run observation cycle after the agent loop completes
+	// -------------------------------------------------------------------------
+	pi.on("agent_end", async (event, ctx) => {
+		const { config: cfg, agents: agts } = ensureInitialized(ctx);
+		const sessionId = ctx.sessionManager.getSessionId();
+
+		// IMPORTANT: do NOT use `event.messages` here. pi-agent-core's
+		// agent_end event is TURN-SCOPED — its `messages` field contains
+		// only the messages produced during the current run (user prompt +
+		// assistant response + tool calls for this turn). For a resumed
+		// session with existing history, that list is always small and
+		// never crosses the observation threshold on its own, even when
+		// the cumulative session is massively over.
+		//
+		// Reconstruct the full message list from sessionManager's branch —
+		// the same pattern session_before_compact and the om_observations
+		// tool use. This gives the observation cycle the complete history
+		// it needs to compute unobserved tokens correctly.
+		const entries = ctx.sessionManager.getBranch();
+		const messages: Message[] = [];
+		for (const entry of entries) {
+			if (entry.type === "message") {
+				messages.push(entry.message as Message);
+			}
+		}
+
+		debugLog(cfg, "agent_end", {
+			sessionId,
+			messageCount: messages.length,
+			turnMessageCount: event.messages.length,
+		});
+
+		await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
+			reason: "turn_end",
+		});
+	});
+
+	// -------------------------------------------------------------------------
+	// session_before_compact — force observation, inject context into compaction
+	// -------------------------------------------------------------------------
+	pi.on("session_before_compact", async (event, ctx) => {
+		const { config: cfg, agents: agts } = ensureInitialized(ctx);
+		const sessionId = ctx.sessionManager.getSessionId();
+
+		debugLog(cfg, "session_before_compact", { sessionId });
+
+		// Extract messages from the branch entries
+		const entries = event.branchEntries;
+		const messages: Message[] = [];
+		for (const entry of entries) {
+			if (entry.type === "message") {
+				messages.push(entry.message as Message);
+			}
+		}
+
+		// Force a final observation pass to capture everything before compaction
+		await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
+			forceObserve: true,
+			reason: "compacting",
+		});
+
+		// Build a custom compaction that includes observation context in the summary.
+		// This ensures the compaction summary benefits from our extracted observations,
+		// matching the original opencode behavior where observations were injected
+		// into the compaction context.
+		const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+		const observationContext = buildObservationContext(state);
+
+		if (observationContext) {
+			const { preparation } = event;
+
+			// Build a summary that combines the previous summary (if any) with our
+			// observation context. The observation context IS the compressed memory —
+			// it's a better summary than what the default LLM compaction would produce
+			// from raw messages, since our observer has already extracted the key facts.
+			const summaryParts: string[] = [];
+
+			if (preparation.previousSummary) {
+				summaryParts.push(preparation.previousSummary);
+			}
+
+			summaryParts.push(observationContext);
+			summaryParts.push(buildContinuationReminder());
+
+			return {
+				compaction: {
+					summary: summaryParts.join("\n\n"),
+					firstKeptEntryId: preparation.firstKeptEntryId,
+					tokensBefore: preparation.tokensBefore,
+				},
+			};
+		}
+
+		// No observations yet — let the default compaction proceed
+		return undefined;
+	});
+
+	// -------------------------------------------------------------------------
+	// session_shutdown — final state persistence
+	// -------------------------------------------------------------------------
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (!config) return;
+		const sessionId = ctx.sessionManager.getSessionId();
+		const state = await loadSessionState(config.storage.stateDir, sessionId);
+		await saveSessionState(config.storage.stateDir, state);
+		debugLog(config, "session_shutdown", { sessionId });
+	});
+
+	// -------------------------------------------------------------------------
+	// Tools
+	// -------------------------------------------------------------------------
+
+	pi.registerTool({
+		name: "om_status",
+		label: "OM Status",
+		description:
+			"Show observational memory status for a session, including token counts, thresholds, and cycle history.",
+		parameters: Type.Object({
+			session_id: Type.Optional(
+				Type.String({ description: "Session ID to query. Defaults to current session." }),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const { config: cfg } = ensureInitialized(ctx);
+			const sessionId = params.session_id ?? ctx.sessionManager.getSessionId();
+			const statePath = sessionStatePath(cfg.storage.stateDir, sessionId);
+			const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+
+			// Get current messages to compute unobserved window
+			const entries = ctx.sessionManager.getBranch();
+			const messages: Message[] = [];
+			for (const entry of entries) {
+				if (entry.type === "message") {
+					messages.push(entry.message as Message);
+				}
+			}
+
+			const unobservedWindow = getUnobservedMessages(
+				messages,
+				state.lastObservedEntryId,
+				state.lastObservedTimestamp,
+			);
+
+			const status = {
+				sessionId,
+				stateDir: cfg.storage.stateDir,
+				statePath,
+				observationTokens: state.observationTokens,
+				observationThreshold: cfg.observation.messageTokens,
+				observationModel: `${cfg.observation.provider}/${cfg.observation.modelId}`,
+				reflectionThreshold: cfg.reflection.observationTokens,
+				reflectionModel: `${cfg.reflection.provider}/${cfg.reflection.modelId}`,
+				observationsPresent: Boolean(state.observations.trim()),
+				lastObservedEntryId: state.lastObservedEntryId ?? null,
+				lastObservedTimestamp: state.lastObservedTimestamp
+					? new Date(state.lastObservedTimestamp).toISOString()
+					: null,
+				cursorModeForCurrentWindow: unobservedWindow.mode,
+				unobservedMessages: unobservedWindow.messages.length,
+				unobservedMessageTokens: countMessageTokens(unobservedWindow.messages),
+				lastCycleAt: state.lastCycleAt ? new Date(state.lastCycleAt).toISOString() : null,
+				lastCycleReason: state.lastCycleReason ?? null,
+				lastCursorMode: state.lastCursorMode ?? null,
+				observeTriggered: state.observeTriggered ?? null,
+				reflectTriggered: state.reflectTriggered ?? null,
+				tailEntriesBeforePrune: state.tailEntriesBeforePrune ?? null,
+				tailTokensBeforePrune: state.tailTokensBeforePrune ?? null,
+				tailEntriesAfterPrune: state.tailEntriesAfterPrune ?? null,
+				tailTokensAfterPrune: state.tailTokensAfterPrune ?? null,
+				prunedEntriesCount: state.prunedEntriesCount ?? null,
+				currentTask: state.currentTask ?? null,
+				suggestedResponse: state.suggestedResponse ?? null,
+				updatedAt: new Date(state.updatedAt).toISOString(),
+			};
+
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+				details: undefined,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "om_observations",
+		label: "OM Observations",
+		description: "Return the stored observational memory block for the current session.",
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			const { config: cfg } = ensureInitialized(ctx);
+			const sessionId = ctx.sessionManager.getSessionId();
+			const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+
+			if (!state.observations.trim()) {
+				return {
+					content: [{ type: "text" as const, text: "(no observations stored)" }],
+					details: undefined,
+				};
+			}
+
+			const sections = [
+				`<session>${sessionId}</session>`,
+				"",
+				"<observations>",
+				state.observations,
+				"</observations>",
+			];
+
+			if (state.currentTask) {
+				sections.push("", "<current-task>", state.currentTask, "</current-task>");
+			}
+
+			if (state.suggestedResponse) {
+				sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
+			}
+
+			return {
+				content: [{ type: "text" as const, text: sections.join("\n") }],
+				details: undefined,
+			};
+		},
+	});
+}
