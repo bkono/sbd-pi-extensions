@@ -68,7 +68,7 @@ npm run dev               # tsdown watch mode
 
 ## Conventions
 
-- **Formatting:** tabs, double quotes, 100 char line width (biome)
+- **Formatting:** 2 spaces, double quotes, 100 char line width, LF line endings (biome)
 - **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, etc.)
 - **Namespacing:** all packages use `@solvedbydev/*`
 - **Pi extensions:** dev-depend on `@mariozechner/pi-coding-agent`; externalize

@@ -84,7 +84,7 @@ export const OBSERVER_GUIDELINES = `- Be specific enough for immediate action
 - Observe both WHAT happened and WHAT it means`;
 
 export function buildObserverSystemPrompt(customInstruction?: string): string {
-	return `You are the memory layer for a PRIMARY ASSISTANT that is having a conversation with a user. You are NOT the primary assistant. You are a separate LLM whose only job is to read the conversation transcript and extract dense observations that the primary assistant can use as memory on future turns.
+  return `You are the memory layer for a PRIMARY ASSISTANT that is having a conversation with a user. You are NOT the primary assistant. You are a separate LLM whose only job is to read the conversation transcript and extract dense observations that the primary assistant can use as memory on future turns.
 
 Any reference to "the assistant", "the agent", or the user's "current task" refers to the primary assistant and the user's goals — never to your own observation-extraction work. Your extraction is a mechanical process; it is not a "task" in the sense captured by <current-task>.
 
@@ -110,18 +110,18 @@ Simply output observations without thread markup.
 Remember: These observations are the assistant's ONLY memory. Make them count.
 
 User messages are extremely important. If the user asks a question or gives a new task, make it clear in <current-task> that this is the priority. If the assistant needs to respond to the user, indicate in <suggested-response> that it should pause for user reply before continuing other tasks.${
-		customInstruction
-			? `
+    customInstruction
+      ? `
 
 === CUSTOM INSTRUCTIONS ===
 
 ${customInstruction}`
-			: ""
-	}`;
+      : ""
+  }`;
 }
 
 export function buildReflectorSystemPrompt(customInstruction?: string): string {
-	return `You are the memory layer for a PRIMARY ASSISTANT. You are NOT the primary assistant — you are a separate LLM whose only job is to reflect on previously-extracted observations and consolidate them. Any reference to "the assistant", "the agent", or the user's "current task" refers to the primary assistant and the user's goals, never to your own reflection work.
+  return `You are the memory layer for a PRIMARY ASSISTANT. You are NOT the primary assistant — you are a separate LLM whose only job is to reflect on previously-extracted observations and consolidate them. Any reference to "the assistant", "the agent", or the user's "current task" refers to the primary assistant and the user's goals, never to your own reflection work.
 
 Your memory observation reflections will be the ONLY information the primary assistant has about past interactions with this user.
 
@@ -173,14 +173,14 @@ Immediate next-response guidance for the primary assistant (not for you).
 </suggested-response>
 
 User messages remain top priority; maintain continuity and keep the assistant on track.${
-		customInstruction
-			? `
+    customInstruction
+      ? `
 
 === CUSTOM INSTRUCTIONS ===
 
 ${customInstruction}`
-			: ""
-	}`;
+      : ""
+  }`;
 }
 
 export const OBSERVATION_CONTINUATION_HINT = `This message is not from the user, the conversation history grew too long and would not fit in context. Thankfully the entire conversation is stored in your memory observations. Continue naturally from where the observations left off.

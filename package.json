@@ -21,7 +21,9 @@
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
     "extensions": [
       "packages/pi-om-extension/src/index.ts",

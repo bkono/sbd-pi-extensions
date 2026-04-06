@@ -2,23 +2,23 @@ import type { Message } from "@mariozechner/pi-ai";
 
 import type { ObservationAgents } from "./agents.js";
 import {
-	OBSERVATION_CONTEXT_INSTRUCTIONS,
-	OBSERVATION_CONTEXT_PROMPT,
-	OBSERVATION_CONTINUATION_HINT,
+  OBSERVATION_CONTEXT_INSTRUCTIONS,
+  OBSERVATION_CONTEXT_PROMPT,
+  OBSERVATION_CONTINUATION_HINT,
 } from "./prompts.js";
 import { loadSessionState, saveSessionState } from "./state.js";
 import { countMessageTokens, countTokens, serializeMessage } from "./tokens.js";
 import type { CursorMode, CycleReason, OMConfig, SessionState } from "./types.js";
 
 export interface UnobservedWindow {
-	messages: Message[];
-	mode: CursorMode;
+  messages: Message[];
+  mode: CursorMode;
 }
 
 function debugLog(config: OMConfig, message: string, details?: Record<string, unknown>): void {
-	if (!config.debug) return;
-	const payload = details ? ` ${JSON.stringify(details)}` : "";
-	console.error(`[om:engine] ${message}${payload}`);
+  if (!config.debug) return;
+  const payload = details ? ` ${JSON.stringify(details)}` : "";
+  console.error(`[om:engine] ${message}${payload}`);
 }
 
 /**
@@ -31,53 +31,53 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
 // ---------------------------------------------------------------------------
 
 export function getUnobservedMessages(
-	messages: Message[],
-	lastObservedEntryId?: string,
-	lastObservedTimestamp?: number,
+  messages: Message[],
+  lastObservedEntryId?: string,
+  lastObservedTimestamp?: number,
 ): UnobservedWindow {
-	// No cursor set yet — everything is unobserved
-	if (!lastObservedEntryId && typeof lastObservedTimestamp !== "number") {
-		return { messages, mode: "none" };
-	}
+  // No cursor set yet — everything is unobserved
+  if (!lastObservedEntryId && typeof lastObservedTimestamp !== "number") {
+    return { messages, mode: "none" };
+  }
 
-	// Try ID-based cursor first (most reliable)
-	if (lastObservedEntryId) {
-		const index = findMessageIndexById(messages, lastObservedEntryId);
-		if (index >= 0) {
-			return { messages: messages.slice(index + 1), mode: "id" };
-		}
-	}
+  // Try ID-based cursor first (most reliable)
+  if (lastObservedEntryId) {
+    const index = findMessageIndexById(messages, lastObservedEntryId);
+    if (index >= 0) {
+      return { messages: messages.slice(index + 1), mode: "id" };
+    }
+  }
 
-	// Fallback to timestamp-based cursor
-	if (typeof lastObservedTimestamp === "number" && Number.isFinite(lastObservedTimestamp)) {
-		const tsIndex = messages.findIndex((m) => {
-			const ts = getMessageTimestamp(m);
-			return typeof ts === "number" && ts > lastObservedTimestamp;
-		});
+  // Fallback to timestamp-based cursor
+  if (typeof lastObservedTimestamp === "number" && Number.isFinite(lastObservedTimestamp)) {
+    const tsIndex = messages.findIndex((m) => {
+      const ts = getMessageTimestamp(m);
+      return typeof ts === "number" && ts > lastObservedTimestamp;
+    });
 
-		if (tsIndex >= 0) {
-			return { messages: messages.slice(tsIndex), mode: "timestamp" };
-		}
+    if (tsIndex >= 0) {
+      return { messages: messages.slice(tsIndex), mode: "timestamp" };
+    }
 
-		// All messages are at or before the cursor — nothing new
-		const newestTs = messages.reduce<number | undefined>((latest, m) => {
-			const ts = getMessageTimestamp(m);
-			if (typeof ts !== "number") return latest;
-			if (typeof latest !== "number") return ts;
-			return ts > latest ? ts : latest;
-		}, undefined);
+    // All messages are at or before the cursor — nothing new
+    const newestTs = messages.reduce<number | undefined>((latest, m) => {
+      const ts = getMessageTimestamp(m);
+      if (typeof ts !== "number") return latest;
+      if (typeof latest !== "number") return ts;
+      return ts > latest ? ts : latest;
+    }, undefined);
 
-		if (typeof newestTs === "number" && newestTs <= lastObservedTimestamp) {
-			return { messages: [], mode: "timestamp" };
-		}
-	}
+    if (typeof newestTs === "number" && newestTs <= lastObservedTimestamp) {
+      return { messages: [], mode: "timestamp" };
+    }
+  }
 
-	// Last resort — just the most recent message
-	const latest = messages.at(-1);
-	return {
-		messages: latest ? [latest] : [],
-		mode: "fallback-latest",
-	};
+  // Last resort — just the most recent message
+  const latest = messages.at(-1);
+  return {
+    messages: latest ? [latest] : [],
+    mode: "fallback-latest",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -85,160 +85,160 @@ export function getUnobservedMessages(
 // ---------------------------------------------------------------------------
 
 export async function runObservationCycle(
-	config: OMConfig,
-	agents: ObservationAgents,
-	sessionId: string,
-	allMessages: Message[],
-	inflight: Map<string, Promise<void>>,
-	options?: {
-		forceObserve?: boolean;
-		excludeLatestMessage?: boolean;
-		reason?: CycleReason;
-	},
+  config: OMConfig,
+  agents: ObservationAgents,
+  sessionId: string,
+  allMessages: Message[],
+  inflight: Map<string, Promise<void>>,
+  options?: {
+    forceObserve?: boolean;
+    excludeLatestMessage?: boolean;
+    reason?: CycleReason;
+  },
 ): Promise<void> {
-	// Deduplicate concurrent cycles for the same session
-	if (inflight.has(sessionId)) {
-		await inflight.get(sessionId);
-		return;
-	}
+  // Deduplicate concurrent cycles for the same session
+  if (inflight.has(sessionId)) {
+    await inflight.get(sessionId);
+    return;
+  }
 
-	const task = (async () => {
-		try {
-			const cycleReason = options?.reason ?? "turn_end";
-			const state = await loadSessionState(config.storage.stateDir, sessionId);
-			const unobservedWindow = getUnobservedMessages(
-				allMessages,
-				state.lastObservedEntryId,
-				state.lastObservedTimestamp,
-			);
+  const task = (async () => {
+    try {
+      const cycleReason = options?.reason ?? "turn_end";
+      const state = await loadSessionState(config.storage.stateDir, sessionId);
+      const unobservedWindow = getUnobservedMessages(
+        allMessages,
+        state.lastObservedEntryId,
+        state.lastObservedTimestamp,
+      );
 
-			const cycleBaseState = {
-				lastCycleAt: Date.now(),
-				lastCycleReason: cycleReason,
-				lastCursorMode: unobservedWindow.mode,
-			};
+      const cycleBaseState = {
+        lastCycleAt: Date.now(),
+        lastCycleReason: cycleReason,
+        lastCursorMode: unobservedWindow.mode,
+      };
 
-			const messagesToObserve = options?.excludeLatestMessage
-				? unobservedWindow.messages.slice(0, -1)
-				: unobservedWindow.messages;
+      const messagesToObserve = options?.excludeLatestMessage
+        ? unobservedWindow.messages.slice(0, -1)
+        : unobservedWindow.messages;
 
-			if (messagesToObserve.length === 0) {
-				if (cycleReason !== "context") {
-					await saveSessionState(config.storage.stateDir, {
-						...state,
-						...cycleBaseState,
-						observeTriggered: false,
-						reflectTriggered: false,
-					});
-				}
-				return;
-			}
+      if (messagesToObserve.length === 0) {
+        if (cycleReason !== "context") {
+          await saveSessionState(config.storage.stateDir, {
+            ...state,
+            ...cycleBaseState,
+            observeTriggered: false,
+            reflectTriggered: false,
+          });
+        }
+        return;
+      }
 
-			const unobservedTokens = countMessageTokens(messagesToObserve);
-			const shouldObserve =
-				options?.forceObserve || unobservedTokens >= config.observation.messageTokens;
+      const unobservedTokens = countMessageTokens(messagesToObserve);
+      const shouldObserve =
+        options?.forceObserve || unobservedTokens >= config.observation.messageTokens;
 
-			debugLog(config, "cycle check", {
-				sessionId,
-				reason: cycleReason,
-				unobservedMessages: messagesToObserve.length,
-				unobservedTokens,
-				threshold: config.observation.messageTokens,
-				shouldObserve,
-			});
+      debugLog(config, "cycle check", {
+        sessionId,
+        reason: cycleReason,
+        unobservedMessages: messagesToObserve.length,
+        unobservedTokens,
+        threshold: config.observation.messageTokens,
+        shouldObserve,
+      });
 
-			if (!shouldObserve) {
-				if (cycleReason !== "context") {
-					await saveSessionState(config.storage.stateDir, {
-						...state,
-						...cycleBaseState,
-						observeTriggered: false,
-						reflectTriggered: false,
-					});
-				}
-				return;
-			}
+      if (!shouldObserve) {
+        if (cycleReason !== "context") {
+          await saveSessionState(config.storage.stateDir, {
+            ...state,
+            ...cycleBaseState,
+            observeTriggered: false,
+            reflectTriggered: false,
+          });
+        }
+        return;
+      }
 
-			// Serialize messages for the observer
-			const serializedMessages = messagesToObserve.map(serializeMessage).join("\n\n");
+      // Serialize messages for the observer
+      const serializedMessages = messagesToObserve.map(serializeMessage).join("\n\n");
 
-			const observed = await agents.observe({
-				existingObservations: state.observations,
-				serializedMessages,
-				customInstruction: config.observation.customInstruction,
-			});
+      const observed = await agents.observe({
+        existingObservations: state.observations,
+        serializedMessages,
+        customInstruction: config.observation.customInstruction,
+      });
 
-			if (!observed.observations.trim()) {
-				await saveSessionState(config.storage.stateDir, {
-					...state,
-					...cycleBaseState,
-					observeTriggered: true,
-					reflectTriggered: false,
-				});
-				return;
-			}
+      if (!observed.observations.trim()) {
+        await saveSessionState(config.storage.stateDir, {
+          ...state,
+          ...cycleBaseState,
+          observeTriggered: true,
+          reflectTriggered: false,
+        });
+        return;
+      }
 
-			let observations = appendObservations(state.observations, observed.observations);
-			let observationTokens = countTokens(observations);
-			let currentTask = observed.currentTask ?? state.currentTask;
-			let suggestedResponse = observed.suggestedResponse ?? state.suggestedResponse;
-			let reflectTriggered = false;
+      let observations = appendObservations(state.observations, observed.observations);
+      let observationTokens = countTokens(observations);
+      let currentTask = observed.currentTask ?? state.currentTask;
+      let suggestedResponse = observed.suggestedResponse ?? state.suggestedResponse;
+      let reflectTriggered = false;
 
-			// Trigger reflection if observation block is too large
-			if (observationTokens >= config.reflection.observationTokens) {
-				reflectTriggered = true;
-				debugLog(config, "reflection triggered", {
-					sessionId,
-					observationTokens,
-					threshold: config.reflection.observationTokens,
-				});
+      // Trigger reflection if observation block is too large
+      if (observationTokens >= config.reflection.observationTokens) {
+        reflectTriggered = true;
+        debugLog(config, "reflection triggered", {
+          sessionId,
+          observationTokens,
+          threshold: config.reflection.observationTokens,
+        });
 
-				const reflected = await agents.reflect({
-					observations,
-					customInstruction: config.reflection.customInstruction,
-				});
+        const reflected = await agents.reflect({
+          observations,
+          customInstruction: config.reflection.customInstruction,
+        });
 
-				if (reflected.observations.trim()) {
-					observations = reflected.observations;
-					observationTokens = countTokens(observations);
-				}
+        if (reflected.observations.trim()) {
+          observations = reflected.observations;
+          observationTokens = countTokens(observations);
+        }
 
-				if (reflected.currentTask) {
-					currentTask = reflected.currentTask;
-				}
-				if (reflected.suggestedResponse) {
-					suggestedResponse = reflected.suggestedResponse;
-				}
-			}
+        if (reflected.currentTask) {
+          currentTask = reflected.currentTask;
+        }
+        if (reflected.suggestedResponse) {
+          suggestedResponse = reflected.suggestedResponse;
+        }
+      }
 
-			// Update cursor to the last observed message
-			const boundary = messagesToObserve.at(-1);
+      // Update cursor to the last observed message
+      const boundary = messagesToObserve.at(-1);
 
-			await saveSessionState(config.storage.stateDir, {
-				...state,
-				...cycleBaseState,
-				observations,
-				observationTokens,
-				lastObservedEntryId: getMessageId(boundary) ?? state.lastObservedEntryId,
-				lastObservedTimestamp: getMessageTimestamp(boundary) ?? state.lastObservedTimestamp,
-				currentTask,
-				suggestedResponse,
-				observeTriggered: true,
-				reflectTriggered,
-			});
-		} catch (error) {
-			// Always log observation failures — these are operational errors, not debug traces
-			console.error(
-				"[om:engine] observation cycle failed:",
-				error instanceof Error ? error.message : String(error),
-			);
-		}
-	})().finally(() => {
-		inflight.delete(sessionId);
-	});
+      await saveSessionState(config.storage.stateDir, {
+        ...state,
+        ...cycleBaseState,
+        observations,
+        observationTokens,
+        lastObservedEntryId: getMessageId(boundary) ?? state.lastObservedEntryId,
+        lastObservedTimestamp: getMessageTimestamp(boundary) ?? state.lastObservedTimestamp,
+        currentTask,
+        suggestedResponse,
+        observeTriggered: true,
+        reflectTriggered,
+      });
+    } catch (error) {
+      // Always log observation failures — these are operational errors, not debug traces
+      console.error(
+        "[om:engine] observation cycle failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  })().finally(() => {
+    inflight.delete(sessionId);
+  });
 
-	inflight.set(sessionId, task);
-	await task;
+  inflight.set(sessionId, task);
+  await task;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,33 +246,33 @@ export async function runObservationCycle(
 // ---------------------------------------------------------------------------
 
 export function buildObservationContext(state: SessionState): string | undefined {
-	if (!state.observations.trim()) {
-		return undefined;
-	}
+  if (!state.observations.trim()) {
+    return undefined;
+  }
 
-	const sections = [
-		OBSERVATION_CONTEXT_PROMPT,
-		"",
-		"<observations>",
-		state.observations,
-		"</observations>",
-	];
+  const sections = [
+    OBSERVATION_CONTEXT_PROMPT,
+    "",
+    "<observations>",
+    state.observations,
+    "</observations>",
+  ];
 
-	if (state.currentTask) {
-		sections.push("", "<current-task>", state.currentTask, "</current-task>");
-	}
+  if (state.currentTask) {
+    sections.push("", "<current-task>", state.currentTask, "</current-task>");
+  }
 
-	if (state.suggestedResponse) {
-		sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
-	}
+  if (state.suggestedResponse) {
+    sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
+  }
 
-	sections.push("", OBSERVATION_CONTEXT_INSTRUCTIONS);
+  sections.push("", OBSERVATION_CONTEXT_INSTRUCTIONS);
 
-	return sections.join("\n");
+  return sections.join("\n");
 }
 
 export function buildContinuationReminder(): string {
-	return `<system-reminder>${OBSERVATION_CONTINUATION_HINT}</system-reminder>`;
+  return `<system-reminder>${OBSERVATION_CONTINUATION_HINT}</system-reminder>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,26 +280,26 @@ export function buildContinuationReminder(): string {
 // ---------------------------------------------------------------------------
 
 export function appendObservations(existing: string, incoming: string): string {
-	const current = normalizeObservations(existing);
-	const next = normalizeObservations(incoming);
+  const current = normalizeObservations(existing);
+  const next = normalizeObservations(incoming);
 
-	if (!next) return current;
-	if (!current) return next;
-	if (current === next) return current;
-	if (next.includes(current)) return next;
-	if (current.includes(next)) return current;
+  if (!next) return current;
+  if (!current) return next;
+  if (current === next) return current;
+  if (next.includes(current)) return next;
+  if (current.includes(next)) return current;
 
-	return `${current}\n\n${next}`;
+  return `${current}\n\n${next}`;
 }
 
 function normalizeObservations(value: string): string {
-	return value.replace(/\r\n/g, "\n").trim();
+  return value.replace(/\r\n/g, "\n").trim();
 }
 
 function getMessageTimestamp(message?: Message): number | undefined {
-	if (!message) return undefined;
-	const ts = (message as { timestamp?: unknown }).timestamp;
-	return typeof ts === "number" && Number.isFinite(ts) ? ts : undefined;
+  if (!message) return undefined;
+  const ts = (message as { timestamp?: unknown }).timestamp;
+  return typeof ts === "number" && Number.isFinite(ts) ? ts : undefined;
 }
 
 /**
@@ -308,10 +308,10 @@ function getMessageTimestamp(message?: Message): number | undefined {
  * do have IDs. We attempt to read it from a potential `id` property if present.
  */
 function getMessageId(message?: Message): string | undefined {
-	if (!message) return undefined;
-	const maybeId = (message as { id?: unknown }).id;
-	if (typeof maybeId === "string" && maybeId.length > 0) return maybeId;
-	return undefined;
+  if (!message) return undefined;
+  const maybeId = (message as { id?: unknown }).id;
+  if (typeof maybeId === "string" && maybeId.length > 0) return maybeId;
+  return undefined;
 }
 
 /**
@@ -319,8 +319,8 @@ function getMessageId(message?: Message): string | undefined {
  * this checks for an `id` property that may be attached by the session manager.
  */
 function findMessageIndexById(messages: Message[], id: string): number {
-	return messages.findIndex((m) => {
-		const maybeId = (m as { id?: unknown }).id;
-		return typeof maybeId === "string" && maybeId === id;
-	});
+  return messages.findIndex((m) => {
+    const maybeId = (m as { id?: unknown }).id;
+    return typeof maybeId === "string" && maybeId === id;
+  });
 }

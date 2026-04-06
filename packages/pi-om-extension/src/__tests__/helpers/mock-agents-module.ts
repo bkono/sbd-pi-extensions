@@ -26,15 +26,15 @@ import type { MockObservationAgents } from "./mock-agents.js";
 let currentMock: MockObservationAgents | null = null;
 
 export function __installMockAgents(mock: MockObservationAgents): void {
-	currentMock = mock;
+  currentMock = mock;
 }
 
 export function __clearMockAgents(): void {
-	currentMock = null;
+  currentMock = null;
 }
 
 export function __getMockAgents(): MockObservationAgents | null {
-	return currentMock;
+  return currentMock;
 }
 
 /**
@@ -43,13 +43,13 @@ export function __getMockAgents(): MockObservationAgents | null {
  * for consumers that only call `observe()` and `reflect()`.
  */
 export class ObservationAgents {
-	constructor(_config: unknown) {
-		if (!currentMock) {
-			throw new Error(
-				"[mock-agents-module] No mock installed. Call __installMockAgents() in beforeEach.",
-			);
-		}
-		// biome-ignore lint: intentional — return mock as the constructed instance
-		return currentMock as unknown as ObservationAgents;
-	}
+  constructor(_config: unknown) {
+    if (!currentMock) {
+      throw new Error(
+        "[mock-agents-module] No mock installed. Call __installMockAgents() in beforeEach.",
+      );
+    }
+    // biome-ignore lint: intentional — return mock as the constructed instance
+    return currentMock as unknown as ObservationAgents;
+  }
 }
