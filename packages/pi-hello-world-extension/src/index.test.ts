@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import initExtension from "./index.js";
 
-type AnyFn = (...args: never[]) => unknown;
+type AnyFn = (...args: any[]) => any;
 
 function createMockPI() {
 	const handlers = new Map<string, AnyFn>();
@@ -28,7 +28,6 @@ function createMockPI() {
 describe("pi-hello-world-extension", () => {
 	it("registers session_start handler, hello_world tool, and /hello command", () => {
 		const pi = createMockPI();
-		// biome-ignore lint/suspicious/noExplicitAny: mock satisfies the extension's structural contract
 		initExtension(pi as any);
 
 		expect(pi.on).toHaveBeenCalledWith("session_start", expect.any(Function));
@@ -38,16 +37,10 @@ describe("pi-hello-world-extension", () => {
 
 	it("hello_world tool returns a greeting", async () => {
 		const pi = createMockPI();
-		// biome-ignore lint/suspicious/noExplicitAny: mock satisfies the extension's structural contract
 		initExtension(pi as any);
 
-		const tool = pi._tools.find((t) => t.name === "hello_world");
-		expect(tool).toBeDefined();
-
-		const result = (await (tool as NonNullable<typeof tool>).execute(
-			"call-1" as never,
-			{ name: "Alice" } as never,
-		)) as { content: Array<{ text: string }>; details: { greeted: string } };
+		const tool = pi._tools.find((t) => t.name === "hello_world")!;
+		const result = await tool.execute("call-1", { name: "Alice" });
 
 		expect(result.content[0].text).toContain("Hello, Alice!");
 		expect(result.details.greeted).toBe("Alice");
@@ -55,29 +48,23 @@ describe("pi-hello-world-extension", () => {
 
 	it("/hello command notifies with name", async () => {
 		const pi = createMockPI();
-		// biome-ignore lint/suspicious/noExplicitAny: mock satisfies the extension's structural contract
 		initExtension(pi as any);
 
-		const cmd = pi._commands.get("hello");
-		expect(cmd).toBeDefined();
-
+		const cmd = pi._commands.get("hello")!;
 		const ctx = { ui: { notify: vi.fn() } };
-		await (cmd as NonNullable<typeof cmd>).handler("Bob" as never, ctx as never);
 
+		await cmd.handler("Bob", ctx);
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Hello, Bob! 👋", "info");
 	});
 
 	it("/hello command defaults to World", async () => {
 		const pi = createMockPI();
-		// biome-ignore lint/suspicious/noExplicitAny: mock satisfies the extension's structural contract
 		initExtension(pi as any);
 
-		const cmd = pi._commands.get("hello");
-		expect(cmd).toBeDefined();
-
+		const cmd = pi._commands.get("hello")!;
 		const ctx = { ui: { notify: vi.fn() } };
-		await (cmd as NonNullable<typeof cmd>).handler("" as never, ctx as never);
 
+		await cmd.handler("", ctx);
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Hello, World! 👋", "info");
 	});
 });
