@@ -14,7 +14,7 @@ git add <your changed files> && git commit -m "<conventional commit style messag
 
 Use conventional commit prefixes: `feat:`, `fix:`, `chore:`, `refactor:`,
 `docs:`, `test:`, `ci:`, etc. Scope to the package when it helps clarity
-(e.g., `feat(pi-hello-world): add greet command`).
+(e.g., `feat(pi-om): add token counting`).
 
 ## Project Structure
 
@@ -47,10 +47,10 @@ Each workspace package also exposes its own scoped scripts, useful when
 iterating within a single package:
 
 ```sh
-npm run lint -w @solvedbydev/pi-hello-world-extension
-npm run lint:fix -w @solvedbydev/pi-hello-world-extension
-npm run test -w @solvedbydev/pi-hello-world-extension
-npm run typecheck -w @solvedbydev/pi-hello-world-extension
+npm run lint -w @solvedbydev/pi-om-extension
+npm run lint:fix -w @solvedbydev/pi-om-extension
+npm run test -w @solvedbydev/pi-om-extension
+npm run typecheck -w @solvedbydev/pi-om-extension
 ```
 
 Residual warnings are acceptable only when explicitly documented with a
