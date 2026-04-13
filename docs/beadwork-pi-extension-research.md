@@ -4,7 +4,7 @@ Date: 2026-04-13
 
 ## Goal
 
-Understand the workflow beadwork is trying to teach agents via its prompt chain, then assess how that workflow could be baked deeply into a pi extension in this repo, potentially using a tmux / Ghostty / WezTerm style spawning model similar to `pi-side-agents` and `workmux`.
+Understand the workflow beadwork is trying to teach agents via its prompt chain, then assess how that workflow could be baked deeply into a pi extension in this repo, using a tmux-based worker model first. Future bespoke terminal integrations (for example Ghostty or WezTerm) can stay possible, but they should not shape the initial architecture or dependency choices.
 
 ## Sources reviewed
 
@@ -70,16 +70,16 @@ So the workflow beadwork is teaching is:
 That means beadwork provides the **durable orchestration model**, but not the live worker runtime. By contrast:
 
 - `pi-side-agents` provides a strong **runtime worker launcher** for pi, but its durable source of truth is a local registry, not a ticket graph.
-- `workmux` provides a stronger and more backend-flexible **worktree/window orchestration substrate**, but it does not provide ticket semantics.
+- `workmux` is still useful as a reference for multi-worktree orchestration ideas, but it should not be a near-term dependency.
 
 The clean synthesis is layered:
 
 - **Beadwork** = durable planning / ticket graph / ready queue / landing semantics
 - **pi extension** = orchestration brain inside pi
-- **tmux / workmux / terminal backend** = worker launcher + observability + cleanup
+- **tmux** = worker launcher + observability + cleanup substrate
 - **child pi sessions** = actual workers
 
-My recommendation is to build a new package in this repo around that layering, with the extension treating beadwork as the source of truth and treating a launcher backend (`tmux`, `workmux`, maybe direct terminal launch) as replaceable runtime infrastructure.
+My recommendation is to build a new package in this repo around that layering, with beadwork as the source of truth, tmux as the initial runtime backend, and graceful no-op behavior when beadwork is not present or not initialized in the current repo.
 
 ---
 
@@ -256,7 +256,8 @@ Responsibilities:
 
 - ask delivery-level question,
 - inspect repo hygiene / dirty state,
-- read `bw prime`,
+- detect whether beadwork is even configured here,
+- read `bw prime` when beadwork is active,
 - create epic / tasks / deps when needed,
 - select work from `bw ready`,
 - decide whether to do the work itself or delegate,
@@ -294,7 +295,7 @@ Lives outside beadwork proper and needs a launcher/orchestrator:
 
 - which worker process is running
 - which worktree it owns
-- which terminal window/tab it lives in
+- which tmux window/pane it lives in
 - whether it is waiting / failed / finished
 - where its logs / backlog are
 
@@ -431,87 +432,26 @@ The registry should be treated as ephemeral runtime metadata keyed by ticket.
 
 ---
 
-## How this lines up with `workmux`
+## What to borrow from `workmux`, without depending on it yet
 
-## What `workmux` contributes
+`workmux` is still useful as a design reference even if it is too heavy for the first shipping version.
 
-`workmux` is more general and more infrastructure-oriented than `pi-side-agents`.
-
-It contributes a mature answer to:
-
-- worktree creation
-- terminal/window backend abstraction
-- prompt injection into agent panes
-- lifecycle hooks (`post_create`, `pre_merge`, `pre_remove`)
-- automated file ops / bootstrapping
-- background creation
-- worker pools / batched multi-worktree generation
-- merge/remove cleanup
-- dashboard / sidebar / status tracking
-- multiple backends:
-  - tmux
-  - WezTerm
-  - Kitty
-  - Zellij
-
-It does **not** contribute durable ticket semantics.
-
-## Why `workmux` may be the better substrate for terminal orchestration
-
-If the goal is only “spawn pi workers in tmux,” `pi-side-agents` is already a strong reference.
-
-If the goal is “support tmux today, but also support WezTerm and maybe other terminal orchestrators later,” `workmux` is a better architectural reference because it already treats the multiplexer/windowing layer as configurable infrastructure.
-
-That suggests an important design choice:
-
-- do **not** hardwire the beadwork extension to tmux if multi-backend support matters.
-
-Instead, define a launcher backend interface and implement:
-
-- `tmux` backend first,
-- `workmux` backend second or instead,
-- optional direct terminal backends later.
-
-## Important caveat on Ghostty
-
-From the workmux materials reviewed, `workmux` documents first-class alternative backends for:
-
-- Kitty
-- WezTerm
-- Zellij
-
-I did **not** see Ghostty documented as a first-class workmux backend in the material reviewed.
-
-So if Ghostty is desired, there are two realistic interpretations:
-
-1. Ghostty is just the terminal emulator hosting tmux, which is easy.
-2. Ghostty itself should be a first-class launcher target, which would likely require bespoke backend work outside current workmux support.
-
-That makes a backend abstraction even more important.
-
-## How workmux and beadwork complement each other
-
-`workmux` already has the mental model:
+The main ideas worth borrowing are:
 
 - one worktree per task,
-- one window per task,
-- clean merge/remove lifecycle,
-- prompt injection into agent panes,
-- batch worker generation.
+- one terminal surface per task,
+- clean create / inspect / cleanup lifecycle,
+- explicit hooks around worker start and finish,
+- a dashboard mindset for multi-worker visibility,
+- backend abstraction if bespoke launchers are added later.
 
-Beadwork can supply the missing task semantics:
+What should **not** happen in the first implementation:
 
-- which tasks exist,
-- which are ready,
-- what blocks what,
-- which worker should be launched next,
-- when a task is really done.
+- no hard dependency on `workmux`,
+- no attempt to support tmux + WezTerm + Ghostty + others at launch,
+- no architectural detour just to preserve optionality that is not immediately needed.
 
-So the clean relationship is:
-
-- workmux = worktree/window operating system
-- beadwork = durable work graph
-- pi extension = glue + behavior enforcement
+So the role of `workmux` in this document is mainly as a reference for future backend shape, not as a proposed first dependency.
 
 ---
 
@@ -520,11 +460,26 @@ So the clean relationship is:
 A shallow integration would just add a few `bw` wrapper tools.
 That would be useful, but it would miss the core behavior beadwork is trying to induce.
 
-A deep integration should mean the extension changes the agent’s operating model in pi by default.
+A deep integration should mean the extension changes the agent’s operating model in pi by default, **when beadwork is active for the repo**.
 
 Concretely, that means:
 
-## 1. Ticket awareness before coding
+## 1. Clear activation and no-op behavior
+
+Because pi extensions are always running, the extension needs an explicit activation policy.
+
+It should:
+
+- detect whether `bw` is installed,
+- detect whether the current repo is beadwork-initialized,
+- stay quiet when beadwork is unavailable,
+- avoid forcing the beadwork flow on repos that do not use it,
+- expose a lightweight status indicator so the user knows whether beadwork mode is active.
+
+This is not just ergonomics; it is architectural correctness.
+The extension should be safe to install globally and harmless in non-beadwork repos.
+
+## 2. Ticket awareness before coding
 
 Before multi-step work begins, the extension should steer the agent toward:
 
@@ -532,7 +487,7 @@ Before multi-step work begins, the extension should steer the agent toward:
 - materializing plan into tickets,
 - pulling from `bw ready`.
 
-## 2. Ticket-aware delegation
+## 3. Ticket-aware delegation
 
 Subagent spawn should be ticket-native:
 
@@ -541,7 +496,7 @@ Subagent spawn should be ticket-native:
 - launch a child into that ticket,
 - track runtime state against the ticket.
 
-## 3. Landing-aware completion
+## 4. Landing-aware completion
 
 The extension should model completion as:
 
@@ -550,7 +505,7 @@ The extension should model completion as:
 - `bw sync` run,
 - optional merge / PR / cleanup done.
 
-## 4. Runtime observability in pi UI
+## 5. Runtime observability in pi UI
 
 The extension should use pi’s UI capabilities:
 
@@ -558,15 +513,15 @@ The extension should use pi’s UI capabilities:
 - widgets / dashboard overlays via `ctx.ui.setWidget()` / `ctx.ui.custom()`
 - commands for operator inspection and control
 
-## 5. Session persistence / orchestration state
+## 6. Session persistence / orchestration state
 
 pi gives several persistence mechanisms:
 
 - session entries via `pi.appendEntry()`
 - project-local files under `.pi/`
-- external CLI state via beadwork and/or workmux
+- external CLI state via beadwork
 
-A deep integration likely needs both:
+A deep integration needs both:
 
 - beadwork for durable task graph
 - local `.pi/...` registry for ephemeral runtime worker bookkeeping
@@ -584,21 +539,35 @@ A likely new workspace package here would be:
 Potential modules:
 
 - `src/index.ts` — extension entrypoint
+- `src/activation.ts` — detect beadwork availability / repo initialization / config
 - `src/bw.ts` — beadwork CLI adapter
 - `src/backend.ts` — launcher backend interface
 - `src/backends/tmux.ts` — tmux backend
-- `src/backends/workmux.ts` — workmux backend
 - `src/state.ts` — runtime registry keyed by ticket / worker id
 - `src/handoff.ts` — worker kickoff prompt builder
 - `src/dashboard.ts` — status widget / overlay
 - `src/policy.ts` — delivery-level / workflow decision helpers
 - `src/types.ts`
 
-## Layer 1: beadwork adapter
+## Layer 1: activation + repo detection
 
 Responsibilities:
 
-- detect beadwork repo / availability
+- detect whether current cwd is inside a git repo
+- detect whether `bw` is installed
+- detect whether beadwork is initialized for the repo
+- expose a simple mode like:
+  - `inactive` — no git repo or `bw` missing
+  - `available` — `bw` installed but repo not initialized
+  - `active` — beadwork repo detected and commands enabled
+- keep commands/statusline/widgets quiet unless the mode is `active`
+
+This is the foundation for making an always-running extension feel correct.
+
+## Layer 2: beadwork adapter
+
+Responsibilities:
+
 - shell out via `pi.exec("bw", ...)`
 - parse JSON where available
 - normalize core operations:
@@ -611,6 +580,7 @@ Responsibilities:
   - `close`
   - `sync`
   - `dep add`
+- surface clear capability errors when beadwork is unavailable in the current repo
 
 Important note: beadwork output is markdown-native and some flows are optimized for human/agent reading, not pure machine APIs. The extension may need a mix of:
 
@@ -618,7 +588,7 @@ Important note: beadwork output is markdown-native and some flows are optimized 
 - `bw export` / `bw list --json`,
 - or thin parsing wrappers for specific commands.
 
-## Layer 2: workflow policy engine
+## Layer 3: workflow policy engine
 
 Responsibilities:
 
@@ -632,7 +602,7 @@ Responsibilities:
 
 This is where the “beadwork mental model” lives inside pi.
 
-## Layer 3: launcher backend interface
+## Layer 4: launcher backend interface
 
 Something like:
 
@@ -646,59 +616,31 @@ interface WorkerBackend {
 }
 ```
 
-### Backend option A: tmux-native
+### Initial backend: tmux-native
 
 Pros:
 
 - closest to `pi-side-agents`
 - easiest first implementation
 - full control
+- aligns with the most realistic path to a usable first release
 
 Cons:
 
 - tmux-only
-- you end up re-implementing a lot of orchestration plumbing
+- some orchestration plumbing must be implemented directly
 
-### Backend option B: workmux-backed
+### Future backends: bespoke, only if needed
 
-Pros:
+Possible later directions:
 
-- terminal backend flexibility
-- existing lifecycle hooks / merge/remove / prompt injection
-- strong batch-worker story
-- existing dashboard semantics to borrow from
+- direct WezTerm launcher
+- direct Ghostty launcher
+- other terminal-native integrations
 
-Cons:
+Those should only be added after the tmux path proves the workflow.
 
-- more coupling to external CLI behavior
-- may need separate worker inspection plumbing
-- Ghostty still not obviously first-class
-
-### Backend option C: direct terminal launcher
-
-Spawn Ghostty / WezTerm windows directly.
-
-Pros:
-
-- native UX for people living in those terminals
-
-Cons:
-
-- likely the most bespoke and least portable
-- more backend-specific maintenance
-- weaker common observability story
-
-### Recommendation
-
-If shipping incrementally:
-
-1. start with **tmux backend** or **workmux backend**,
-2. keep backend abstraction clean,
-3. leave Ghostty-specific launching as a later backend.
-
-If multi-backend support is a priority from day one, I would lean toward **workmux as the substrate** rather than cloning all of its window/worktree concerns into the extension.
-
-## Layer 4: runtime registry
+## Layer 5: runtime registry
 
 This should be runtime-only metadata, not a replacement for beadwork.
 
@@ -709,8 +651,8 @@ Suggested contents:
 - parent epic ID
 - branch name
 - worktree path
-- backend kind (`tmux`, `workmux`, etc.)
-- backend handle (`windowId`, `session`, `pane`, etc.)
+- backend kind (`tmux`)
+- backend handle (`session`, `window`, `pane`, etc.)
 - pi child session ID if known
 - status (`allocating`, `running`, `waiting_user`, `failed`, `done`)
 - started/updated/finished timestamps
@@ -725,7 +667,7 @@ Rule:
 - beadwork remains the canonical durable task system,
 - registry is ephemeral runtime state only.
 
-## Layer 5: ticket-native handoff prompt builder
+## Layer 6: ticket-native handoff prompt builder
 
 This is one of the most important pieces.
 
@@ -740,18 +682,19 @@ A worker kickoff should include:
   - commit referencing ticket
   - `bw close <id>`
   - `bw sync`
-  - maybe backend-specific merge / PR / cleanup
+  - optional repo-specific finish step if configured
 
 This is where beadwork’s `start.md` and `prime.md` ideas should be encoded into the runtime handoff.
 
-## Layer 6: pi UI integration
+## Layer 7: pi UI integration
 
 pi has enough extension UI surface to make this feel native.
 
 ### Status line
 
-Show:
+Show, when active:
 
+- activation state
 - active ticket workers
 - waiting workers
 - failed workers
@@ -759,7 +702,9 @@ Show:
 
 Example:
 
-- `bw: 3 ready · 2 wip · bw-a1b@3 wait · bw-c4d@5 run`
+- `bw: active · 3 ready · 2 wip · bw-a1b@3 wait · bw-c4d@5 run`
+
+When beadwork is unavailable or uninitialized, prefer something minimal or nothing at all.
 
 ### Widget / overlay
 
@@ -769,13 +714,14 @@ Possible live widget sections:
 - in-progress issues
 - active workers
 - blocked workers
-- overdue / deferred reminders
+- activation / setup hints when the repo is not beadwork-enabled
 
 ### Commands
 
 Good operator-facing commands might include:
 
 - `/bw` — open beadwork dashboard overlay
+- `/bw-status` — show activation status and repo detection
 - `/bw-prime` — show latest prime context
 - `/bw-ready` — show / pick ready work
 - `/bw-start <id>` — claim ticket and optionally launch worker
@@ -787,6 +733,7 @@ Good operator-facing commands might include:
 
 Possible tool set:
 
+- `beadwork_status`
 - `beadwork_ready`
 - `beadwork_show`
 - `beadwork_create`
@@ -832,10 +779,11 @@ That keeps the system understandable.
 ### For interactive human-led work
 
 - operator in parent pi session
-- parent asks delivery level
+- parent detects whether beadwork is active for this repo
+- if active, parent asks delivery level
 - parent materializes plan into tickets when needed
 - parent delegates selected tickets to workers
-- workers run in separate worktrees / windows
+- workers run in separate worktrees / tmux windows
 - parent supervises via statusline / dashboard
 
 ### For agent-led multi-worker work
@@ -847,7 +795,7 @@ That keeps the system understandable.
 - updates comments / graph
 - launches next ready ticket
 
-This is essentially “beadwork as planner, side-agents/workmux as execution fabric.”
+This is essentially “beadwork as planner, tmux-backed side-agents as execution fabric.”
 
 ## My concrete recommendation
 
@@ -856,25 +804,25 @@ This is essentially “beadwork as planner, side-agents/workmux as execution fab
 Build a **beadwork-native pi extension** that:
 
 1. uses beadwork as the durable work graph,
-2. uses a **launcher backend abstraction**,
-3. offers a **tmux backend** first if speed matters,
-4. or a **workmux backend** first if multi-backend support matters more,
-5. makes delegation **ticket-first**, not task-string-first,
-6. exposes native pi commands/tools/widgets for the orchestration loop.
+2. uses a small **activation layer** so it is safe as an always-running extension,
+3. uses a **tmux backend** first,
+4. makes delegation **ticket-first**, not task-string-first,
+5. exposes native pi commands/tools/widgets for the orchestration loop,
+6. keeps room for future bespoke terminal backends without paying their cost up front.
 
 ### Best practical starting point
 
 If trying to ship the first useful version quickly:
 
 1. add a new extension package in this repo,
-2. implement beadwork CLI wrapper + ready/start/show/create helpers,
+2. implement activation detection + beadwork CLI wrapper,
 3. implement a tmux-backed worker launcher inspired by `pi-side-agents`,
 4. key everything by beadwork ticket ID,
 5. make child kickoff prompt always start with `bw start <id>`,
-6. add statusline + `/bw-workers` command,
-7. later add a `workmux` backend.
+6. include the full landing path (`commit` + `bw close` + `bw sync`),
+7. add statusline + `/bw-workers` + `/bw-status` commands.
 
-That gives the fastest path to validating the workflow while keeping the architecture open.
+That is the shortest path to something installable, runnable, and actually aligned with the beadwork workflow.
 
 ---
 
@@ -890,10 +838,11 @@ User asks:
 
 ### Parent pi orchestrator
 
-1. runs / loads beadwork prime context
-2. asks: quick fix, branch/PR, or multi-step?
-3. user says multi-step
-4. parent creates:
+1. checks whether beadwork is active in this repo
+2. if active, runs / loads beadwork prime context
+3. asks: quick fix, branch/PR, or multi-step?
+4. user says multi-step
+5. parent creates:
    - epic `Refactor auth and add audit logging`
    - child tasks:
      - `Extract auth service`
@@ -902,15 +851,15 @@ User asks:
      - `Emit audit events`
      - `Add regression tests`
    - dependencies between them
-5. parent inspects `bw ready`
-6. parent launches workers for the ready children only
+6. parent inspects `bw ready`
+7. parent launches workers for the ready children only
 
 ### Worker launch
 
 For each ticket:
 
-1. backend creates worktree / branch named like `<ticket-id>/<slug>`
-2. opens tmux/workmux/terminal window
+1. tmux backend creates worktree / branch named like `<ticket-id>/<slug>`
+2. opens a tmux window or pane
 3. starts child pi session
 4. injects kickoff prompt:
    - run `bw start <id>`
@@ -924,7 +873,7 @@ For each ticket:
 3. commits referencing ticket
 4. closes ticket
 5. syncs beadwork
-6. optionally merges / opens PR / cleans up based on repo policy
+6. optionally runs repo-specific finish step
 7. yields or exits
 
 ### Parent behavior after return
@@ -934,7 +883,14 @@ For each ticket:
 3. refreshes ready queue
 4. launches next unblocked work
 
-That is exactly the orchestrator + tickets + worktree-bound workers model the beadwork prompts are trying to push the agent toward.
+### Behavior in a non-beadwork repo
+
+1. extension detects that beadwork is not initialized here
+2. no beadwork dashboard or ready queue is shown by default
+3. `/bw-status` explains why the extension is inactive
+4. normal pi usage continues unchanged
+
+That keeps the extension installable across repos without making every session pay for the full beadwork workflow.
 
 ---
 
@@ -960,14 +916,24 @@ Some repos will want:
 - no automatic merge.
 
 The extension should not hardcode a single finish policy.
-This is another place where `workmux`-style hooks or `pi-side-agents`-style finish scripts are useful.
+A simple repo-local finish hook or config slot is enough for an initial version.
 
-## 4. Terminal backend complexity can explode
+## 4. Always-running extensions must fail soft
 
-A direct Ghostty / WezTerm / tmux implementation matrix will get messy quickly.
-A backend abstraction is mandatory.
+Because the extension is always loaded, beadwork absence cannot be treated as an error state.
+It needs to degrade cleanly when:
 
-## 5. Do not confuse worker orchestration with permission to mutate
+- `bw` is not installed,
+- the cwd is not a git repo,
+- the repo does not use beadwork,
+- the beadwork branch/state is missing or uninitialized.
+
+## 5. Terminal backend complexity can still explode later
+
+Even if tmux is the only initial backend, future direct launcher support can become messy quickly.
+That is why a minimal backend interface is still worth keeping.
+
+## 6. Do not confuse worker orchestration with permission to mutate
 
 The parent should still be able to supervise and gate risky landing actions.
 `pi-side-agents` has the right instinct here: workers can do work asynchronously, but that does not mean totally autonomous merges without review.
@@ -976,38 +942,53 @@ The parent should still be able to supervise and gate risky landing actions.
 
 ## Suggested phased rollout
 
-## Phase 1: beadwork-aware parent tooling
+The rollout should start at the first version that is actually installable and operational, not at an internal-only half phase.
 
+## Phase 1: usable beadwork runtime for pi
+
+Ship a version that can genuinely be installed and used:
+
+- activation / no-op detection
 - beadwork adapter
-- status widget / ready queue visibility
-- commands to inspect / start / delegate tickets
-- no child spawning yet, or minimal tmux spawning
-
-## Phase 2: ticket-native worker launcher
-
-- tmux backend
-- per-ticket worktree launch
+- delivery-level policy helpers
+- tmux-backed per-ticket worker launch
+- per-ticket worktree creation
 - kickoff prompt generation
 - runtime registry
-- worker inspection / control tools
+- basic statusline and `/bw-status`, `/bw-ready`, `/bw-workers`, `/bw-delegate`
 
-## Phase 3: landing policy + finish hooks
+This is the real minimum viable product.
+Anything smaller is mostly scaffolding.
 
-- configurable finish policies
-- PR / merge / sync flows
-- repo-local hook or skill scaffolding
+## Phase 2: complete the landing path
 
-## Phase 4: workmux backend
+Make the workflow fully faithful to beadwork completion semantics:
 
-- backend using `workmux add/open/merge/remove`
-- leverage workmux’s multi-backend support and dashboard ideas
+- finish policy configuration
+- `commit` + `bw close` + `bw sync` verification
+- worker completion checks
+- optional repo-local start/finish hooks
+- better failure / wait-state handling
 
-## Phase 5: richer native UI
+This is likely part of the first genuinely satisfying release, not an optional extra.
+
+## Phase 3: richer operator UX
+
+Once the core workflow works end to end:
 
 - overlay dashboard
 - ready queue picker
 - worker control panel
-- maybe graph view of epic / children / deps
+- better ticket / worker summaries
+- maybe graph-oriented visibility for epic / child relationships
+
+## Phase 4: additional bespoke launchers if demand proves out
+
+Only after the tmux workflow is validated:
+
+- direct WezTerm backend
+- direct Ghostty backend
+- other terminal-native integrations
 
 ---
 
@@ -1017,7 +998,7 @@ The most faithful way to combine these systems is:
 
 - let **beadwork own the durable work graph**,
 - let a **pi extension own the orchestration behavior**,
-- let **tmux/workmux/terminal backends own worker execution surfaces**,
+- let **tmux own the initial worker execution surface**,
 - let **child pi sessions own ticket-scoped implementation work**.
 
 That gives you a system where:
@@ -1026,25 +1007,22 @@ That gives you a system where:
 - workers stay isolated,
 - runtime status is visible,
 - the queue is dependency-aware,
+- the extension is safe to leave installed everywhere,
 - and “done” includes landing, not just coding.
 
 In short:
 
 - beadwork gives the workflow meaning,
 - `pi-side-agents` shows how to run the workers,
-- `workmux` shows how to generalize the worktree/window substrate,
+- `workmux` is useful background inspiration but not a first dependency,
 - a new pi extension in this repo could tie them together cleanly.
 
 ## Non-blocking open questions
 
 These do not block the research conclusion, but they would matter before implementation:
 
-1. Should the first shipping backend be **tmux-native** or **workmux-backed**?
-2. Is Ghostty meant merely as the host terminal for tmux, or as a true first-class launcher backend?
-3. Should worker completion land through:
-   - pure beadwork (`commit` + `bw close` + `bw sync`),
-   - workmux merge/remove,
-   - PR creation,
-   - or repo-configurable finish scripts?
-4. Which beadwork commands should be treated as the stable machine interface vs wrapped human output?
-5. Should the extension proactively inject beadwork policy into the system prompt on session start, or stay command/tool-driven and less opinionated?
+1. What is the cleanest repo-level signal for “beadwork is initialized here”?
+2. Should inactive repos show a tiny `bw: off` indicator, or should the extension stay completely invisible until activated?
+3. Which beadwork commands should be treated as the stable machine interface vs wrapped human output?
+4. Should the extension proactively inject beadwork policy into the session at activation time, or stay mostly command/tool-driven?
+5. What is the smallest useful repo-level finish-policy surface for phase 2: config file, hook script, or both?
