@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "sbdpi-swx.1",
     "sbdpi-swx.2"
   ],
   "blocks": [],
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Add tests and README/docs for verification and diagnostics behavior",
   "type": "task",
-  "updated_at": "2026-04-14T18:31:47Z"
+  "updated_at": "2026-04-14T18:31:54Z"
 }

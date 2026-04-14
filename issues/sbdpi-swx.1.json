@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-swx.3"
+  ],
   "created": "2026-04-14T18:31:34Z",
   "description": "Make worker diagnostics more useful for human operators. Improve `/bw workers` output and related worker inspection details so it is easier to understand worker state, landing verification status, cleanup state, and follow-up action needed.",
   "id": "sbdpi-swx.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Improve `/bw workers` diagnostics and worker inspection output",
   "type": "task",
-  "updated_at": "2026-04-14T18:31:34Z"
+  "updated_at": "2026-04-14T18:31:54Z"
 }
