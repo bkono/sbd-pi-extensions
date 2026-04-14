@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { summarizeWorkers } from "./registry.js";
 import type {
   ActivationState,
   AdoptionPlan,
@@ -10,6 +11,7 @@ import type {
   WorkerRuntime,
   WorkerSummary,
 } from "./types.js";
+import { formatWorkerInspectionLines, inspectWorker } from "./worker-diagnostics.js";
 
 function describeActivation(activation: ActivationState): string {
   const repoRoot = activation.repoRoot ? ` (${activation.repoRoot})` : "";
@@ -200,29 +202,6 @@ export async function showAdoptionResult(
   ctx.ui.notify(lines.join("\n"), "info");
 }
 
-function formatWorkerLine(worker: WorkerRuntime): string {
-  const parts = [worker.ticketId, worker.status, worker.ticketTitle];
-  parts.push(`pane:${worker.tmuxPane}`);
-  if (worker.ticketStatus) {
-    parts.push(`ticket:${worker.ticketStatus}`);
-  }
-  if (worker.workerProvider || worker.workerModel) {
-    parts.push(`model:${worker.workerProvider ?? "default"}/${worker.workerModel ?? "default"}`);
-  }
-  if (worker.landingVerifiedAt) {
-    parts.push("landing:verified");
-  } else if (worker.landingVerification && worker.status === "exited") {
-    parts.push("landing:pending-review");
-  }
-  if (worker.cleanupStatus) {
-    parts.push(`cleanup:${worker.cleanupStatus}`);
-  }
-  if (worker.lastError) {
-    parts.push(`note:${worker.lastError}`);
-  }
-  return `- ${parts.join(" · ")}`;
-}
-
 export async function showWorkers(
   ctx: ExtensionCommandContext,
   workers: WorkerRuntime[],
@@ -233,12 +212,23 @@ export async function showWorkers(
     return;
   }
 
-  const lines = [epicId ? `Workers for ${epicId}:` : "Workers:"];
-  for (const worker of workers
+  const sortedWorkers = workers
     .slice()
-    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))) {
-    lines.push(formatWorkerLine(worker));
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+  const inspections = sortedWorkers.map((worker) => inspectWorker(worker));
+  const summary = summarizeWorkers(sortedWorkers);
+  const attention = inspections.filter((inspection) => inspection.followUp.needsAttention).length;
+
+  const lines = [
+    epicId ? `Workers for ${epicId}:` : "Workers:",
+    `Summary: total=${summary.total} active=${summary.active} launching=${summary.launching} running=${summary.running} landed=${summary.landed} exited=${summary.exited} failed=${summary.failed} cleaned=${summary.cleaned} attention=${attention}`,
+    "",
+  ];
+
+  for (const inspection of inspections) {
+    lines.push(...formatWorkerInspectionLines(inspection));
   }
+
   ctx.ui.notify(lines.join("\n"), "info");
 }
 

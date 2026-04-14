@@ -29,6 +29,16 @@ const { detectActivationMock, adapterMock, createBeadworkAdapterMock } = vi.hois
   createBeadworkAdapterMock: vi.fn(),
 }));
 
+vi.mock("@mariozechner/pi-ai", () => ({
+  Type: {
+    Object: (value: unknown) => value,
+    Optional: (value: unknown) => value,
+    String: (value: unknown) => value,
+    Boolean: (value: unknown) => value,
+    Number: (value: unknown) => value,
+  },
+}));
+
 vi.mock("../../activation.js", () => ({
   detectActivation: detectActivationMock,
 }));
@@ -174,6 +184,41 @@ describe("pi beadwork extension", () => {
     expect(result?.systemPrompt).toContain("[BEADWORK SESSION ACTIVE]");
     expect(result?.systemPrompt).toContain("prime guidance");
     expect(result?.systemPrompt).toContain("Scoped issue");
+  });
+
+  it("shows worker diagnostics with landing, cleanup, and follow-up details", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-workers" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "landed" as const,
+      ticketStatus: "closed",
+      cleanupPolicy: "cleanup-after-landing" as const,
+      cleanupStatus: "cleaned" as const,
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingAheadCount: 0,
+      landingBehindCount: 3,
+      landingVerification:
+        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    await harness.invokeCommand("bw", "workers BW-100", ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("Workers for BW-100:");
+    expect(message).toContain("Summary: total=1");
+    expect(message).toContain("landing:verified");
+    expect(message).toContain("cleanup:cleaned");
+    expect(message).toContain("Next: No action needed.");
   });
 
   it("warns before /bw off when active workers are still running", async () => {

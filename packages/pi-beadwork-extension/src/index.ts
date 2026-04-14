@@ -59,6 +59,7 @@ import type {
   WorkerRuntime,
   WorkerSummary,
 } from "./types.js";
+import { inspectWorker } from "./worker-diagnostics.js";
 
 export { loadConfig } from "./config.js";
 export type {
@@ -1091,9 +1092,10 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       const filtered = params.worker_id
         ? workers.filter((worker) => worker.workerId === params.worker_id)
         : workers;
+      const inspections = filtered.map((worker) => inspectWorker(worker));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }],
-        details: filtered,
+        content: [{ type: "text" as const, text: JSON.stringify(inspections, null, 2) }],
+        details: inspections,
       };
     },
   });

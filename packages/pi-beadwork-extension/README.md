@@ -21,7 +21,7 @@ Implemented:
 - `/bw close <id>`
 - `/bw sync`
 - `/bw adopt [--title ...] [--land quick|branch|multi] [--apply]`
-- `/bw workers [epic-id]`
+- `/bw workers [epic-id]` with summary counts, landing/cleanup diagnostics, and explicit `Next` follow-up actions
 - `/bw delegate <ticket-id>`
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
 - `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
@@ -32,7 +32,7 @@ Implemented:
 - configurable worktree bootstrap: file copies (for `.env`, `.mise.local.toml`, etc.) and post-create setup commands (`mise trust`, `npm install`, etc.)
 - local worker registry and runtime artifacts under `.pi/beadwork/workers/`
 - bounded run-loop orchestration over an epic’s scoped `bw ready` queue
-- LLM-callable tools for beadwork status, reads, mutations, delegation, and worker inspection
+- LLM-callable tools for beadwork status, reads, mutations, delegation, and structured worker inspection diagnostics
 - lightweight statusline updates including active worker counts
 
 Still conservative / incomplete:
