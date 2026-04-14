@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-14T18:39:26Z",
+  "close_reason": "Fixed `/bw delegate` crash by treating beadwork `null` child/list JSON responses as empty arrays and added regression tests.",
   "created": "2026-04-14T18:34:24Z",
   "description": "`/bw delegate sbdpi-swx.1` currently throws `Error: Cannot read properties of null (reading 'map')` even though other beadwork commands like `/bw engage`, `/bw show`, and `/bw ready` work. Investigate the delegate path, identify the null response shape being assumed, and make delegation fail gracefully or succeed with the expected worker launch flow. Add regression coverage for the failing path.",
   "id": "sbdpi-swx.4",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix `/bw delegate` null-map crash when delegating existing ticket",
   "type": "task",
-  "updated_at": "2026-04-14T18:36:54Z"
+  "updated_at": "2026-04-14T18:39:26Z"
 }
