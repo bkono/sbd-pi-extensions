@@ -83,7 +83,7 @@ export function buildBeadworkPromptAppendix(input: {
     "[BEADWORK SESSION ACTIVE]",
     ...modeGuidance,
     `Current scope: ${scopeLine}`,
-    "Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_show, beadwork_create_issue, beadwork_add_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_sync.",
+    "Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_show, beadwork_create_issue, beadwork_add_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_sync, beadwork_delegate, beadwork_worker_check.",
     ...renderScopeSummary(scopeDetail),
   ];
 

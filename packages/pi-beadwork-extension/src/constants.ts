@@ -16,5 +16,20 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
   },
   storage: {
     sessionStateDir: ".pi/beadwork/session-state",
+    workerRegistryFile: ".pi/beadwork/workers/registry.json",
+    runtimeDir: ".pi/beadwork/workers/runtime",
+  },
+  tmux: {
+    sessionName: "pi-bw",
+    workerCommand: "pi",
+  },
+  worktrees: {
+    cleanup: "keep",
+  },
+  run: {
+    defaultWorkers: 2,
+    defaultUntil: "blocked",
+    defaultMaxCycles: 12,
+    pollIntervalMs: 2_000,
   },
 };

@@ -14,10 +14,19 @@ import {
   showMutationResult,
   showPrime,
   showReady,
+  showRunSummary,
   showStatus,
+  showWorkers,
 } from "./commands.js";
 import { loadConfig } from "./config.js";
 import { COMMAND_NAME, DEFAULT_SESSION_STATE } from "./constants.js";
+import {
+  buildRunOptions,
+  inspectWorkerRuntime,
+  launchTicketWorker,
+  listWorkers,
+  runBoundedEpicLoop,
+} from "./orchestrator.js";
 import {
   applyAdoptionPlan,
   buildAdoptionPlan,
@@ -26,6 +35,12 @@ import {
   resolvePlanSource,
 } from "./plan-adoption.js";
 import { buildBeadworkPromptAppendix } from "./prompt.js";
+import {
+  loadWorkerRegistry,
+  resolveWorkerRegistryPath,
+  saveWorkerRegistry,
+  summarizeWorkers,
+} from "./registry.js";
 import {
   loadSessionState,
   resetSessionState,
@@ -40,6 +55,8 @@ import type {
   BeadworkIssueDetail,
   SessionScope,
   SessionState,
+  WorkerRuntime,
+  WorkerSummary,
 } from "./types.js";
 
 export { loadConfig } from "./config.js";
@@ -55,9 +72,13 @@ export type {
   BeadworkCounts,
   BeadworkIssue,
   BeadworkIssueDetail,
+  RunOptions,
+  RunSummary,
   SessionMode,
   SessionScope,
   SessionState,
+  WorkerRuntime,
+  WorkerSummary,
 } from "./types.js";
 
 function buildDefaultSessionState(): SessionState {
@@ -204,23 +225,44 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     });
   }
 
+  async function resolveWorkerSummary(
+    activation: ActivationState,
+    config: BeadworkConfig,
+    epicId?: string,
+  ): Promise<WorkerSummary | undefined> {
+    if (activation.kind !== "active" || !activation.repoRoot) {
+      return undefined;
+    }
+
+    const registryPath = resolveWorkerRegistryPath(
+      activation.repoRoot,
+      config.storage.workerRegistryFile,
+    );
+    const workers = await loadWorkerRegistry(registryPath);
+    const scoped = epicId ? workers.filter((worker) => worker.epicId === epicId) : workers;
+    return summarizeWorkers(scoped);
+  }
+
   async function refreshStatus(ctx: ExtensionContext): Promise<{
     activation: ActivationState;
     state: SessionState;
     counts?: BeadworkCounts;
     scopeDetail?: BeadworkIssueDetail;
+    workerSummary?: WorkerSummary;
   }> {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
     const state = await readSessionState(ctx, activation, config);
-    const [counts, scopeDetail] = await Promise.all([
+    const scopedEpicId = state.scope.kind === "epic" ? state.scope.id : undefined;
+    const [counts, scopeDetail, workerSummary] = await Promise.all([
       resolveCounts(ctx, activation, state),
       resolveScopeDetail(ctx, activation, state),
+      resolveWorkerSummary(activation, config, scopedEpicId),
     ]);
 
-    updateStatusline(ctx, activation, state, config);
+    updateStatusline(ctx, activation, state, config, workerSummary);
 
-    return { activation, state, counts, scopeDetail };
+    return { activation, state, counts, scopeDetail, workerSummary };
   }
 
   async function resetState(ctx: ExtensionCommandContext): Promise<SessionState> {
@@ -260,22 +302,28 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     return { activation, config, state };
   }
 
-  async function setInteractiveMode(
+  async function setSessionMode(
     ctx: ExtensionCommandContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
+    mode: SessionState["mode"],
     scope?: SessionScope,
   ): Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }> {
     const stateWithPrime = await ensurePrime(ctx, activation, config, state, false);
     const nextState = await writeSessionState(ctx, activation, config, {
       ...stateWithPrime,
-      mode: "interactive",
+      mode,
       engagedAt: new Date().toISOString(),
       scope: scope ?? state.scope,
     });
     const scopeDetail = await resolveScopeDetail(ctx, activation, nextState);
-    updateStatusline(ctx, activation, nextState, config);
+    const workerSummary = await resolveWorkerSummary(
+      activation,
+      config,
+      nextState.scope.kind === "epic" ? nextState.scope.id : undefined,
+    );
+    updateStatusline(ctx, activation, nextState, config, workerSummary);
     return { state: nextState, scopeDetail };
   }
 
@@ -295,12 +343,52 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     };
   }
 
+  async function inspectWorkers(
+    ctx: ExtensionContext,
+    activation: ActivationState,
+    config: BeadworkConfig,
+    epicId?: string,
+  ): Promise<WorkerRuntime[]> {
+    if (activation.kind !== "active" || !activation.repoRoot) {
+      return [];
+    }
+
+    const workers = await listWorkers({
+      repoRoot: activation.repoRoot,
+      config,
+      epicId,
+    });
+
+    const inspected = await Promise.all(
+      workers.map((worker) => inspectWorkerRuntime({ cwd: ctx.cwd, worker, adapter })),
+    );
+
+    const registryPath = resolveWorkerRegistryPath(
+      activation.repoRoot,
+      config.storage.workerRegistryFile,
+    );
+    const existing = await loadWorkerRegistry(registryPath);
+    const merged = [
+      ...existing.filter(
+        (worker) => !inspected.some((candidate) => candidate.workerId === worker.workerId),
+      ),
+      ...inspected,
+    ];
+    await saveWorkerRegistry(registryPath, merged);
+    return epicId ? inspected.filter((worker) => worker.epicId === epicId) : inspected;
+  }
+
   pi.on("session_start", async (_event, ctx) => {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
     const state = await readSessionState(ctx, activation, config);
     await writeSessionState(ctx, activation, config, state);
-    updateStatusline(ctx, activation, state, config);
+    const workerSummary = await resolveWorkerSummary(
+      activation,
+      config,
+      state.scope.kind === "epic" ? state.scope.id : undefined,
+    );
+    updateStatusline(ctx, activation, state, config, workerSummary);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
@@ -374,11 +462,12 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
                 | Exclude<SessionScope, { kind: "none" }>
                 | undefined)
             : undefined;
-          const { state, scopeDetail } = await setInteractiveMode(
+          const { state, scopeDetail } = await setSessionMode(
             ctx,
             active.activation,
             active.config,
             active.state,
+            "interactive",
             scope,
           );
           const counts = await resolveCounts(ctx, active.activation, state);
@@ -497,6 +586,68 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           return;
         }
 
+        if (subcommand === "workers") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const epicId =
+            parsed.positional[0] ??
+            (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
+          const workers = await inspectWorkers(ctx, active.activation, active.config, epicId);
+          await showWorkers(ctx, workers, epicId);
+          return;
+        }
+
+        if (subcommand === "delegate") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const ticketId = parsed.positional[0];
+          if (!ticketId) {
+            ctx.ui.notify("Usage: /bw delegate <ticket-id>", "info");
+            return;
+          }
+
+          const stateWithPrime = await ensurePrime(
+            ctx,
+            active.activation,
+            active.config,
+            active.state,
+            false,
+          );
+          const worker = await launchTicketWorker({
+            cwd: ctx.cwd,
+            repoRoot: active.activation.repoRoot ?? ctx.cwd,
+            config: active.config,
+            adapter,
+            ticketId,
+            epicId: active.state.scope.kind === "epic" ? active.state.scope.id : undefined,
+            prime: stateWithPrime.prime?.content,
+          });
+          ctx.ui.notify(
+            `Launched worker ${worker.workerId} for ${worker.ticketId} in ${worker.worktreePath}.`,
+            "info",
+          );
+          const workers = await inspectWorkers(
+            ctx,
+            active.activation,
+            active.config,
+            worker.epicId,
+          );
+          updateStatusline(
+            ctx,
+            active.activation,
+            stateWithPrime,
+            active.config,
+            summarizeWorkers(workers),
+          );
+          return;
+        }
+
         if (subcommand === "adopt") {
           const landMode = parseLandMode(
             typeof parsed.options.get("land") === "string"
@@ -554,11 +705,12 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
               id: result.root.id,
               title: result.root.title,
             };
-            await setInteractiveMode(
+            await setSessionMode(
               ctx,
               active.activation,
               active.config,
               active.state,
+              "interactive",
               rootScope,
             );
             resultLines.push(`Session scope set to ${rootScope.kind}:${rootScope.id}`);
@@ -568,15 +720,80 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         if (subcommand === "run") {
-          ctx.ui.notify(
-            "/bw run is not implemented yet. Use /bw engage plus ticket tools for now.",
-            "info",
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const epicId =
+            parsed.positional[0] ??
+            (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
+          if (!epicId) {
+            ctx.ui.notify(
+              "Usage: /bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]",
+              "info",
+            );
+            return;
+          }
+
+          const epic = await adapter.show(ctx.cwd, epicId);
+          if (epic.type !== "epic") {
+            ctx.ui.notify(`/bw run requires an epic id. ${epicId} is a ${epic.type}.`, "warning");
+            return;
+          }
+
+          const stateWithPrime = await ensurePrime(
+            ctx,
+            active.activation,
+            active.config,
+            active.state,
+            false,
           );
+          const scope: Exclude<SessionScope, { kind: "none" }> = {
+            kind: "epic",
+            id: epic.id,
+            title: epic.title,
+          };
+          const { state } = await setSessionMode(
+            ctx,
+            active.activation,
+            active.config,
+            stateWithPrime,
+            "run",
+            scope,
+          );
+          const options = buildRunOptions(active.config, {
+            workers:
+              typeof parsed.options.get("workers") === "string"
+                ? Number.parseInt(String(parsed.options.get("workers")), 10)
+                : undefined,
+            until:
+              typeof parsed.options.get("until") === "string"
+                ? String(parsed.options.get("until"))
+                : undefined,
+            dryRun: parsed.options.has("dry-run"),
+            maxCycles:
+              typeof parsed.options.get("max-cycles") === "string"
+                ? Number.parseInt(String(parsed.options.get("max-cycles")), 10)
+                : undefined,
+            noSpawn: parsed.options.has("no-spawn"),
+          });
+          const summary = await runBoundedEpicLoop({
+            cwd: ctx.cwd,
+            repoRoot: active.activation.repoRoot ?? ctx.cwd,
+            config: active.config,
+            adapter,
+            epicId: epic.id,
+            options,
+            prime: state.prime?.content,
+          });
+          await showRunSummary(ctx, summary);
+          updateStatusline(ctx, active.activation, state, active.config, summary.workerSummary);
           return;
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|adopt [--title ...] [--land quick|branch|multi] [--apply]|off]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [--title ...] [--land quick|branch|multi] [--apply]|off]",
           "info",
         );
       } catch (error) {
@@ -748,6 +965,72 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
         details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_delegate",
+    label: "Beadwork Delegate",
+    description: "Launch a tmux-backed beadwork worker for one existing ticket.",
+    parameters: Type.Object({
+      ticket_id: Type.String({ description: "Ticket id to launch in a worktree." }),
+      epic_id: Type.Optional(Type.String({ description: "Optional parent epic id." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const config = loadConfig(ctx.cwd);
+      const activation = await detectActivation(ctx.cwd);
+      const state = await readSessionState(ctx, activation, config);
+      if (activation.kind !== "active") {
+        return {
+          content: [
+            { type: "text" as const, text: JSON.stringify({ activation, state }, null, 2) },
+          ],
+          details: { activation, state },
+        };
+      }
+      const primedState = await ensurePrime(ctx, activation, config, state, false);
+      const worker = await launchTicketWorker({
+        cwd: ctx.cwd,
+        repoRoot: activation.repoRoot ?? ctx.cwd,
+        config,
+        adapter,
+        ticketId: params.ticket_id,
+        epicId: params.epic_id,
+        prime: primedState.prime?.content,
+      });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(worker, null, 2) }],
+        details: worker,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_worker_check",
+    label: "Beadwork Worker Check",
+    description: "Inspect beadwork worker runtime state from the local registry.",
+    parameters: Type.Object({
+      worker_id: Type.Optional(Type.String({ description: "Optional worker id to inspect." })),
+      epic_id: Type.Optional(Type.String({ description: "Optional epic id to filter workers." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const config = loadConfig(ctx.cwd);
+      const activation = await detectActivation(ctx.cwd);
+      if (activation.kind !== "active" || !activation.repoRoot) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify([], null, 2) }],
+          details: [],
+        };
+      }
+
+      const workers = await inspectWorkers(ctx, activation, config, params.epic_id);
+      const filtered = params.worker_id
+        ? workers.filter((worker) => worker.workerId === params.worker_id)
+        : workers;
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }],
+        details: filtered,
       };
     },
   });

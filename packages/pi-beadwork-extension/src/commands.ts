@@ -5,7 +5,10 @@ import type {
   BeadworkCounts,
   BeadworkIssue,
   BeadworkIssueDetail,
+  RunSummary,
   SessionState,
+  WorkerRuntime,
+  WorkerSummary,
 } from "./types.js";
 
 function describeActivation(activation: ActivationState): string {
@@ -43,8 +46,9 @@ export function formatStatusLines(input: {
   state: SessionState;
   counts?: BeadworkCounts;
   scopeDetail?: BeadworkIssueDetail;
+  workerSummary?: WorkerSummary;
 }): string[] {
-  const { activation, state, counts, scopeDetail } = input;
+  const { activation, state, counts, scopeDetail, workerSummary } = input;
 
   const lines = [
     `Activation: ${describeActivation(activation)}`,
@@ -68,6 +72,12 @@ export function formatStatusLines(input: {
     if (counts.scopedReady !== undefined && state.scope.kind !== "none") {
       lines.push(`Scoped ready: ${counts.scopedReady}`);
     }
+  }
+
+  if (workerSummary && workerSummary.total > 0) {
+    lines.push(
+      `Workers: total=${workerSummary.total} active=${workerSummary.active} landed=${workerSummary.landed} failed=${workerSummary.failed} exited=${workerSummary.exited}`,
+    );
   }
 
   if (scopeDetail) {
@@ -96,6 +106,7 @@ export async function showStatus(
     state: SessionState;
     counts?: BeadworkCounts;
     scopeDetail?: BeadworkIssueDetail;
+    workerSummary?: WorkerSummary;
   },
 ): Promise<void> {
   ctx.ui.notify(formatStatusLines(input).join("\n"), "info");
@@ -186,5 +197,62 @@ export async function showAdoptionResult(
   ctx: ExtensionCommandContext,
   lines: string[],
 ): Promise<void> {
+  ctx.ui.notify(lines.join("\n"), "info");
+}
+
+function formatWorkerLine(worker: WorkerRuntime): string {
+  const parts = [worker.ticketId, worker.status, worker.ticketTitle];
+  parts.push(`pane:${worker.tmuxPane}`);
+  if (worker.ticketStatus) {
+    parts.push(`ticket:${worker.ticketStatus}`);
+  }
+  return `- ${parts.join(" · ")}`;
+}
+
+export async function showWorkers(
+  ctx: ExtensionCommandContext,
+  workers: WorkerRuntime[],
+  epicId?: string,
+): Promise<void> {
+  if (workers.length === 0) {
+    ctx.ui.notify(epicId ? `No workers for epic ${epicId}.` : "No beadwork workers.", "info");
+    return;
+  }
+
+  const lines = [epicId ? `Workers for ${epicId}:` : "Workers:"];
+  for (const worker of workers
+    .slice()
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))) {
+    lines.push(formatWorkerLine(worker));
+  }
+  ctx.ui.notify(lines.join("\n"), "info");
+}
+
+export async function showRunSummary(
+  ctx: ExtensionCommandContext,
+  summary: RunSummary,
+): Promise<void> {
+  const lines = [
+    `Run summary for ${summary.epicId}`,
+    `Stop reason: ${summary.stopReason}`,
+    `Cycles: ${summary.cycles}`,
+    `Launched: ${summary.launched.length > 0 ? summary.launched.join(", ") : "none"}`,
+    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} landed=${summary.workerSummary.landed} failed=${summary.workerSummary.failed} exited=${summary.workerSummary.exited}`,
+  ];
+
+  for (const note of summary.notes) {
+    lines.push(`Note: ${note}`);
+  }
+
+  const tail = summary.cycleSummaries.slice(-3);
+  if (tail.length > 0) {
+    lines.push("", "Recent cycles:");
+    for (const cycle of tail) {
+      lines.push(
+        `- cycle ${cycle.cycle} · ready=${cycle.ready.join(",") || "none"} · launched=${cycle.launched.join(",") || "none"} · running=${cycle.running.join(",") || "none"}`,
+      );
+    }
+  }
+
   ctx.ui.notify(lines.join("\n"), "info");
 }

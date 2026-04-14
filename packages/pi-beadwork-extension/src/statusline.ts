@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { EXTENSION_ID } from "./constants.js";
-import type { ActivationState, BeadworkConfig, SessionState } from "./types.js";
+import type { ActivationState, BeadworkConfig, SessionState, WorkerSummary } from "./types.js";
 
 function renderScope(scope: SessionState["scope"]): string | undefined {
   if (scope.kind === "none") {
@@ -15,6 +15,7 @@ export function renderStatusText(
   activation: ActivationState,
   sessionState: SessionState,
   config: BeadworkConfig,
+  workerSummary?: WorkerSummary,
 ): string | undefined {
   const theme = ctx.ui.theme;
   const scope = renderScope(sessionState.scope);
@@ -23,6 +24,12 @@ export function renderStatusText(
     const parts = [theme.fg("accent", "bw"), theme.fg("muted", sessionState.mode)];
     if (scope) {
       parts.push(theme.fg("muted", `· ${scope}`));
+    }
+    if (workerSummary && workerSummary.active > 0) {
+      parts.push(theme.fg("muted", `· workers ${workerSummary.active}`));
+    }
+    if (workerSummary && workerSummary.failed > 0) {
+      parts.push(theme.fg("warning", `· fail ${workerSummary.failed}`));
     }
     return parts.join(" ");
   }
@@ -43,6 +50,10 @@ export function updateStatusline(
   activation: ActivationState,
   sessionState: SessionState,
   config: BeadworkConfig,
+  workerSummary?: WorkerSummary,
 ): void {
-  ctx.ui.setStatus(EXTENSION_ID, renderStatusText(ctx, activation, sessionState, config));
+  ctx.ui.setStatus(
+    EXTENSION_ID,
+    renderStatusText(ctx, activation, sessionState, config, workerSummary),
+  );
 }

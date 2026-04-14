@@ -36,12 +36,32 @@ export type SessionState = {
   prime?: PrimeCache;
 };
 
+export type RunUntil = "blocked" | "empty";
+
+export type WorkerStatus = "launching" | "running" | "exited" | "landed" | "failed";
+
 export type BeadworkConfig = {
   ui: {
     showInactiveStatus: boolean;
   };
   storage: {
     sessionStateDir: string;
+    workerRegistryFile: string;
+    runtimeDir: string;
+  };
+  tmux: {
+    sessionName: string;
+    workerCommand: string;
+  };
+  worktrees: {
+    baseDir?: string;
+    cleanup: "keep" | "cleanup-after-landing";
+  };
+  run: {
+    defaultWorkers: number;
+    defaultUntil: RunUntil;
+    defaultMaxCycles: number;
+    pollIntervalMs: number;
   };
 };
 
@@ -129,6 +149,73 @@ export type AdoptionApplyResult = {
   mode: AdoptionLandMode;
   root?: BeadworkIssue;
   created: BeadworkIssue[];
+};
+
+export type WorkerRuntime = {
+  workerId: string;
+  ticketId: string;
+  epicId?: string;
+  ticketTitle: string;
+  ticketStatus?: string;
+  branchName: string;
+  worktreePath: string;
+  backend: "tmux";
+  tmuxSession: string;
+  tmuxWindow: string;
+  tmuxPane: string;
+  runtimeDir: string;
+  promptFile: string;
+  scriptFile: string;
+  logFile: string;
+  stateFile: string;
+  exitCodeFile: string;
+  finishedAtFile: string;
+  launchCommand: string;
+  status: WorkerStatus;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt?: string;
+  lastError?: string;
+};
+
+export type WorkerSummary = {
+  total: number;
+  active: number;
+  launching: number;
+  running: number;
+  exited: number;
+  landed: number;
+  failed: number;
+};
+
+export type RunOptions = {
+  workers: number;
+  until: RunUntil;
+  dryRun: boolean;
+  maxCycles: number;
+  pollIntervalMs: number;
+  noSpawn: boolean;
+};
+
+export type RunCycleSummary = {
+  cycle: number;
+  ready: string[];
+  launched: string[];
+  running: string[];
+  landed: string[];
+  failed: string[];
+  exited: string[];
+};
+
+export type RunSummary = {
+  epicId: string;
+  stopReason: "completed" | "blocked" | "empty" | "max-cycles" | "attention";
+  cycles: number;
+  launched: string[];
+  activeWorkerIds: string[];
+  workerSummary: WorkerSummary;
+  notes: string[];
+  cycleSummaries: RunCycleSummary[];
 };
 
 export type ExtensionBranchEntryLike = {

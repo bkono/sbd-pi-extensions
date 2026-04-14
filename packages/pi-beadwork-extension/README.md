@@ -1,10 +1,10 @@
 # @solvedbydev/pi-beadwork-extension
 
-A [pi coding-agent](https://github.com/badlogic/pi-mono) extension for beadwork-aware session engagement, ticket inspection, and plan adoption.
+A [pi coding-agent](https://github.com/badlogic/pi-mono) extension for beadwork-aware session engagement, ticket inspection, plan adoption, and tmux-backed worker orchestration.
 
 ## Current state
 
-This package is now usable for **human-led beadwork workflow feedback**.
+This package is now usable for **human-led beadwork workflow feedback** and an initial tmux-backed `/bw run` loop over existing epics.
 
 Implemented:
 
@@ -21,14 +21,20 @@ Implemented:
 - `/bw close <id>`
 - `/bw sync`
 - `/bw adopt [--title ...] [--land quick|branch|multi] [--apply]`
-- LLM-callable tools for beadwork status, reads, and mutations
-- lightweight statusline updates
+- `/bw workers [epic-id]`
+- `/bw delegate <ticket-id>`
+- `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
+- tmux-backed worker launch with per-ticket worktree creation
+- local worker registry and runtime artifacts under `.pi/beadwork/workers/`
+- bounded run-loop orchestration over an epic’s scoped `bw ready` queue
+- LLM-callable tools for beadwork status, reads, mutations, delegation, and worker inspection
+- lightweight statusline updates including active worker counts
 
-Still not implemented:
+Still conservative / incomplete:
 
-- `/bw run`
-- tmux/worktree worker orchestration
-- autonomous epic run loop
+- no landing verification beyond ticket closure + worker exit heuristics
+- no automatic worktree cleanup yet
+- no background daemonized run supervisor beyond the bounded `/bw run` invocation
 
 ## Install
 
@@ -62,6 +68,8 @@ Via `settings.json`:
 4. Inspect state with `/bw ready` and `/bw show <id>`.
 5. Convert a conversational plan with `/bw adopt --title "..."`.
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
+7. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
+8. Inspect worker state with `/bw workers`.
 
 ## Config
 
@@ -80,7 +88,22 @@ Current config keys:
     "showInactiveStatus": false
   },
   "storage": {
-    "sessionStateDir": ".pi/beadwork/session-state"
+    "sessionStateDir": ".pi/beadwork/session-state",
+    "workerRegistryFile": ".pi/beadwork/workers/registry.json",
+    "runtimeDir": ".pi/beadwork/workers/runtime"
+  },
+  "tmux": {
+    "sessionName": "pi-bw",
+    "workerCommand": "pi"
+  },
+  "worktrees": {
+    "cleanup": "keep"
+  },
+  "run": {
+    "defaultWorkers": 2,
+    "defaultUntil": "blocked",
+    "defaultMaxCycles": 12,
+    "pollIntervalMs": 2000
   }
 }
 ```
@@ -89,3 +112,11 @@ Environment overrides:
 
 - `PI_BEADWORK_SHOW_INACTIVE_STATUS`
 - `PI_BEADWORK_SESSION_STATE_DIR`
+- `PI_BEADWORK_WORKER_REGISTRY_FILE`
+- `PI_BEADWORK_RUNTIME_DIR`
+- `PI_BEADWORK_TMUX_SESSION_NAME`
+- `PI_BEADWORK_WORKER_COMMAND`
+- `PI_BEADWORK_WORKTREE_BASE_DIR`
+- `PI_BEADWORK_DEFAULT_WORKERS`
+- `PI_BEADWORK_DEFAULT_MAX_CYCLES`
+- `PI_BEADWORK_POLL_INTERVAL_MS`
