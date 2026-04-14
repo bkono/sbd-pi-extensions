@@ -147,6 +147,10 @@ function normalizeIssue(input: RawIssue): BeadworkIssue {
   };
 }
 
+function normalizeIssueArray(input: RawIssue[] | null | undefined): BeadworkIssue[] {
+  return Array.isArray(input) ? input.map(normalizeIssue) : [];
+}
+
 function parseJson<T>(value: string, context: string): T {
   try {
     return JSON.parse(value) as T;
@@ -210,29 +214,37 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
         args.push(scopeId);
       }
       args.push("--json");
-      const items = await runJson<RawIssue[]>(cwd, args, "ready");
-      return items.map(normalizeIssue);
+      const items = await runJson<RawIssue[] | null>(cwd, args, "ready");
+      return normalizeIssueArray(items);
     },
 
     async blocked(cwd) {
-      const items = await runJson<RawIssue[]>(cwd, ["blocked", "--json"], "blocked");
-      return items.map(normalizeIssue);
+      const items = await runJson<RawIssue[] | null>(cwd, ["blocked", "--json"], "blocked");
+      return normalizeIssueArray(items);
     },
 
     async list(cwd, filters) {
-      const items = await runJson<RawIssue[]>(cwd, ["list", ...formatListFilters(filters)], "list");
-      return items.map(normalizeIssue);
+      const items = await runJson<RawIssue[] | null>(
+        cwd,
+        ["list", ...formatListFilters(filters)],
+        "list",
+      );
+      return normalizeIssueArray(items);
     },
 
     async show(cwd, id) {
       const [issue, children] = await Promise.all([
         runJson<RawIssue>(cwd, ["show", id, "--json"], `show ${id}`),
-        runJson<RawIssue[]>(cwd, ["list", "--all", "--parent", id, "--json"], `children ${id}`),
+        runJson<RawIssue[] | null>(
+          cwd,
+          ["list", "--all", "--parent", id, "--json"],
+          `children ${id}`,
+        ),
       ]);
 
       return {
         ...normalizeIssue(issue),
-        children: children.map(normalizeIssue),
+        children: normalizeIssueArray(children),
       };
     },
 
