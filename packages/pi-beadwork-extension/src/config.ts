@@ -87,6 +87,8 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
     tmux: {
       sessionName: override.tmux?.sessionName ?? base.tmux.sessionName,
       workerCommand: override.tmux?.workerCommand ?? base.tmux.workerCommand,
+      workerProvider: override.tmux?.workerProvider ?? base.tmux.workerProvider,
+      workerModel: override.tmux?.workerModel ?? base.tmux.workerModel,
     },
     worktrees: {
       baseDir: override.worktrees?.baseDir ?? base.worktrees.baseDir,
@@ -142,6 +144,8 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const runtimeDir = process.env.PI_BEADWORK_RUNTIME_DIR;
   const tmuxSessionName = process.env.PI_BEADWORK_TMUX_SESSION_NAME;
   const workerCommand = process.env.PI_BEADWORK_WORKER_COMMAND;
+  const workerProvider = process.env.PI_BEADWORK_WORKER_PROVIDER;
+  const workerModel = process.env.PI_BEADWORK_WORKER_MODEL;
   const worktreeBaseDir = process.env.PI_BEADWORK_WORKTREE_BASE_DIR;
   const defaultWorkers = process.env.PI_BEADWORK_DEFAULT_WORKERS;
   const defaultMaxCycles = process.env.PI_BEADWORK_DEFAULT_MAX_CYCLES;
@@ -162,6 +166,8 @@ export function loadConfig(cwd: string): BeadworkConfig {
     tmux: {
       sessionName: tmuxSessionName,
       workerCommand,
+      workerProvider,
+      workerModel,
     },
     worktrees: {
       baseDir: worktreeBaseDir,

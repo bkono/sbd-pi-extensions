@@ -11,6 +11,18 @@ export type PreparedWorktree = {
   setupCommandsRun: string[];
 };
 
+export type LandingVerificationResult = {
+  checkedAt: string;
+  verified: boolean;
+  ticketClosed: boolean;
+  worktreeClean?: boolean;
+  repoHead?: string;
+  workerHead?: string;
+  aheadCount?: number;
+  behindCount?: number;
+  detail: string;
+};
+
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
@@ -29,6 +41,41 @@ async function gitBranchExists(
     cwd: repoRoot,
   });
   return result.stdout.trim().length > 0;
+}
+
+async function readGitRevision(
+  cwd: string,
+  revision: string,
+  runner: ProcessRunner,
+): Promise<string> {
+  const result = await runner("git", ["rev-parse", revision], {
+    cwd,
+    timeout: 10_000,
+  });
+  return result.stdout.trim();
+}
+
+async function readAheadBehindCounts(
+  repoRoot: string,
+  repoHead: string,
+  workerHead: string,
+  runner: ProcessRunner,
+): Promise<{ behindCount: number; aheadCount: number }> {
+  const result = await runner(
+    "git",
+    ["rev-list", "--left-right", "--count", `${repoHead}...${workerHead}`],
+    {
+      cwd: repoRoot,
+      timeout: 10_000,
+    },
+  );
+  const [behindRaw = "0", aheadRaw = "0"] = result.stdout.trim().split(/\s+/, 2);
+  const behindCount = Number.parseInt(behindRaw, 10);
+  const aheadCount = Number.parseInt(aheadRaw, 10);
+  return {
+    behindCount: Number.isFinite(behindCount) ? behindCount : 0,
+    aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
+  };
 }
 
 export function buildTicketBranchName(ticketId: string, title: string): string {
@@ -114,6 +161,109 @@ async function runSetupCommands(input: {
   }
 
   return commandsRun;
+}
+
+export async function verifyWorktreeLanding(input: {
+  repoRoot: string;
+  worktreePath: string;
+  ticketClosed: boolean;
+  runner?: ProcessRunner;
+}): Promise<LandingVerificationResult> {
+  const runner = input.runner ?? defaultProcessRunner;
+  const checkedAt = new Date().toISOString();
+
+  if (!input.ticketClosed) {
+    return {
+      checkedAt,
+      verified: false,
+      ticketClosed: false,
+      detail: "Ticket is not closed yet.",
+    };
+  }
+
+  if (!(await pathExists(input.worktreePath))) {
+    return {
+      checkedAt,
+      verified: false,
+      ticketClosed: true,
+      detail: `Worktree path is missing: ${input.worktreePath}`,
+    };
+  }
+
+  const statusResult = await runner("git", ["status", "--porcelain"], {
+    cwd: input.worktreePath,
+    timeout: 10_000,
+  });
+  const worktreeClean = statusResult.stdout.trim().length === 0;
+
+  if (!worktreeClean) {
+    return {
+      checkedAt,
+      verified: false,
+      ticketClosed: true,
+      worktreeClean,
+      detail: "Ticket is closed, but the worktree still has uncommitted changes.",
+    };
+  }
+
+  const [repoHead, workerHead] = await Promise.all([
+    readGitRevision(input.repoRoot, "HEAD", runner),
+    readGitRevision(input.worktreePath, "HEAD", runner),
+  ]);
+  const { behindCount, aheadCount } = await readAheadBehindCounts(
+    input.repoRoot,
+    repoHead,
+    workerHead,
+    runner,
+  );
+
+  if (aheadCount > 0) {
+    return {
+      checkedAt,
+      verified: false,
+      ticketClosed: true,
+      worktreeClean,
+      repoHead,
+      workerHead,
+      aheadCount,
+      behindCount,
+      detail: `Ticket is closed and the worktree is clean, but ${aheadCount} worker commit(s) are not in the repo HEAD yet.`,
+    };
+  }
+
+  return {
+    checkedAt,
+    verified: true,
+    ticketClosed: true,
+    worktreeClean,
+    repoHead,
+    workerHead,
+    aheadCount,
+    behindCount,
+    detail:
+      behindCount > 0
+        ? `Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD (${behindCount} repo commit(s) ahead).`
+        : "Landing verified: worktree is clean and worker HEAD matches repo HEAD.",
+  };
+}
+
+export async function cleanupTicketWorktree(input: {
+  repoRoot: string;
+  worktreePath: string;
+  runner?: ProcessRunner;
+}): Promise<{ removed: boolean }> {
+  const runner = input.runner ?? defaultProcessRunner;
+
+  if (!(await pathExists(input.worktreePath))) {
+    return { removed: false };
+  }
+
+  await runner("git", ["worktree", "remove", "--force", input.worktreePath], {
+    cwd: input.repoRoot,
+    timeout: 30_000,
+  });
+
+  return { removed: true };
 }
 
 export async function prepareTicketWorktree(input: {

@@ -76,7 +76,7 @@ export function formatStatusLines(input: {
 
   if (workerSummary && workerSummary.total > 0) {
     lines.push(
-      `Workers: total=${workerSummary.total} active=${workerSummary.active} landed=${workerSummary.landed} failed=${workerSummary.failed} exited=${workerSummary.exited}`,
+      `Workers: total=${workerSummary.total} active=${workerSummary.active} landed=${workerSummary.landed} cleaned=${workerSummary.cleaned} failed=${workerSummary.failed} exited=${workerSummary.exited}`,
     );
   }
 
@@ -206,6 +206,20 @@ function formatWorkerLine(worker: WorkerRuntime): string {
   if (worker.ticketStatus) {
     parts.push(`ticket:${worker.ticketStatus}`);
   }
+  if (worker.workerProvider || worker.workerModel) {
+    parts.push(`model:${worker.workerProvider ?? "default"}/${worker.workerModel ?? "default"}`);
+  }
+  if (worker.landingVerifiedAt) {
+    parts.push("landing:verified");
+  } else if (worker.landingVerification && worker.status === "exited") {
+    parts.push("landing:pending-review");
+  }
+  if (worker.cleanupStatus) {
+    parts.push(`cleanup:${worker.cleanupStatus}`);
+  }
+  if (worker.lastError) {
+    parts.push(`note:${worker.lastError}`);
+  }
   return `- ${parts.join(" · ")}`;
 }
 
@@ -237,7 +251,7 @@ export async function showRunSummary(
     `Stop reason: ${summary.stopReason}`,
     `Cycles: ${summary.cycles}`,
     `Launched: ${summary.launched.length > 0 ? summary.launched.join(", ") : "none"}`,
-    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} landed=${summary.workerSummary.landed} failed=${summary.workerSummary.failed} exited=${summary.workerSummary.exited}`,
+    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} landed=${summary.workerSummary.landed} cleaned=${summary.workerSummary.cleaned} failed=${summary.workerSummary.failed} exited=${summary.workerSummary.exited}`,
   ];
 
   for (const note of summary.notes) {

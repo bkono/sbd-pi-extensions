@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { BeadworkAdapter } from "../../bw.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
-import { runBoundedEpicLoop } from "../../orchestrator.js";
+import { buildWorkerAgentCommand, runBoundedEpicLoop, stopWorkers } from "../../orchestrator.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
 import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
@@ -44,6 +44,85 @@ function createAdapter(overrides: Partial<BeadworkAdapter>): BeadworkAdapter {
   } as BeadworkAdapter;
 }
 
+function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
+  return {
+    workerId: "bw-101-worker",
+    ticketId: "BW-101",
+    epicId: "BW-100",
+    ticketTitle: "Task",
+    ticketStatus: "open",
+    branchName: "BW-101/task",
+    worktreePath: "/tmp/worktree",
+    backend: "tmux",
+    tmuxSession: "pi-bw",
+    tmuxWindow: "bw-101",
+    tmuxPane: "%42",
+    runtimeDir: "/tmp/runtime",
+    promptFile: "/tmp/runtime/handoff.txt",
+    scriptFile: "/tmp/runtime/launch.sh",
+    logFile: "/tmp/runtime/worker.log",
+    stateFile: "/tmp/runtime/state.txt",
+    exitCodeFile: "/tmp/runtime/exit-code.txt",
+    finishedAtFile: "/tmp/runtime/finished-at.txt",
+    launchCommand: "bash /tmp/runtime/launch.sh",
+    workerCommand: "pi",
+    cleanupPolicy: "keep",
+    status: "exited",
+    startedAt: "2026-04-14T00:00:00.000Z",
+    updatedAt: "2026-04-14T00:00:01.000Z",
+    ...overrides,
+  };
+}
+
+describe("orchestrator helpers", () => {
+  it("appends worker provider and model flags without changing defaults", () => {
+    expect(buildWorkerAgentCommand(DEFAULT_CONFIG)).toBe("pi");
+    expect(
+      buildWorkerAgentCommand({
+        ...DEFAULT_CONFIG,
+        tmux: {
+          ...DEFAULT_CONFIG.tmux,
+          workerProvider: "openai",
+          workerModel: "gpt-5.4",
+        },
+      }),
+    ).toBe("pi --provider 'openai' --model 'gpt-5.4'");
+  });
+
+  it("stops active workers and persists the updated runtime state", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-stop-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [createWorker({ status: "running" })]);
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn(),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const stopped = await stopWorkers({
+      repoRoot,
+      config: DEFAULT_CONFIG,
+      epicId: "BW-100",
+      tmuxBackend,
+      reason: "Stopped by test.",
+    });
+
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.status).toBe("exited");
+    expect(stopped[0]?.lastError).toBe("Stopped by test.");
+    expect(tmuxBackend.cleanupWorker).toHaveBeenCalledWith({
+      paneId: "%42",
+      sessionName: "pi-bw",
+      windowName: "bw-101",
+    });
+  });
+});
+
 describe("run loop", () => {
   it("stops as blocked when no scoped ready work exists", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-"));
@@ -82,31 +161,7 @@ describe("run loop", () => {
       repoRoot,
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
-    const attemptedWorker: WorkerRuntime = {
-      workerId: "bw-101-worker",
-      ticketId: "BW-101",
-      epicId: "BW-100",
-      ticketTitle: "Task",
-      ticketStatus: "open",
-      branchName: "BW-101/task",
-      worktreePath: "/tmp/worktree",
-      backend: "tmux",
-      tmuxSession: "pi-bw",
-      tmuxWindow: "bw-101",
-      tmuxPane: "%42",
-      runtimeDir: "/tmp/runtime",
-      promptFile: "/tmp/runtime/handoff.txt",
-      scriptFile: "/tmp/runtime/launch.sh",
-      logFile: "/tmp/runtime/worker.log",
-      stateFile: "/tmp/runtime/state.txt",
-      exitCodeFile: "/tmp/runtime/exit-code.txt",
-      finishedAtFile: "/tmp/runtime/finished-at.txt",
-      launchCommand: "bash /tmp/runtime/launch.sh",
-      status: "exited",
-      startedAt: "2026-04-14T00:00:00.000Z",
-      updatedAt: "2026-04-14T00:00:01.000Z",
-    };
-    await saveWorkerRegistry(registryPath, [attemptedWorker]);
+    await saveWorkerRegistry(registryPath, [createWorker()]);
 
     const adapter = createAdapter({
       show: vi.fn().mockResolvedValue(

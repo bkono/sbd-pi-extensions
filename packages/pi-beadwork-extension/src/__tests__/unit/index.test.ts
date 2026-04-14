@@ -1,8 +1,9 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import beadworkExtension from "../../index.js";
+import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
 import { loadSessionState, resolveSessionStateDir } from "../../session-state.js";
 import {
   createExtensionTestHarness,
@@ -35,6 +36,36 @@ vi.mock("../../activation.js", () => ({
 vi.mock("../../bw.js", () => ({
   createBeadworkAdapter: createBeadworkAdapterMock,
 }));
+
+function createWorkerRuntime(tempDir: string) {
+  const runtimeDir = path.join(tempDir, ".pi", "beadwork", "workers", "runtime", "bw-101-worker");
+  return {
+    workerId: "bw-101-worker",
+    ticketId: "BW-101",
+    epicId: "BW-100",
+    ticketTitle: "Task",
+    ticketStatus: "open",
+    branchName: "BW-101/task",
+    worktreePath: path.join(tempDir, "worktree"),
+    backend: "tmux" as const,
+    tmuxSession: "pi-bw",
+    tmuxWindow: "bw-101",
+    tmuxPane: "pending",
+    runtimeDir,
+    promptFile: path.join(runtimeDir, "handoff.txt"),
+    scriptFile: path.join(runtimeDir, "launch.sh"),
+    logFile: path.join(runtimeDir, "worker.log"),
+    stateFile: path.join(runtimeDir, "state.txt"),
+    exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+    finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+    launchCommand: `bash ${path.join(runtimeDir, "launch.sh")}`,
+    workerCommand: "pi",
+    cleanupPolicy: "keep" as const,
+    status: "launching" as const,
+    startedAt: "2026-04-14T00:00:00.000Z",
+    updatedAt: "2026-04-14T00:00:01.000Z",
+  };
+}
 
 describe("pi beadwork extension", () => {
   beforeEach(() => {
@@ -145,7 +176,32 @@ describe("pi beadwork extension", () => {
     expect(result?.systemPrompt).toContain("Scoped issue");
   });
 
-  it("resets the stored session mode with /bw off", async () => {
+  it("warns before /bw off when active workers are still running", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-off-warn" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = createWorkerRuntime(tempDir);
+    await mkdir(worker.runtimeDir, { recursive: true });
+    await writeFile(worker.stateFile, "running\n", "utf8");
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    await harness.invokeCommand("bw", "engage BW-100", ctx);
+    await harness.invokeCommand("bw", "off", ctx);
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    const persisted = await loadSessionState(stateDir, "session-off-warn");
+    expect(persisted.mode).toBe("interactive");
+    expect(ui.notifications.at(-1)?.message).toContain("Active beadwork workers are still running");
+  });
+
+  it("can reset the session while leaving active workers running", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
     const ui = createFakeUi();
@@ -153,14 +209,24 @@ describe("pi beadwork extension", () => {
 
     detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
 
+    const worker = createWorkerRuntime(tempDir);
+    await mkdir(worker.runtimeDir, { recursive: true });
+    await writeFile(worker.stateFile, "running\n", "utf8");
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
     await harness.dispatch("session_start", { reason: "startup" }, ctx);
-    await harness.invokeCommand("bw", "off", ctx);
+    await harness.invokeCommand("bw", "off --leave-workers", ctx);
 
     const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
     const persisted = await loadSessionState(stateDir, "session-off");
     expect(persisted.mode).toBe("neutral");
     expect(persisted.scope).toEqual({ kind: "none" });
-    expect(ui.notifications.at(-2)?.message).toBe("Beadwork session mode reset to neutral.");
+    expect(ui.notifications.at(-2)?.message).toBe(
+      "Beadwork session mode reset to neutral; active workers were left running.",
+    );
     expect(ui.notifications.at(-1)?.message).toContain("Mode: neutral");
   });
 });

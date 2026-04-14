@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BeadworkAdapter } from "./bw.js";
 import { buildWorkerHandoff } from "./handoff.js";
-import { shellQuote, sleep } from "./process.js";
+import { defaultProcessRunner, type ProcessRunner, shellQuote, sleep } from "./process.js";
 import {
   loadWorkerRegistry,
   resolveWorkerRegistryPath,
@@ -13,12 +13,19 @@ import {
 } from "./registry.js";
 import { createTmuxBackend, type TmuxBackend, type TmuxPaneInspection } from "./tmux.js";
 import type { BeadworkConfig, RunOptions, RunSummary, RunUntil, WorkerRuntime } from "./types.js";
-import { prepareTicketWorktree } from "./worktree.js";
+import { cleanupTicketWorktree, prepareTicketWorktree, verifyWorktreeLanding } from "./worktree.js";
 
 function buildWorkerId(ticketId: string): string {
   const stamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 8);
   return `${ticketId.toLowerCase()}-${stamp}-${random}`;
+}
+
+function humanizeError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return String(error);
 }
 
 async function readOptionalFile(filePath: string): Promise<string | undefined> {
@@ -40,8 +47,19 @@ function parseInteger(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+export function buildWorkerAgentCommand(config: BeadworkConfig): string {
+  const parts = [config.tmux.workerCommand.trim()];
+  if (config.tmux.workerProvider?.trim()) {
+    parts.push(`--provider ${shellQuote(config.tmux.workerProvider.trim())}`);
+  }
+  if (config.tmux.workerModel?.trim()) {
+    parts.push(`--model ${shellQuote(config.tmux.workerModel.trim())}`);
+  }
+  return parts.filter((part) => part.length > 0).join(" ");
+}
+
 function buildWorkerScript(input: {
-  workerCommand: string;
+  workerAgentCommand: string;
   promptFile: string;
   logFile: string;
   stateFile: string;
@@ -51,7 +69,7 @@ function buildWorkerScript(input: {
   return `#!/usr/bin/env bash
 set -uo pipefail
 printf 'running\n' > ${shellQuote(input.stateFile)}
-${shellQuote(input.workerCommand)} "$(cat ${shellQuote(input.promptFile)})" 2>&1 | tee -a ${shellQuote(input.logFile)}
+${input.workerAgentCommand} "$(cat ${shellQuote(input.promptFile)})" 2>&1 | tee -a ${shellQuote(input.logFile)}
 status=\${PIPESTATUS[0]}
 printf '%s\n' "$status" > ${shellQuote(input.exitCodeFile)}
 date -u +"%Y-%m-%dT%H:%M:%SZ" > ${shellQuote(input.finishedAtFile)}
@@ -63,6 +81,37 @@ fi
 printf '\n[beadwork worker exited with code %s]\n' "$status"
 exec "\${SHELL:-/bin/bash}"
 `;
+}
+
+async function cleanupLandedWorker(input: {
+  repoRoot: string;
+  worker: WorkerRuntime;
+  tmuxBackend: TmuxBackend;
+  runner: ProcessRunner;
+}): Promise<Pick<WorkerRuntime, "cleanupStatus" | "cleanupAt" | "lastError">> {
+  try {
+    await input.tmuxBackend.cleanupWorker({
+      paneId: input.worker.tmuxPane !== "pending" ? input.worker.tmuxPane : undefined,
+      sessionName: input.worker.tmuxSession,
+      windowName: input.worker.tmuxWindow,
+    });
+    await cleanupTicketWorktree({
+      repoRoot: input.repoRoot,
+      worktreePath: input.worker.worktreePath,
+      runner: input.runner,
+    });
+    return {
+      cleanupStatus: "cleaned",
+      cleanupAt: new Date().toISOString(),
+      lastError: undefined,
+    };
+  } catch (error) {
+    return {
+      cleanupStatus: "failed",
+      cleanupAt: undefined,
+      lastError: `Landing verified, but cleanup failed: ${humanizeError(error)}`,
+    };
+  }
 }
 
 export function buildRunOptions(
@@ -145,12 +194,13 @@ export async function launchTicketWorker(input: {
   const exitCodeFile = path.join(runtimeDir, "exit-code.txt");
   const finishedAtFile = path.join(runtimeDir, "finished-at.txt");
   const scriptFile = path.join(runtimeDir, "launch.sh");
+  const workerAgentCommand = buildWorkerAgentCommand(input.config);
 
   await writeFile(promptFile, `${prompt}\n`, "utf8");
   await writeFile(
     scriptFile,
     buildWorkerScript({
-      workerCommand: input.config.tmux.workerCommand,
+      workerAgentCommand,
       promptFile,
       logFile,
       stateFile,
@@ -183,6 +233,12 @@ export async function launchTicketWorker(input: {
     exitCodeFile,
     finishedAtFile,
     launchCommand,
+    workerCommand: input.config.tmux.workerCommand,
+    workerProvider: input.config.tmux.workerProvider,
+    workerModel: input.config.tmux.workerModel,
+    cleanupPolicy: input.config.worktrees.cleanup,
+    cleanupStatus:
+      input.config.worktrees.cleanup === "cleanup-after-landing" ? "pending" : undefined,
     status: "launching",
     startedAt: now,
     updatedAt: now,
@@ -214,11 +270,22 @@ export async function launchTicketWorker(input: {
 
 export async function inspectWorkerRuntime(input: {
   cwd: string;
+  repoRoot: string;
   worker: WorkerRuntime;
   adapter: BeadworkAdapter;
   tmuxBackend?: TmuxBackend;
+  runner?: ProcessRunner;
 }): Promise<WorkerRuntime> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
+  const runner = input.runner ?? defaultProcessRunner;
+
+  if (input.worker.status === "landed" && input.worker.landingVerifiedAt) {
+    return {
+      ...input.worker,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   const [stateText, exitCodeText, finishedAtText, pane] = await Promise.all([
     readOptionalFile(input.worker.stateFile),
     readOptionalFile(input.worker.exitCodeFile),
@@ -231,13 +298,20 @@ export async function inspectWorkerRuntime(input: {
   const exitCode = parseInteger(exitCodeText);
   let nextStatus = input.worker.status;
   let ticketStatus = input.worker.ticketStatus;
+  let lastError = input.worker.lastError;
+  let cleanupStatus = input.worker.cleanupStatus;
+  let cleanupAt = input.worker.cleanupAt;
+  let landingVerifiedAt = input.worker.landingVerifiedAt;
+  let landingVerification = input.worker.landingVerification;
+  let landingAheadCount = input.worker.landingAheadCount;
+  let landingBehindCount = input.worker.landingBehindCount;
 
   const needsTicketRefresh =
     stateText === "exited" ||
     stateText === "failed" ||
     (!pane.exists && input.worker.status !== "launching");
 
-  if (needsTicketRefresh) {
+  if (needsTicketRefresh || ticketStatus === "closed") {
     try {
       ticketStatus = (await input.adapter.show(input.cwd, input.worker.ticketId)).status;
     } catch {
@@ -246,13 +320,52 @@ export async function inspectWorkerRuntime(input: {
   }
 
   if (ticketStatus === "closed") {
-    nextStatus = "landed";
-  } else if (stateText === "failed" || (exitCode !== undefined && exitCode !== 0)) {
-    nextStatus = "failed";
-  } else if (stateText === "exited" || (!pane.exists && input.worker.status !== "launching")) {
-    nextStatus = "exited";
-  } else if (stateText === "running" || (pane.exists && pane.dead !== true)) {
-    nextStatus = "running";
+    try {
+      const landing = await verifyWorktreeLanding({
+        repoRoot: input.repoRoot,
+        worktreePath: input.worker.worktreePath,
+        ticketClosed: true,
+        runner,
+      });
+      landingVerification = landing.detail;
+      landingAheadCount = landing.aheadCount;
+      landingBehindCount = landing.behindCount;
+
+      if (landing.verified) {
+        nextStatus = "landed";
+        landingVerifiedAt = landing.checkedAt;
+        lastError = undefined;
+
+        if (input.worker.cleanupPolicy === "cleanup-after-landing" && cleanupStatus !== "cleaned") {
+          const cleanup = await cleanupLandedWorker({
+            repoRoot: input.repoRoot,
+            worker: input.worker,
+            tmuxBackend,
+            runner,
+          });
+          cleanupStatus = cleanup.cleanupStatus;
+          cleanupAt = cleanup.cleanupAt;
+          lastError = cleanup.lastError;
+        }
+      }
+    } catch (error) {
+      landingVerification = `Landing verification failed: ${humanizeError(error)}`;
+      lastError = landingVerification;
+    }
+  }
+
+  if (nextStatus !== "landed") {
+    if (stateText === "failed" || (exitCode !== undefined && exitCode !== 0)) {
+      nextStatus = "failed";
+    } else if (stateText === "exited" || (!pane.exists && input.worker.status !== "launching")) {
+      nextStatus = "exited";
+    } else if (stateText === "running" || (pane.exists && pane.dead !== true)) {
+      nextStatus = "running";
+    }
+
+    if (ticketStatus === "closed" && landingVerification && nextStatus === "exited") {
+      lastError = landingVerification;
+    }
   }
 
   return {
@@ -260,6 +373,13 @@ export async function inspectWorkerRuntime(input: {
     ticketStatus,
     status: nextStatus,
     finishedAt: finishedAtText ?? input.worker.finishedAt,
+    landingVerifiedAt,
+    landingVerification,
+    landingAheadCount,
+    landingBehindCount,
+    cleanupStatus,
+    cleanupAt,
+    lastError,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -277,6 +397,64 @@ export async function listWorkers(input: {
   return input.epicId ? workers.filter((worker) => worker.epicId === input.epicId) : workers;
 }
 
+export async function stopWorkers(input: {
+  repoRoot: string;
+  config: BeadworkConfig;
+  workerIds?: string[];
+  epicId?: string;
+  tmuxBackend?: TmuxBackend;
+  reason?: string;
+}): Promise<WorkerRuntime[]> {
+  const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
+  const registryPath = resolveWorkerRegistryPath(
+    input.repoRoot,
+    input.config.storage.workerRegistryFile,
+  );
+  const workers = await loadWorkerRegistry(registryPath);
+  const selectedIds = input.workerIds ? new Set(input.workerIds) : undefined;
+  const now = new Date().toISOString();
+  const stopped: WorkerRuntime[] = [];
+
+  const nextWorkers = await Promise.all(
+    workers.map(async (worker) => {
+      const inScope = input.epicId ? worker.epicId === input.epicId : true;
+      const selected = selectedIds ? selectedIds.has(worker.workerId) : true;
+      const active = worker.status === "launching" || worker.status === "running";
+      if (!inScope || !selected || !active) {
+        return worker;
+      }
+
+      let nextWorker: WorkerRuntime = {
+        ...worker,
+        status: "exited",
+        finishedAt: worker.finishedAt ?? now,
+        updatedAt: now,
+        lastError: input.reason ?? "Stopped by user.",
+      };
+
+      try {
+        await tmuxBackend.cleanupWorker({
+          paneId: worker.tmuxPane !== "pending" ? worker.tmuxPane : undefined,
+          sessionName: worker.tmuxSession,
+          windowName: worker.tmuxWindow,
+        });
+      } catch (error) {
+        nextWorker = {
+          ...nextWorker,
+          status: "failed",
+          lastError: `Failed to stop worker: ${humanizeError(error)}`,
+        };
+      }
+
+      stopped.push(nextWorker);
+      return nextWorker;
+    }),
+  );
+
+  await saveWorkerRegistry(registryPath, nextWorkers);
+  return stopped;
+}
+
 export async function runBoundedEpicLoop(input: {
   cwd: string;
   repoRoot: string;
@@ -287,9 +465,11 @@ export async function runBoundedEpicLoop(input: {
   prime?: string;
   tmuxBackend?: TmuxBackend;
   sleepFn?: (ms: number) => Promise<void>;
+  runner?: ProcessRunner;
 }): Promise<RunSummary> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
   const sleepFn = input.sleepFn ?? sleep;
+  const runner = input.runner ?? defaultProcessRunner;
   const registryPath = resolveWorkerRegistryPath(
     input.repoRoot,
     input.config.storage.workerRegistryFile,
@@ -305,21 +485,19 @@ export async function runBoundedEpicLoop(input: {
       (worker) => worker.epicId === input.epicId,
     );
 
-    const inspectedWorkers: WorkerRuntime[] = [];
-    for (const worker of workers) {
-      if (worker.status === "landed" || worker.status === "failed" || worker.status === "exited") {
-        inspectedWorkers.push(worker);
-        continue;
-      }
-      inspectedWorkers.push(
-        await inspectWorkerRuntime({
+    const inspectedWorkers = await Promise.all(
+      workers.map((worker) =>
+        inspectWorkerRuntime({
           cwd: input.cwd,
+          repoRoot: input.repoRoot,
           worker,
           adapter: input.adapter,
           tmuxBackend,
+          runner,
         }),
-      );
-    }
+      ),
+    );
+
     workers = await saveWorkerRegistry(registryPath, [
       ...(await loadWorkerRegistry(registryPath)).filter(
         (worker) => worker.epicId !== input.epicId,

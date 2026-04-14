@@ -40,6 +40,8 @@ export type RunUntil = "blocked" | "empty";
 
 export type WorkerStatus = "launching" | "running" | "exited" | "landed" | "failed";
 
+export type WorkerCleanupStatus = "pending" | "cleaned" | "failed";
+
 export type WorktreeCopyRule =
   | string
   | {
@@ -60,6 +62,8 @@ export type BeadworkConfig = {
   tmux: {
     sessionName: string;
     workerCommand: string;
+    workerProvider?: string;
+    workerModel?: string;
   };
   worktrees: {
     baseDir?: string;
@@ -182,6 +186,16 @@ export type WorkerRuntime = {
   exitCodeFile: string;
   finishedAtFile: string;
   launchCommand: string;
+  workerCommand: string;
+  workerProvider?: string;
+  workerModel?: string;
+  cleanupPolicy: BeadworkConfig["worktrees"]["cleanup"];
+  cleanupStatus?: WorkerCleanupStatus;
+  cleanupAt?: string;
+  landingVerifiedAt?: string;
+  landingVerification?: string;
+  landingAheadCount?: number;
+  landingBehindCount?: number;
   status: WorkerStatus;
   startedAt: string;
   updatedAt: string;
@@ -197,6 +211,7 @@ export type WorkerSummary = {
   exited: number;
   landed: number;
   failed: number;
+  cleaned: number;
 };
 
 export type RunOptions = {

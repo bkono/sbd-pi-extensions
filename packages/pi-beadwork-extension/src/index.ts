@@ -26,6 +26,7 @@ import {
   launchTicketWorker,
   listWorkers,
   runBoundedEpicLoop,
+  stopWorkers,
 } from "./orchestrator.js";
 import {
   applyAdoptionPlan,
@@ -361,7 +362,14 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     });
 
     const inspected = await Promise.all(
-      workers.map((worker) => inspectWorkerRuntime({ cwd: ctx.cwd, worker, adapter })),
+      workers.map((worker) =>
+        inspectWorkerRuntime({
+          cwd: ctx.cwd,
+          repoRoot: activation.repoRoot ?? ctx.cwd,
+          worker,
+          adapter,
+        }),
+      ),
     );
 
     const registryPath = resolveWorkerRegistryPath(
@@ -444,9 +452,63 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         if (subcommand === "off") {
+          const config = loadConfig(ctx.cwd);
           const activation = await detectActivation(ctx.cwd);
+          const currentState = await readSessionState(ctx, activation, config);
+          const stopWorkersRequested = parsed.options.has("stop-workers");
+          const leaveWorkers = parsed.options.has("leave-workers");
+          const stopAllWorkers = parsed.options.has("all-workers");
+
+          const activeWorkers =
+            activation.kind === "active" && activation.repoRoot
+              ? (await inspectWorkers(ctx, activation, config)).filter(
+                  (worker) => worker.status === "launching" || worker.status === "running",
+                )
+              : [];
+          const scopedEpicId =
+            !stopAllWorkers && currentState.scope.kind === "epic"
+              ? currentState.scope.id
+              : undefined;
+
+          if (activeWorkers.length > 0 && !stopWorkersRequested && !leaveWorkers) {
+            const stopHint = scopedEpicId
+              ? `/bw off --stop-workers (current epic ${scopedEpicId})`
+              : "/bw off --stop-workers";
+            ctx.ui.notify(
+              `Active beadwork workers are still running (${activeWorkers.length}). Run ${stopHint} to stop them first, or /bw off --leave-workers to reset this session and leave them running.`,
+              "warning",
+            );
+            return;
+          }
+
+          if (stopWorkersRequested && activation.kind === "active" && activation.repoRoot) {
+            const stopped = await stopWorkers({
+              repoRoot: activation.repoRoot,
+              config,
+              epicId: scopedEpicId,
+              reason: scopedEpicId
+                ? `Stopped by /bw off for epic ${scopedEpicId}.`
+                : "Stopped by /bw off.",
+            });
+            ctx.ui.notify(
+              stopped.length > 0
+                ? scopedEpicId
+                  ? `Stopped ${stopped.length} beadwork worker(s) for epic ${scopedEpicId}.`
+                  : `Stopped ${stopped.length} beadwork worker(s).`
+                : scopedEpicId
+                  ? `No active workers matched epic ${scopedEpicId}.`
+                  : "No active beadwork workers were running.",
+              "info",
+            );
+          }
+
           const state = await resetState(ctx);
-          ctx.ui.notify("Beadwork session mode reset to neutral.", "info");
+          ctx.ui.notify(
+            leaveWorkers && activeWorkers.length > 0
+              ? "Beadwork session mode reset to neutral; active workers were left running."
+              : "Beadwork session mode reset to neutral.",
+            "info",
+          );
           await showStatus(ctx, { activation, state });
           return;
         }
@@ -794,7 +856,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [--title ...] [--land quick|branch|multi] [--apply]|off]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
           "info",
         );
       } catch (error) {

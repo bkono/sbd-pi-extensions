@@ -39,6 +39,8 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     typeof value.exitCodeFile !== "string" ||
     typeof value.finishedAtFile !== "string" ||
     typeof value.launchCommand !== "string" ||
+    typeof value.workerCommand !== "string" ||
+    typeof value.cleanupPolicy !== "string" ||
     typeof value.startedAt !== "string" ||
     typeof value.updatedAt !== "string"
   ) {
@@ -65,6 +67,26 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     exitCodeFile: value.exitCodeFile,
     finishedAtFile: value.finishedAtFile,
     launchCommand: value.launchCommand,
+    workerCommand: value.workerCommand,
+    workerProvider: typeof value.workerProvider === "string" ? value.workerProvider : undefined,
+    workerModel: typeof value.workerModel === "string" ? value.workerModel : undefined,
+    cleanupPolicy:
+      value.cleanupPolicy === "cleanup-after-landing" ? "cleanup-after-landing" : "keep",
+    cleanupStatus:
+      value.cleanupStatus === "pending" ||
+      value.cleanupStatus === "cleaned" ||
+      value.cleanupStatus === "failed"
+        ? value.cleanupStatus
+        : undefined,
+    cleanupAt: typeof value.cleanupAt === "string" ? value.cleanupAt : undefined,
+    landingVerifiedAt:
+      typeof value.landingVerifiedAt === "string" ? value.landingVerifiedAt : undefined,
+    landingVerification:
+      typeof value.landingVerification === "string" ? value.landingVerification : undefined,
+    landingAheadCount:
+      typeof value.landingAheadCount === "number" ? value.landingAheadCount : undefined,
+    landingBehindCount:
+      typeof value.landingBehindCount === "number" ? value.landingBehindCount : undefined,
     status: normalizeWorkerStatus(value.status),
     startedAt: value.startedAt,
     updatedAt: value.updatedAt,
@@ -126,6 +148,7 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
     exited: 0,
     landed: 0,
     failed: 0,
+    cleaned: 0,
   };
 
   for (const worker of workers) {
@@ -139,6 +162,9 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
       summary.exited += 1;
     } else if (worker.status === "landed") {
       summary.landed += 1;
+      if (worker.cleanupStatus === "cleaned") {
+        summary.cleaned += 1;
+      }
     } else if (worker.status === "failed") {
       summary.failed += 1;
     }

@@ -24,7 +24,11 @@ Implemented:
 - `/bw workers [epic-id]`
 - `/bw delegate <ticket-id>`
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
+- `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
 - tmux-backed worker launch with per-ticket worktree creation
+- optional worker-specific `--provider` / `--model` launch config separate from the orchestrator session
+- landing verification that requires a closed ticket, a clean worktree, and no worker-only commits ahead of repo `HEAD`
+- optional post-landing worktree + tmux cleanup when `worktrees.cleanup` is set to `cleanup-after-landing`
 - configurable worktree bootstrap: file copies (for `.env`, `.mise.local.toml`, etc.) and post-create setup commands (`mise trust`, `npm install`, etc.)
 - local worker registry and runtime artifacts under `.pi/beadwork/workers/`
 - bounded run-loop orchestration over an epic’s scoped `bw ready` queue
@@ -33,8 +37,7 @@ Implemented:
 
 Still conservative / incomplete:
 
-- no landing verification beyond ticket closure + worker exit heuristics
-- no automatic worktree cleanup yet
+- landing verification is git-graph based, so squash/cherry-pick landing flows may still need human review
 - no background daemonized run supervisor beyond the bounded `/bw run` invocation
 
 ## Install
@@ -95,7 +98,9 @@ Current config keys:
   },
   "tmux": {
     "sessionName": "pi-bw",
-    "workerCommand": "pi"
+    "workerCommand": "pi",
+    "workerProvider": "anthropic",
+    "workerModel": "claude-opus-4.1"
   },
   "worktrees": {
     "cleanup": "keep",
@@ -118,10 +123,12 @@ Current config keys:
 
 Notes:
 
+- `tmux.workerProvider` and `tmux.workerModel` are optional; when set, the extension appends `--provider` / `--model` to the worker `pi` launch command without changing the current orchestrator session model.
 - `copyFiles` paths are resolved relative to the repo root and copied into the same relative path inside the worktree by default.
 - String entries in `copyFiles` are optional by default, so missing `.env`-style files are skipped quietly.
 - Use object form with `required: true` if a copied file must exist.
 - `setupCommands` run inside the worktree after creation.
+- `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after landing verification succeeds.
 - `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
 
 Environment overrides:
@@ -132,6 +139,8 @@ Environment overrides:
 - `PI_BEADWORK_RUNTIME_DIR`
 - `PI_BEADWORK_TMUX_SESSION_NAME`
 - `PI_BEADWORK_WORKER_COMMAND`
+- `PI_BEADWORK_WORKER_PROVIDER`
+- `PI_BEADWORK_WORKER_MODEL`
 - `PI_BEADWORK_WORKTREE_BASE_DIR`
 - `PI_BEADWORK_DEFAULT_WORKERS`
 - `PI_BEADWORK_DEFAULT_MAX_CYCLES`

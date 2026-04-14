@@ -22,6 +22,8 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
   tmux: {
     sessionName: "pi-bw",
     workerCommand: "pi",
+    workerProvider: undefined,
+    workerModel: undefined,
   },
   worktrees: {
     cleanup: "keep",

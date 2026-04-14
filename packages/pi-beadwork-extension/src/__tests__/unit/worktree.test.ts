@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildTicketBranchName, prepareTicketWorktree } from "../../worktree.js";
+import {
+  buildTicketBranchName,
+  cleanupTicketWorktree,
+  prepareTicketWorktree,
+  verifyWorktreeLanding,
+} from "../../worktree.js";
 
 describe("worktree helpers", () => {
   it("builds a beadwork-style branch name", () => {
@@ -112,6 +117,94 @@ describe("worktree helpers", () => {
       "bash",
       ["-lc", "npm install"],
       expect.objectContaining({ cwd: worktreePath }),
+    );
+  });
+
+  it("verifies landing when the ticket is closed, the worktree is clean, and repo HEAD contains the worker HEAD", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landing-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const runner = vi.fn(async (_command: string, args: string[], options?: { cwd?: string }) => {
+      if (args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (args[0] === "rev-list") {
+        return { stdout: "2 0\n", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await verifyWorktreeLanding({
+      repoRoot,
+      worktreePath,
+      ticketClosed: true,
+      runner,
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.aheadCount).toBe(0);
+    expect(result.behindCount).toBe(2);
+    expect(result.detail).toContain("Landing verified");
+  });
+
+  it("returns a pending-review result when worker commits are still ahead of repo HEAD", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landing-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const runner = vi.fn(async (_command: string, args: string[], options?: { cwd?: string }) => {
+      if (args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (args[0] === "rev-list") {
+        return { stdout: "0 3\n", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await verifyWorktreeLanding({
+      repoRoot,
+      worktreePath,
+      ticketClosed: true,
+      runner,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.aheadCount).toBe(3);
+    expect(result.detail).toContain("not in the repo HEAD yet");
+  });
+
+  it("removes a landed worktree when cleanup is requested", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-cleanup-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const runner = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
+
+    const result = await cleanupTicketWorktree({
+      repoRoot,
+      worktreePath,
+      runner,
+    });
+
+    expect(result).toEqual({ removed: true });
+    expect(runner).toHaveBeenCalledWith(
+      "git",
+      ["worktree", "remove", "--force", worktreePath],
+      expect.objectContaining({ cwd: repoRoot }),
     );
   });
 });
