@@ -2,7 +2,7 @@ import { accessSync, existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_CONFIG } from "./constants.js";
-import type { BeadworkConfig } from "./types.js";
+import type { BeadworkConfig, WorktreeCopyRule } from "./types.js";
 
 type PartialConfig = {
   ui?: Partial<BeadworkConfig["ui"]>;
@@ -29,6 +29,47 @@ function readJsonConfig(filePath: string): PartialConfig | undefined {
   }
 }
 
+function normalizeCopyRules(value: unknown): WorktreeCopyRule[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const rules: WorktreeCopyRule[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string" && entry.length > 0) {
+      rules.push(entry);
+      continue;
+    }
+
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof (entry as { from?: unknown }).from === "string" &&
+      (entry as { from: string }).from.length > 0
+    ) {
+      const objectEntry = entry as { from: string; to?: unknown; required?: unknown };
+      rules.push({
+        from: objectEntry.from,
+        to:
+          typeof objectEntry.to === "string" && objectEntry.to.length > 0
+            ? objectEntry.to
+            : undefined,
+        required: typeof objectEntry.required === "boolean" ? objectEntry.required : undefined,
+      });
+    }
+  }
+
+  return rules;
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
+
 function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkConfig {
   if (!override) {
     return base;
@@ -50,6 +91,10 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
     worktrees: {
       baseDir: override.worktrees?.baseDir ?? base.worktrees.baseDir,
       cleanup: override.worktrees?.cleanup ?? base.worktrees.cleanup,
+      copyFiles: normalizeCopyRules(override.worktrees?.copyFiles) ?? base.worktrees.copyFiles,
+      setupCommands:
+        normalizeStringArray(override.worktrees?.setupCommands) ?? base.worktrees.setupCommands,
+      rerunSetupOnReuse: override.worktrees?.rerunSetupOnReuse ?? base.worktrees.rerunSetupOnReuse,
     },
     run: {
       defaultWorkers: override.run?.defaultWorkers ?? base.run.defaultWorkers,

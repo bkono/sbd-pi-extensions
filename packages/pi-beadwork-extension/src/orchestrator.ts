@@ -117,6 +117,9 @@ export async function launchTicketWorker(input: {
     ticketId: ticket.id,
     title: ticket.title,
     baseDir: input.config.worktrees.baseDir,
+    copyFiles: input.config.worktrees.copyFiles,
+    setupCommands: input.config.worktrees.setupCommands,
+    rerunSetupOnReuse: input.config.worktrees.rerunSetupOnReuse,
   });
 
   const registryPath = resolveWorkerRegistryPath(

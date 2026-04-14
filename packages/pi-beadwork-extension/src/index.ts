@@ -79,6 +79,7 @@ export type {
   SessionState,
   WorkerRuntime,
   WorkerSummary,
+  WorktreeCopyRule,
 } from "./types.js";
 
 function buildDefaultSessionState(): SessionState {

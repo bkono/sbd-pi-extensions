@@ -25,6 +25,7 @@ Implemented:
 - `/bw delegate <ticket-id>`
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
 - tmux-backed worker launch with per-ticket worktree creation
+- configurable worktree bootstrap: file copies (for `.env`, `.mise.local.toml`, etc.) and post-create setup commands (`mise trust`, `npm install`, etc.)
 - local worker registry and runtime artifacts under `.pi/beadwork/workers/`
 - bounded run-loop orchestration over an epic’s scoped `bw ready` queue
 - LLM-callable tools for beadwork status, reads, mutations, delegation, and worker inspection
@@ -97,7 +98,14 @@ Current config keys:
     "workerCommand": "pi"
   },
   "worktrees": {
-    "cleanup": "keep"
+    "cleanup": "keep",
+    "copyFiles": [
+      ".env",
+      ".mise.local.toml",
+      { "from": ".env.local", "to": ".env.local", "required": false }
+    ],
+    "setupCommands": ["mise trust", "npm install"],
+    "rerunSetupOnReuse": false
   },
   "run": {
     "defaultWorkers": 2,
@@ -107,6 +115,14 @@ Current config keys:
   }
 }
 ```
+
+Notes:
+
+- `copyFiles` paths are resolved relative to the repo root and copied into the same relative path inside the worktree by default.
+- String entries in `copyFiles` are optional by default, so missing `.env`-style files are skipped quietly.
+- Use object form with `required: true` if a copied file must exist.
+- `setupCommands` run inside the worktree after creation.
+- `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
 
 Environment overrides:
 

@@ -40,6 +40,14 @@ export type RunUntil = "blocked" | "empty";
 
 export type WorkerStatus = "launching" | "running" | "exited" | "landed" | "failed";
 
+export type WorktreeCopyRule =
+  | string
+  | {
+      from: string;
+      to?: string;
+      required?: boolean;
+    };
+
 export type BeadworkConfig = {
   ui: {
     showInactiveStatus: boolean;
@@ -56,6 +64,9 @@ export type BeadworkConfig = {
   worktrees: {
     baseDir?: string;
     cleanup: "keep" | "cleanup-after-landing";
+    copyFiles: WorktreeCopyRule[];
+    setupCommands: string[];
+    rerunSetupOnReuse: boolean;
   };
   run: {
     defaultWorkers: number;

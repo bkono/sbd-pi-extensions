@@ -25,6 +25,9 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
   },
   worktrees: {
     cleanup: "keep",
+    copyFiles: [],
+    setupCommands: [],
+    rerunSetupOnReuse: false,
   },
   run: {
     defaultWorkers: 2,
