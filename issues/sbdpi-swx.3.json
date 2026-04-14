@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-14T18:31:43Z",
+  "description": "Add or update tests and documentation covering landing verification behavior and worker diagnostics so the intended workflow, edge cases, and operator expectations are clear.",
+  "id": "sbdpi-swx.3",
+  "labels": [],
+  "parent": "sbdpi-swx",
+  "priority": 2,
+  "status": "open",
+  "title": "Add tests and README/docs for verification and diagnostics behavior",
+  "type": "task",
+  "updated_at": "2026-04-14T18:31:43Z"
+}
