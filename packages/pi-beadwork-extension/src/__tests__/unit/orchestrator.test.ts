@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -80,8 +80,8 @@ function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
 }
 
 describe("orchestrator helpers", () => {
-  it("appends worker provider and model flags without changing defaults", () => {
-    expect(buildWorkerAgentCommand(DEFAULT_CONFIG)).toBe("pi");
+  it("forces pi workers into print mode before appending provider/model flags", () => {
+    expect(buildWorkerAgentCommand(DEFAULT_CONFIG)).toBe("pi --print");
     expect(
       buildWorkerAgentCommand({
         ...DEFAULT_CONFIG,
@@ -91,7 +91,16 @@ describe("orchestrator helpers", () => {
           workerModel: "gpt-5.4",
         },
       }),
-    ).toBe("pi --provider 'openai' --model 'gpt-5.4'");
+    ).toBe("pi --print --provider 'openai' --model 'gpt-5.4'");
+    expect(
+      buildWorkerAgentCommand({
+        ...DEFAULT_CONFIG,
+        tmux: {
+          ...DEFAULT_CONFIG.tmux,
+          workerCommand: "pi --print",
+        },
+      }),
+    ).toBe("pi --print");
   });
 
   it("stops active workers and persists the updated runtime state", async () => {
@@ -290,6 +299,56 @@ describe("worker inspection", () => {
     expect(inspected.status).toBe("attention");
     expect(inspected.validationStatus).toBe("failed");
     expect(inspected.lastError).toContain("npm run lint");
+  });
+
+  it("refreshes closed ticket status even while the worker process is still running", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-running-worker-"));
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    const stateFile = path.join(runtimeDir, "state.txt");
+    const exitCodeFile = path.join(runtimeDir, "exit-code.txt");
+    const finishedAtFile = path.join(runtimeDir, "finished-at.txt");
+    await writeFile(stateFile, "running\n", "utf8");
+
+    const worker = createWorker({
+      status: "running",
+      ticketStatus: "open",
+      runtimeDir,
+      stateFile,
+      exitCodeFile,
+      finishedAtFile,
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({
+        exists: true,
+        sessionName: "pi-bw",
+        windowName: "bw-101",
+        paneId: "%7",
+        dead: false,
+        currentCommand: "pi",
+      }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      tmuxBackend,
+    });
+
+    expect(inspected.status).toBe("running");
+    expect(inspected.ticketStatus).toBe("closed");
+    expect(inspected.tmuxPane).toBe("%7");
   });
 });
 

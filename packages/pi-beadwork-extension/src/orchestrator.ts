@@ -55,8 +55,22 @@ function parseInteger(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function hasPiPrintFlag(command: string): boolean {
+  return /(^|\s)(?:--print|-p)(?=\s|$)/.test(command);
+}
+
+function shouldForcePiPrintMode(command: string): boolean {
+  const [executable = ""] = command.trim().split(/\s+/, 1);
+  return executable === "pi" || executable.endsWith("/pi");
+}
+
 export function buildWorkerAgentCommand(config: BeadworkConfig): string {
-  const parts = [config.tmux.workerCommand.trim()];
+  const baseCommand = config.tmux.workerCommand.trim();
+  const parts = [
+    shouldForcePiPrintMode(baseCommand) && !hasPiPrintFlag(baseCommand)
+      ? `${baseCommand} --print`
+      : baseCommand,
+  ];
   if (config.tmux.workerProvider?.trim()) {
     parts.push(`--provider ${shellQuote(config.tmux.workerProvider.trim())}`);
   }
@@ -516,24 +530,26 @@ export async function inspectWorkerRuntime(input: {
     readOptionalFile(input.worker.finishedAtFile),
     input.worker.tmuxPane === "pending"
       ? Promise.resolve<TmuxPaneInspection>({ exists: false })
-      : tmuxBackend.inspectWorker({ paneId: input.worker.tmuxPane }),
+      : tmuxBackend.inspectWorker({
+          paneId: input.worker.tmuxPane,
+          sessionName: input.worker.tmuxSession,
+          windowName: input.worker.tmuxWindow,
+        }),
   ]);
 
+  const resolvedTmuxSession =
+    pane.exists && pane.sessionName ? pane.sessionName : input.worker.tmuxSession;
+  const resolvedTmuxWindow =
+    pane.exists && pane.windowName ? pane.windowName : input.worker.tmuxWindow;
+  const resolvedTmuxPane = pane.exists && pane.paneId ? pane.paneId : input.worker.tmuxPane;
   const exitCode = parseInteger(exitCodeText);
   let nextStatus = input.worker.status;
   let ticketStatus = input.worker.ticketStatus;
 
-  const needsTicketRefresh =
-    stateText === "exited" ||
-    stateText === "failed" ||
-    (!pane.exists && input.worker.status !== "launching");
-
-  if (needsTicketRefresh || ticketStatus === "closed") {
-    try {
-      ticketStatus = (await input.adapter.show(input.cwd, input.worker.ticketId)).status;
-    } catch {
-      ticketStatus = input.worker.ticketStatus;
-    }
+  try {
+    ticketStatus = (await input.adapter.show(input.cwd, input.worker.ticketId)).status;
+  } catch {
+    ticketStatus = input.worker.ticketStatus;
   }
 
   const workerFinished =
@@ -550,6 +566,9 @@ export async function inspectWorkerRuntime(input: {
       worker: {
         ...input.worker,
         ticketStatus,
+        tmuxSession: resolvedTmuxSession,
+        tmuxWindow: resolvedTmuxWindow,
+        tmuxPane: resolvedTmuxPane,
         finishedAt: finishedAtText ?? input.worker.finishedAt,
       },
       config,
@@ -560,6 +579,9 @@ export async function inspectWorkerRuntime(input: {
     return {
       ...orchestrated,
       ticketStatus,
+      tmuxSession: resolvedTmuxSession,
+      tmuxWindow: resolvedTmuxWindow,
+      tmuxPane: resolvedTmuxPane,
       finishedAt: finishedAtText ?? orchestrated.finishedAt,
       updatedAt: new Date().toISOString(),
     };
@@ -586,6 +608,9 @@ export async function inspectWorkerRuntime(input: {
   return {
     ...input.worker,
     ticketStatus,
+    tmuxSession: resolvedTmuxSession,
+    tmuxWindow: resolvedTmuxWindow,
+    tmuxPane: resolvedTmuxPane,
     status: nextStatus,
     finishedAt: finishedAtText ?? input.worker.finishedAt,
     lastError,
