@@ -2,14 +2,16 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-15T18:47:09Z",
+  "close_reason": "all child work completed",
   "created": "2026-04-15T17:38:04Z",
   "description": "Shift delegated execution from launch-only behavior to a real orchestrator-owned lifecycle. This epic covers the gap where workers can finish work in a worktree but the parent/orchestrator does not reliably validate, land, acknowledge, and clean up the result.\n\nExisting related tickets already in flight:\n- sbdpi-swx.5 delegated worker completion usability\n- sbdpi-swx.2 landing verification improvements\n\nThis epic adds the missing end-to-end orchestration needed to make delegated work remotely usable for a human operator.",
   "id": "sbdpi-swx.6",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Make delegated worker lifecycle and landing orchestrator-owned",
   "type": "epic",
-  "updated_at": "2026-04-15T17:38:04Z"
+  "updated_at": "2026-04-15T18:47:09Z"
 }
