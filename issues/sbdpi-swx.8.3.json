@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-15T23:19:18Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "sbdpi-swx.8",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Make delegated worker progress and completion notifications operator-visible",
   "type": "task",
-  "updated_at": "2026-04-15T23:19:18Z"
+  "updated_at": "2026-04-15T23:19:30Z"
 }
