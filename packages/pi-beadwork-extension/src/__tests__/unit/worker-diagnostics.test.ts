@@ -86,4 +86,12 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.action).toContain("Wait for completion");
     expect(inspection.landing.state).toBe("waiting-ticket-close");
   });
+
+  it("tells the operator when a closed ticket is waiting on worker exit", () => {
+    const inspection = inspectWorker(createWorker({ status: "running", ticketStatus: "closed" }));
+
+    expect(inspection.followUp.needsAttention).toBe(false);
+    expect(inspection.followUp.action).toContain("Waiting for the worker process to exit");
+    expect(inspection.landing.state).toBe("pending-review");
+  });
 });

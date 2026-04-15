@@ -79,7 +79,7 @@ else
   printf 'failed\n' > ${shellQuote(input.stateFile)}
 fi
 printf '\n[beadwork worker exited with code %s]\n' "$status"
-exec "\${SHELL:-/bin/bash}"
+exit "$status"
 `;
 }
 

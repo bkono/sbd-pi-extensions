@@ -34,6 +34,8 @@ export type SessionState = {
   updatedAt: string;
   engagedAt?: string;
   prime?: PrimeCache;
+  trackedWorkerIds?: string[];
+  workerNotices?: Record<string, string>;
 };
 
 export type RunUntil = "blocked" | "empty";

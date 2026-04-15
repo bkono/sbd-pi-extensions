@@ -23,9 +23,10 @@ Implemented:
 - `/bw adopt [--title ...] [--land quick|branch|multi] [--apply]`
 - `/bw workers [epic-id]` with summary counts, landing/cleanup diagnostics, and explicit `Next` follow-up actions
 - `/bw delegate <ticket-id>`
+- delegated-worker completion tracking in the parent session, including terminal-state notifications on later turns
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
 - `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
-- tmux-backed worker launch with per-ticket worktree creation
+- tmux-backed worker launch with per-ticket worktree creation; successful worker processes now exit cleanly instead of idling in a shell
 - optional worker-specific `--provider` / `--model` launch config separate from the orchestrator session
 - landing verification that requires a closed ticket, a clean worktree, and no worker-only commits ahead of repo `HEAD`
 - optional post-landing worktree + tmux cleanup when `worktrees.cleanup` is set to `cleanup-after-landing`
@@ -73,7 +74,8 @@ Via `settings.json`:
 5. Convert a conversational plan with `/bw adopt --title "..."`.
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
 7. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
-8. Inspect worker state with `/bw workers`.
+8. Keep working in the parent session; delegated-worker completion and landing/attention transitions will now show up as notifications on later turns.
+9. Inspect worker state with `/bw workers` when you want the full breakdown.
 
 ## Config
 

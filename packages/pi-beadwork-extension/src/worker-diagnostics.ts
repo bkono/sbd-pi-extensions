@@ -126,6 +126,14 @@ function describeFollowUp(
   }
 
   if (worker.status === "running") {
+    if (worker.ticketStatus === "closed") {
+      return {
+        needsAttention: false,
+        action:
+          "Ticket is closed. Waiting for the worker process to exit so landing can be verified.",
+      };
+    }
+
     return {
       needsAttention: false,
       action: "Worker is running. Wait for completion; inspect tmux/logs if stalled.",

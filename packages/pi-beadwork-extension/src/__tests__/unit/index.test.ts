@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import beadworkExtension from "../../index.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
-import { loadSessionState, resolveSessionStateDir } from "../../session-state.js";
+import { loadSessionState, resolveSessionStateDir, saveSessionState } from "../../session-state.js";
 import {
   createExtensionTestHarness,
   createFakeExtensionContext,
@@ -219,6 +219,55 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("landing:verified");
     expect(message).toContain("cleanup:cleaned");
     expect(message).toContain("Next: No action needed.");
+  });
+
+  it("tracks delegated workers from a neutral session and notifies once when they land", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-worker-tracking",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "landed" as const,
+      ticketStatus: "closed",
+      cleanupPolicy: "keep" as const,
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingAheadCount: 0,
+      landingBehindCount: 1,
+      landingVerification:
+        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    await saveSessionState(stateDir, "session-worker-tracking", {
+      mode: "neutral",
+      scope: { kind: "none" },
+      updatedAt: "2026-04-14T00:00:00.000Z",
+      trackedWorkerIds: [worker.workerId],
+    });
+
+    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
+
+    expect(ui.notifications.at(-1)?.message).toContain("Delegated ticket BW-101 landed cleanly.");
+
+    const persisted = await loadSessionState(stateDir, "session-worker-tracking");
+    expect(persisted.trackedWorkerIds).toBeUndefined();
+    expect(persisted.workerNotices?.[worker.workerId]).toContain("landed");
+
+    const notificationCount = ui.notifications.length;
+    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
+    expect(ui.notifications).toHaveLength(notificationCount);
   });
 
   it("warns before /bw off when active workers are still running", async () => {

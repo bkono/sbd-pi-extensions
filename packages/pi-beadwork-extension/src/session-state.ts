@@ -38,6 +38,30 @@ function normalizePrimeCache(prime: unknown): PrimeCache | undefined {
   };
 }
 
+function normalizeTrackedWorkerIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const ids = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return ids.length > 0 ? [...new Set(ids)] : undefined;
+}
+
+function normalizeWorkerNotices(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[0] === "string" && entry[0].length > 0 && typeof entry[1] === "string",
+  );
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function normalizeState(state: unknown): SessionState {
   if (!state || typeof state !== "object") {
     return { ...DEFAULT_SESSION_STATE, updatedAt: new Date().toISOString() };
@@ -54,6 +78,8 @@ function normalizeState(state: unknown): SessionState {
     updatedAt,
     engagedAt: typeof value.engagedAt === "string" ? value.engagedAt : undefined,
     prime: normalizePrimeCache(value.prime),
+    trackedWorkerIds: normalizeTrackedWorkerIds(value.trackedWorkerIds),
+    workerNotices: normalizeWorkerNotices(value.workerNotices),
   };
 }
 

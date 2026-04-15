@@ -102,6 +102,112 @@ function humanizeError(error: unknown): string {
   return String(error);
 }
 
+function sameStringArray(left: string[] | undefined, right: string[] | undefined): boolean {
+  const normalizedLeft = [...(left ?? [])].sort();
+  const normalizedRight = [...(right ?? [])].sort();
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every((entry, index) => entry === normalizedRight[index]);
+}
+
+function sameNoticeMap(
+  left: Record<string, string> | undefined,
+  right: Record<string, string> | undefined,
+): boolean {
+  const leftEntries = Object.entries(left ?? {}).sort(([leftKey], [rightKey]) =>
+    leftKey.localeCompare(rightKey),
+  );
+  const rightEntries = Object.entries(right ?? {}).sort(([leftKey], [rightKey]) =>
+    leftKey.localeCompare(rightKey),
+  );
+
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+
+  return leftEntries.every(
+    ([leftKey, leftValue], index) =>
+      leftKey === rightEntries[index]?.[0] && leftValue === rightEntries[index]?.[1],
+  );
+}
+
+function buildWorkerNotice(input: {
+  worker: WorkerRuntime;
+  inspection: ReturnType<typeof inspectWorker>;
+}): { key: string; level: "info" | "warning"; message: string } | undefined {
+  const { worker, inspection } = input;
+  const key = [
+    worker.status,
+    worker.ticketStatus ?? "",
+    inspection.landing.state,
+    inspection.cleanup.state,
+    worker.landingVerification ?? "",
+    worker.lastError ?? "",
+  ].join("|");
+
+  if (worker.status === "running" && worker.ticketStatus === "closed") {
+    return {
+      key,
+      level: "info",
+      message: `Delegated ticket ${worker.ticketId} was closed in the worker and is waiting for process exit so landing can be verified.`,
+    };
+  }
+
+  if (worker.status === "failed") {
+    return {
+      key,
+      level: "warning",
+      message: `Delegated ticket ${worker.ticketId} failed. ${inspection.followUp.action}`,
+    };
+  }
+
+  if (worker.status === "exited") {
+    if (worker.ticketStatus !== "closed") {
+      return {
+        key,
+        level: "warning",
+        message: `Delegated ticket ${worker.ticketId} exited before the ticket was closed. ${inspection.followUp.action}`,
+      };
+    }
+
+    const detail = inspection.landing.detail ? ` ${inspection.landing.detail}` : "";
+    return {
+      key,
+      level: "warning",
+      message:
+        `Delegated ticket ${worker.ticketId} finished, but landing still needs review. ${inspection.followUp.action}${detail}`.trim(),
+    };
+  }
+
+  if (worker.status === "landed") {
+    if (inspection.cleanup.state === "cleaned") {
+      return {
+        key,
+        level: "info",
+        message: `Delegated ticket ${worker.ticketId} landed cleanly and cleanup completed.`,
+      };
+    }
+
+    if (inspection.cleanup.state === "failed") {
+      return {
+        key,
+        level: "warning",
+        message: `Delegated ticket ${worker.ticketId} landed, but cleanup failed. ${inspection.followUp.action}`,
+      };
+    }
+
+    return {
+      key,
+      level: "info",
+      message: `Delegated ticket ${worker.ticketId} landed cleanly. ${inspection.followUp.action}`,
+    };
+  }
+
+  return undefined;
+}
+
 export default function piBeadworkExtension(pi: ExtensionAPI): void {
   const adapter = createBeadworkAdapter();
   const stateCache = new Map<string, SessionState>();
@@ -255,13 +361,29 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   }> {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
-    const state = await readSessionState(ctx, activation, config);
+    let state = await readSessionState(ctx, activation, config);
     const scopedEpicId = state.scope.kind === "epic" ? state.scope.id : undefined;
-    const [counts, scopeDetail, workerSummary] = await Promise.all([
+    const trackedWorkerIds = state.trackedWorkerIds;
+    const shouldInspectWorkers =
+      activation.kind === "active" &&
+      (state.mode !== "neutral" || (trackedWorkerIds !== undefined && trackedWorkerIds.length > 0));
+
+    const [counts, scopeDetail] = await Promise.all([
       resolveCounts(ctx, activation, state),
       resolveScopeDetail(ctx, activation, state),
-      resolveWorkerSummary(activation, config, scopedEpicId),
     ]);
+
+    let workerSummary: WorkerSummary | undefined;
+    if (shouldInspectWorkers) {
+      const workers = await inspectWorkers(ctx, activation, config, {
+        epicId: scopedEpicId,
+        workerIds: state.mode === "neutral" ? trackedWorkerIds : undefined,
+      });
+      state = await syncWorkerTracking(ctx, activation, config, state, workers);
+      workerSummary = summarizeWorkers(workers);
+    } else {
+      workerSummary = await resolveWorkerSummary(activation, config, scopedEpicId);
+    }
 
     updateStatusline(ctx, activation, state, config, workerSummary);
 
@@ -350,17 +472,23 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
-    epicId?: string,
+    options: {
+      epicId?: string;
+      workerIds?: string[];
+    } = {},
   ): Promise<WorkerRuntime[]> {
     if (activation.kind !== "active" || !activation.repoRoot) {
       return [];
     }
 
-    const workers = await listWorkers({
-      repoRoot: activation.repoRoot,
-      config,
-      epicId,
-    });
+    const selectedIds = options.workerIds ? new Set(options.workerIds) : undefined;
+    const workers = (
+      await listWorkers({
+        repoRoot: activation.repoRoot,
+        config,
+        epicId: options.epicId,
+      })
+    ).filter((worker) => (selectedIds ? selectedIds.has(worker.workerId) : true));
 
     const inspected = await Promise.all(
       workers.map((worker) =>
@@ -385,7 +513,74 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       ...inspected,
     ];
     await saveWorkerRegistry(registryPath, merged);
-    return epicId ? inspected.filter((worker) => worker.epicId === epicId) : inspected;
+    return options.epicId
+      ? inspected.filter((worker) => worker.epicId === options.epicId)
+      : inspected;
+  }
+
+  async function syncWorkerTracking(
+    ctx: ExtensionContext,
+    activation: ActivationState,
+    config: BeadworkConfig,
+    state: SessionState,
+    workers: WorkerRuntime[],
+  ): Promise<SessionState> {
+    const previousNotices = state.workerNotices;
+    const nextNotices: Record<string, string> = {};
+    const nextTrackedWorkerIds: string[] = [];
+    const notifications: Array<{ level: "info" | "warning"; message: string }> = [];
+
+    const inspections = workers.map((worker) => {
+      const inspection = inspectWorker(worker);
+      const notice = buildWorkerNotice({ worker, inspection });
+      const keepTracked =
+        worker.status === "launching" ||
+        worker.status === "running" ||
+        inspection.followUp.needsAttention;
+      return { worker, inspection, notice, keepTracked };
+    });
+
+    for (const entry of inspections) {
+      if (entry.keepTracked) {
+        nextTrackedWorkerIds.push(entry.worker.workerId);
+      }
+
+      if (!entry.notice) {
+        continue;
+      }
+
+      nextNotices[entry.worker.workerId] = entry.notice.key;
+      if (previousNotices?.[entry.worker.workerId] === entry.notice.key) {
+        continue;
+      }
+
+      notifications.push({
+        level: entry.notice.level,
+        message: entry.notice.message,
+      });
+    }
+
+    const normalizedTrackedWorkerIds =
+      nextTrackedWorkerIds.length > 0 ? [...new Set(nextTrackedWorkerIds)].sort() : undefined;
+    const normalizedNotices = Object.keys(nextNotices).length > 0 ? nextNotices : undefined;
+
+    let nextState = state;
+    if (
+      !sameStringArray(state.trackedWorkerIds, normalizedTrackedWorkerIds) ||
+      !sameNoticeMap(state.workerNotices, normalizedNotices)
+    ) {
+      nextState = await writeSessionState(ctx, activation, config, {
+        ...state,
+        trackedWorkerIds: normalizedTrackedWorkerIds,
+        workerNotices: normalizedNotices,
+      });
+    }
+
+    for (const notification of notifications) {
+      ctx.ui.notify(notification.message, notification.level);
+    }
+
+    return nextState;
   }
 
   pi.on("session_start", async (_event, ctx) => {
@@ -659,7 +854,9 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           const epicId =
             parsed.positional[0] ??
             (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
-          const workers = await inspectWorkers(ctx, active.activation, active.config, epicId);
+          const workers = await inspectWorkers(ctx, active.activation, active.config, {
+            epicId,
+          });
           await showWorkers(ctx, workers, epicId);
           return;
         }
@@ -696,16 +893,20 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             `Launched worker ${worker.workerId} for ${worker.ticketId} in ${worker.worktreePath}.`,
             "info",
           );
-          const workers = await inspectWorkers(
+          const workers = await inspectWorkers(ctx, active.activation, active.config, {
+            epicId: worker.epicId,
+          });
+          const trackedState = await syncWorkerTracking(
             ctx,
             active.activation,
             active.config,
-            worker.epicId,
+            stateWithPrime,
+            workers,
           );
           updateStatusline(
             ctx,
             active.activation,
-            stateWithPrime,
+            trackedState,
             active.config,
             summarizeWorkers(workers),
           );
@@ -1088,7 +1289,9 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         };
       }
 
-      const workers = await inspectWorkers(ctx, activation, config, params.epic_id);
+      const workers = await inspectWorkers(ctx, activation, config, {
+        epicId: params.epic_id,
+      });
       const filtered = params.worker_id
         ? workers.filter((worker) => worker.workerId === params.worker_id)
         : workers;
