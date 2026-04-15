@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-15T21:45:57Z",
+  "close_reason": "Completed in commit 5f84325",
   "created": "2026-04-15T21:33:16Z",
   "description": "The delegated-worker finish flow should not stop at 'ticket closed + worktree clean'. Validation and merge-back need an explicit agentic/orchestrated path because repo drift and conflicts require real resolution. Record the requirement that the system owns the next step after worker completion: run quality gates, decide whether the work can land, handle drift/conflicts via coordinator or delegated merge-resolution flow, and only then mark the work as truly landed. Also ensure user-facing messages never emit 'landed cleanly' while validation is still pending.",
   "id": "sbdpi-swx.11",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Make worker validation and merge-back orchestrator/agent driven",
   "type": "task",
-  "updated_at": "2026-04-15T21:36:04Z"
+  "updated_at": "2026-04-15T21:45:57Z"
 }
