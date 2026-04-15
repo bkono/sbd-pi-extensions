@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-swx.3"
+    "sbdpi-swx.3",
+    "sbdpi-swx.6.1"
   ],
   "created": "2026-04-14T20:18:12Z",
   "description": "`/bw delegate` currently launches a tmux-backed worker, but the parent session has no dependable completion acknowledgment or automatic follow-up path. In practice this leaves work sitting in the delegated worktree unless a human later remembers to inspect `/bw workers`, and it makes the real operating model feel half-baked.\n\nThis ticket should make delegated execution feel remotely real-world usable. Scope:\n- define and implement the expected end-to-end lifecycle after `/bw delegate`\n- ensure completed workers reach a clear terminal state without relying on vague manual interpretation\n- make parent/operator feedback explicit when a delegated ticket is done, still running, blocked, or exited without landing cleanly\n- ensure there is a known follow-up path so delegated work does not just sit in a worktree with no acknowledgment\n- tighten the relationship between worker exit, landing verification, cleanup policy, and operator-visible status\n- add tests/docs for the resulting behavior if they are intrinsic to the implementation\n\nGoal: after this ticket, we should be able to judge whether delegated worker flow is genuinely functional for real usage or still too far from the intended vision.",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Make delegated worker completion actually usable for real workflows",
   "type": "task",
-  "updated_at": "2026-04-14T20:18:18Z"
+  "updated_at": "2026-04-15T17:38:51Z"
 }

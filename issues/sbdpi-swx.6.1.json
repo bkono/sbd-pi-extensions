@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-swx.5"
+  ],
   "blocks": [],
   "created": "2026-04-15T17:38:13Z",
   "description": "Implement the post-worker orchestration pass that turns a completed delegated worker into a known terminal outcome.\n\nScope:\n- run an orchestrator-controlled validation pass after worker completion\n- confirm the delegated worktree is landable\n- if landing is blocked by drift, drive an update/rebase flow so the work can be landed cleanly\n- run required project quality gates before declaring completion\n- if checks pass, land the worktree and fully close down the worker/worktree lifecycle\n- if checks fail or landing is not possible, surface an explicit blocked/needs-attention state to the operator\n\nGoal: no more 'worker exited and a human has to infer what to do next from pending review text'.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Auto-validate, rebase if needed, land, and clean up delegated worktrees",
   "type": "task",
-  "updated_at": "2026-04-15T17:38:13Z"
+  "updated_at": "2026-04-15T17:38:51Z"
 }
