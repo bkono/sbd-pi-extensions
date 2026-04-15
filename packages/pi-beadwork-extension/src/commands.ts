@@ -4,6 +4,7 @@ import type {
   ActivationState,
   AdoptionPlan,
   BeadworkCounts,
+  BeadworkHistoryEntry,
   BeadworkIssue,
   BeadworkIssueDetail,
   RunSummary,
@@ -139,6 +140,49 @@ export async function showReady(
   }
   if (ready.length > 20) {
     lines.push(`… ${ready.length - 20} more`);
+  }
+
+  ctx.ui.notify(lines.join("\n"), "info");
+}
+
+export async function showIssueList(
+  ctx: ExtensionCommandContext,
+  issues: BeadworkIssue[],
+  heading: string,
+): Promise<void> {
+  if (issues.length === 0) {
+    ctx.ui.notify(`${heading}\n- none`, "info");
+    return;
+  }
+
+  const lines = [heading];
+  for (const issue of issues.slice(0, 20)) {
+    lines.push(formatIssueLine(issue));
+  }
+  if (issues.length > 20) {
+    lines.push(`… ${issues.length - 20} more`);
+  }
+
+  ctx.ui.notify(lines.join("\n"), "info");
+}
+
+export async function showHistory(
+  ctx: ExtensionCommandContext,
+  issueId: string,
+  entries: BeadworkHistoryEntry[],
+): Promise<void> {
+  if (entries.length === 0) {
+    ctx.ui.notify(`History for ${issueId}:\n- no entries`, "info");
+    return;
+  }
+
+  const lines = [`History for ${issueId}:`];
+  for (const entry of entries) {
+    const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : "unknown time";
+    const author = typeof entry.author === "string" ? entry.author : "unknown";
+    const intent =
+      typeof entry.intent === "string" ? entry.intent : (JSON.stringify(entry) ?? "[entry]");
+    lines.push(`- ${timestamp} · ${author} · ${intent}`);
   }
 
   ctx.ui.notify(lines.join("\n"), "info");

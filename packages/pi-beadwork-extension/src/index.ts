@@ -12,7 +12,9 @@ import { createBeadworkAdapter } from "./bw.js";
 import {
   showAdoptionPreview,
   showAdoptionResult,
+  showHistory,
   showIssue,
+  showIssueList,
   showMutationResult,
   showPrime,
   showReady,
@@ -56,6 +58,8 @@ import type {
   BeadworkConfig,
   BeadworkCounts,
   BeadworkIssueDetail,
+  BeadworkListFilters,
+  BeadworkUpdateIssueInput,
   RunSummary,
   SessionRunOptions,
   SessionScope,
@@ -77,8 +81,11 @@ export type {
   AdoptionStep,
   BeadworkConfig,
   BeadworkCounts,
+  BeadworkHistoryEntry,
   BeadworkIssue,
   BeadworkIssueDetail,
+  BeadworkListFilters,
+  BeadworkUpdateIssueInput,
   RunOptions,
   RunSummary,
   SessionMode,
@@ -106,6 +113,91 @@ function humanizeError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function readStringOption(options: Map<string, string | true>, key: string): string | undefined {
+  const value = options.get(key);
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNumberOption(options: Map<string, string | true>, key: string): number | undefined {
+  const value = readStringOption(options, key);
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Invalid numeric value for --${key}: ${value}`);
+  }
+
+  return parsed;
+}
+
+function buildListFilters(options: Map<string, string | true>): BeadworkListFilters {
+  return {
+    status: readStringOption(options, "status"),
+    type: readStringOption(options, "type"),
+    parent: readStringOption(options, "parent"),
+    priority: readNumberOption(options, "priority"),
+    assignee: readStringOption(options, "assignee"),
+    grep: readStringOption(options, "grep"),
+    limit: readNumberOption(options, "limit"),
+    all: options.has("all"),
+    deferred: options.has("deferred"),
+    overdue: options.has("overdue"),
+  };
+}
+
+function buildUpdateInput(options: Map<string, string | true>): BeadworkUpdateIssueInput {
+  const clearParent = options.has("clear-parent");
+  const clearDue = options.has("clear-due");
+
+  return {
+    title: readStringOption(options, "title"),
+    description: readStringOption(options, "description"),
+    priority: readNumberOption(options, "priority"),
+    assignee: readStringOption(options, "assignee"),
+    type: readStringOption(options, "type"),
+    status: readStringOption(options, "status"),
+    parentId: clearParent ? null : readStringOption(options, "parent"),
+    deferUntil: readStringOption(options, "defer"),
+    dueAt: clearDue ? null : readStringOption(options, "due"),
+  };
+}
+
+function hasIssueUpdate(input: BeadworkUpdateIssueInput): boolean {
+  return (
+    input.title !== undefined ||
+    input.description !== undefined ||
+    input.priority !== undefined ||
+    input.assignee !== undefined ||
+    input.type !== undefined ||
+    input.status !== undefined ||
+    input.parentId !== undefined ||
+    input.deferUntil !== undefined ||
+    input.dueAt !== undefined
+  );
+}
+
+function normalizeDependencyPair(args: string[]): { blockerId: string; blockedId: string } | null {
+  if (args.length < 2) {
+    return null;
+  }
+
+  const [first, second, third] = args;
+  if (second === "blocks") {
+    if (!first || !third) {
+      return null;
+    }
+    return { blockerId: first, blockedId: third };
+  }
+
+  if (!first || !second) {
+    return null;
+  }
+
+  return { blockerId: first, blockedId: second };
 }
 
 function sameStringArray(left: string[] | undefined, right: string[] | undefined): boolean {
@@ -1009,6 +1101,50 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           return;
         }
 
+        if (subcommand === "blocked") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const blocked = await adapter.blocked(ctx.cwd);
+          await showIssueList(ctx, blocked, "Blocked work:");
+          return;
+        }
+
+        if (subcommand === "list") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const filters = buildListFilters(parsed.options);
+          const issues = await adapter.list(ctx.cwd, filters);
+          await showIssueList(ctx, issues, "Issue list:");
+          return;
+        }
+
+        if (subcommand === "history") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          if (!issueId) {
+            ctx.ui.notify("Usage: /bw history <issue-id> [--limit n]", "info");
+            return;
+          }
+
+          const entries = await adapter.history(
+            ctx.cwd,
+            issueId,
+            readNumberOption(parsed.options, "limit"),
+          );
+          await showHistory(ctx, issueId, entries);
+          return;
+        }
+
         if (subcommand === "show") {
           const active = await requireActive(ctx);
           if (!active) {
@@ -1028,6 +1164,85 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           return;
         }
 
+        if (subcommand === "create") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const title = parsed.positional.join(" ").trim();
+          if (!title) {
+            ctx.ui.notify(
+              "Usage: /bw create <title> [--type task|epic] [--description text] [--priority n] [--parent id]",
+              "info",
+            );
+            return;
+          }
+
+          const created = await adapter.createIssue(ctx.cwd, {
+            title,
+            type: readStringOption(parsed.options, "type"),
+            description: readStringOption(parsed.options, "description"),
+            priority: readNumberOption(parsed.options, "priority"),
+            parentId: readStringOption(parsed.options, "parent"),
+          });
+          await showMutationResult(ctx, "Created", created.issue);
+          return;
+        }
+
+        if (subcommand === "update") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          if (!issueId) {
+            ctx.ui.notify(
+              "Usage: /bw update <issue-id> [--title text] [--description text] [--priority n] [--assignee name] [--status open|in_progress|closed|deferred] [--type task|epic] [--parent id|--clear-parent] [--defer when] [--due when|--clear-due]",
+              "info",
+            );
+            return;
+          }
+
+          const updateInput = buildUpdateInput(parsed.options);
+          if (!hasIssueUpdate(updateInput)) {
+            ctx.ui.notify("No update fields supplied. Pass at least one --flag to mutate.", "info");
+            return;
+          }
+
+          const issue = await adapter.updateIssue(ctx.cwd, issueId, updateInput);
+          await showMutationResult(ctx, "Updated", issue);
+          return;
+        }
+
+        if (subcommand === "dep") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const operation = parsed.positional[0];
+          const pair = normalizeDependencyPair(parsed.positional.slice(1));
+          if (!operation || !pair || (operation !== "add" && operation !== "remove")) {
+            ctx.ui.notify("Usage: /bw dep <add|remove> <blocker-id> [blocks] <blocked-id>", "info");
+            return;
+          }
+
+          if (operation === "add") {
+            await adapter.addDependency(ctx.cwd, pair.blockerId, pair.blockedId);
+            ctx.ui.notify(`Dependency added: ${pair.blockerId} blocks ${pair.blockedId}.`, "info");
+            return;
+          }
+
+          await adapter.removeDependency(ctx.cwd, pair.blockerId, pair.blockedId);
+          ctx.ui.notify(
+            `Dependency removed: ${pair.blockerId} no longer blocks ${pair.blockedId}.`,
+            "info",
+          );
+          return;
+        }
+
         if (subcommand === "start") {
           const active = await requireActive(ctx);
           if (!active) {
@@ -1040,8 +1255,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             return;
           }
 
-          const assigneeOption = parsed.options.get("assignee");
-          const assignee = typeof assigneeOption === "string" ? assigneeOption : undefined;
+          const assignee = readStringOption(parsed.options, "assignee");
           const issue = await adapter.start(ctx.cwd, issueId, assignee);
           await showMutationResult(ctx, "Started", issue);
           return;
@@ -1063,6 +1277,99 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           const reason = typeof reasonOption === "string" ? reasonOption : undefined;
           const issue = await adapter.close(ctx.cwd, issueId, reason);
           await showMutationResult(ctx, "Closed", issue);
+          return;
+        }
+
+        if (subcommand === "reopen") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          if (!issueId) {
+            ctx.ui.notify("Usage: /bw reopen <issue-id>", "info");
+            return;
+          }
+
+          const issue = await adapter.reopen(ctx.cwd, issueId);
+          await showMutationResult(ctx, "Reopened", issue);
+          return;
+        }
+
+        if (subcommand === "comment") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          const text = parsed.positional.slice(1).join(" ");
+          if (!issueId || !text) {
+            ctx.ui.notify("Usage: /bw comment <issue-id> <text> [--author name]", "info");
+            return;
+          }
+
+          const issue = await adapter.comment(
+            ctx.cwd,
+            issueId,
+            text,
+            readStringOption(parsed.options, "author"),
+          );
+          await showMutationResult(ctx, "Commented", issue);
+          return;
+        }
+
+        if (subcommand === "label") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          const operations = parsed.positional.slice(1);
+          if (!issueId || operations.length === 0) {
+            ctx.ui.notify("Usage: /bw label <issue-id> +label [-label]...", "info");
+            return;
+          }
+
+          const issue = await adapter.label(ctx.cwd, issueId, operations);
+          await showMutationResult(ctx, "Labeled", issue);
+          return;
+        }
+
+        if (subcommand === "defer") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          const when = parsed.positional.slice(1).join(" ");
+          if (!issueId || !when) {
+            ctx.ui.notify("Usage: /bw defer <issue-id> <when>", "info");
+            return;
+          }
+
+          const issue = await adapter.defer(ctx.cwd, issueId, when);
+          await showMutationResult(ctx, "Deferred", issue);
+          return;
+        }
+
+        if (subcommand === "undefer") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const issueId = parsed.positional[0];
+          if (!issueId) {
+            ctx.ui.notify("Usage: /bw undefer <issue-id>", "info");
+            return;
+          }
+
+          const issue = await adapter.undefer(ctx.cwd, issueId);
+          await showMutationResult(ctx, "Undeferred", issue);
           return;
         }
 
@@ -1330,7 +1637,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [plan-text] [--file path] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [plan-text] [--file path] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
           "info",
         );
       } catch (error) {
@@ -1401,6 +1708,73 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "beadwork_blocked",
+    label: "Beadwork Blocked",
+    description: "List currently blocked beadwork issues.",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const blocked = await adapter.blocked(ctx.cwd);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(blocked, null, 2) }],
+        details: blocked,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_list_issues",
+    label: "Beadwork List Issues",
+    description: "List beadwork issues with explicit filters.",
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: "Filter by status." })),
+      type: Type.Optional(Type.String({ description: "Filter by type." })),
+      parent_id: Type.Optional(Type.String({ description: "Filter by parent issue id." })),
+      priority: Type.Optional(Type.Number({ description: "Filter by priority number." })),
+      assignee: Type.Optional(Type.String({ description: "Filter by assignee." })),
+      grep: Type.Optional(Type.String({ description: "Search title/description text." })),
+      limit: Type.Optional(Type.Number({ description: "Maximum number of issues." })),
+      all: Type.Optional(Type.Boolean({ description: "Include all statuses." })),
+      deferred: Type.Optional(Type.Boolean({ description: "Only deferred issues." })),
+      overdue: Type.Optional(Type.Boolean({ description: "Only overdue issues." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const issues = await adapter.list(ctx.cwd, {
+        status: params.status,
+        type: params.type,
+        parent: params.parent_id,
+        priority: params.priority,
+        assignee: params.assignee,
+        grep: params.grep,
+        limit: params.limit,
+        all: params.all,
+        deferred: params.deferred,
+        overdue: params.overdue,
+      });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issues, null, 2) }],
+        details: issues,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_issue_history",
+    label: "Beadwork Issue History",
+    description: "Read beadwork git history entries for one issue.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to inspect." }),
+      limit: Type.Optional(Type.Number({ description: "Maximum history entries." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const history = await adapter.history(ctx.cwd, params.id, params.limit);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(history, null, 2) }],
+        details: history,
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "beadwork_show",
     label: "Beadwork Show",
     description: "Show one beadwork issue including children.",
@@ -1443,6 +1817,49 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "beadwork_update_issue",
+    label: "Beadwork Update Issue",
+    description: "Update mutable fields on an existing beadwork issue.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to update." }),
+      title: Type.Optional(Type.String({ description: "New title." })),
+      description: Type.Optional(Type.String({ description: "New description." })),
+      priority: Type.Optional(Type.Number({ description: "Priority number 0-4." })),
+      assignee: Type.Optional(Type.String({ description: "New assignee." })),
+      type: Type.Optional(Type.String({ description: "New issue type." })),
+      status: Type.Optional(Type.String({ description: "New status." })),
+      parent_id: Type.Optional(Type.String({ description: "New parent issue id." })),
+      clear_parent: Type.Optional(Type.Boolean({ description: "Clear parent relationship." })),
+      defer_until: Type.Optional(Type.String({ description: "Set defer date expression." })),
+      due_at: Type.Optional(Type.String({ description: "Set due date expression." })),
+      clear_due: Type.Optional(Type.Boolean({ description: "Clear due date." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const updateInput: BeadworkUpdateIssueInput = {
+        title: params.title,
+        description: params.description,
+        priority: params.priority,
+        assignee: params.assignee,
+        type: params.type,
+        status: params.status,
+        parentId: params.clear_parent ? null : params.parent_id,
+        deferUntil: params.defer_until,
+        dueAt: params.clear_due ? null : params.due_at,
+      };
+
+      if (!hasIssueUpdate(updateInput)) {
+        throw new Error("No update fields provided.");
+      }
+
+      const issue = await adapter.updateIssue(ctx.cwd, params.id, updateInput);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
+        details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "beadwork_add_dependency",
     label: "Beadwork Add Dependency",
     description: "Add a beadwork dependency edge: blocker blocks blocked.",
@@ -1452,6 +1869,36 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       await adapter.addDependency(ctx.cwd, params.blocker_id, params.blocked_id);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                blocker_id: params.blocker_id,
+                blocked_id: params.blocked_id,
+                ok: true,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+        details: { blockerId: params.blocker_id, blockedId: params.blocked_id },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_remove_dependency",
+    label: "Beadwork Remove Dependency",
+    description: "Remove a beadwork dependency edge: blocker blocks blocked.",
+    parameters: Type.Object({
+      blocker_id: Type.String({ description: "Blocking issue id." }),
+      blocked_id: Type.String({ description: "Blocked issue id." }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      await adapter.removeDependency(ctx.cwd, params.blocker_id, params.blocked_id);
       return {
         content: [
           {
@@ -1499,6 +1946,100 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const issue = await adapter.close(ctx.cwd, params.id, params.reason);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
+        details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_reopen_issue",
+    label: "Beadwork Reopen Issue",
+    description: "Reopen a beadwork issue.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to reopen." }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const issue = await adapter.reopen(ctx.cwd, params.id);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
+        details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_comment_issue",
+    label: "Beadwork Comment Issue",
+    description: "Add a comment to a beadwork issue.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to comment on." }),
+      text: Type.String({ description: "Comment text." }),
+      author: Type.Optional(Type.String({ description: "Optional comment author." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const issue = await adapter.comment(ctx.cwd, params.id, params.text, params.author);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
+        details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_label_issue",
+    label: "Beadwork Label Issue",
+    description: "Apply label add/remove operations to a beadwork issue.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to label." }),
+      operations: Type.String({
+        description: "Comma-separated label operations, e.g. +bug,-triage",
+      }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const operations = params.operations
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+      if (operations.length === 0) {
+        throw new Error("At least one label operation is required.");
+      }
+
+      const issue = await adapter.label(ctx.cwd, params.id, operations);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
+        details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_defer_issue",
+    label: "Beadwork Defer Issue",
+    description: "Defer a beadwork issue until a date expression.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to defer." }),
+      when: Type.String({ description: "Date expression, e.g. tomorrow or 2026-04-20." }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const issue = await adapter.defer(ctx.cwd, params.id, params.when);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
+        details: issue,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_undefer_issue",
+    label: "Beadwork Undefer Issue",
+    description: "Restore a deferred beadwork issue back to open.",
+    parameters: Type.Object({
+      id: Type.String({ description: "Issue id to undefer." }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const issue = await adapter.undefer(ctx.cwd, params.id);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
         details: issue,

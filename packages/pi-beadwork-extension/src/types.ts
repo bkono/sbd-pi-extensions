@@ -128,8 +128,28 @@ export type BeadworkCreateIssueInput = {
   parentId?: string;
 };
 
+export type BeadworkUpdateIssueInput = {
+  title?: string;
+  description?: string;
+  priority?: number;
+  assignee?: string;
+  type?: string;
+  status?: string;
+  parentId?: string | null;
+  deferUntil?: string;
+  dueAt?: string | null;
+};
+
 export type BeadworkCreateIssueResult = {
   issue: BeadworkIssue;
+};
+
+export type BeadworkHistoryEntry = {
+  hash?: string;
+  timestamp?: string;
+  author?: string;
+  intent?: string;
+  [key: string]: unknown;
 };
 
 export type BeadworkListFilters = {

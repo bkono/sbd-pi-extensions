@@ -137,4 +137,104 @@ describe("beadwork adapter", () => {
 
     expect(issues).toEqual([]);
   });
+
+  it("updates issue fields including parent/due clearing", async () => {
+    const exec = vi.fn().mockResolvedValue({
+      code: 0,
+      stdout: JSON.stringify({
+        id: "BW-100.1",
+        title: "Retitled",
+        status: "open",
+        type: "task",
+        priority: 2,
+        blocked_by: [],
+        blocks: [],
+        created: "",
+        updated_at: "",
+      }),
+      stderr: "",
+    });
+
+    const adapter = createBeadworkAdapter(exec);
+    await adapter.updateIssue("/repo", "BW-100.1", {
+      title: "Retitled",
+      parentId: null,
+      dueAt: null,
+      deferUntil: "tomorrow",
+    });
+
+    expect(exec).toHaveBeenCalledWith(
+      "bw",
+      [
+        "update",
+        "BW-100.1",
+        "--json",
+        "--title",
+        "Retitled",
+        "--defer",
+        "tomorrow",
+        "--parent",
+        "",
+        "--due",
+        "",
+      ],
+      {
+        cwd: "/repo",
+        timeout: 10_000,
+      },
+    );
+  });
+
+  it("loads issue history entries as structured data", async () => {
+    const exec = vi.fn().mockResolvedValue({
+      code: 0,
+      stdout: JSON.stringify([
+        {
+          hash: "abc123",
+          timestamp: "2026-04-15 12:00",
+          author: "beadwork",
+          intent: "update BW-100 --parent BW-1",
+        },
+      ]),
+      stderr: "",
+    });
+
+    const adapter = createBeadworkAdapter(exec);
+    const entries = await adapter.history("/repo", "BW-100", 5);
+
+    expect(exec).toHaveBeenCalledWith("bw", ["history", "BW-100", "--limit", "5", "--json"], {
+      cwd: "/repo",
+      timeout: 10_000,
+    });
+    expect(entries[0]).toMatchObject({
+      hash: "abc123",
+      intent: "update BW-100 --parent BW-1",
+    });
+  });
+
+  it("runs label mutations and validates operation input", async () => {
+    const exec = vi.fn().mockResolvedValue({
+      code: 0,
+      stdout: JSON.stringify({
+        id: "BW-100",
+        title: "Task",
+        status: "open",
+        type: "task",
+        priority: 2,
+        labels: ["bug"],
+      }),
+      stderr: "",
+    });
+
+    const adapter = createBeadworkAdapter(exec);
+    await adapter.label("/repo", "BW-100", ["+bug"]);
+
+    expect(exec).toHaveBeenCalledWith("bw", ["label", "BW-100", "+bug", "--json"], {
+      cwd: "/repo",
+      timeout: 10_000,
+    });
+    await expect(adapter.label("/repo", "BW-100", [])).rejects.toThrow(
+      "At least one label operation is required.",
+    );
+  });
 });

@@ -11,14 +11,25 @@ Implemented:
 - beadwork activation detection
 - persisted session mode, scope, and cached `bw prime`
 - prompt enrichment in engaged sessions
-- typed beadwork adapter for `prime`, `ready`, `blocked`, `list`, `show`, `create`, `dep`, `start`, `close`, and `sync`
+- typed beadwork adapter for issue inspection/mutation flows: `prime`, `ready`, `blocked`, `list`, `show`, `history`, `create`, `update`, `dep add/remove`, `comment`, `label`, `start`, `close`, `reopen`, `defer`, `undefer`, and `sync`
 - richer `/bw status`
 - `/bw engage [scope]`
 - `/bw prime [--refresh]`
 - `/bw ready [scope]`
+- `/bw blocked`
+- `/bw list [filters]`
+- `/bw history <id> [--limit n]`
 - `/bw show <id>`
+- `/bw create <title> [--type ... --description ... --priority n --parent id]`
+- `/bw update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]`
+- `/bw dep <add|remove> <blocker-id> [blocks] <blocked-id>`
+- `/bw comment <id> <text> [--author name]`
+- `/bw label <id> +label [-label]...`
 - `/bw start <id>`
 - `/bw close <id>`
+- `/bw reopen <id>`
+- `/bw defer <id> <when>`
+- `/bw undefer <id>`
 - `/bw sync`
 - `/bw adopt [plan-text] [--file path] [--title ...] [--land quick|branch|multi] [--apply]`
 - `/bw workers [epic-id]` with validation/landing/cleanup diagnostics and explicit `Next` follow-up actions

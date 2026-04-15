@@ -20,10 +20,18 @@ const { detectActivationMock, adapterMock, createBeadworkAdapterMock, runBounded
       blocked: vi.fn(),
       list: vi.fn(),
       show: vi.fn(),
+      history: vi.fn(),
       createIssue: vi.fn(),
+      updateIssue: vi.fn(),
       addDependency: vi.fn(),
+      removeDependency: vi.fn(),
+      comment: vi.fn(),
+      label: vi.fn(),
       start: vi.fn(),
       close: vi.fn(),
+      reopen: vi.fn(),
+      defer: vi.fn(),
+      undefer: vi.fn(),
       sync: vi.fn(),
       getCounts: vi.fn(),
     },
@@ -139,6 +147,107 @@ describe("pi beadwork extension", () => {
       updatedAt: "2026-04-13T00:00:00.000Z",
       children: [],
     });
+    adapterMock.history.mockResolvedValue([]);
+    adapterMock.createIssue.mockResolvedValue({
+      issue: {
+        id: "BW-101",
+        title: "Created task",
+        description: "",
+        status: "open",
+        type: "task",
+        priority: 2,
+        labels: [],
+        blockedBy: [],
+        blocks: [],
+        assignee: "",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+    });
+    adapterMock.updateIssue.mockResolvedValue({
+      id: "BW-100",
+      title: "Scoped epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
+    adapterMock.comment.mockResolvedValue({
+      id: "BW-100",
+      title: "Scoped epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
+    adapterMock.label.mockResolvedValue({
+      id: "BW-100",
+      title: "Scoped epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
+    adapterMock.reopen.mockResolvedValue({
+      id: "BW-100",
+      title: "Scoped epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
+    adapterMock.defer.mockResolvedValue({
+      id: "BW-100",
+      title: "Scoped epic",
+      description: "description",
+      status: "deferred",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
+    adapterMock.undefer.mockResolvedValue({
+      id: "BW-100",
+      title: "Scoped epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
     adapterMock.getCounts.mockResolvedValue({
       ready: 2,
       blocked: 1,
@@ -189,6 +298,100 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications[0].message).toContain("Mode: neutral");
     expect(ui.notifications[0].message).toContain("Counts: ready=2 blocked=1 in_progress=1");
     expect(ui.statuses.get("beadwork")).toContain("bw neutral");
+  });
+
+  it("lists issues with explicit filters via /bw list", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-list" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.list.mockResolvedValue([
+      {
+        id: "BW-100.1",
+        title: "Child task",
+        description: "",
+        status: "open",
+        type: "task",
+        priority: 2,
+        labels: [],
+        blockedBy: [],
+        blocks: [],
+        assignee: "",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+        parentId: "BW-100",
+      },
+    ]);
+
+    await harness.invokeCommand("bw", "list --all --parent BW-100", ctx);
+
+    expect(adapterMock.list).toHaveBeenCalledWith(
+      tempDir,
+      expect.objectContaining({
+        all: true,
+        parent: "BW-100",
+      }),
+    );
+    expect(ui.notifications.at(-1)?.message).toContain("Issue list:");
+    expect(ui.notifications.at(-1)?.message).toContain("BW-100.1");
+  });
+
+  it("supports issue depth reassignment via /bw update --clear-parent", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-update" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    await harness.invokeCommand("bw", "update BW-100.1 --clear-parent --status open", ctx);
+
+    expect(adapterMock.updateIssue).toHaveBeenCalledWith(
+      tempDir,
+      "BW-100.1",
+      expect.objectContaining({
+        parentId: null,
+        status: "open",
+      }),
+    );
+    expect(ui.notifications.at(-1)?.message).toContain("Updated: BW-100");
+  });
+
+  it("supports dependency removal via /bw dep remove", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-dep-remove" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    await harness.invokeCommand("bw", "dep remove BW-200 blocks BW-300", ctx);
+
+    expect(adapterMock.removeDependency).toHaveBeenCalledWith(tempDir, "BW-200", "BW-300");
+    expect(ui.notifications.at(-1)?.message).toContain("Dependency removed");
+  });
+
+  it("shows issue history via /bw history", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-history" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.history.mockResolvedValue([
+      {
+        timestamp: "2026-04-15 12:00",
+        author: "beadwork",
+        intent: "update BW-100.1 --parent BW-100",
+      },
+    ]);
+
+    await harness.invokeCommand("bw", "history BW-100.1 --limit 1", ctx);
+
+    expect(adapterMock.history).toHaveBeenCalledWith(tempDir, "BW-100.1", 1);
+    expect(ui.notifications.at(-1)?.message).toContain("History for BW-100.1");
   });
 
   it("engages interactive mode, caches prime, and scopes the session", async () => {

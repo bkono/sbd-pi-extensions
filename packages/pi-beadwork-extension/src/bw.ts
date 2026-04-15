@@ -3,9 +3,11 @@ import type {
   BeadworkCounts,
   BeadworkCreateIssueInput,
   BeadworkCreateIssueResult,
+  BeadworkHistoryEntry,
   BeadworkIssue,
   BeadworkIssueDetail,
   BeadworkListFilters,
+  BeadworkUpdateIssueInput,
 } from "./types.js";
 
 type ExecResult = {
@@ -58,10 +60,18 @@ export interface BeadworkAdapter {
   blocked(cwd: string): Promise<BeadworkIssue[]>;
   list(cwd: string, filters?: BeadworkListFilters): Promise<BeadworkIssue[]>;
   show(cwd: string, id: string): Promise<BeadworkIssueDetail>;
+  history(cwd: string, id: string, limit?: number): Promise<BeadworkHistoryEntry[]>;
   createIssue(cwd: string, input: BeadworkCreateIssueInput): Promise<BeadworkCreateIssueResult>;
+  updateIssue(cwd: string, id: string, input: BeadworkUpdateIssueInput): Promise<BeadworkIssue>;
   addDependency(cwd: string, blockerId: string, blockedId: string): Promise<void>;
+  removeDependency(cwd: string, blockerId: string, blockedId: string): Promise<void>;
+  comment(cwd: string, id: string, text: string, author?: string): Promise<BeadworkIssue>;
+  label(cwd: string, id: string, operations: string[]): Promise<BeadworkIssue>;
   start(cwd: string, id: string, assignee?: string): Promise<BeadworkIssue>;
   close(cwd: string, id: string, reason?: string): Promise<BeadworkIssue>;
+  reopen(cwd: string, id: string): Promise<BeadworkIssue>;
+  defer(cwd: string, id: string, when: string): Promise<BeadworkIssue>;
+  undefer(cwd: string, id: string): Promise<BeadworkIssue>;
   sync(cwd: string): Promise<void>;
   getCounts(cwd: string, scopeId?: string): Promise<BeadworkCounts>;
 }
@@ -82,6 +92,14 @@ type RawIssue = {
   created?: string;
   updated_at?: string;
   parent?: string;
+};
+
+type RawHistoryEntry = {
+  hash?: string;
+  timestamp?: string;
+  author?: string;
+  intent?: string;
+  [key: string]: unknown;
 };
 
 function defaultExecRunner(
@@ -149,6 +167,29 @@ function normalizeIssue(input: RawIssue): BeadworkIssue {
 
 function normalizeIssueArray(input: RawIssue[] | null | undefined): BeadworkIssue[] {
   return Array.isArray(input) ? input.map(normalizeIssue) : [];
+}
+
+function normalizeHistoryEntry(input: RawHistoryEntry): BeadworkHistoryEntry {
+  const result: BeadworkHistoryEntry = { ...input };
+  if (typeof input.hash === "string") {
+    result.hash = input.hash;
+  }
+  if (typeof input.timestamp === "string") {
+    result.timestamp = input.timestamp;
+  }
+  if (typeof input.author === "string") {
+    result.author = input.author;
+  }
+  if (typeof input.intent === "string") {
+    result.intent = input.intent;
+  }
+  return result;
+}
+
+function normalizeHistoryEntries(
+  input: RawHistoryEntry[] | null | undefined,
+): BeadworkHistoryEntry[] {
+  return Array.isArray(input) ? input.map(normalizeHistoryEntry) : [];
 }
 
 function parseJson<T>(value: string, context: string): T {
@@ -248,6 +289,14 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
       };
     },
 
+    async history(cwd, id, limit) {
+      const args = ["history", id];
+      pushOptionalArg(args, "--limit", limit);
+      args.push("--json");
+      const entries = await runJson<RawHistoryEntry[] | null>(cwd, args, `history ${id}`);
+      return normalizeHistoryEntries(entries);
+    },
+
     async createIssue(cwd, input) {
       const args = ["create", input.title, "--json"];
       pushOptionalArg(args, "--type", input.type);
@@ -260,8 +309,51 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
       };
     },
 
+    async updateIssue(cwd, id, input) {
+      const args = ["update", id, "--json"];
+      pushOptionalArg(args, "--title", input.title);
+      pushOptionalArg(args, "--description", input.description);
+      pushOptionalArg(args, "--priority", input.priority);
+      pushOptionalArg(args, "--assignee", input.assignee);
+      pushOptionalArg(args, "--type", input.type);
+      pushOptionalArg(args, "--status", input.status);
+      pushOptionalArg(args, "--defer", input.deferUntil);
+      if (input.parentId !== undefined) {
+        args.push("--parent", input.parentId ?? "");
+      }
+      if (input.dueAt !== undefined) {
+        args.push("--due", input.dueAt ?? "");
+      }
+      const issue = await runJson<RawIssue>(cwd, args, `update ${id}`);
+      return normalizeIssue(issue);
+    },
+
     async addDependency(cwd, blockerId, blockedId) {
       await run("bw", ["dep", "add", blockerId, "blocks", blockedId], cwd);
+    },
+
+    async removeDependency(cwd, blockerId, blockedId) {
+      await run("bw", ["dep", "remove", blockerId, "blocks", blockedId], cwd);
+    },
+
+    async comment(cwd, id, text, author) {
+      const args = ["comment", id, text, "--json"];
+      pushOptionalArg(args, "--author", author);
+      const issue = await runJson<RawIssue>(cwd, args, `comment ${id}`);
+      return normalizeIssue(issue);
+    },
+
+    async label(cwd, id, operations) {
+      if (operations.length === 0) {
+        throw new Error("At least one label operation is required.");
+      }
+
+      const issue = await runJson<RawIssue>(
+        cwd,
+        ["label", id, ...operations, "--json"],
+        `label ${id}`,
+      );
+      return normalizeIssue(issue);
     },
 
     async start(cwd, id, assignee) {
@@ -275,6 +367,21 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
       const args = ["close", id, "--json"];
       pushOptionalArg(args, "--reason", reason);
       const issue = await runJson<RawIssue>(cwd, args, `close ${id}`);
+      return normalizeIssue(issue);
+    },
+
+    async reopen(cwd, id) {
+      const issue = await runJson<RawIssue>(cwd, ["reopen", id, "--json"], `reopen ${id}`);
+      return normalizeIssue(issue);
+    },
+
+    async defer(cwd, id, when) {
+      const issue = await runJson<RawIssue>(cwd, ["defer", id, when, "--json"], `defer ${id}`);
+      return normalizeIssue(issue);
+    },
+
+    async undefer(cwd, id) {
+      const issue = await runJson<RawIssue>(cwd, ["undefer", id, "--json"], `undefer ${id}`);
       return normalizeIssue(issue);
     },
 
