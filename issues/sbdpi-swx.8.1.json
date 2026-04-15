@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-15T17:38:44Z",
+  "description": "Close the missing API/tooling gaps so the LLM and human operator can manage beadwork cleanly through the extension.\n\nInitial examples called out in review:\n- support issue depth management flows\n- expose missing beadwork mutations/inspections through stable slash commands and LLM tools\n- avoid forcing humans or prompt logic to fall back to ad hoc shell parsing for common beadwork operations",
+  "id": "sbdpi-swx.8.1",
+  "labels": [],
+  "parent": "sbdpi-swx.8",
+  "priority": 2,
+  "status": "open",
+  "title": "Expose missing beadwork issue-management operations as commands/tools",
+  "type": "task",
+  "updated_at": "2026-04-15T17:38:44Z"
+}
