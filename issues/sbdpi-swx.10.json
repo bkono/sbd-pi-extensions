@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-15T21:32:48Z",
+  "description": "Fix the false-positive landing state seen with sbdpi-swx.8.2. `/bw workers` marked the worker as `landed`/`verified` even though the worker commit was still only present on the worktree branch and not actually integrated into the parent branch. Tighten what counts as landed/verified, distinguish 'worker exited + ticket closed' from 'changes are actually integrated', and avoid relying on heuristics that can claim equivalent landing when the branch still needs manual or orchestrated integration. This should cover accurate state transitions and diagnostics for ff, squash, cherry-pick, rebase, and other integration flows without overstating success.",
+  "id": "sbdpi-swx.10",
+  "labels": [],
+  "parent": "sbdpi-swx",
+  "priority": 2,
+  "status": "open",
+  "title": "Make worker landing verification and status semantics trustworthy",
+  "type": "task",
+  "updated_at": "2026-04-15T21:32:48Z"
+}
