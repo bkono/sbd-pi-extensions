@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-15T21:33:16Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Make worker validation and merge-back orchestrator/agent driven",
   "type": "task",
-  "updated_at": "2026-04-15T21:33:16Z"
+  "updated_at": "2026-04-15T21:36:04Z"
 }
