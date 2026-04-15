@@ -4,14 +4,15 @@
   "blocks": [
     "sbdpi-swx.7.2"
   ],
+  "closed_at": "2026-04-15T23:50:06Z",
   "created": "2026-04-15T17:38:25Z",
   "description": "Replace session-history scraping and hopeful bullet parsing with explicit plan sources.\n\nScope:\n- point `/bw adopt` at a real markdown proposal/plan instead of recent conversation text\n- make the source of truth explicit and reviewable by the human\n- remove reliance on brittle formatting assumptions from live chat\n- preserve a usable preview/review step grounded in the supplied document, not guessed context",
   "id": "sbdpi-swx.7.1",
   "labels": [],
   "parent": "sbdpi-swx.7",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Accept explicit markdown plans/proposals as `/bw adopt` input",
   "type": "task",
-  "updated_at": "2026-04-15T23:39:03Z"
+  "updated_at": "2026-04-15T23:50:06Z"
 }
