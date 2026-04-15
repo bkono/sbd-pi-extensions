@@ -5,14 +5,16 @@
     "sbdpi-swx.3",
     "sbdpi-swx.6.1"
   ],
+  "closed_at": "2026-04-15T17:59:47Z",
+  "close_reason": "Completed in fix(pi-beadwork-extension): recognize non-ff worker landings (131b43c).",
   "created": "2026-04-14T18:31:40Z",
   "description": "Improve landing verification so worker landings are recognized more accurately for squash, cherry-pick, rebase, and similar non-fast-forward integration flows. Preserve conservative behavior where verification is ambiguous and surface useful review signals.",
   "id": "sbdpi-swx.2",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Tighten landing verification for squash/cherry-pick/rebase-style landings",
   "type": "task",
-  "updated_at": "2026-04-15T17:57:45Z"
+  "updated_at": "2026-04-15T17:59:47Z"
 }
