@@ -442,6 +442,52 @@ describe("pi beadwork extension", () => {
     expect(result?.systemPrompt).toContain("Scoped issue");
   });
 
+  it("previews /bw adopt from an explicit markdown file source", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-adopt-preview",
+    });
+
+    const planPath = path.join(tempDir, "proposal.md");
+    await writeFile(
+      planPath,
+      ["# Proposal", "", "## Scope", "- Replace parser heuristics", "- Keep review step"].join(
+        "\n",
+      ),
+      "utf8",
+    );
+
+    await harness.invokeCommand("bw", "adopt --file proposal.md", ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain(`Plan source: file:${planPath}`);
+    expect(message).toContain("Source excerpt:");
+    expect(message).toContain("# Proposal");
+    expect(message).toContain("Run again with --apply to create beadwork artifacts.");
+  });
+
+  it("warns when /bw adopt receives an empty markdown file", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-adopt-empty-file",
+    });
+
+    await writeFile(path.join(tempDir, "proposal.md"), "\n   \n", "utf8");
+
+    await harness.invokeCommand("bw", "adopt --file proposal.md", ctx);
+
+    expect(ui.notifications.at(-1)?.level).toBe("warning");
+    expect(ui.notifications.at(-1)?.message).toContain("No markdown content found");
+  });
+
   it("shows worker diagnostics with landing, cleanup, and follow-up details", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

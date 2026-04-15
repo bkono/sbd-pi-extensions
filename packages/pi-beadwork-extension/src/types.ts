@@ -185,8 +185,20 @@ export type AdoptionDependency = {
   blockedIndex: number;
 };
 
+export type AdoptionPlanSourceKind = "inline" | "file" | "editor";
+
+export type AdoptionPlanSource = {
+  kind: AdoptionPlanSourceKind;
+  markdown: string;
+  label: string;
+  path?: string;
+};
+
 export type AdoptionPlan = {
   source: string;
+  sourceKind: AdoptionPlanSourceKind;
+  sourceLabel: string;
+  sourcePath?: string;
   title: string;
   landMode: AdoptionLandMode;
   steps: AdoptionStep[];

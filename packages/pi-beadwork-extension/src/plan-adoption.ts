@@ -5,10 +5,13 @@ import type {
   AdoptionLandMode,
   AdoptionOptions,
   AdoptionPlan,
+  AdoptionPlanSource,
   BeadworkIssue,
 } from "./types.js";
 
 const HEADING_REGEX = /^\s*#{1,6}\s+(.+?)\s*$/;
+const SOURCE_EXCERPT_LINE_LIMIT = 20;
+const SOURCE_EXCERPT_CHAR_LIMIT = 2_500;
 
 function trimBlock(value: string): string {
   return value.replace(/^\s+|\s+$/g, "");
@@ -94,37 +97,119 @@ function normalizeDependencies(
   return normalized;
 }
 
-export function resolvePlanSource(
-  inputText: string,
-  editorText: string | undefined,
-  fileText?: string,
-): string | undefined {
-  const direct = trimBlock(inputText);
+function normalizeAdoptionSource(source: string | AdoptionPlanSource): AdoptionPlanSource {
+  if (typeof source === "string") {
+    return {
+      kind: "inline",
+      markdown: source,
+      label: "inline markdown argument",
+    };
+  }
+
+  return source;
+}
+
+function formatSourceExcerpt(source: string): string[] {
+  const rawLines = source.split(/\r?\n/);
+  const excerptLines: string[] = [];
+  let usedChars = 0;
+
+  for (const line of rawLines.slice(0, SOURCE_EXCERPT_LINE_LIMIT)) {
+    const nextLength = usedChars + line.length;
+    if (nextLength > SOURCE_EXCERPT_CHAR_LIMIT) {
+      const remaining = Math.max(0, SOURCE_EXCERPT_CHAR_LIMIT - usedChars);
+      excerptLines.push(`${line.slice(0, remaining).trimEnd()}…`);
+      usedChars = SOURCE_EXCERPT_CHAR_LIMIT;
+      break;
+    }
+
+    excerptLines.push(line);
+    usedChars = nextLength;
+  }
+
+  const truncated =
+    rawLines.length > SOURCE_EXCERPT_LINE_LIMIT || source.length > SOURCE_EXCERPT_CHAR_LIMIT;
+
+  return [
+    "Source excerpt:",
+    "```md",
+    ...(excerptLines.length > 0 ? excerptLines : ["(empty)"]),
+    ...(truncated ? ["…"] : []),
+    "```",
+  ];
+}
+
+function buildPreviewPrefix(plan: AdoptionPlan): string[] {
+  const lines = [
+    `Plan title: ${plan.title}`,
+    `Plan source: ${plan.sourceLabel} (${plan.sourceKind})`,
+  ];
+
+  if (plan.sourcePath) {
+    lines.push(`Plan source path: ${plan.sourcePath}`);
+  }
+
+  return [...lines, "", ...formatSourceExcerpt(plan.source), ""];
+}
+
+export function resolvePlanSource(input: {
+  inlineText: string;
+  editorText: string | undefined;
+  file?: {
+    path: string;
+    markdown: string | undefined;
+  };
+}): AdoptionPlanSource | undefined {
+  if (input.file) {
+    const fromFile = trimBlock(input.file.markdown ?? "");
+    if (fromFile.length === 0) {
+      return undefined;
+    }
+
+    return {
+      kind: "file",
+      markdown: fromFile,
+      label: `file:${input.file.path}`,
+      path: input.file.path,
+    };
+  }
+
+  const direct = trimBlock(input.inlineText);
   if (direct.length > 0) {
-    return direct;
+    return {
+      kind: "inline",
+      markdown: direct,
+      label: "inline markdown argument",
+    };
   }
 
-  const fromFile = trimBlock(fileText ?? "");
-  if (fromFile.length > 0) {
-    return fromFile;
-  }
-
-  const editor = trimBlock(editorText ?? "");
+  const editor = trimBlock(input.editorText ?? "");
   if (editor.length > 0) {
-    return editor;
+    return {
+      kind: "editor",
+      markdown: editor,
+      label: "active editor markdown",
+    };
   }
 
   return undefined;
 }
 
-export function buildAdoptionPlan(source: string, options: AdoptionOptions = {}): AdoptionPlan {
-  const trimmed = trimBlock(source);
+export function buildAdoptionPlan(
+  source: string | AdoptionPlanSource,
+  options: AdoptionOptions = {},
+): AdoptionPlan {
+  const normalizedSource = normalizeAdoptionSource(source);
+  const trimmed = trimBlock(normalizedSource.markdown);
   const steps = normalizeSteps(options);
   const dependencies = normalizeDependencies(options.dependencies, steps.length);
   const landMode = options.landMode ?? (steps.length > 1 ? "multi" : "branch");
 
   return {
     source: trimmed,
+    sourceKind: normalizedSource.kind,
+    sourceLabel: normalizedSource.label,
+    sourcePath: normalizedSource.path,
     title: normalizePlanTitle(trimmed, options.title),
     landMode,
     steps,
@@ -136,8 +221,7 @@ export function buildAdoptionPlan(source: string, options: AdoptionOptions = {})
 function buildMultiStepSummary(plan: AdoptionPlan): string[] {
   if (plan.steps.length === 0) {
     return [
-      `Plan title: ${plan.title}`,
-      `Land mode: ${plan.landMode}`,
+      "Land mode: multi",
       "",
       "No explicit step graph was provided.",
       "Use beadwork_create_issue and beadwork_add_dependency to materialize decomposition explicitly.",
@@ -145,7 +229,6 @@ function buildMultiStepSummary(plan: AdoptionPlan): string[] {
   }
 
   const lines = [
-    `Plan title: ${plan.title}`,
     `Land mode: ${plan.landMode}`,
     `Steps: ${plan.steps.length}`,
     `Dependencies: ${plan.dependencies.length} (${plan.dependencyStrategy})`,
@@ -165,9 +248,11 @@ function buildMultiStepSummary(plan: AdoptionPlan): string[] {
 }
 
 export function formatAdoptionPreview(plan: AdoptionPlan): string {
+  const prefix = buildPreviewPrefix(plan);
+
   if (plan.landMode === "quick") {
     return [
-      `Plan title: ${plan.title}`,
+      ...prefix,
       "Land mode: quick",
       "",
       "No beadwork graph will be created for a quick-fix delivery.",
@@ -176,7 +261,7 @@ export function formatAdoptionPreview(plan: AdoptionPlan): string {
 
   if (plan.landMode === "branch") {
     return [
-      `Plan title: ${plan.title}`,
+      ...prefix,
       "Land mode: branch",
       "",
       "A single task will be created from this explicit plan source.",
@@ -184,7 +269,7 @@ export function formatAdoptionPreview(plan: AdoptionPlan): string {
     ].join("\n");
   }
 
-  return buildMultiStepSummary(plan).join("\n");
+  return [...prefix, ...buildMultiStepSummary(plan)].join("\n");
 }
 
 export async function applyAdoptionPlan(

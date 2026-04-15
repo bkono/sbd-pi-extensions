@@ -1496,11 +1496,17 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             }
           }
 
-          const source = resolvePlanSource(parsed.positional.join(" "), editorText, fileText);
+          const source = resolvePlanSource({
+            inlineText: parsed.positional.join(" "),
+            editorText,
+            file: planFile ? { path: planFile, markdown: fileText } : undefined,
+          });
 
           if (!source) {
             ctx.ui.notify(
-              "No explicit plan source found. Pass plan text to /bw adopt, provide --file <path>, or keep the plan in the editor.",
+              planFile
+                ? `No markdown content found in ${planFile}.`
+                : "No explicit markdown plan source found. Pass markdown to /bw adopt, provide --file <path>, or keep the plan in the editor.",
               "warning",
             );
             return;
@@ -1655,7 +1661,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [plan-text] [--file path] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
           "info",
         );
       } catch (error) {

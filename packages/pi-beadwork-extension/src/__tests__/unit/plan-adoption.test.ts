@@ -13,10 +13,13 @@ describe("plan adoption", () => {
     );
 
     expect(plan.title).toBe("Ship feature");
+    expect(plan.sourceKind).toBe("inline");
+    expect(plan.sourceLabel).toBe("inline markdown argument");
     expect(plan.landMode).toBe("branch");
     expect(plan.steps).toHaveLength(0);
     expect(plan.dependencies).toEqual([]);
     expect(plan.dependencyStrategy).toBe("none");
+    expect(formatAdoptionPreview(plan)).toContain("Source excerpt:");
     expect(formatAdoptionPreview(plan)).toContain("No automatic graph parsing is performed");
   });
 
@@ -42,10 +45,49 @@ describe("plan adoption", () => {
     expect(plan.dependencyStrategy).toBe("explicit");
   });
 
-  it("resolves plan text from inline input, file text, or editor text", () => {
-    expect(resolvePlanSource("inline plan", "editor plan", "file plan")).toBe("inline plan");
-    expect(resolvePlanSource("", "editor plan", "file plan")).toBe("file plan");
-    expect(resolvePlanSource("", "editor plan", "")).toBe("editor plan");
+  it("resolves plan text from explicit file input, inline markdown, or editor markdown", () => {
+    expect(
+      resolvePlanSource({
+        inlineText: "inline plan",
+        editorText: "editor plan",
+        file: { path: "/tmp/plan.md", markdown: "file plan" },
+      }),
+    ).toEqual({
+      kind: "file",
+      markdown: "file plan",
+      label: "file:/tmp/plan.md",
+      path: "/tmp/plan.md",
+    });
+
+    expect(
+      resolvePlanSource({
+        inlineText: "inline plan",
+        editorText: "editor plan",
+      }),
+    ).toEqual({
+      kind: "inline",
+      markdown: "inline plan",
+      label: "inline markdown argument",
+    });
+
+    expect(
+      resolvePlanSource({
+        inlineText: "",
+        editorText: "editor plan",
+      }),
+    ).toEqual({
+      kind: "editor",
+      markdown: "editor plan",
+      label: "active editor markdown",
+    });
+
+    expect(
+      resolvePlanSource({
+        inlineText: "inline plan",
+        editorText: "editor plan",
+        file: { path: "/tmp/empty.md", markdown: "   " },
+      }),
+    ).toBeUndefined();
   });
 
   it("applies an explicit multi-step plan into an epic, children, and dependencies", async () => {
