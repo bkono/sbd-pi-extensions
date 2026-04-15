@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-15T21:13:50Z",
+  "description": "Investigate and fix the delegated-worker completion/landing bug cluster seen with sbdpi-swx.8.2. Confirmed symptoms: worker log reached commit + `bw close` + `bw sync`, but runtime still showed `running`; runtime artifacts did not record `finished-at` / `exit-code`; `/bw workers` reported stale ticket status (`open`/`waiting-ticket-close`) even though `bw show` returned closed; pane reporting may also be stale/mismatched. Goal: make completed delegated workers transition cleanly into exit/landing inspection with accurate ticket/pane diagnostics.",
+  "id": "sbdpi-swx.9",
+  "labels": [],
+  "parent": "sbdpi-swx",
+  "priority": 2,
+  "status": "open",
+  "title": "Fix delegated worker completion detection after finished worker sessions",
+  "type": "task",
+  "updated_at": "2026-04-15T21:13:50Z"
+}
