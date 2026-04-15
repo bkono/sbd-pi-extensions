@@ -171,13 +171,19 @@ export type AdoptionPlan = {
   landMode: AdoptionLandMode;
   steps: AdoptionStep[];
   dependencies: AdoptionDependency[];
-  dependencyStrategy: "none" | "explicit" | "sequential";
+  dependencyStrategy: "none" | "explicit";
+};
+
+export type AdoptionInputStep = {
+  title: string;
+  description?: string;
 };
 
 export type AdoptionOptions = {
   title?: string;
   landMode?: AdoptionLandMode;
-  sequential?: boolean;
+  steps?: AdoptionInputStep[];
+  dependencies?: AdoptionDependency[];
 };
 
 export type AdoptionApplyResult = {
@@ -267,11 +273,4 @@ export type RunSummary = {
   workerSummary: WorkerSummary;
   notes: string[];
   cycleSummaries: RunCycleSummary[];
-};
-
-export type ExtensionBranchEntryLike = {
-  type: string;
-  message?: {
-    content?: unknown;
-  };
 };

@@ -20,7 +20,7 @@ Implemented:
 - `/bw start <id>`
 - `/bw close <id>`
 - `/bw sync`
-- `/bw adopt [--title ...] [--land quick|branch|multi] [--apply]`
+- `/bw adopt [plan-text] [--file path] [--title ...] [--land quick|branch|multi] [--apply]`
 - `/bw workers [epic-id]` with validation/landing/cleanup diagnostics and explicit `Next` follow-up actions
 - `/bw delegate <ticket-id>`
 - delegated-worker completion tracking in the parent session, including terminal-state notifications on later turns
@@ -73,11 +73,12 @@ Via `settings.json`:
 2. Run `/bw status`.
 3. Run `/bw engage` or `/bw engage <epic-id>`.
 4. Inspect state with `/bw ready` and `/bw show <id>`.
-5. Convert a conversational plan with `/bw adopt --title "..."`.
+5. Provide an explicit plan source with `/bw adopt --file path/to/plan.md --title "..."` (or inline plan text/editor text).
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
-7. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
-8. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, land, and clean it up automatically.
-9. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.
+7. For multi-ticket decomposition, ask the model to call `beadwork_create_issue` and `beadwork_add_dependency` tools explicitly.
+8. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
+9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, land, and clean it up automatically.
+10. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.
 
 ## Config
 

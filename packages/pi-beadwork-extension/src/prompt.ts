@@ -65,12 +65,15 @@ export function buildBeadworkPromptAppendix(input: {
           "Ask delivery-shape questions when needed.",
           "Encourage durable ticketization for non-trivial work.",
           "Prefer beadwork tickets over keeping long plans only in conversation.",
+          "When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.",
+          "Do not infer dependency graphs from ad hoc chat formatting.",
           "Do not autonomously launch workers or act like a background orchestrator.",
         ]
       : [
           "You are in beadwork run mode.",
           "Prefer durable beadwork state over conversational replanning.",
           "Delegate against existing ready tickets when automation exists.",
+          "Use beadwork tools for durable graph mutations instead of text parsing heuristics.",
           "Stop at explicit boundaries and summarize state clearly.",
         ];
 

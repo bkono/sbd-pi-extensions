@@ -6,13 +6,9 @@ import type {
   AdoptionOptions,
   AdoptionPlan,
   BeadworkIssue,
-  ExtensionBranchEntryLike,
 } from "./types.js";
 
-const BULLET_REGEX = /^\s*(?:[-*+]\s+|\d+[.)]\s+)(?:\[[ xX]\]\s+)?(.+?)\s*$/;
 const HEADING_REGEX = /^\s*#{1,6}\s+(.+?)\s*$/;
-const MERMAID_BLOCK_REGEX = /```mermaid\s*([\s\S]*?)```/gim;
-const MERMAID_EDGE_REGEX = /(^|\s)(\d+)\s*--+>\s*(\d+)(?=\s|$)/gm;
 
 function trimBlock(value: string): string {
   return value.replace(/^\s+|\s+$/g, "");
@@ -43,17 +39,12 @@ function normalizePlanTitle(source: string, overrideTitle?: string): string {
   return firstSentence.slice(0, 120);
 }
 
-function extractPlanSteps(source: string): AdoptionPlan["steps"] {
+function normalizeSteps(options: AdoptionOptions): AdoptionPlan["steps"] {
+  const rawSteps = options.steps ?? [];
   const steps: AdoptionPlan["steps"] = [];
-  const lines = source.split(/\r?\n/);
 
-  for (const line of lines) {
-    const match = line.match(BULLET_REGEX);
-    if (!match) {
-      continue;
-    }
-
-    const title = sanitizeStepTitle(match[1]);
+  for (const rawStep of rawSteps) {
+    const title = sanitizeStepTitle(rawStep.title ?? "");
     if (!title) {
       continue;
     }
@@ -61,90 +52,61 @@ function extractPlanSteps(source: string): AdoptionPlan["steps"] {
     steps.push({
       index: steps.length + 1,
       title,
-      description: title,
+      description: trimBlock(rawStep.description ?? title) || title,
     });
   }
 
   return steps;
 }
 
-function extractMermaidDependencies(source: string, stepCount: number): AdoptionDependency[] {
-  const dependencies: AdoptionDependency[] = [];
+function normalizeDependencies(
+  dependencies: AdoptionDependency[] | undefined,
+  stepCount: number,
+): AdoptionDependency[] {
+  const normalized: AdoptionDependency[] = [];
   const seen = new Set<string>();
 
-  for (const block of source.matchAll(MERMAID_BLOCK_REGEX)) {
-    const body = block[1] ?? "";
-    for (const edge of body.matchAll(MERMAID_EDGE_REGEX)) {
-      const blockerIndex = Number.parseInt(edge[2] ?? "", 10);
-      const blockedIndex = Number.parseInt(edge[3] ?? "", 10);
-      if (
-        Number.isNaN(blockerIndex) ||
-        Number.isNaN(blockedIndex) ||
-        blockerIndex < 1 ||
-        blockedIndex < 1 ||
-        blockerIndex > stepCount ||
-        blockedIndex > stepCount ||
-        blockerIndex === blockedIndex
-      ) {
-        continue;
-      }
+  for (const dependency of dependencies ?? []) {
+    const blockerIndex = Math.floor(dependency.blockerIndex);
+    const blockedIndex = Math.floor(dependency.blockedIndex);
 
-      const key = `${blockerIndex}->${blockedIndex}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      dependencies.push({ blockerIndex, blockedIndex });
+    if (
+      !Number.isFinite(blockerIndex) ||
+      !Number.isFinite(blockedIndex) ||
+      blockerIndex < 1 ||
+      blockedIndex < 1 ||
+      blockerIndex > stepCount ||
+      blockedIndex > stepCount ||
+      blockerIndex === blockedIndex
+    ) {
+      continue;
     }
+
+    const key = `${blockerIndex}->${blockedIndex}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push({ blockerIndex, blockedIndex });
   }
 
-  return dependencies;
-}
-
-function buildSequentialDependencies(stepCount: number): AdoptionDependency[] {
-  const dependencies: AdoptionDependency[] = [];
-  for (let index = 1; index < stepCount; index += 1) {
-    dependencies.push({ blockerIndex: index, blockedIndex: index + 1 });
-  }
-  return dependencies;
-}
-
-function extractTextBlocks(entry: ExtensionBranchEntryLike): string[] {
-  if (entry.type !== "message") {
-    return [];
-  }
-
-  const message = entry.message as { content?: unknown };
-  const content = message.content;
-
-  if (typeof content === "string") {
-    return [content];
-  }
-
-  if (!Array.isArray(content)) {
-    return [];
-  }
-
-  return content
-    .filter((block): block is { type: string; text?: string } =>
-      Boolean(block && typeof block === "object"),
-    )
-    .filter((block) => block.type === "text" && typeof block.text === "string")
-    .map((block) => block.text ?? "");
-}
-
-function looksPlanLike(source: string): boolean {
-  return BULLET_REGEX.test(source) || /\bplan\b/i.test(source) || /```mermaid/i.test(source);
+  return normalized;
 }
 
 export function resolvePlanSource(
   inputText: string,
   editorText: string | undefined,
-  entries: ExtensionBranchEntryLike[],
+  fileText?: string,
 ): string | undefined {
   const direct = trimBlock(inputText);
   if (direct.length > 0) {
     return direct;
+  }
+
+  const fromFile = trimBlock(fileText ?? "");
+  if (fromFile.length > 0) {
+    return fromFile;
   }
 
   const editor = trimBlock(editorText ?? "");
@@ -152,33 +114,14 @@ export function resolvePlanSource(
     return editor;
   }
 
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const blocks = extractTextBlocks(entries[index]);
-    const combined = trimBlock(blocks.join("\n\n"));
-    if (combined.length > 0 && looksPlanLike(combined)) {
-      return combined;
-    }
-  }
-
   return undefined;
 }
 
 export function buildAdoptionPlan(source: string, options: AdoptionOptions = {}): AdoptionPlan {
   const trimmed = trimBlock(source);
-  const steps = extractPlanSteps(trimmed);
-  const landMode = options.landMode ?? (steps.length <= 1 ? "branch" : "multi");
-
-  let dependencies = extractMermaidDependencies(trimmed, steps.length);
-  let dependencyStrategy: AdoptionPlan["dependencyStrategy"] = "explicit";
-
-  if (dependencies.length === 0 && options.sequential !== false && steps.length > 1) {
-    dependencies = buildSequentialDependencies(steps.length);
-    dependencyStrategy = "sequential";
-  }
-
-  if (dependencies.length === 0) {
-    dependencyStrategy = "none";
-  }
+  const steps = normalizeSteps(options);
+  const dependencies = normalizeDependencies(options.dependencies, steps.length);
+  const landMode = options.landMode ?? (steps.length > 1 ? "multi" : "branch");
 
   return {
     source: trimmed,
@@ -186,11 +129,21 @@ export function buildAdoptionPlan(source: string, options: AdoptionOptions = {})
     landMode,
     steps,
     dependencies,
-    dependencyStrategy,
+    dependencyStrategy: dependencies.length > 0 ? "explicit" : "none",
   };
 }
 
 function buildMultiStepSummary(plan: AdoptionPlan): string[] {
+  if (plan.steps.length === 0) {
+    return [
+      `Plan title: ${plan.title}`,
+      `Land mode: ${plan.landMode}`,
+      "",
+      "No explicit step graph was provided.",
+      "Use beadwork_create_issue and beadwork_add_dependency to materialize decomposition explicitly.",
+    ];
+  }
+
   const lines = [
     `Plan title: ${plan.title}`,
     `Land mode: ${plan.landMode}`,
@@ -226,10 +179,8 @@ export function formatAdoptionPreview(plan: AdoptionPlan): string {
       `Plan title: ${plan.title}`,
       "Land mode: branch",
       "",
-      "A single task will be created from this plan.",
-      plan.steps.length > 0
-        ? `Plan steps detected: ${plan.steps.length}`
-        : "No explicit plan steps detected.",
+      "A single task will be created from this explicit plan source.",
+      "No automatic graph parsing is performed; use tools for multi-ticket decomposition.",
     ].join("\n");
   }
 

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { Type } from "@mariozechner/pi-ai";
 import type {
   ExtensionAPI,
@@ -68,6 +70,7 @@ export type {
   ActivationState,
   AdoptionApplyResult,
   AdoptionDependency,
+  AdoptionInputStep,
   AdoptionLandMode,
   AdoptionOptions,
   AdoptionPlan,
@@ -1136,24 +1139,33 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             typeof parsed.options.get("title") === "string"
               ? String(parsed.options.get("title"))
               : undefined;
+          const planFile =
+            typeof parsed.options.get("file") === "string"
+              ? path.resolve(ctx.cwd, String(parsed.options.get("file")))
+              : undefined;
           const apply = parsed.options.has("apply");
-          const sequential = !parsed.options.has("no-sequential");
           const editorText = "getEditorText" in ctx.ui ? ctx.ui.getEditorText() : undefined;
-          const source = resolvePlanSource(
-            parsed.positional.join(" "),
-            editorText,
-            ctx.sessionManager.getBranch() as Parameters<typeof resolvePlanSource>[2],
-          );
+
+          let fileText: string | undefined;
+          if (planFile) {
+            try {
+              fileText = await readFile(planFile, "utf8");
+            } catch (error) {
+              throw new Error(`Failed to read plan file ${planFile}: ${humanizeError(error)}`);
+            }
+          }
+
+          const source = resolvePlanSource(parsed.positional.join(" "), editorText, fileText);
 
           if (!source) {
             ctx.ui.notify(
-              "No plan text found. Pass plan text to /bw adopt, keep it in the editor, or run after producing a plan in the session.",
+              "No explicit plan source found. Pass plan text to /bw adopt, provide --file <path>, or keep the plan in the editor.",
               "warning",
             );
             return;
           }
 
-          const plan = buildAdoptionPlan(source, { title, landMode, sequential });
+          const plan = buildAdoptionPlan(source, { title, landMode });
           const preview = formatAdoptionPreview(plan);
 
           if (!apply) {
@@ -1193,6 +1205,14 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             );
             resultLines.push(`Session scope set to ${rootScope.kind}:${rootScope.id}`);
           }
+
+          if (plan.landMode === "multi") {
+            resultLines.push(
+              "",
+              "Next: ask the model to decompose this plan with beadwork_create_issue and beadwork_add_dependency.",
+            );
+          }
+
           await showAdoptionResult(ctx, resultLines);
           return;
         }
@@ -1294,7 +1314,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|show <id>|start <id>|close <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [plan-text] [--file path] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
           "info",
         );
       } catch (error) {
