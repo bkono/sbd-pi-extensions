@@ -4,14 +4,15 @@
   "blocks": [
     "sbdpi-swx.3"
   ],
+  "closed_at": "2026-04-15T21:04:28Z",
   "created": "2026-04-15T17:38:49Z",
   "description": "Simplify the extension architecture where logic is currently over-engineered around ad hoc parsing.\n\nScope:\n- identify flows that should mostly inject prompts / user messages and let the model call tools\n- keep non-LLM responsibilities focused on disk/process/worktree/runtime actions\n- reduce bespoke parsing where the extension is guessing intent or structure from text\n- make the slash-command layer and tool layer the stable API surface for both humans and LLMs",
   "id": "sbdpi-swx.8.2",
   "labels": [],
   "parent": "sbdpi-swx.8",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Reduce parser-heavy flows and favor prompt/tool-driven agentic execution",
   "type": "task",
-  "updated_at": "2026-04-15T20:55:59Z"
+  "updated_at": "2026-04-15T21:04:28Z"
 }
