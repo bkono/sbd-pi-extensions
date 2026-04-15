@@ -15,8 +15,8 @@
   "labels": [],
   "parent": "sbdpi-swx.6",
   "priority": 1,
-  "status": "closed",
+  "status": "open",
   "title": "Auto-validate, rebase if needed, land, and clean up delegated worktrees",
   "type": "task",
-  "updated_at": "2026-04-15T18:46:34Z"
+  "updated_at": "2026-04-15T19:20:18Z"
 }
