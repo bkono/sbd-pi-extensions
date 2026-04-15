@@ -31,6 +31,7 @@ import {
   listWorkers,
   runBoundedEpicLoop,
   stopWorkers,
+  type WorkerLifecycleEvent,
 } from "./orchestrator.js";
 import {
   applyAdoptionPlan,
@@ -286,6 +287,16 @@ function buildSupervisorRunSummary(state: SessionState, config: BeadworkConfig):
   };
 }
 
+function buildLifecycleEventNotice(event: WorkerLifecycleEvent): {
+  level: "info" | "warning";
+  message: string;
+} {
+  switch (event.type) {
+    case "post-exit-started":
+      return { level: "info", message: event.message };
+  }
+}
+
 function buildWorkerNotice(input: {
   worker: WorkerRuntime;
   inspection: ReturnType<typeof inspectWorker>;
@@ -365,7 +376,9 @@ function buildWorkerNotice(input: {
       return {
         key,
         level: "info",
-        message: `Delegated ticket ${worker.ticketId} landed cleanly and cleanup completed.`,
+        message:
+          `Delegated ticket ${worker.ticketId} completed successfully: validation passed, ` +
+          "changes were merged back into the repo branch, and cleanup completed.",
       };
     }
 
@@ -378,12 +391,12 @@ function buildWorkerNotice(input: {
     }
 
     const validation =
-      inspection.validation.state === "passed" ? " Validation passed before landing." : "";
+      inspection.validation.state === "passed" ? " Validation passed before merge-back." : "";
     return {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} landed cleanly.${validation} ${inspection.followUp.action}`.trim(),
+        `Delegated ticket ${worker.ticketId} completed successfully: changes were merged back into the repo branch.${validation} ${inspection.followUp.action}`.trim(),
     };
   }
 
@@ -817,6 +830,10 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           worker,
           adapter,
           config,
+          onLifecycleEvent: (event) => {
+            const notice = buildLifecycleEventNotice(event);
+            ctx.ui.notify(notice.message, notice.level);
+          },
         }),
       ),
     );
@@ -1429,7 +1446,8 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             prime: stateWithPrime.prime?.content,
           });
           ctx.ui.notify(
-            `Launched worker ${worker.workerId} for ${worker.ticketId} in ${worker.worktreePath}.`,
+            `Launched worker ${worker.workerId} for ${worker.ticketId} in ${worker.worktreePath}. ` +
+              `Background supervision will keep checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and will notify when the worker exits and when landing completes. Follow progress in ${worker.logFile}.`,
             "info",
           );
           const workers = await inspectWorkers(ctx, active.activation, active.config, {

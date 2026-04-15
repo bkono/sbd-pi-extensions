@@ -11,33 +11,39 @@ import {
   createFakeUi,
 } from "../helpers/extension-harness.js";
 
-const { detectActivationMock, adapterMock, createBeadworkAdapterMock, runBoundedEpicLoopMock } =
-  vi.hoisted(() => ({
-    detectActivationMock: vi.fn(),
-    adapterMock: {
-      prime: vi.fn(),
-      ready: vi.fn(),
-      blocked: vi.fn(),
-      list: vi.fn(),
-      show: vi.fn(),
-      history: vi.fn(),
-      createIssue: vi.fn(),
-      updateIssue: vi.fn(),
-      addDependency: vi.fn(),
-      removeDependency: vi.fn(),
-      comment: vi.fn(),
-      label: vi.fn(),
-      start: vi.fn(),
-      close: vi.fn(),
-      reopen: vi.fn(),
-      defer: vi.fn(),
-      undefer: vi.fn(),
-      sync: vi.fn(),
-      getCounts: vi.fn(),
-    },
-    createBeadworkAdapterMock: vi.fn(),
-    runBoundedEpicLoopMock: vi.fn(),
-  }));
+const {
+  detectActivationMock,
+  adapterMock,
+  createBeadworkAdapterMock,
+  runBoundedEpicLoopMock,
+  launchTicketWorkerMock,
+} = vi.hoisted(() => ({
+  detectActivationMock: vi.fn(),
+  adapterMock: {
+    prime: vi.fn(),
+    ready: vi.fn(),
+    blocked: vi.fn(),
+    list: vi.fn(),
+    show: vi.fn(),
+    history: vi.fn(),
+    createIssue: vi.fn(),
+    updateIssue: vi.fn(),
+    addDependency: vi.fn(),
+    removeDependency: vi.fn(),
+    comment: vi.fn(),
+    label: vi.fn(),
+    start: vi.fn(),
+    close: vi.fn(),
+    reopen: vi.fn(),
+    defer: vi.fn(),
+    undefer: vi.fn(),
+    sync: vi.fn(),
+    getCounts: vi.fn(),
+  },
+  createBeadworkAdapterMock: vi.fn(),
+  runBoundedEpicLoopMock: vi.fn(),
+  launchTicketWorkerMock: vi.fn(),
+}));
 
 vi.mock("@mariozechner/pi-ai", () => ({
   Type: {
@@ -64,6 +70,7 @@ vi.mock("../../orchestrator.js", async () => {
   return {
     ...actual,
     runBoundedEpicLoop: runBoundedEpicLoopMock,
+    launchTicketWorker: launchTicketWorkerMock,
   };
 });
 
@@ -129,6 +136,7 @@ describe("pi beadwork extension", () => {
     vi.unstubAllEnvs();
     createBeadworkAdapterMock.mockReturnValue(adapterMock);
     adapterMock.prime.mockResolvedValue("prime guidance");
+    launchTicketWorkerMock.mockReset();
     adapterMock.ready.mockResolvedValue([]);
     adapterMock.blocked.mockResolvedValue([]);
     adapterMock.list.mockResolvedValue([]);
@@ -521,6 +529,32 @@ describe("pi beadwork extension", () => {
     expect(message).not.toContain("landed cleanly");
   });
 
+  it("shows explicit launch guidance after /bw delegate", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-delegate-guidance",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    launchTicketWorkerMock.mockResolvedValue({
+      ...createWorkerRuntime(tempDir),
+      status: "running",
+      ticketStatus: "open",
+      workerId: "bw-101-worker",
+    });
+
+    await harness.invokeCommand("bw", "delegate BW-101", ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("Launched worker bw-101-worker for BW-101");
+    expect(message).toContain("Background supervision will keep checking every 30s");
+    expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
+  });
+
   it("tracks delegated workers from a neutral session and notifies once when they land", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -561,7 +595,9 @@ describe("pi beadwork extension", () => {
 
     await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
 
-    expect(ui.notifications.at(-1)?.message).toContain("Delegated ticket BW-101 landed cleanly.");
+    expect(ui.notifications.at(-1)?.message).toContain(
+      "Delegated ticket BW-101 completed successfully",
+    );
 
     const persisted = await loadSessionState(stateDir, "session-worker-tracking");
     expect(persisted.trackedWorkerIds).toBeUndefined();
@@ -617,7 +653,7 @@ describe("pi beadwork extension", () => {
 
     expect(
       ui.notifications.some((entry) =>
-        entry.message.includes("Delegated ticket BW-101 landed cleanly."),
+        entry.message.includes("Delegated ticket BW-101 completed successfully"),
       ),
     ).toBe(true);
 

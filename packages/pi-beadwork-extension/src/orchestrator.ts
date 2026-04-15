@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BeadworkAdapter } from "./bw.js";
 import { buildWorkerHandoff } from "./handoff.js";
@@ -90,9 +90,14 @@ function buildWorkerScript(input: {
 }): string {
   return `#!/usr/bin/env bash
 set -uo pipefail
+exec > >(tee -a ${shellQuote(input.logFile)}) 2>&1
+printf '[beadwork worker] started %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+printf '[beadwork worker] cwd: %s\n' "$PWD"
+printf '[beadwork worker] handoff: %s\n' ${shellQuote(input.promptFile)}
+printf '[beadwork worker] command: %s\n' ${shellQuote(input.workerAgentCommand)}
 printf 'running\n' > ${shellQuote(input.stateFile)}
-${input.workerAgentCommand} "$(cat ${shellQuote(input.promptFile)})" 2>&1 | tee -a ${shellQuote(input.logFile)}
-status=\${PIPESTATUS[0]}
+${input.workerAgentCommand} "$(cat ${shellQuote(input.promptFile)})"
+status=$?
 printf '%s\n' "$status" > ${shellQuote(input.exitCodeFile)}
 date -u +"%Y-%m-%dT%H:%M:%SZ" > ${shellQuote(input.finishedAtFile)}
 if [[ "$status" -eq 0 ]]; then
@@ -100,10 +105,29 @@ if [[ "$status" -eq 0 ]]; then
 else
   printf 'failed\n' > ${shellQuote(input.stateFile)}
 fi
-printf '\n[beadwork worker exited with code %s]\n' "$status"
+printf '[beadwork worker] finished %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+printf '[beadwork worker exited with code %s]\n' "$status"
 exit "$status"
 `;
 }
+
+async function appendWorkerLog(logFile: string, message: string): Promise<void> {
+  try {
+    await appendFile(
+      logFile,
+      `[beadwork orchestrator] ${new Date().toISOString()} ${message}\n`,
+      "utf8",
+    );
+  } catch {
+    // best-effort runtime logging only
+  }
+}
+
+export type WorkerLifecycleEvent = {
+  type: "post-exit-started";
+  ticketId: string;
+  message: string;
+};
 
 async function cleanupLandedWorker(input: {
   repoRoot: string;
@@ -157,6 +181,7 @@ async function autoLandCompletedWorker(input: {
   config: BeadworkConfig;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
+  onLifecycleEvent?: (event: WorkerLifecycleEvent) => Promise<void> | void;
 }): Promise<WorkerRuntime> {
   const attempts = Math.max(1, input.config.landing.maxRebaseAttempts);
   const validationRequired = input.config.landing.validateCommands.length > 0;
@@ -165,9 +190,25 @@ async function autoLandCompletedWorker(input: {
     validationStatus: validationRequired ? (input.worker.validationStatus ?? "pending") : undefined,
   };
 
+  if (input.worker.status !== "attention" && input.worker.status !== "landed") {
+    await appendWorkerLog(
+      worker.logFile,
+      `starting post-worker validation and landing checks for ${worker.ticketId}`,
+    );
+    await input.onLifecycleEvent?.({
+      type: "post-exit-started",
+      ticketId: worker.ticketId,
+      message: `Delegated ticket ${worker.ticketId} exited. Starting validation and merge-back checks.`,
+    });
+  }
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let landing: LandingVerificationResult;
     try {
+      await appendWorkerLog(
+        worker.logFile,
+        `checking landing state (attempt ${attempt}/${attempts})`,
+      );
       landing = await verifyWorktreeLanding({
         repoRoot: input.repoRoot,
         worktreePath: input.worker.worktreePath,
@@ -195,6 +236,10 @@ async function autoLandCompletedWorker(input: {
     }
 
     if ((landing.aheadCount ?? 0) > 0 && (landing.behindCount ?? 0) > 0) {
+      await appendWorkerLog(
+        worker.logFile,
+        "repo head moved; attempting to rebase worker worktree",
+      );
       const rebase = await rebaseWorktreeOntoRepoHead({
         repoRoot: input.repoRoot,
         worktreePath: input.worker.worktreePath,
@@ -215,6 +260,10 @@ async function autoLandCompletedWorker(input: {
     }
 
     if (validationRequired) {
+      await appendWorkerLog(
+        worker.logFile,
+        "running configured validation commands before landing",
+      );
       const validation = await runWorktreeValidation({
         worktreePath: input.worker.worktreePath,
         commands: input.config.landing.validateCommands,
@@ -230,6 +279,11 @@ async function autoLandCompletedWorker(input: {
         updatedAt: new Date().toISOString(),
       };
 
+      await appendWorkerLog(
+        worker.logFile,
+        validation.passed ? "validation passed" : `validation failed: ${validation.detail}`,
+      );
+
       if (!validation.passed) {
         return buildAttentionState(worker, validation.detail, {
           landingVerification: `Landing blocked after validation failure. ${validation.detail}`,
@@ -238,6 +292,10 @@ async function autoLandCompletedWorker(input: {
     }
 
     if (landing.verified) {
+      await appendWorkerLog(
+        worker.logFile,
+        "worker changes are already integrated into the repo branch",
+      );
       const landedWorker: WorkerRuntime = {
         ...worker,
         status: "landed",
@@ -250,6 +308,10 @@ async function autoLandCompletedWorker(input: {
         landedWorker.cleanupPolicy === "cleanup-after-landing" &&
         landedWorker.cleanupStatus !== "cleaned"
       ) {
+        await appendWorkerLog(
+          worker.logFile,
+          "cleanup-after-landing is enabled; cleaning up tmux session and worktree",
+        );
         const cleanup = await cleanupLandedWorker({
           repoRoot: input.repoRoot,
           worker: landedWorker,
@@ -272,6 +334,7 @@ async function autoLandCompletedWorker(input: {
       return buildAttentionState(worker, landing.detail);
     }
 
+    await appendWorkerLog(worker.logFile, "landing worker branch back into the repo branch");
     const landed = await landWorktreeBranch({
       repoRoot: input.repoRoot,
       worktreePath: input.worker.worktreePath,
@@ -291,6 +354,7 @@ async function autoLandCompletedWorker(input: {
       return buildAttentionState(worker, landed.detail);
     }
 
+    await appendWorkerLog(worker.logFile, "verifying merge-back containment after landing");
     const verifiedAfterLanding = await verifyWorktreeLanding({
       repoRoot: input.repoRoot,
       worktreePath: input.worker.worktreePath,
@@ -319,6 +383,10 @@ async function autoLandCompletedWorker(input: {
         landedWorker.cleanupPolicy === "cleanup-after-landing" &&
         landedWorker.cleanupStatus !== "cleaned"
       ) {
+        await appendWorkerLog(
+          worker.logFile,
+          "cleanup-after-landing is enabled; cleaning up tmux session and worktree",
+        );
         const cleanup = await cleanupLandedWorker({
           repoRoot: input.repoRoot,
           worker: landedWorker,
@@ -512,6 +580,7 @@ export async function inspectWorkerRuntime(input: {
   config?: BeadworkConfig;
   tmuxBackend?: TmuxBackend;
   runner?: ProcessRunner;
+  onLifecycleEvent?: (event: WorkerLifecycleEvent) => Promise<void> | void;
 }): Promise<WorkerRuntime> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
   const runner = input.runner ?? defaultProcessRunner;
@@ -580,6 +649,7 @@ export async function inspectWorkerRuntime(input: {
       config,
       tmuxBackend,
       runner,
+      onLifecycleEvent: input.onLifecycleEvent,
     });
 
     return {

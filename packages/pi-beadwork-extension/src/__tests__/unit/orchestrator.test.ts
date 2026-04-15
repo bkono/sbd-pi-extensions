@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -370,6 +370,94 @@ describe("worker inspection", () => {
     expect(inspected.status).toBe("landed");
     expect(inspected.validationStatus).toBe("passed");
     expect(inspected.validationSummary).toContain("Validation passed");
+  });
+
+  it("emits a post-exit lifecycle event and appends orchestration progress to worker.log", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = path.join(repoRoot, "runtime");
+    await mkdir(worktreePath, { recursive: true });
+    await mkdir(runtimeDir, { recursive: true });
+
+    const logFile = path.join(runtimeDir, "worker.log");
+    await writeFile(logFile, "", "utf8");
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile,
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "0 2\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "merge-base\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+    const onLifecycleEvent = vi.fn();
+
+    await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+      onLifecycleEvent,
+    });
+
+    expect(onLifecycleEvent).toHaveBeenCalledWith({
+      type: "post-exit-started",
+      ticketId: "BW-101",
+      message: "Delegated ticket BW-101 exited. Starting validation and merge-back checks.",
+    });
+
+    const log = await readFile(logFile, "utf8");
+    expect(log).toContain("starting post-worker validation and landing checks");
+    expect(log).toContain("running configured validation commands before landing");
   });
 
   it("moves completed workers into attention when validation fails", async () => {
