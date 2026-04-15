@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [
     "sbdpi-swx.3"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "sbdpi-swx.8",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Reduce parser-heavy flows and favor prompt/tool-driven agentic execution",
   "type": "task",
-  "updated_at": "2026-04-15T17:39:17Z"
+  "updated_at": "2026-04-15T20:55:59Z"
 }
