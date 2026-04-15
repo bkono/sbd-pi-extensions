@@ -23,6 +23,47 @@ export type LandingVerificationResult = {
   detail: string;
 };
 
+export type WorktreeDivergence = {
+  repoHead: string;
+  workerHead: string;
+  aheadCount: number;
+  behindCount: number;
+};
+
+export type WorktreeRebaseResult = {
+  attempted: boolean;
+  rebased: boolean;
+  checkedAt: string;
+  repoHead: string;
+  workerHead: string;
+  aheadCount: number;
+  behindCount: number;
+  detail: string;
+};
+
+export type WorktreeValidationResult = {
+  checkedAt: string;
+  passed: boolean;
+  commandsRun: string[];
+  detail: string;
+};
+
+export type WorktreeLandResult = {
+  attempted: boolean;
+  landed: boolean;
+  checkedAt: string;
+  repoHead: string;
+  workerHead: string;
+  detail: string;
+};
+
+function humanizeError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return String(error);
+}
+
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
@@ -111,6 +152,188 @@ async function repoContainsWorkerDiff(input: {
   } catch {
     return false;
   }
+}
+
+export async function inspectWorktreeDivergence(input: {
+  repoRoot: string;
+  worktreePath: string;
+  runner?: ProcessRunner;
+}): Promise<WorktreeDivergence> {
+  const runner = input.runner ?? defaultProcessRunner;
+  const [repoHead, workerHead] = await Promise.all([
+    readGitRevision(input.repoRoot, "HEAD", runner),
+    readGitRevision(input.worktreePath, "HEAD", runner),
+  ]);
+  const { behindCount, aheadCount } = await readAheadBehindCounts(
+    input.repoRoot,
+    repoHead,
+    workerHead,
+    runner,
+  );
+
+  return {
+    repoHead,
+    workerHead,
+    aheadCount,
+    behindCount,
+  };
+}
+
+export async function rebaseWorktreeOntoRepoHead(input: {
+  repoRoot: string;
+  worktreePath: string;
+  runner?: ProcessRunner;
+}): Promise<WorktreeRebaseResult> {
+  const runner = input.runner ?? defaultProcessRunner;
+  const checkedAt = new Date().toISOString();
+  const divergence = await inspectWorktreeDivergence(input);
+
+  if (divergence.aheadCount === 0) {
+    return {
+      attempted: false,
+      rebased: false,
+      checkedAt,
+      ...divergence,
+      detail: "Worker HEAD is already fully contained in repo HEAD.",
+    };
+  }
+
+  if (divergence.behindCount === 0) {
+    return {
+      attempted: false,
+      rebased: false,
+      checkedAt,
+      ...divergence,
+      detail: "Worker branch is already based on the current repo HEAD.",
+    };
+  }
+
+  try {
+    await runner("git", ["rebase", divergence.repoHead], {
+      cwd: input.worktreePath,
+      timeout: 300_000,
+    });
+  } catch (error) {
+    try {
+      await runner("git", ["rebase", "--abort"], {
+        cwd: input.worktreePath,
+        timeout: 30_000,
+      });
+    } catch {
+      // ignore abort failures; surface the original rebase error below
+    }
+
+    return {
+      attempted: true,
+      rebased: false,
+      checkedAt,
+      ...divergence,
+      detail: `Rebase onto repo HEAD failed: ${humanizeError(error)}`,
+    };
+  }
+
+  const nextDivergence = await inspectWorktreeDivergence(input);
+  return {
+    attempted: true,
+    rebased: true,
+    checkedAt,
+    ...nextDivergence,
+    detail:
+      nextDivergence.behindCount > 0
+        ? `Rebased worker branch onto repo HEAD, but repo advanced again during the operation (ahead=${nextDivergence.aheadCount}, behind=${nextDivergence.behindCount}).`
+        : `Rebased worker branch onto repo HEAD (ahead=${nextDivergence.aheadCount}, behind=${nextDivergence.behindCount}).`,
+  };
+}
+
+export async function runWorktreeValidation(input: {
+  worktreePath: string;
+  commands: string[];
+  timeoutMs?: number;
+  runner?: ProcessRunner;
+}): Promise<WorktreeValidationResult> {
+  const runner = input.runner ?? defaultProcessRunner;
+  const checkedAt = new Date().toISOString();
+  const commandsRun: string[] = [];
+
+  if (input.commands.length === 0) {
+    return {
+      checkedAt,
+      passed: true,
+      commandsRun,
+      detail: "No validation commands configured.",
+    };
+  }
+
+  for (const command of input.commands) {
+    try {
+      await runner("bash", ["-lc", command], {
+        cwd: input.worktreePath,
+        timeout: input.timeoutMs ?? 600_000,
+      });
+      commandsRun.push(command);
+    } catch (error) {
+      return {
+        checkedAt,
+        passed: false,
+        commandsRun,
+        detail: `Validation failed on \`${command}\`: ${humanizeError(error)}`,
+      };
+    }
+  }
+
+  return {
+    checkedAt,
+    passed: true,
+    commandsRun,
+    detail: `Validation passed: ${input.commands.join(", ")}.`,
+  };
+}
+
+export async function landWorktreeBranch(input: {
+  repoRoot: string;
+  worktreePath: string;
+  runner?: ProcessRunner;
+}): Promise<WorktreeLandResult> {
+  const runner = input.runner ?? defaultProcessRunner;
+  const checkedAt = new Date().toISOString();
+  const divergence = await inspectWorktreeDivergence(input);
+
+  if (divergence.aheadCount === 0) {
+    return {
+      attempted: false,
+      landed: true,
+      checkedAt,
+      repoHead: divergence.repoHead,
+      workerHead: divergence.workerHead,
+      detail: "Worker HEAD is already present in repo HEAD.",
+    };
+  }
+
+  try {
+    await runner("git", ["merge", "--ff-only", divergence.workerHead], {
+      cwd: input.repoRoot,
+      timeout: 300_000,
+    });
+  } catch (error) {
+    return {
+      attempted: true,
+      landed: false,
+      checkedAt,
+      repoHead: divergence.repoHead,
+      workerHead: divergence.workerHead,
+      detail: `Fast-forward landing failed: ${humanizeError(error)}`,
+    };
+  }
+
+  const nextRepoHead = await readGitRevision(input.repoRoot, "HEAD", runner);
+  return {
+    attempted: true,
+    landed: true,
+    checkedAt,
+    repoHead: nextRepoHead,
+    workerHead: divergence.workerHead,
+    detail: `Landed worker HEAD ${divergence.workerHead} into repo HEAD via fast-forward.`,
+  };
 }
 
 export function buildTicketBranchName(ticketId: string, title: string): string {

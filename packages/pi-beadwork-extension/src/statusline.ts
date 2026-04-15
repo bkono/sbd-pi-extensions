@@ -31,6 +31,9 @@ export function renderStatusText(
     if (workerSummary && workerSummary.failed > 0) {
       parts.push(theme.fg("warning", `· fail ${workerSummary.failed}`));
     }
+    if (workerSummary && workerSummary.attention > 0) {
+      parts.push(theme.fg("warning", `· attention ${workerSummary.attention}`));
+    }
     return parts.join(" ");
   }
 

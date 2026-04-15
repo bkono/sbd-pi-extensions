@@ -37,4 +37,9 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     defaultMaxCycles: 12,
     pollIntervalMs: 2_000,
   },
+  landing: {
+    validateCommands: ["npm run lint", "npm run test", "npm run typecheck"],
+    commandTimeoutMs: 600_000,
+    maxRebaseAttempts: 2,
+  },
 };

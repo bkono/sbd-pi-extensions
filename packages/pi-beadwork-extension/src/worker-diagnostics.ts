@@ -2,8 +2,19 @@ import type { WorkerRuntime } from "./types.js";
 
 export type WorkerInspection = {
   runtime: WorkerRuntime;
+  validation: {
+    state: "not-run" | "pending" | "passed" | "failed";
+    summary: string;
+    detail?: string;
+    at?: string;
+  };
   landing: {
-    state: "waiting-ticket-close" | "verified" | "pending-review" | "verification-failed";
+    state:
+      | "waiting-ticket-close"
+      | "verified"
+      | "pending-review"
+      | "verification-failed"
+      | "blocked";
     summary: string;
     detail?: string;
     aheadCount?: number;
@@ -33,7 +44,53 @@ function formatAheadBehind(worker: WorkerRuntime): string | undefined {
   return `ahead=${worker.landingAheadCount ?? 0}, behind=${worker.landingBehindCount ?? 0}`;
 }
 
+function describeValidation(worker: WorkerRuntime): WorkerInspection["validation"] {
+  if (worker.validationStatus === "passed") {
+    return {
+      state: "passed",
+      summary: "passed",
+      detail: worker.validationSummary,
+      at: worker.validationAt,
+    };
+  }
+
+  if (worker.validationStatus === "failed") {
+    return {
+      state: "failed",
+      summary: "failed",
+      detail: worker.validationSummary,
+      at: worker.validationAt,
+    };
+  }
+
+  if (worker.validationStatus === "pending") {
+    return {
+      state: "pending",
+      summary: "pending",
+      detail: worker.validationSummary,
+      at: worker.validationAt,
+    };
+  }
+
+  return {
+    state: "not-run",
+    summary: "not-run",
+    detail: worker.validationSummary,
+    at: worker.validationAt,
+  };
+}
+
 function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
+  if (worker.status === "attention" && worker.lastError) {
+    return {
+      state: "blocked",
+      summary: "blocked",
+      detail: worker.lastError,
+      aheadCount: worker.landingAheadCount,
+      behindCount: worker.landingBehindCount,
+    };
+  }
+
   if (worker.ticketStatus !== "closed") {
     return {
       state: "waiting-ticket-close",
@@ -115,6 +172,7 @@ function describeCleanup(worker: WorkerRuntime): WorkerInspection["cleanup"] {
 
 function describeFollowUp(
   worker: WorkerRuntime,
+  validation: WorkerInspection["validation"],
   landing: WorkerInspection["landing"],
   cleanup: WorkerInspection["cleanup"],
 ): WorkerInspection["followUp"] {
@@ -144,6 +202,21 @@ function describeFollowUp(
     return {
       needsAttention: true,
       action: "Inspect worker logs and re-run after fixing the failure.",
+    };
+  }
+
+  if (worker.status === "attention") {
+    if (validation.state === "failed") {
+      return {
+        needsAttention: true,
+        action:
+          worker.validationSummary ?? "Validation failed; fix the worktree and re-run /bw workers.",
+      };
+    }
+
+    return {
+      needsAttention: true,
+      action: worker.lastError ?? "Worker needs operator attention before it can be landed.",
     };
   }
 
@@ -210,11 +283,13 @@ function describeFollowUp(
 }
 
 export function inspectWorker(worker: WorkerRuntime): WorkerInspection {
+  const validation = describeValidation(worker);
   const landing = describeLanding(worker);
   const cleanup = describeCleanup(worker);
-  const followUp = describeFollowUp(worker, landing, cleanup);
+  const followUp = describeFollowUp(worker, validation, landing, cleanup);
   return {
     runtime: worker,
+    validation,
     landing,
     cleanup,
     followUp,
@@ -226,9 +301,13 @@ export function formatWorkerInspectionLines(inspection: WorkerInspection): strin
   const lines = [
     `- ${worker.ticketId} · ${worker.status} · ${worker.ticketTitle}`,
     `  Worker: ${worker.workerId} · pane:${worker.tmuxPane}`,
-    `  Ticket: ${worker.ticketStatus ?? "unknown"} · landing:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
+    `  Ticket: ${worker.ticketStatus ?? "unknown"} · validation:${inspection.validation.summary} · landing:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
     `  Next: ${inspection.followUp.action}`,
   ];
+
+  if (inspection.validation.detail) {
+    lines.push(`  Validation detail: ${inspection.validation.detail}`);
+  }
 
   if (inspection.landing.detail) {
     lines.push(`  Landing detail: ${inspection.landing.detail}`);

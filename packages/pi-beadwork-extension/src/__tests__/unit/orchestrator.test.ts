@@ -1,10 +1,15 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { BeadworkAdapter } from "../../bw.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
-import { buildWorkerAgentCommand, runBoundedEpicLoop, stopWorkers } from "../../orchestrator.js";
+import {
+  buildWorkerAgentCommand,
+  inspectWorkerRuntime,
+  runBoundedEpicLoop,
+  stopWorkers,
+} from "../../orchestrator.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
 import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
@@ -123,6 +128,171 @@ describe("orchestrator helpers", () => {
   });
 });
 
+describe("worker inspection", () => {
+  it("auto-validates, lands, and cleans up a completed worker", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+    await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      cleanupPolicy: "cleanup-after-landing",
+      cleanupStatus: "pending",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    let repoHead = "repo-head";
+    let workerHead = "worker-head";
+    let diverged = true;
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: `${repoHead}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: `${workerHead}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return {
+          stdout: merged ? "0 0\n" : diverged ? "1 2\n" : "0 2\n",
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "merge-base\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("git diff --binary")) {
+        throw new Error("reverse apply failed");
+      }
+      if (command === "git" && args[0] === "rebase") {
+        diverged = false;
+        workerHead = "worker-rebased";
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        repoHead = workerHead;
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "worktree" && args[1] === "remove") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("landed");
+    expect(inspected.validationStatus).toBe("passed");
+    expect(inspected.cleanupStatus).toBe("cleaned");
+    expect(inspected.landingVerifiedAt).toBeTruthy();
+    expect(inspected.lastError).toBeUndefined();
+    expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
+  });
+
+  it("moves completed workers into attention when validation fails", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "0 2\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "merge-base\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("git diff --binary")) {
+        throw new Error("reverse apply failed");
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        throw new Error("lint failed");
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.validationStatus).toBe("failed");
+    expect(inspected.lastError).toContain("npm run lint");
+  });
+});
+
 describe("run loop", () => {
   it("stops as blocked when no scoped ready work exists", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-"));
@@ -193,6 +363,6 @@ describe("run loop", () => {
     });
 
     expect(summary.stopReason).toBe("attention");
-    expect(summary.notes[0]).toContain("human review is needed");
+    expect(summary.notes[0]).toContain("needs operator attention");
   });
 });

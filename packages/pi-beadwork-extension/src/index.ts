@@ -141,8 +141,10 @@ function buildWorkerNotice(input: {
   const key = [
     worker.status,
     worker.ticketStatus ?? "",
+    inspection.validation.state,
     inspection.landing.state,
     inspection.cleanup.state,
+    worker.validationSummary ?? "",
     worker.landingVerification ?? "",
     worker.lastError ?? "",
   ].join("|");
@@ -160,6 +162,14 @@ function buildWorkerNotice(input: {
       key,
       level: "warning",
       message: `Delegated ticket ${worker.ticketId} failed. ${inspection.followUp.action}`,
+    };
+  }
+
+  if (worker.status === "attention") {
+    return {
+      key,
+      level: "warning",
+      message: `Delegated ticket ${worker.ticketId} needs attention. ${inspection.followUp.action}`,
     };
   }
 
@@ -198,10 +208,13 @@ function buildWorkerNotice(input: {
       };
     }
 
+    const validation =
+      inspection.validation.state === "passed" ? " Validation passed before landing." : "";
     return {
       key,
       level: "info",
-      message: `Delegated ticket ${worker.ticketId} landed cleanly. ${inspection.followUp.action}`,
+      message:
+        `Delegated ticket ${worker.ticketId} landed cleanly.${validation} ${inspection.followUp.action}`.trim(),
     };
   }
 
@@ -497,6 +510,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           repoRoot: activation.repoRoot ?? ctx.cwd,
           worker,
           adapter,
+          config,
         }),
       ),
     );

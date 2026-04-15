@@ -39,6 +39,9 @@ describe("worker diagnostics", () => {
       ticketStatus: "closed",
       cleanupPolicy: "cleanup-after-landing",
       cleanupStatus: "cleaned",
+      validationStatus: "passed",
+      validationAt: "2026-04-14T00:55:00.000Z",
+      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
       landingVerifiedAt: "2026-04-14T01:00:00.000Z",
       landingAheadCount: 0,
       landingBehindCount: 2,
@@ -48,6 +51,7 @@ describe("worker diagnostics", () => {
 
     const inspection = inspectWorker(worker);
 
+    expect(inspection.validation.state).toBe("passed");
     expect(inspection.landing.state).toBe("verified");
     expect(inspection.cleanup.state).toBe("cleaned");
     expect(inspection.followUp.needsAttention).toBe(false);
@@ -75,6 +79,23 @@ describe("worker diagnostics", () => {
     const lines = formatWorkerInspectionLines(inspection);
     expect(lines.join("\n")).toContain("Landing detail");
     expect(lines.join("\n")).toContain("Next:");
+  });
+
+  it("surfaces validation failures as explicit attention states", () => {
+    const inspection = inspectWorker(
+      createWorker({
+        status: "attention",
+        ticketStatus: "closed",
+        validationStatus: "failed",
+        validationSummary: "Validation failed on `npm run test`: tests failed",
+        lastError: "Validation failed on `npm run test`: tests failed",
+      }),
+    );
+
+    expect(inspection.validation.state).toBe("failed");
+    expect(inspection.landing.state).toBe("blocked");
+    expect(inspection.followUp.needsAttention).toBe(true);
+    expect(inspection.followUp.action).toContain("npm run test");
   });
 
   it("keeps follow-up informational while a worker is still running", () => {

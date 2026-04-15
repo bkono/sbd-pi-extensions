@@ -13,7 +13,15 @@ import {
 } from "./registry.js";
 import { createTmuxBackend, type TmuxBackend, type TmuxPaneInspection } from "./tmux.js";
 import type { BeadworkConfig, RunOptions, RunSummary, RunUntil, WorkerRuntime } from "./types.js";
-import { cleanupTicketWorktree, prepareTicketWorktree, verifyWorktreeLanding } from "./worktree.js";
+import {
+  cleanupTicketWorktree,
+  type LandingVerificationResult,
+  landWorktreeBranch,
+  prepareTicketWorktree,
+  rebaseWorktreeOntoRepoHead,
+  runWorktreeValidation,
+  verifyWorktreeLanding,
+} from "./worktree.js";
 
 function buildWorkerId(ticketId: string): string {
   const stamp = Date.now().toString(36);
@@ -112,6 +120,220 @@ async function cleanupLandedWorker(input: {
       lastError: `Landing verified, but cleanup failed: ${humanizeError(error)}`,
     };
   }
+}
+
+function buildAttentionState(
+  worker: WorkerRuntime,
+  detail: string,
+  overrides: Partial<WorkerRuntime> = {},
+): WorkerRuntime {
+  return {
+    ...worker,
+    ...overrides,
+    status: "attention",
+    landingVerification: overrides.landingVerification ?? detail,
+    lastError: detail,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function autoLandCompletedWorker(input: {
+  repoRoot: string;
+  worker: WorkerRuntime;
+  config: BeadworkConfig;
+  tmuxBackend: TmuxBackend;
+  runner: ProcessRunner;
+}): Promise<WorkerRuntime> {
+  const attempts = Math.max(1, input.config.landing.maxRebaseAttempts);
+  let worker = {
+    ...input.worker,
+    validationStatus:
+      input.config.landing.validateCommands.length > 0
+        ? (input.worker.validationStatus ?? "pending")
+        : input.worker.validationStatus,
+  };
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let landing: LandingVerificationResult;
+    try {
+      landing = await verifyWorktreeLanding({
+        repoRoot: input.repoRoot,
+        worktreePath: input.worker.worktreePath,
+        ticketClosed: true,
+        runner: input.runner,
+      });
+    } catch (error) {
+      return buildAttentionState(worker, `Landing verification failed: ${humanizeError(error)}`, {
+        validationStatus: worker.validationStatus,
+        validationAt: worker.validationAt,
+        validationSummary: worker.validationSummary,
+      });
+    }
+
+    worker = {
+      ...worker,
+      landingVerification: landing.detail,
+      landingAheadCount: landing.aheadCount,
+      landingBehindCount: landing.behindCount,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (landing.verified) {
+      const landedWorker: WorkerRuntime = {
+        ...worker,
+        status: "landed",
+        landingVerifiedAt: landing.checkedAt,
+        lastError: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (
+        landedWorker.cleanupPolicy === "cleanup-after-landing" &&
+        landedWorker.cleanupStatus !== "cleaned"
+      ) {
+        const cleanup = await cleanupLandedWorker({
+          repoRoot: input.repoRoot,
+          worker: landedWorker,
+          tmuxBackend: input.tmuxBackend,
+          runner: input.runner,
+        });
+        return {
+          ...landedWorker,
+          cleanupStatus: cleanup.cleanupStatus,
+          cleanupAt: cleanup.cleanupAt,
+          lastError: cleanup.lastError,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      return landedWorker;
+    }
+
+    if (landing.worktreeClean === false) {
+      return buildAttentionState(worker, landing.detail);
+    }
+
+    if ((landing.aheadCount ?? 0) === 0) {
+      return buildAttentionState(worker, landing.detail);
+    }
+
+    if ((landing.behindCount ?? 0) > 0) {
+      const rebase = await rebaseWorktreeOntoRepoHead({
+        repoRoot: input.repoRoot,
+        worktreePath: input.worker.worktreePath,
+        runner: input.runner,
+      });
+
+      worker = {
+        ...worker,
+        landingVerification: rebase.detail,
+        landingAheadCount: rebase.aheadCount,
+        landingBehindCount: rebase.behindCount,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (!rebase.rebased) {
+        return buildAttentionState(worker, rebase.detail);
+      }
+    }
+
+    const validation = await runWorktreeValidation({
+      worktreePath: input.worker.worktreePath,
+      commands: input.config.landing.validateCommands,
+      timeoutMs: input.config.landing.commandTimeoutMs,
+      runner: input.runner,
+    });
+
+    worker = {
+      ...worker,
+      validationStatus: validation.passed ? "passed" : "failed",
+      validationAt: validation.checkedAt,
+      validationSummary: validation.detail,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!validation.passed) {
+      return buildAttentionState(worker, validation.detail, {
+        landingVerification: `Landing blocked after validation failure. ${validation.detail}`,
+      });
+    }
+
+    const landed = await landWorktreeBranch({
+      repoRoot: input.repoRoot,
+      worktreePath: input.worker.worktreePath,
+      runner: input.runner,
+    });
+
+    worker = {
+      ...worker,
+      landingVerification: landed.detail,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!landed.landed) {
+      if (attempt < attempts) {
+        continue;
+      }
+      return buildAttentionState(worker, landed.detail);
+    }
+
+    const verifiedAfterLanding = await verifyWorktreeLanding({
+      repoRoot: input.repoRoot,
+      worktreePath: input.worker.worktreePath,
+      ticketClosed: true,
+      runner: input.runner,
+    });
+
+    worker = {
+      ...worker,
+      landingVerification: verifiedAfterLanding.detail,
+      landingAheadCount: verifiedAfterLanding.aheadCount,
+      landingBehindCount: verifiedAfterLanding.behindCount,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (verifiedAfterLanding.verified) {
+      const landedWorker: WorkerRuntime = {
+        ...worker,
+        status: "landed",
+        landingVerifiedAt: verifiedAfterLanding.checkedAt,
+        lastError: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (
+        landedWorker.cleanupPolicy === "cleanup-after-landing" &&
+        landedWorker.cleanupStatus !== "cleaned"
+      ) {
+        const cleanup = await cleanupLandedWorker({
+          repoRoot: input.repoRoot,
+          worker: landedWorker,
+          tmuxBackend: input.tmuxBackend,
+          runner: input.runner,
+        });
+        return {
+          ...landedWorker,
+          cleanupStatus: cleanup.cleanupStatus,
+          cleanupAt: cleanup.cleanupAt,
+          lastError: cleanup.lastError,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      return landedWorker;
+    }
+
+    if (attempt < attempts) {
+      continue;
+    }
+
+    return buildAttentionState(worker, verifiedAfterLanding.detail);
+  }
+
+  return buildAttentionState(
+    worker,
+    `Landing could not be completed after ${attempts} attempt(s).`,
+  );
 }
 
 export function buildRunOptions(
@@ -273,11 +495,13 @@ export async function inspectWorkerRuntime(input: {
   repoRoot: string;
   worker: WorkerRuntime;
   adapter: BeadworkAdapter;
+  config?: BeadworkConfig;
   tmuxBackend?: TmuxBackend;
   runner?: ProcessRunner;
 }): Promise<WorkerRuntime> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
   const runner = input.runner ?? defaultProcessRunner;
+  const config = input.config;
 
   if (input.worker.status === "landed" && input.worker.landingVerifiedAt) {
     return {
@@ -298,13 +522,6 @@ export async function inspectWorkerRuntime(input: {
   const exitCode = parseInteger(exitCodeText);
   let nextStatus = input.worker.status;
   let ticketStatus = input.worker.ticketStatus;
-  let lastError = input.worker.lastError;
-  let cleanupStatus = input.worker.cleanupStatus;
-  let cleanupAt = input.worker.cleanupAt;
-  let landingVerifiedAt = input.worker.landingVerifiedAt;
-  let landingVerification = input.worker.landingVerification;
-  let landingAheadCount = input.worker.landingAheadCount;
-  let landingBehindCount = input.worker.landingBehindCount;
 
   const needsTicketRefresh =
     stateText === "exited" ||
@@ -319,66 +536,58 @@ export async function inspectWorkerRuntime(input: {
     }
   }
 
-  if (ticketStatus === "closed") {
-    try {
-      const landing = await verifyWorktreeLanding({
-        repoRoot: input.repoRoot,
-        worktreePath: input.worker.worktreePath,
-        ticketClosed: true,
-        runner,
-      });
-      landingVerification = landing.detail;
-      landingAheadCount = landing.aheadCount;
-      landingBehindCount = landing.behindCount;
+  const workerFinished =
+    stateText === "exited" ||
+    stateText === "failed" ||
+    (!pane.exists && input.worker.status !== "launching") ||
+    input.worker.status === "exited" ||
+    input.worker.status === "failed" ||
+    input.worker.status === "attention";
 
-      if (landing.verified) {
-        nextStatus = "landed";
-        landingVerifiedAt = landing.checkedAt;
-        lastError = undefined;
+  if (ticketStatus === "closed" && workerFinished && config) {
+    const orchestrated = await autoLandCompletedWorker({
+      repoRoot: input.repoRoot,
+      worker: {
+        ...input.worker,
+        ticketStatus,
+        finishedAt: finishedAtText ?? input.worker.finishedAt,
+      },
+      config,
+      tmuxBackend,
+      runner,
+    });
 
-        if (input.worker.cleanupPolicy === "cleanup-after-landing" && cleanupStatus !== "cleaned") {
-          const cleanup = await cleanupLandedWorker({
-            repoRoot: input.repoRoot,
-            worker: input.worker,
-            tmuxBackend,
-            runner,
-          });
-          cleanupStatus = cleanup.cleanupStatus;
-          cleanupAt = cleanup.cleanupAt;
-          lastError = cleanup.lastError;
-        }
-      }
-    } catch (error) {
-      landingVerification = `Landing verification failed: ${humanizeError(error)}`;
-      lastError = landingVerification;
-    }
+    return {
+      ...orchestrated,
+      ticketStatus,
+      finishedAt: finishedAtText ?? orchestrated.finishedAt,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
-  if (nextStatus !== "landed") {
-    if (stateText === "failed" || (exitCode !== undefined && exitCode !== 0)) {
-      nextStatus = "failed";
-    } else if (stateText === "exited" || (!pane.exists && input.worker.status !== "launching")) {
-      nextStatus = "exited";
-    } else if (stateText === "running" || (pane.exists && pane.dead !== true)) {
-      nextStatus = "running";
-    }
-
-    if (ticketStatus === "closed" && landingVerification && nextStatus === "exited") {
-      lastError = landingVerification;
-    }
+  if (stateText === "failed" || (exitCode !== undefined && exitCode !== 0)) {
+    nextStatus = "failed";
+  } else if (stateText === "exited" || (!pane.exists && input.worker.status !== "launching")) {
+    nextStatus = "exited";
+  } else if (stateText === "running" || (pane.exists && pane.dead !== true)) {
+    nextStatus = "running";
   }
+
+  const lastError =
+    ticketStatus === "closed" && nextStatus === "exited"
+      ? (input.worker.landingVerification ?? input.worker.lastError)
+      : nextStatus === "failed" && ticketStatus !== "closed"
+        ? (input.worker.lastError ??
+          (exitCode !== undefined && exitCode !== 0
+            ? `Worker exited with code ${exitCode}.`
+            : "Worker exited before landing orchestration could begin."))
+        : undefined;
 
   return {
     ...input.worker,
     ticketStatus,
     status: nextStatus,
     finishedAt: finishedAtText ?? input.worker.finishedAt,
-    landingVerifiedAt,
-    landingVerification,
-    landingAheadCount,
-    landingBehindCount,
-    cleanupStatus,
-    cleanupAt,
     lastError,
     updatedAt: new Date().toISOString(),
   };
@@ -492,6 +701,7 @@ export async function runBoundedEpicLoop(input: {
           repoRoot: input.repoRoot,
           worker,
           adapter: input.adapter,
+          config: input.config,
           tmuxBackend,
           runner,
         }),
@@ -556,6 +766,9 @@ export async function runBoundedEpicLoop(input: {
       failed: workers
         .filter((worker) => worker.status === "failed")
         .map((worker) => worker.ticketId),
+      attention: workers
+        .filter((worker) => worker.status === "attention")
+        .map((worker) => worker.ticketId),
       exited: workers
         .filter((worker) => worker.status === "exited")
         .map((worker) => worker.ticketId),
@@ -566,8 +779,14 @@ export async function runBoundedEpicLoop(input: {
       break;
     }
 
-    if (summary.failed > 0 || workers.some((worker) => worker.status === "exited")) {
-      notes.push("At least one worker exited without landing cleanly; human review is needed.");
+    if (
+      summary.failed > 0 ||
+      summary.attention > 0 ||
+      workers.some((worker) => worker.status === "exited")
+    ) {
+      notes.push(
+        "At least one worker needs operator attention before the orchestrator can continue.",
+      );
       stopReason = "attention";
       break;
     }

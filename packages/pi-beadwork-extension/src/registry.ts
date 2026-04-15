@@ -11,7 +11,8 @@ function normalizeWorkerStatus(value: unknown): WorkerRuntime["status"] {
     value === "running" ||
     value === "exited" ||
     value === "landed" ||
-    value === "failed"
+    value === "failed" ||
+    value === "attention"
     ? value
     : "failed";
 }
@@ -79,6 +80,15 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
         ? value.cleanupStatus
         : undefined,
     cleanupAt: typeof value.cleanupAt === "string" ? value.cleanupAt : undefined,
+    validationStatus:
+      value.validationStatus === "pending" ||
+      value.validationStatus === "passed" ||
+      value.validationStatus === "failed"
+        ? value.validationStatus
+        : undefined,
+    validationAt: typeof value.validationAt === "string" ? value.validationAt : undefined,
+    validationSummary:
+      typeof value.validationSummary === "string" ? value.validationSummary : undefined,
     landingVerifiedAt:
       typeof value.landingVerifiedAt === "string" ? value.landingVerifiedAt : undefined,
     landingVerification:
@@ -148,6 +158,7 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
     exited: 0,
     landed: 0,
     failed: 0,
+    attention: 0,
     cleaned: 0,
   };
 
@@ -167,6 +178,8 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
       }
     } else if (worker.status === "failed") {
       summary.failed += 1;
+    } else if (worker.status === "attention") {
+      summary.attention += 1;
     }
   }
 

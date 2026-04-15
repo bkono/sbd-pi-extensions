@@ -21,14 +21,15 @@ Implemented:
 - `/bw close <id>`
 - `/bw sync`
 - `/bw adopt [--title ...] [--land quick|branch|multi] [--apply]`
-- `/bw workers [epic-id]` with summary counts, landing/cleanup diagnostics, and explicit `Next` follow-up actions
+- `/bw workers [epic-id]` with validation/landing/cleanup diagnostics and explicit `Next` follow-up actions
 - `/bw delegate <ticket-id>`
 - delegated-worker completion tracking in the parent session, including terminal-state notifications on later turns
+- orchestrator-owned post-worker handling: auto-validate, rebase on drift when possible, fast-forward land, and optionally clean up delegated worktrees
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
 - `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
 - tmux-backed worker launch with per-ticket worktree creation; successful worker processes now exit cleanly instead of idling in a shell
 - optional worker-specific `--provider` / `--model` launch config separate from the orchestrator session
-- landing verification that requires a closed ticket, a clean worktree, and no worker-only commits ahead of repo `HEAD`
+- orchestrator-driven landing that runs required quality gates before landing, retries through repo drift with a rebase flow, and verifies the final landed state
 - optional post-landing worktree + tmux cleanup when `worktrees.cleanup` is set to `cleanup-after-landing`
 - configurable worktree bootstrap: file copies (for `.env`, `.mise.local.toml`, etc.) and post-create setup commands (`mise trust`, `npm install`, etc.)
 - local worker registry and runtime artifacts under `.pi/beadwork/workers/`
@@ -38,7 +39,8 @@ Implemented:
 
 Still conservative / incomplete:
 
-- landing verification is still conservative, but now recognizes some squash/cherry-pick/rebase-style landings via reverse-applicable worker diffs; ambiguous cases still need human review
+- landing verification is still conservative for work that was integrated outside the orchestrator, but now recognizes some squash/cherry-pick/rebase-style landings via reverse-applicable worker diffs
+- quality gates currently run synchronously during worker inspection / `/bw run`, so large repos may feel this on the next parent-session turn after a worker exits
 - no background daemonized run supervisor beyond the bounded `/bw run` invocation
 
 ## Install
@@ -74,8 +76,8 @@ Via `settings.json`:
 5. Convert a conversational plan with `/bw adopt --title "..."`.
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
 7. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
-8. Keep working in the parent session; delegated-worker completion and landing/attention transitions will now show up as notifications on later turns.
-9. Inspect worker state with `/bw workers` when you want the full breakdown.
+8. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, land, and clean it up automatically.
+9. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.
 
 ## Config
 
@@ -119,6 +121,11 @@ Current config keys:
     "defaultUntil": "blocked",
     "defaultMaxCycles": 12,
     "pollIntervalMs": 2000
+  },
+  "landing": {
+    "validateCommands": ["npm run lint", "npm run test", "npm run typecheck"],
+    "commandTimeoutMs": 600000,
+    "maxRebaseAttempts": 2
   }
 }
 ```
@@ -130,7 +137,10 @@ Notes:
 - String entries in `copyFiles` are optional by default, so missing `.env`-style files are skipped quietly.
 - Use object form with `required: true` if a copied file must exist.
 - `setupCommands` run inside the worktree after creation.
-- `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after landing verification succeeds.
+- `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after orchestrator landing succeeds.
+- `landing.validateCommands` defaults to the repo quality gates (`npm run lint`, `npm run test`, `npm run typecheck`) and runs inside the delegated worktree before landing.
+- `landing.commandTimeoutMs` applies to each validation command.
+- `landing.maxRebaseAttempts` controls how many times the orchestrator will retry a drifted worker through rebase + validation + landing before leaving it in an explicit attention state.
 - `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
 
 Environment overrides:
@@ -147,3 +157,5 @@ Environment overrides:
 - `PI_BEADWORK_DEFAULT_WORKERS`
 - `PI_BEADWORK_DEFAULT_MAX_CYCLES`
 - `PI_BEADWORK_POLL_INTERVAL_MS`
+- `PI_BEADWORK_VALIDATE_TIMEOUT_MS`
+- `PI_BEADWORK_MAX_REBASE_ATTEMPTS`

@@ -40,9 +40,11 @@ export type SessionState = {
 
 export type RunUntil = "blocked" | "empty";
 
-export type WorkerStatus = "launching" | "running" | "exited" | "landed" | "failed";
+export type WorkerStatus = "launching" | "running" | "exited" | "landed" | "failed" | "attention";
 
 export type WorkerCleanupStatus = "pending" | "cleaned" | "failed";
+
+export type WorkerValidationStatus = "pending" | "passed" | "failed";
 
 export type WorktreeCopyRule =
   | string
@@ -79,6 +81,11 @@ export type BeadworkConfig = {
     defaultUntil: RunUntil;
     defaultMaxCycles: number;
     pollIntervalMs: number;
+  };
+  landing: {
+    validateCommands: string[];
+    commandTimeoutMs: number;
+    maxRebaseAttempts: number;
   };
 };
 
@@ -194,6 +201,9 @@ export type WorkerRuntime = {
   cleanupPolicy: BeadworkConfig["worktrees"]["cleanup"];
   cleanupStatus?: WorkerCleanupStatus;
   cleanupAt?: string;
+  validationStatus?: WorkerValidationStatus;
+  validationAt?: string;
+  validationSummary?: string;
   landingVerifiedAt?: string;
   landingVerification?: string;
   landingAheadCount?: number;
@@ -213,6 +223,7 @@ export type WorkerSummary = {
   exited: number;
   landed: number;
   failed: number;
+  attention: number;
   cleaned: number;
 };
 
@@ -232,6 +243,7 @@ export type RunCycleSummary = {
   running: string[];
   landed: string[];
   failed: string[];
+  attention: string[];
   exited: string[];
 };
 

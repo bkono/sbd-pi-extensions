@@ -10,6 +10,7 @@ type PartialConfig = {
   tmux?: Partial<BeadworkConfig["tmux"]>;
   worktrees?: Partial<BeadworkConfig["worktrees"]>;
   run?: Partial<BeadworkConfig["run"]>;
+  landing?: Partial<BeadworkConfig["landing"]>;
 };
 
 function readJsonConfig(filePath: string): PartialConfig | undefined {
@@ -104,6 +105,12 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
       defaultMaxCycles: override.run?.defaultMaxCycles ?? base.run.defaultMaxCycles,
       pollIntervalMs: override.run?.pollIntervalMs ?? base.run.pollIntervalMs,
     },
+    landing: {
+      validateCommands:
+        normalizeStringArray(override.landing?.validateCommands) ?? base.landing.validateCommands,
+      commandTimeoutMs: override.landing?.commandTimeoutMs ?? base.landing.commandTimeoutMs,
+      maxRebaseAttempts: override.landing?.maxRebaseAttempts ?? base.landing.maxRebaseAttempts,
+    },
   };
 }
 
@@ -150,6 +157,8 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const defaultWorkers = process.env.PI_BEADWORK_DEFAULT_WORKERS;
   const defaultMaxCycles = process.env.PI_BEADWORK_DEFAULT_MAX_CYCLES;
   const pollIntervalMs = process.env.PI_BEADWORK_POLL_INTERVAL_MS;
+  const validateTimeoutMs = process.env.PI_BEADWORK_VALIDATE_TIMEOUT_MS;
+  const maxRebaseAttempts = process.env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
 
   config = mergeConfig(config, {
     ui: {
@@ -176,6 +185,10 @@ export function loadConfig(cwd: string): BeadworkConfig {
       defaultWorkers: defaultWorkers ? Number.parseInt(defaultWorkers, 10) : undefined,
       defaultMaxCycles: defaultMaxCycles ? Number.parseInt(defaultMaxCycles, 10) : undefined,
       pollIntervalMs: pollIntervalMs ? Number.parseInt(pollIntervalMs, 10) : undefined,
+    },
+    landing: {
+      commandTimeoutMs: validateTimeoutMs ? Number.parseInt(validateTimeoutMs, 10) : undefined,
+      maxRebaseAttempts: maxRebaseAttempts ? Number.parseInt(maxRebaseAttempts, 10) : undefined,
     },
   });
 

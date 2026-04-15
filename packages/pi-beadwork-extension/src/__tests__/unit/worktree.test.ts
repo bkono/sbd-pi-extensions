@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildTicketBranchName,
   cleanupTicketWorktree,
+  landWorktreeBranch,
   prepareTicketWorktree,
+  rebaseWorktreeOntoRepoHead,
+  runWorktreeValidation,
   verifyWorktreeLanding,
 } from "../../worktree.js";
 
@@ -230,6 +233,107 @@ describe("worktree helpers", () => {
     expect(result.verified).toBe(false);
     expect(result.aheadCount).toBe(3);
     expect(result.detail).toContain("not in the repo HEAD yet");
+  });
+
+  it("rebases a diverged worker branch onto repo HEAD", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-rebase-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    let rebased = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return {
+          stdout: rebased ? "worker-rebased\n" : "worker-head\n",
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return {
+          stdout: rebased ? "0 2\n" : "3 2\n",
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "rebase") {
+        rebased = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await rebaseWorktreeOntoRepoHead({
+      repoRoot,
+      worktreePath,
+      runner,
+    });
+
+    expect(result.attempted).toBe(true);
+    expect(result.rebased).toBe(true);
+    expect(result.behindCount).toBe(0);
+    expect(result.aheadCount).toBe(2);
+  });
+
+  it("runs validation commands in order and stops on failure", async () => {
+    const worktreePath = await mkdtemp(path.join(os.tmpdir(), "pi-bw-validate-"));
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      if (args[1] === "npm run test") {
+        throw new Error("tests failed");
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await runWorktreeValidation({
+      worktreePath,
+      commands: ["npm run lint", "npm run test", "npm run typecheck"],
+      runner,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.commandsRun).toEqual(["npm run lint"]);
+    expect(result.detail).toContain("npm run test");
+  });
+
+  it("fast-forwards repo HEAD to the worker HEAD when landing", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return {
+          stdout: merged ? "worker-head\n" : "repo-head\n",
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "0 2\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await landWorktreeBranch({
+      repoRoot,
+      worktreePath,
+      runner,
+    });
+
+    expect(result.attempted).toBe(true);
+    expect(result.landed).toBe(true);
+    expect(result.repoHead).toBe("worker-head");
   });
 
   it("removes a landed worktree when cleanup is requested", async () => {
