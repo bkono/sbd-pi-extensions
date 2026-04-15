@@ -38,7 +38,7 @@ Implemented:
 
 Still conservative / incomplete:
 
-- landing verification is git-graph based, so squash/cherry-pick landing flows may still need human review
+- landing verification is still conservative, but now recognizes some squash/cherry-pick/rebase-style landings via reverse-applicable worker diffs; ambiguous cases still need human review
 - no background daemonized run supervisor beyond the bounded `/bw run` invocation
 
 ## Install

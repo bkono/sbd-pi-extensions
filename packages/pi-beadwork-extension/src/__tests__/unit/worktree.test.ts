@@ -154,23 +154,68 @@ describe("worktree helpers", () => {
     expect(result.detail).toContain("Landing verified");
   });
 
+  it("verifies landing when the worker diff is already present via a non-fast-forward flow", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landing-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "0 3\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "merge-base\n", stderr: "", code: 0 };
+      }
+      if (command === "bash") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await verifyWorktreeLanding({
+      repoRoot,
+      worktreePath,
+      ticketClosed: true,
+      runner,
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.aheadCount).toBe(3);
+    expect(result.detail).toContain("non-fast-forward");
+  });
+
   it("returns a pending-review result when worker commits are still ahead of repo HEAD", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landing-"));
     const worktreePath = path.join(repoRoot, "worktree");
     await mkdir(worktreePath, { recursive: true });
 
-    const runner = vi.fn(async (_command: string, args: string[], options?: { cwd?: string }) => {
-      if (args[0] === "status") {
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
         return { stdout: "", stderr: "", code: 0 };
       }
-      if (args[0] === "rev-parse" && options?.cwd === repoRoot) {
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
         return { stdout: "repo-head\n", stderr: "", code: 0 };
       }
-      if (args[0] === "rev-parse" && options?.cwd === worktreePath) {
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
         return { stdout: "worker-head\n", stderr: "", code: 0 };
       }
-      if (args[0] === "rev-list") {
+      if (command === "git" && args[0] === "rev-list") {
         return { stdout: "0 3\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "merge-base\n", stderr: "", code: 0 };
+      }
+      if (command === "bash") {
+        throw new Error("reverse apply failed");
       }
       return { stdout: "", stderr: "", code: 0 };
     });
