@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-swx.3"
+    "sbdpi-swx.3",
+    "sbdpi-swx.6.1"
   ],
   "created": "2026-04-14T18:31:40Z",
   "description": "Improve landing verification so worker landings are recognized more accurately for squash, cherry-pick, rebase, and similar non-fast-forward integration flows. Preserve conservative behavior where verification is ambiguous and surface useful review signals.",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Tighten landing verification for squash/cherry-pick/rebase-style landings",
   "type": "task",
-  "updated_at": "2026-04-14T18:31:47Z"
+  "updated_at": "2026-04-15T17:38:54Z"
 }

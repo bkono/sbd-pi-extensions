@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "sbdpi-swx.2",
     "sbdpi-swx.5"
   ],
   "blocks": [],
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Auto-validate, rebase if needed, land, and clean up delegated worktrees",
   "type": "task",
-  "updated_at": "2026-04-15T17:38:51Z"
+  "updated_at": "2026-04-15T17:38:54Z"
 }
