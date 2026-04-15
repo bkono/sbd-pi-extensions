@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-15T19:20:18Z",
+  "description": "Remove the need for human polling to drive delegated-worker orchestration. Scope:\n- keep inspecting active/tracked workers in the parent session without requiring a new turn\n- automatically run the same inspection/orchestration path used by `/bw workers`\n- when session mode is `run`, continue epic orchestration cycles in the background so `/bw run` remains useful after the initial command returns\n- surface notifications for landed/attention/completed states without duplicate spam\n- stop background supervision cleanly on shutdown or when no workers remain\n\nGoal: delegated-worker landing and `/bw run` should not require manual `/bw workers` babysitting.",
+  "id": "sbdpi-swx.6.2",
+  "labels": [],
+  "parent": "sbdpi-swx.6",
+  "priority": 1,
+  "status": "open",
+  "title": "Add background supervision for active beadwork workers and /bw run",
+  "type": "task",
+  "updated_at": "2026-04-15T19:20:18Z"
+}
