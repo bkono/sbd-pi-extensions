@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-15T23:30:45Z",
+  "close_reason": "Implemented in 0e10c45: delegated workers now emit explicit launch guidance, append useful runtime/orchestrator progress to worker.log, and notify when post-exit validation/merge-back begins and when completion is safe.",
   "created": "2026-04-15T23:19:18Z",
   "description": "Dogfood feedback from a real `/bw delegate` run showed two operator-visibility gaps even after truthful merge-back landed: (1) `worker.log` became nearly useless after switching workers to non-interactive `pi --print`, often containing only the final message, leaving long stretches where the operator cannot tell whether the worker is progressing or stuck; (2) the parent session may emit the 'ticket closed, waiting for process exit' notice but then stay silent while validation/landing runs, so the operator does not know when post-exit orchestration starts or when it fully completes.\n\nScope:\n- make delegated worker launch/log output useful enough for humans during long silent periods\n- add explicit parent-session guidance immediately after `/bw delegate` so the operator knows what happens next\n- emit follow-up notifications for the major end stages (worker exited, validation/landing started, final landed/attention result)\n- add regression coverage for the notification/logging flow",
   "id": "sbdpi-swx.8.3",
   "labels": [],
   "parent": "sbdpi-swx.8",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Make delegated worker progress and completion notifications operator-visible",
   "type": "task",
-  "updated_at": "2026-04-15T23:19:30Z"
+  "updated_at": "2026-04-15T23:30:45Z"
 }
