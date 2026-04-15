@@ -58,6 +58,25 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.action).toBe("No action needed.");
   });
 
+  it("requires attention when a landed worker still has pending validation", () => {
+    const inspection = inspectWorker(
+      createWorker({
+        status: "landed",
+        ticketStatus: "closed",
+        validationStatus: "pending",
+        landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+        landingAheadCount: 0,
+        landingBehindCount: 1,
+        landingVerification:
+          "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
+      }),
+    );
+
+    expect(inspection.validation.state).toBe("pending");
+    expect(inspection.followUp.needsAttention).toBe(true);
+    expect(inspection.followUp.action).toContain("validation is still pending");
+  });
+
   it("flags exited workers with closed tickets that still need landing review", () => {
     const worker = createWorker({
       status: "exited",

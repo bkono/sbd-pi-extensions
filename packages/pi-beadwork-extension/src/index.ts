@@ -253,6 +253,22 @@ function buildWorkerNotice(input: {
   }
 
   if (worker.status === "landed") {
+    if (inspection.validation.state === "pending") {
+      return {
+        key,
+        level: "warning",
+        message: `Delegated ticket ${worker.ticketId} appears integrated, but validation is still pending. ${inspection.followUp.action}`,
+      };
+    }
+
+    if (inspection.validation.state === "failed") {
+      return {
+        key,
+        level: "warning",
+        message: `Delegated ticket ${worker.ticketId} appears integrated, but validation failed. ${inspection.followUp.action}`,
+      };
+    }
+
     if (inspection.cleanup.state === "cleaned") {
       return {
         key,

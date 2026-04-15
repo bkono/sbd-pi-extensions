@@ -243,6 +243,8 @@ describe("pi beadwork extension", () => {
       ...createWorkerRuntime(tempDir),
       status: "landed" as const,
       ticketStatus: "closed",
+      validationStatus: "passed" as const,
+      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
       cleanupPolicy: "cleanup-after-landing" as const,
       cleanupStatus: "cleaned" as const,
       landingVerifiedAt: "2026-04-14T01:00:00.000Z",
@@ -266,6 +268,56 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("Next: No action needed.");
   });
 
+  it("does not say landed cleanly when validation is still pending", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-worker-pending-validation",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    await mkdir(path.join(tempDir, ".pi"), { recursive: true });
+    await writeFile(
+      path.join(tempDir, ".pi", "beadwork-config.json"),
+      `${JSON.stringify({ landing: { validateCommands: [] } }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "landed" as const,
+      ticketStatus: "closed",
+      cleanupPolicy: "keep" as const,
+      validationStatus: "pending" as const,
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingAheadCount: 0,
+      landingBehindCount: 1,
+      landingVerification:
+        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    await saveSessionState(stateDir, "session-worker-pending-validation", {
+      mode: "neutral",
+      scope: { kind: "none" },
+      updatedAt: "2026-04-14T00:00:00.000Z",
+      trackedWorkerIds: [worker.workerId],
+    });
+
+    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("appears integrated, but validation is still pending");
+    expect(message).not.toContain("landed cleanly");
+  });
+
   it("tracks delegated workers from a neutral session and notifies once when they land", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -282,6 +334,8 @@ describe("pi beadwork extension", () => {
       ...createWorkerRuntime(tempDir),
       status: "landed" as const,
       ticketStatus: "closed",
+      validationStatus: "passed" as const,
+      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
       cleanupPolicy: "keep" as const,
       landingVerifiedAt: "2026-04-14T01:00:00.000Z",
       landingAheadCount: 0,
@@ -333,6 +387,8 @@ describe("pi beadwork extension", () => {
       ...createWorkerRuntime(tempDir),
       status: "landed" as const,
       ticketStatus: "closed",
+      validationStatus: "passed" as const,
+      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
       cleanupPolicy: "keep" as const,
       landingVerifiedAt: "2026-04-14T01:00:00.000Z",
       landingAheadCount: 0,

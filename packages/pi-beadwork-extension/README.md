@@ -77,7 +77,7 @@ Via `settings.json`:
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
 7. For multi-ticket decomposition, ask the model to call `beadwork_create_issue` and `beadwork_add_dependency` tools explicitly.
 8. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
-9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, land, and clean it up automatically.
+9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, merge the worktree branch back into the parent branch, verify containment, and clean it up automatically.
 10. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.
 
 ## Config
@@ -139,9 +139,10 @@ Notes:
 - Use object form with `required: true` if a copied file must exist.
 - `setupCommands` run inside the worktree after creation.
 - `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after orchestrator landing succeeds.
-- `landing.validateCommands` defaults to the repo quality gates (`npm run lint`, `npm run test`, `npm run typecheck`) and runs inside the delegated worktree before landing.
+- `landing.validateCommands` defaults to the repo quality gates (`npm run lint`, `npm run test`, `npm run typecheck`) and runs inside the delegated worktree before a worker is treated as landed.
+- A worker only counts as landed when the parent branch actually contains the worker HEAD; equivalent diffs or partially integrated state do not count as a clean landing.
 - `landing.commandTimeoutMs` applies to each validation command.
-- `landing.maxRebaseAttempts` controls how many times the orchestrator will retry a drifted worker through rebase + validation + landing before leaving it in an explicit attention state.
+- `landing.maxRebaseAttempts` controls how many times the orchestrator will retry a drifted worker through rebase + validation + merge-back before leaving it in an explicit attention state.
 - `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
 
 Environment overrides:

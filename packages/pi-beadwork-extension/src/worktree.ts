@@ -1,6 +1,6 @@
 import { access, copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { defaultProcessRunner, type ProcessRunner, shellQuote, slugify } from "./process.js";
+import { defaultProcessRunner, type ProcessRunner, slugify } from "./process.js";
 import type { WorktreeCopyRule } from "./types.js";
 
 export type PreparedWorktree = {
@@ -117,41 +117,6 @@ async function readAheadBehindCounts(
     behindCount: Number.isFinite(behindCount) ? behindCount : 0,
     aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
   };
-}
-
-async function readMergeBase(
-  repoRoot: string,
-  repoHead: string,
-  workerHead: string,
-  runner: ProcessRunner,
-): Promise<string> {
-  const result = await runner("git", ["merge-base", repoHead, workerHead], {
-    cwd: repoRoot,
-    timeout: 10_000,
-  });
-  return result.stdout.trim();
-}
-
-async function repoContainsWorkerDiff(input: {
-  repoRoot: string;
-  mergeBase: string;
-  workerHead: string;
-  runner: ProcessRunner;
-}): Promise<boolean> {
-  const command = [
-    "set -euo pipefail",
-    `git diff --binary ${shellQuote(input.mergeBase)} ${shellQuote(input.workerHead)} | git apply --check --reverse --3way --whitespace=nowarn`,
-  ].join("; ");
-
-  try {
-    await input.runner("bash", ["-lc", command], {
-      cwd: input.repoRoot,
-      timeout: 30_000,
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export async function inspectWorktreeDivergence(input: {
@@ -476,31 +441,9 @@ export async function verifyWorktreeLanding(input: {
   );
 
   if (aheadCount > 0) {
-    const mergeBase = await readMergeBase(input.repoRoot, repoHead, workerHead, runner);
-    const landedViaEquivalentDiff = await repoContainsWorkerDiff({
-      repoRoot: input.repoRoot,
-      mergeBase,
-      workerHead,
-      runner,
-    });
-
-    if (!landedViaEquivalentDiff) {
-      return {
-        checkedAt,
-        verified: false,
-        ticketClosed: true,
-        worktreeClean,
-        repoHead,
-        workerHead,
-        aheadCount,
-        behindCount,
-        detail: `Ticket is closed and the worktree is clean, but ${aheadCount} worker commit(s) are not in the repo HEAD yet.`,
-      };
-    }
-
     return {
       checkedAt,
-      verified: true,
+      verified: false,
       ticketClosed: true,
       worktreeClean,
       repoHead,
@@ -508,7 +451,9 @@ export async function verifyWorktreeLanding(input: {
       aheadCount,
       behindCount,
       detail:
-        "Landing verified: worktree is clean and the worker diff is already present in repo HEAD via a non-fast-forward integration flow.",
+        behindCount > 0
+          ? `Ticket is closed and the worktree is clean, but ${aheadCount} worker commit(s) still need to be integrated into repo HEAD (worker branch also trails repo by ${behindCount} commit(s)).`
+          : `Ticket is closed and the worktree is clean, but ${aheadCount} worker commit(s) are not in the repo HEAD yet.`,
     };
   }
 

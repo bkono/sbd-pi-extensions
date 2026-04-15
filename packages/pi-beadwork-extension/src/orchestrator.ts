@@ -159,12 +159,10 @@ async function autoLandCompletedWorker(input: {
   runner: ProcessRunner;
 }): Promise<WorkerRuntime> {
   const attempts = Math.max(1, input.config.landing.maxRebaseAttempts);
+  const validationRequired = input.config.landing.validateCommands.length > 0;
   let worker = {
     ...input.worker,
-    validationStatus:
-      input.config.landing.validateCommands.length > 0
-        ? (input.worker.validationStatus ?? "pending")
-        : input.worker.validationStatus,
+    validationStatus: validationRequired ? (input.worker.validationStatus ?? "pending") : undefined,
   };
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -191,6 +189,53 @@ async function autoLandCompletedWorker(input: {
       landingBehindCount: landing.behindCount,
       updatedAt: new Date().toISOString(),
     };
+
+    if (landing.worktreeClean === false) {
+      return buildAttentionState(worker, landing.detail);
+    }
+
+    if ((landing.aheadCount ?? 0) > 0 && (landing.behindCount ?? 0) > 0) {
+      const rebase = await rebaseWorktreeOntoRepoHead({
+        repoRoot: input.repoRoot,
+        worktreePath: input.worker.worktreePath,
+        runner: input.runner,
+      });
+
+      worker = {
+        ...worker,
+        landingVerification: rebase.detail,
+        landingAheadCount: rebase.aheadCount,
+        landingBehindCount: rebase.behindCount,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (!rebase.rebased) {
+        return buildAttentionState(worker, rebase.detail);
+      }
+    }
+
+    if (validationRequired) {
+      const validation = await runWorktreeValidation({
+        worktreePath: input.worker.worktreePath,
+        commands: input.config.landing.validateCommands,
+        timeoutMs: input.config.landing.commandTimeoutMs,
+        runner: input.runner,
+      });
+
+      worker = {
+        ...worker,
+        validationStatus: validation.passed ? "passed" : "failed",
+        validationAt: validation.checkedAt,
+        validationSummary: validation.detail,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (!validation.passed) {
+        return buildAttentionState(worker, validation.detail, {
+          landingVerification: `Landing blocked after validation failure. ${validation.detail}`,
+        });
+      }
+    }
 
     if (landing.verified) {
       const landedWorker: WorkerRuntime = {
@@ -223,53 +268,8 @@ async function autoLandCompletedWorker(input: {
       return landedWorker;
     }
 
-    if (landing.worktreeClean === false) {
-      return buildAttentionState(worker, landing.detail);
-    }
-
     if ((landing.aheadCount ?? 0) === 0) {
       return buildAttentionState(worker, landing.detail);
-    }
-
-    if ((landing.behindCount ?? 0) > 0) {
-      const rebase = await rebaseWorktreeOntoRepoHead({
-        repoRoot: input.repoRoot,
-        worktreePath: input.worker.worktreePath,
-        runner: input.runner,
-      });
-
-      worker = {
-        ...worker,
-        landingVerification: rebase.detail,
-        landingAheadCount: rebase.aheadCount,
-        landingBehindCount: rebase.behindCount,
-        updatedAt: new Date().toISOString(),
-      };
-
-      if (!rebase.rebased) {
-        return buildAttentionState(worker, rebase.detail);
-      }
-    }
-
-    const validation = await runWorktreeValidation({
-      worktreePath: input.worker.worktreePath,
-      commands: input.config.landing.validateCommands,
-      timeoutMs: input.config.landing.commandTimeoutMs,
-      runner: input.runner,
-    });
-
-    worker = {
-      ...worker,
-      validationStatus: validation.passed ? "passed" : "failed",
-      validationAt: validation.checkedAt,
-      validationSummary: validation.detail,
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (!validation.passed) {
-      return buildAttentionState(worker, validation.detail, {
-        landingVerification: `Landing blocked after validation failure. ${validation.detail}`,
-      });
     }
 
     const landed = await landWorktreeBranch({
@@ -516,8 +516,13 @@ export async function inspectWorkerRuntime(input: {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
   const runner = input.runner ?? defaultProcessRunner;
   const config = input.config;
+  const validationRequired = (config?.landing.validateCommands.length ?? 0) > 0;
 
-  if (input.worker.status === "landed" && input.worker.landingVerifiedAt) {
+  if (
+    input.worker.status === "landed" &&
+    input.worker.landingVerifiedAt &&
+    (!validationRequired || input.worker.validationStatus === "passed")
+  ) {
     return {
       ...input.worker,
       updatedAt: new Date().toISOString(),
@@ -558,7 +563,8 @@ export async function inspectWorkerRuntime(input: {
     (!pane.exists && input.worker.status !== "launching") ||
     input.worker.status === "exited" ||
     input.worker.status === "failed" ||
-    input.worker.status === "attention";
+    input.worker.status === "attention" ||
+    input.worker.status === "landed";
 
   if (ticketStatus === "closed" && workerFinished && config) {
     const orchestrated = await autoLandCompletedWorker({

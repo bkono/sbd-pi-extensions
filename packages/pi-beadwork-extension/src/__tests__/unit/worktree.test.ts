@@ -157,7 +157,7 @@ describe("worktree helpers", () => {
     expect(result.detail).toContain("Landing verified");
   });
 
-  it("verifies landing when the worker diff is already present via a non-fast-forward flow", async () => {
+  it("does not verify landing while worker commits are still ahead of repo HEAD", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landing-"));
     const worktreePath = path.join(repoRoot, "worktree");
     await mkdir(worktreePath, { recursive: true });
@@ -173,13 +173,7 @@ describe("worktree helpers", () => {
         return { stdout: "worker-head\n", stderr: "", code: 0 };
       }
       if (command === "git" && args[0] === "rev-list") {
-        return { stdout: "0 3\n", stderr: "", code: 0 };
-      }
-      if (command === "git" && args[0] === "merge-base") {
-        return { stdout: "merge-base\n", stderr: "", code: 0 };
-      }
-      if (command === "bash") {
-        return { stdout: "", stderr: "", code: 0 };
+        return { stdout: "1 3\n", stderr: "", code: 0 };
       }
       return { stdout: "", stderr: "", code: 0 };
     });
@@ -191,12 +185,13 @@ describe("worktree helpers", () => {
       runner,
     });
 
-    expect(result.verified).toBe(true);
+    expect(result.verified).toBe(false);
     expect(result.aheadCount).toBe(3);
-    expect(result.detail).toContain("non-fast-forward");
+    expect(result.behindCount).toBe(1);
+    expect(result.detail).toContain("still need to be integrated into repo HEAD");
   });
 
-  it("returns a pending-review result when worker commits are still ahead of repo HEAD", async () => {
+  it("returns a pending-review result when worker commits are still ahead of repo HEAD and not diverged", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landing-"));
     const worktreePath = path.join(repoRoot, "worktree");
     await mkdir(worktreePath, { recursive: true });
@@ -213,12 +208,6 @@ describe("worktree helpers", () => {
       }
       if (command === "git" && args[0] === "rev-list") {
         return { stdout: "0 3\n", stderr: "", code: 0 };
-      }
-      if (command === "git" && args[0] === "merge-base") {
-        return { stdout: "merge-base\n", stderr: "", code: 0 };
-      }
-      if (command === "bash") {
-        throw new Error("reverse apply failed");
       }
       return { stdout: "", stderr: "", code: 0 };
     });

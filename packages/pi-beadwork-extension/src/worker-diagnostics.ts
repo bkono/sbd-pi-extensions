@@ -255,6 +255,20 @@ function describeFollowUp(
     };
   }
 
+  if (validation.state === "pending") {
+    return {
+      needsAttention: true,
+      action: "Worker changes appear integrated, but validation is still pending.",
+    };
+  }
+
+  if (validation.state === "failed") {
+    return {
+      needsAttention: true,
+      action: worker.validationSummary ?? "Worker validation failed after integration.",
+    };
+  }
+
   if (cleanup.state === "failed") {
     return {
       needsAttention: true,

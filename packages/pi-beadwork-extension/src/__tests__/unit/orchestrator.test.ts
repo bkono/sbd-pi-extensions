@@ -236,6 +236,142 @@ describe("worker inspection", () => {
     expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
   });
 
+  it("validates already-contained worker heads before marking them landed", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-contained-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "2 0\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("landed");
+    expect(inspected.validationStatus).toBe("passed");
+    expect(inspected.validationSummary).toContain("Validation passed");
+    expect(inspected.landingVerifiedAt).toBeTruthy();
+  });
+
+  it("revalidates legacy landed workers when validation is still pending", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landed-pending-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      status: "landed",
+      validationStatus: "pending",
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification:
+        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
+      landingAheadCount: 0,
+      landingBehindCount: 2,
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "2 0\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("landed");
+    expect(inspected.validationStatus).toBe("passed");
+    expect(inspected.validationSummary).toContain("Validation passed");
+  });
+
   it("moves completed workers into attention when validation fails", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");
