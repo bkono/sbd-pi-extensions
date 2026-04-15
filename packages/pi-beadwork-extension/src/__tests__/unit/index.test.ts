@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import beadworkExtension from "../../index.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
 import { loadSessionState, resolveSessionStateDir, saveSessionState } from "../../session-state.js";
@@ -11,23 +11,25 @@ import {
   createFakeUi,
 } from "../helpers/extension-harness.js";
 
-const { detectActivationMock, adapterMock, createBeadworkAdapterMock } = vi.hoisted(() => ({
-  detectActivationMock: vi.fn(),
-  adapterMock: {
-    prime: vi.fn(),
-    ready: vi.fn(),
-    blocked: vi.fn(),
-    list: vi.fn(),
-    show: vi.fn(),
-    createIssue: vi.fn(),
-    addDependency: vi.fn(),
-    start: vi.fn(),
-    close: vi.fn(),
-    sync: vi.fn(),
-    getCounts: vi.fn(),
-  },
-  createBeadworkAdapterMock: vi.fn(),
-}));
+const { detectActivationMock, adapterMock, createBeadworkAdapterMock, runBoundedEpicLoopMock } =
+  vi.hoisted(() => ({
+    detectActivationMock: vi.fn(),
+    adapterMock: {
+      prime: vi.fn(),
+      ready: vi.fn(),
+      blocked: vi.fn(),
+      list: vi.fn(),
+      show: vi.fn(),
+      createIssue: vi.fn(),
+      addDependency: vi.fn(),
+      start: vi.fn(),
+      close: vi.fn(),
+      sync: vi.fn(),
+      getCounts: vi.fn(),
+    },
+    createBeadworkAdapterMock: vi.fn(),
+    runBoundedEpicLoopMock: vi.fn(),
+  }));
 
 vi.mock("@mariozechner/pi-ai", () => ({
   Type: {
@@ -46,6 +48,41 @@ vi.mock("../../activation.js", () => ({
 vi.mock("../../bw.js", () => ({
   createBeadworkAdapter: createBeadworkAdapterMock,
 }));
+
+vi.mock("../../orchestrator.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../orchestrator.js")>("../../orchestrator.js");
+
+  return {
+    ...actual,
+    runBoundedEpicLoop: runBoundedEpicLoopMock,
+  };
+});
+
+function createRunSummary(
+  stopReason: "completed" | "blocked" | "empty" | "max-cycles" | "attention",
+) {
+  return {
+    epicId: "BW-100",
+    stopReason,
+    cycles: 1,
+    launched: [],
+    activeWorkerIds: [],
+    workerSummary: {
+      total: 0,
+      active: 0,
+      launching: 0,
+      running: 0,
+      exited: 0,
+      landed: 0,
+      failed: 0,
+      attention: 0,
+      cleaned: 0,
+    },
+    notes: [],
+    cycleSummaries: [],
+  };
+}
 
 function createWorkerRuntime(tempDir: string) {
   const runtimeDir = path.join(tempDir, ".pi", "beadwork", "workers", "runtime", "bw-101-worker");
@@ -80,6 +117,8 @@ function createWorkerRuntime(tempDir: string) {
 describe("pi beadwork extension", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
     createBeadworkAdapterMock.mockReturnValue(adapterMock);
     adapterMock.prime.mockResolvedValue("prime guidance");
     adapterMock.ready.mockResolvedValue([]);
@@ -106,6 +145,12 @@ describe("pi beadwork extension", () => {
       inProgress: 1,
       scopedReady: 1,
     });
+    runBoundedEpicLoopMock.mockResolvedValue(createRunSummary("blocked"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("registers the /bw command", async () => {
@@ -268,6 +313,97 @@ describe("pi beadwork extension", () => {
     const notificationCount = ui.notifications.length;
     await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
     expect(ui.notifications).toHaveLength(notificationCount);
+  });
+
+  it("tracks delegated workers in the background without manual polling", async () => {
+    vi.stubEnv("PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS", "10");
+
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-background-worker-tracking",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "landed" as const,
+      ticketStatus: "closed",
+      cleanupPolicy: "keep" as const,
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingAheadCount: 0,
+      landingBehindCount: 1,
+      landingVerification:
+        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    await saveSessionState(stateDir, "session-background-worker-tracking", {
+      mode: "neutral",
+      scope: { kind: "none" },
+      updatedAt: "2026-04-14T00:00:00.000Z",
+      trackedWorkerIds: [worker.workerId],
+    });
+
+    await harness.dispatch("session_start", { reason: "startup" }, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    expect(
+      ui.notifications.some((entry) =>
+        entry.message.includes("Delegated ticket BW-101 landed cleanly."),
+      ),
+    ).toBe(true);
+
+    const persisted = await loadSessionState(stateDir, "session-background-worker-tracking");
+    expect(persisted.trackedWorkerIds).toBeUndefined();
+
+    await harness.dispatch("session_shutdown", { reason: "shutdown" }, ctx);
+  });
+
+  it("continues /bw run in the background while the session is idle", async () => {
+    vi.stubEnv("PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS", "10");
+
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-run-bg" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    runBoundedEpicLoopMock
+      .mockResolvedValueOnce(createRunSummary("max-cycles"))
+      .mockResolvedValueOnce(createRunSummary("blocked"));
+
+    await harness.invokeCommand("bw", "run BW-100 --max-cycles 1", ctx);
+    expect(runBoundedEpicLoopMock).toHaveBeenCalledTimes(1);
+    expect(
+      ui.notifications.some((entry) =>
+        entry.message.includes("Background supervision remains armed for BW-100"),
+      ),
+    ).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    expect(runBoundedEpicLoopMock).toHaveBeenCalledTimes(2);
+    expect(
+      ui.notifications.some((entry) =>
+        entry.message.includes("Background /bw run paused for BW-100"),
+      ),
+    ).toBe(true);
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    const persisted = await loadSessionState(stateDir, "session-run-bg");
+    expect(persisted.mode).toBe("interactive");
+    expect(persisted.runOptions).toBeUndefined();
+
+    await harness.dispatch("session_shutdown", { reason: "shutdown" }, ctx);
   });
 
   it("warns before /bw off when active workers are still running", async () => {

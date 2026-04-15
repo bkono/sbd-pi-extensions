@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_SESSION_STATE } from "./constants.js";
-import type { PrimeCache, SessionScope, SessionState } from "./types.js";
+import type { PrimeCache, SessionRunOptions, SessionScope, SessionState } from "./types.js";
 
 function normalizeScope(scope: unknown): SessionScope {
   if (!scope || typeof scope !== "object") {
@@ -62,6 +62,30 @@ function normalizeWorkerNotices(value: unknown): Record<string, string> | undefi
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function normalizeRunOptions(value: unknown): SessionRunOptions | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const parsed = value as Partial<SessionRunOptions>;
+  const workers =
+    typeof parsed.workers === "number" && Number.isFinite(parsed.workers) && parsed.workers > 0
+      ? Math.floor(parsed.workers)
+      : undefined;
+  const until = parsed.until === "empty" || parsed.until === "blocked" ? parsed.until : undefined;
+
+  if (!workers || !until) {
+    return undefined;
+  }
+
+  return {
+    workers,
+    until,
+    noSpawn: parsed.noSpawn === true,
+    dryRun: parsed.dryRun === true,
+  };
+}
+
 function normalizeState(state: unknown): SessionState {
   if (!state || typeof state !== "object") {
     return { ...DEFAULT_SESSION_STATE, updatedAt: new Date().toISOString() };
@@ -80,6 +104,7 @@ function normalizeState(state: unknown): SessionState {
     prime: normalizePrimeCache(value.prime),
     trackedWorkerIds: normalizeTrackedWorkerIds(value.trackedWorkerIds),
     workerNotices: normalizeWorkerNotices(value.workerNotices),
+    runOptions: normalizeRunOptions(value.runOptions),
   };
 }
 

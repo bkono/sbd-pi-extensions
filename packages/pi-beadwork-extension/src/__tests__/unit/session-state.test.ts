@@ -21,7 +21,7 @@ describe("session state persistence", () => {
     expect(typeof state.updatedAt).toBe("string");
   });
 
-  it("saves and reloads session state including prime cache", async () => {
+  it("saves and reloads session state including prime cache and run options", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
 
     await saveSessionState(tempDir, "session-1", {
@@ -33,6 +33,16 @@ describe("session state persistence", () => {
         content: "prime guidance",
         loadedAt: "2026-04-13T00:01:00.000Z",
         repoRoot: "/repo",
+      },
+      trackedWorkerIds: ["bw-101-worker"],
+      workerNotices: {
+        "bw-101-worker": "landed|closed|passed|verified|pending",
+      },
+      runOptions: {
+        workers: 3,
+        until: "blocked",
+        noSpawn: true,
+        dryRun: false,
       },
     });
 
@@ -47,11 +57,23 @@ describe("session state persistence", () => {
         loadedAt: "2026-04-13T00:01:00.000Z",
         repoRoot: "/repo",
       },
+      trackedWorkerIds: ["bw-101-worker"],
+      workerNotices: {
+        "bw-101-worker": "landed|closed|passed|verified|pending",
+      },
+      runOptions: {
+        workers: 3,
+        until: "blocked",
+        noSpawn: true,
+        dryRun: false,
+      },
     });
 
     const raw = await readFile(resolveSessionStatePath(tempDir, "session-1"), "utf8");
     expect(raw).toContain("BW-100");
     expect(raw).toContain("prime guidance");
+    expect(raw).toContain("bw-101-worker");
+    expect(raw).toContain('"runOptions"');
   });
 
   it("resets a session back to neutral mode", async () => {

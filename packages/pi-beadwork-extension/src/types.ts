@@ -28,6 +28,13 @@ export type PrimeCache = {
   repoRoot?: string;
 };
 
+export type SessionRunOptions = {
+  workers: number;
+  until: RunUntil;
+  noSpawn: boolean;
+  dryRun: boolean;
+};
+
 export type SessionState = {
   mode: SessionMode;
   scope: SessionScope;
@@ -36,6 +43,7 @@ export type SessionState = {
   prime?: PrimeCache;
   trackedWorkerIds?: string[];
   workerNotices?: Record<string, string>;
+  runOptions?: SessionRunOptions;
 };
 
 export type RunUntil = "blocked" | "empty";
@@ -86,6 +94,9 @@ export type BeadworkConfig = {
     validateCommands: string[];
     commandTimeoutMs: number;
     maxRebaseAttempts: number;
+  };
+  supervisor: {
+    pollIntervalMs: number;
   };
 };
 

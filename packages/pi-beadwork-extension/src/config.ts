@@ -11,6 +11,7 @@ type PartialConfig = {
   worktrees?: Partial<BeadworkConfig["worktrees"]>;
   run?: Partial<BeadworkConfig["run"]>;
   landing?: Partial<BeadworkConfig["landing"]>;
+  supervisor?: Partial<BeadworkConfig["supervisor"]>;
 };
 
 function readJsonConfig(filePath: string): PartialConfig | undefined {
@@ -111,6 +112,9 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
       commandTimeoutMs: override.landing?.commandTimeoutMs ?? base.landing.commandTimeoutMs,
       maxRebaseAttempts: override.landing?.maxRebaseAttempts ?? base.landing.maxRebaseAttempts,
     },
+    supervisor: {
+      pollIntervalMs: override.supervisor?.pollIntervalMs ?? base.supervisor.pollIntervalMs,
+    },
   };
 }
 
@@ -159,6 +163,7 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const pollIntervalMs = process.env.PI_BEADWORK_POLL_INTERVAL_MS;
   const validateTimeoutMs = process.env.PI_BEADWORK_VALIDATE_TIMEOUT_MS;
   const maxRebaseAttempts = process.env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
+  const supervisorPollIntervalMs = process.env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
 
   config = mergeConfig(config, {
     ui: {
@@ -189,6 +194,11 @@ export function loadConfig(cwd: string): BeadworkConfig {
     landing: {
       commandTimeoutMs: validateTimeoutMs ? Number.parseInt(validateTimeoutMs, 10) : undefined,
       maxRebaseAttempts: maxRebaseAttempts ? Number.parseInt(maxRebaseAttempts, 10) : undefined,
+    },
+    supervisor: {
+      pollIntervalMs: supervisorPollIntervalMs
+        ? Number.parseInt(supervisorPollIntervalMs, 10)
+        : undefined,
     },
   });
 

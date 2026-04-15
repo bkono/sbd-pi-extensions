@@ -42,4 +42,7 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     commandTimeoutMs: 600_000,
     maxRebaseAttempts: 2,
   },
+  supervisor: {
+    pollIntervalMs: 30_000,
+  },
 };

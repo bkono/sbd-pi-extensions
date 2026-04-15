@@ -54,6 +54,8 @@ import type {
   BeadworkConfig,
   BeadworkCounts,
   BeadworkIssueDetail,
+  RunSummary,
+  SessionRunOptions,
   SessionScope,
   SessionState,
   WorkerRuntime,
@@ -77,6 +79,7 @@ export type {
   RunOptions,
   RunSummary,
   SessionMode,
+  SessionRunOptions,
   SessionScope,
   SessionState,
   WorkerRuntime,
@@ -131,6 +134,61 @@ function sameNoticeMap(
     ([leftKey, leftValue], index) =>
       leftKey === rightEntries[index]?.[0] && leftValue === rightEntries[index]?.[1],
   );
+}
+
+function shouldSuperviseInBackground(activation: ActivationState, state: SessionState): boolean {
+  if (activation.kind !== "active" || !activation.repoRoot) {
+    return false;
+  }
+
+  if (
+    state.mode === "run" &&
+    state.scope.kind === "epic" &&
+    state.runOptions &&
+    state.runOptions.dryRun !== true
+  ) {
+    return true;
+  }
+
+  return Boolean(state.trackedWorkerIds && state.trackedWorkerIds.length > 0);
+}
+
+function buildRunSupervisorNotice(
+  summary: RunSummary,
+): { level: "info" | "warning"; message: string } | undefined {
+  if (summary.stopReason === "completed") {
+    return {
+      level: "info",
+      message: `Background /bw run finished for ${summary.epicId}: all scoped work is closed.`,
+    };
+  }
+
+  if (summary.stopReason === "empty" || summary.stopReason === "blocked") {
+    return {
+      level: "info",
+      message: `Background /bw run paused for ${summary.epicId}: no additional scoped ready work is available right now.`,
+    };
+  }
+
+  if (summary.stopReason === "attention") {
+    return {
+      level: "warning",
+      message: `Background /bw run paused for ${summary.epicId}: operator attention is required before more tickets can be launched.`,
+    };
+  }
+
+  return undefined;
+}
+
+function buildSupervisorRunSummary(state: SessionState, config: BeadworkConfig): SessionRunOptions {
+  const persisted = state.runOptions;
+  return {
+    workers:
+      persisted?.workers && persisted.workers > 0 ? persisted.workers : config.run.defaultWorkers,
+    until: persisted?.until ?? config.run.defaultUntil,
+    noSpawn: persisted?.noSpawn === true,
+    dryRun: false,
+  };
 }
 
 function buildWorkerNotice(input: {
@@ -224,6 +282,10 @@ function buildWorkerNotice(input: {
 export default function piBeadworkExtension(pi: ExtensionAPI): void {
   const adapter = createBeadworkAdapter();
   const stateCache = new Map<string, SessionState>();
+  const backgroundSupervisors = new Map<
+    string,
+    { timer: ReturnType<typeof setInterval>; running: boolean }
+  >();
 
   function getStateDir(
     ctx: ExtensionContext,
@@ -281,10 +343,141 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
 
     stateCache.set(sessionId, normalized);
 
+    let persisted = normalized;
     try {
-      return await saveSessionState(getStateDir(ctx, activation, config), sessionId, normalized);
+      persisted = await saveSessionState(
+        getStateDir(ctx, activation, config),
+        sessionId,
+        normalized,
+      );
     } catch {
-      return normalized;
+      persisted = normalized;
+    }
+
+    reconcileBackgroundSupervisor(ctx, activation, config, persisted);
+    return persisted;
+  }
+
+  function stopBackgroundSupervisor(sessionId: string): void {
+    const existing = backgroundSupervisors.get(sessionId);
+    if (!existing) {
+      return;
+    }
+
+    clearInterval(existing.timer);
+    backgroundSupervisors.delete(sessionId);
+  }
+
+  function reconcileBackgroundSupervisor(
+    ctx: ExtensionContext,
+    activation: ActivationState,
+    config: BeadworkConfig,
+    state: SessionState,
+  ): void {
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (!shouldSuperviseInBackground(activation, state)) {
+      stopBackgroundSupervisor(sessionId);
+      return;
+    }
+
+    if (backgroundSupervisors.has(sessionId)) {
+      return;
+    }
+
+    const timer = setInterval(
+      () => {
+        void runBackgroundSupervisorTick(ctx);
+      },
+      Math.max(1_000, config.supervisor.pollIntervalMs),
+    );
+    backgroundSupervisors.set(sessionId, { timer, running: false });
+  }
+
+  async function runBackgroundSupervisorTick(ctx: ExtensionContext): Promise<void> {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const supervisor = backgroundSupervisors.get(sessionId);
+    if (!supervisor || supervisor.running) {
+      return;
+    }
+
+    if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+      return;
+    }
+
+    supervisor.running = true;
+
+    try {
+      const config = loadConfig(ctx.cwd);
+      const activation = await detectActivation(ctx.cwd);
+      let state = await readSessionState(ctx, activation, config);
+
+      if (!shouldSuperviseInBackground(activation, state)) {
+        stopBackgroundSupervisor(sessionId);
+        return;
+      }
+
+      if (
+        state.mode === "run" &&
+        state.scope.kind === "epic" &&
+        state.runOptions &&
+        state.runOptions.dryRun !== true &&
+        activation.kind === "active"
+      ) {
+        const summary = await runBoundedEpicLoop({
+          cwd: ctx.cwd,
+          repoRoot: activation.repoRoot ?? ctx.cwd,
+          config,
+          adapter,
+          epicId: state.scope.id,
+          options: {
+            ...buildSupervisorRunSummary(state, config),
+            maxCycles: 1,
+            pollIntervalMs: 0,
+          },
+          prime: state.prime?.content,
+        });
+
+        const status = await refreshStatus(ctx);
+        state = status.state;
+
+        const runNotice = buildRunSupervisorNotice(summary);
+        if (summary.stopReason !== "max-cycles") {
+          const paused = await writeSessionState(ctx, activation, config, {
+            ...state,
+            mode: "interactive",
+            runOptions: undefined,
+          });
+          updateStatusline(
+            ctx,
+            activation,
+            paused,
+            config,
+            status.workerSummary ?? summary.workerSummary,
+          );
+          if (runNotice) {
+            ctx.ui.notify(runNotice.message, runNotice.level);
+          }
+          return;
+        }
+
+        updateStatusline(
+          ctx,
+          activation,
+          state,
+          config,
+          status.workerSummary ?? summary.workerSummary,
+        );
+        return;
+      }
+
+      await refreshStatus(ctx);
+    } catch (error) {
+      ctx.ui.notify(`Beadwork background supervision failed: ${humanizeError(error)}`, "warning");
+    } finally {
+      const current = backgroundSupervisors.get(sessionId);
+      if (current) {
+        current.running = false;
+      }
     }
   }
 
@@ -447,6 +640,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     state: SessionState,
     mode: SessionState["mode"],
     scope?: SessionScope,
+    runOptions?: SessionRunOptions,
   ): Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }> {
     const stateWithPrime = await ensurePrime(ctx, activation, config, state, false);
     const nextState = await writeSessionState(ctx, activation, config, {
@@ -454,6 +648,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       mode,
       engagedAt: new Date().toISOString(),
       scope: scope ?? state.scope,
+      runOptions: mode === "run" ? (runOptions ?? state.runOptions) : undefined,
     });
     const scopeDetail = await resolveScopeDetail(ctx, activation, nextState);
     const workerSummary = await resolveWorkerSummary(
@@ -612,6 +807,10 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
 
   pi.on("turn_end", async (_event, ctx) => {
     await refreshStatus(ctx);
+  });
+
+  pi.on("session_shutdown", async (_event, ctx) => {
+    stopBackgroundSupervisor(ctx.sessionManager.getSessionId());
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -1028,19 +1227,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             active.state,
             false,
           );
-          const scope: Exclude<SessionScope, { kind: "none" }> = {
-            kind: "epic",
-            id: epic.id,
-            title: epic.title,
-          };
-          const { state } = await setSessionMode(
-            ctx,
-            active.activation,
-            active.config,
-            stateWithPrime,
-            "run",
-            scope,
-          );
           const options = buildRunOptions(active.config, {
             workers:
               typeof parsed.options.get("workers") === "string"
@@ -1057,6 +1243,34 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
                 : undefined,
             noSpawn: parsed.options.has("no-spawn"),
           });
+          const scope: Exclude<SessionScope, { kind: "none" }> = {
+            kind: "epic",
+            id: epic.id,
+            title: epic.title,
+          };
+          const { state } = options.dryRun
+            ? await setSessionMode(
+                ctx,
+                active.activation,
+                active.config,
+                stateWithPrime,
+                "interactive",
+                scope,
+              )
+            : await setSessionMode(
+                ctx,
+                active.activation,
+                active.config,
+                stateWithPrime,
+                "run",
+                scope,
+                {
+                  workers: options.workers,
+                  until: options.until,
+                  noSpawn: options.noSpawn,
+                  dryRun: false,
+                },
+              );
           const summary = await runBoundedEpicLoop({
             cwd: ctx.cwd,
             repoRoot: active.activation.repoRoot ?? ctx.cwd,
@@ -1067,6 +1281,14 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             prime: state.prime?.content,
           });
           await showRunSummary(ctx, summary);
+          if (!options.dryRun && summary.stopReason === "max-cycles") {
+            ctx.ui.notify(
+              `Background supervision remains armed for ${epic.id}; it will keep polling every ${Math.round(
+                active.config.supervisor.pollIntervalMs / 1000,
+              )}s while work is still active.`,
+              "info",
+            );
+          }
           updateStatusline(ctx, active.activation, state, active.config, summary.workerSummary);
           return;
         }
