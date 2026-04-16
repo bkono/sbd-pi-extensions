@@ -670,6 +670,42 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("landed successfully");
   });
 
+  it("queues landing retries for background supervision instead of refreshing synchronously", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-land-worker-queued",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    requestWorkerLandingMock.mockResolvedValue({
+      ...createWorkerRuntime(tempDir),
+      status: "exited",
+      ticketStatus: "closed",
+      landingRequestedAt: "2026-04-16T16:00:00.000Z",
+      validationStatus: "pending",
+      validationSummary:
+        "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.",
+      landingVerification:
+        "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.",
+    });
+
+    await harness.invokeCommand("bw", "land BW-101", ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("Queued landing retry for BW-101");
+    expect(message).toContain("Background supervision will keep validating/reviewing/merging");
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-land-worker-queued",
+    );
+    expect(persisted.trackedWorkerIds).toContain("bw-101-worker");
+  });
+
   it("tracks delegated workers from a neutral session and notifies once when they land", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

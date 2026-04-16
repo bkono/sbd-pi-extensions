@@ -611,6 +611,7 @@ async function runReviewerPass(input: {
   const reviewLogFile = resolveReviewerLogFile(input.worker);
   await writeFile(promptFile, `${prompt}\n`, "utf8");
 
+  await writeFile(reviewLogFile, "", { flag: "a" });
   const reviewLog = createWriteStream(reviewLogFile, { flags: "a", encoding: "utf8" });
   let sawStdout = false;
   let sawStderr = false;
@@ -909,6 +910,56 @@ function buildDeferredHoldDetail(worker: WorkerRuntime): string {
   }
 
   return `Validated and held. Waiting for an explicit landing request.${reviewDetail}`;
+}
+
+function buildQueuedLandingRequestState(
+  worker: WorkerRuntime,
+  config: BeadworkConfig,
+): WorkerRuntime {
+  const now = new Date().toISOString();
+  const ticketClosed = worker.ticketStatus === "closed";
+  const reviewLogFile = resolveReviewerLogFile(worker);
+  const validationRequired = config.landing.validateCommands.length > 0;
+  const reviewEnabled = config.landing.review.enabled;
+
+  const queuedDetail = ticketClosed
+    ? reviewEnabled
+      ? `Explicit landing request queued. Background supervision will rerun validation, reviewer gating, and merge-back. Reviewer output will stream to ${reviewLogFile} once it starts.`
+      : "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background."
+    : "Explicit landing request queued. Landing will continue after the worker exits and the ticket closes.";
+
+  return {
+    ...worker,
+    status:
+      worker.status === "launching" || worker.status === "running"
+        ? worker.status
+        : worker.status === "held"
+          ? "held"
+          : "exited",
+    landingRequestedAt: now,
+    landingVerifiedAt: undefined,
+    landingVerification: queuedDetail,
+    validationStatus: validationRequired ? "pending" : worker.validationStatus,
+    validationAt: validationRequired ? now : worker.validationAt,
+    validationSummary: validationRequired ? queuedDetail : worker.validationSummary,
+    remediationStatus: undefined,
+    remediationAttempts: worker.remediationAttempts,
+    remediationAt: undefined,
+    remediationSummary: undefined,
+    reviewStatus: reviewEnabled ? "pending" : undefined,
+    reviewVerdict: undefined,
+    reviewAt: reviewEnabled ? now : undefined,
+    reviewSummary: reviewEnabled ? queuedDetail : undefined,
+    reviewFeedback: undefined,
+    reviewValidFeedbackCount: undefined,
+    reviewInvalidFeedbackCount: undefined,
+    reviewRemediationAt: undefined,
+    cleanupStatus:
+      worker.cleanupPolicy === "cleanup-after-landing" ? "pending" : worker.cleanupStatus,
+    cleanupAt: undefined,
+    lastError: undefined,
+    updatedAt: now,
+  };
 }
 
 async function finalizeLandedWorker(input: {
@@ -1690,12 +1741,16 @@ export async function inspectWorkerRuntime(input: {
   tmuxBackend?: TmuxBackend;
   runner?: ProcessRunner;
   onLifecycleEvent?: (event: WorkerLifecycleEvent) => Promise<void> | void;
+  onWorkerUpdate?: (worker: WorkerRuntime) => Promise<void> | void;
   requestLanding?: boolean;
+  awaitOrchestration?: boolean;
 }): Promise<WorkerRuntime> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
   const runner = input.runner ?? defaultProcessRunner;
   const config = input.config;
   const validationRequired = (config?.landing.validateCommands.length ?? 0) > 0;
+  const shouldRequestLanding =
+    input.requestLanding === true || Boolean(input.worker.landingRequestedAt);
 
   if (
     input.worker.status === "landed" &&
@@ -1757,13 +1812,26 @@ export async function inspectWorkerRuntime(input: {
     };
     const existingLock = workerOrchestrationLocks.get(orchestratedWorker.workerId);
     if (existingLock) {
+      if (input.awaitOrchestration === false) {
+        return {
+          ...existingLock.snapshot,
+          ticketStatus,
+          tmuxSession: resolvedTmuxSession,
+          tmuxWindow: resolvedTmuxWindow,
+          tmuxPane: resolvedTmuxPane,
+          finishedAt: existingLock.snapshot.finishedAt ?? finishedAtText,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      const awaited = await existingLock.promise;
       return {
-        ...existingLock.snapshot,
+        ...awaited,
         ticketStatus,
-        tmuxSession: resolvedTmuxSession,
-        tmuxWindow: resolvedTmuxWindow,
-        tmuxPane: resolvedTmuxPane,
-        finishedAt: existingLock.snapshot.finishedAt ?? finishedAtText,
+        tmuxSession: awaited.tmuxSession,
+        tmuxWindow: awaited.tmuxWindow,
+        tmuxPane: awaited.tmuxPane,
+        finishedAt: awaited.finishedAt ?? finishedAtText,
         updatedAt: new Date().toISOString(),
       };
     }
@@ -1772,6 +1840,25 @@ export async function inspectWorkerRuntime(input: {
       ...orchestratedWorker,
       updatedAt: new Date().toISOString(),
     };
+    const publishSnapshot = (nextWorker: WorkerRuntime): WorkerRuntime => {
+      const mergedWorker: WorkerRuntime = {
+        ...nextWorker,
+        ticketStatus,
+        tmuxSession: nextWorker.tmuxSession,
+        tmuxWindow: nextWorker.tmuxWindow,
+        tmuxPane: nextWorker.tmuxPane,
+        finishedAt: nextWorker.finishedAt ?? finishedAtText,
+        updatedAt: new Date().toISOString(),
+      };
+      snapshot = mergedWorker;
+      const current = workerOrchestrationLocks.get(orchestratedWorker.workerId);
+      if (current) {
+        current.snapshot = mergedWorker;
+      }
+      void input.onWorkerUpdate?.(mergedWorker);
+      return mergedWorker;
+    };
+
     const orchestrationPromise = autoLandCompletedWorker({
       cwd: input.cwd,
       repoRoot: input.repoRoot,
@@ -1780,34 +1867,34 @@ export async function inspectWorkerRuntime(input: {
       adapter: input.adapter,
       tmuxBackend,
       runner,
-      requestLanding: input.requestLanding,
+      requestLanding: shouldRequestLanding,
       onLifecycleEvent: input.onLifecycleEvent,
       onWorkerUpdate: (nextWorker) => {
-        snapshot = nextWorker;
-        const current = workerOrchestrationLocks.get(orchestratedWorker.workerId);
-        if (current) {
-          current.snapshot = nextWorker;
-        }
+        publishSnapshot(nextWorker);
       },
-    }).finally(() => {
-      workerOrchestrationLocks.delete(orchestratedWorker.workerId);
-    });
+    })
+      .then((nextWorker) => publishSnapshot(nextWorker))
+      .catch((error) =>
+        publishSnapshot(
+          buildAttentionState(snapshot, `Landing orchestration failed: ${humanizeError(error)}`, {
+            ticketStatus,
+          }),
+        ),
+      )
+      .finally(() => {
+        workerOrchestrationLocks.delete(orchestratedWorker.workerId);
+      });
 
     workerOrchestrationLocks.set(orchestratedWorker.workerId, {
       snapshot,
       promise: orchestrationPromise,
     });
 
-    const orchestrated = await orchestrationPromise;
-    return {
-      ...orchestrated,
-      ticketStatus,
-      tmuxSession: orchestrated.tmuxSession,
-      tmuxWindow: orchestrated.tmuxWindow,
-      tmuxPane: orchestrated.tmuxPane,
-      finishedAt: orchestrated.finishedAt ?? finishedAtText,
-      updatedAt: new Date().toISOString(),
-    };
+    if (input.awaitOrchestration === false) {
+      return snapshot;
+    }
+
+    return await orchestrationPromise;
   }
 
   if (stateText === "failed" || (exitCode !== undefined && exitCode !== 0)) {
@@ -1884,24 +1971,26 @@ export async function requestWorkerLanding(input: {
     );
   }
 
+  const queued = buildQueuedLandingRequestState(worker, input.config);
+  await upsertWorkerRuntime(registryPath, queued);
+
   const inspected = await inspectWorkerRuntime({
     cwd: input.cwd,
     repoRoot: input.repoRoot,
-    worker,
+    worker: queued,
     adapter: input.adapter,
     config: input.config,
     tmuxBackend: input.tmuxBackend,
     runner: input.runner,
     requestLanding: true,
+    awaitOrchestration: false,
     onLifecycleEvent: input.onLifecycleEvent,
+    onWorkerUpdate: async (nextWorker) => {
+      await upsertWorkerRuntime(registryPath, nextWorker);
+    },
   });
 
-  const merged = [
-    ...workers.filter((entry) => entry.workerId !== inspected.workerId),
-    inspected,
-  ].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
-  await saveWorkerRegistry(registryPath, merged);
-
+  await upsertWorkerRuntime(registryPath, inspected);
   return inspected;
 }
 

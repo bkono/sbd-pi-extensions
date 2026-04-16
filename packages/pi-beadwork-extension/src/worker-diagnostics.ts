@@ -340,6 +340,40 @@ function describeFollowUp(
   landing: WorkerInspection["landing"],
   cleanup: WorkerInspection["cleanup"],
 ): WorkerInspection["followUp"] {
+  if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
+    if (worker.ticketStatus !== "closed") {
+      return {
+        needsAttention: false,
+        action:
+          "Landing was requested. Waiting for the worker to finish and close the ticket before merge-back checks can continue.",
+      };
+    }
+
+    if (review.state === "pending") {
+      return {
+        needsAttention: false,
+        action:
+          review.detail ?? "Landing was requested. Reviewer gating is running before merge-back.",
+      };
+    }
+
+    if (validation.state === "pending") {
+      return {
+        needsAttention: false,
+        action:
+          validation.detail ??
+          "Landing was requested. Validation and merge-back checks are running in the background.",
+      };
+    }
+
+    return {
+      needsAttention: false,
+      action:
+        worker.landingVerification ??
+        "Landing was requested. Background merge-back orchestration is in progress.",
+    };
+  }
+
   if (worker.status === "launching") {
     return {
       needsAttention: false,

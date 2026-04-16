@@ -8,6 +8,7 @@ import {
   buildReviewerAgentCommand,
   buildWorkerAgentCommand,
   inspectWorkerRuntime,
+  requestWorkerLanding,
   runBoundedEpicLoop,
   stopWorkers,
 } from "../../orchestrator.js";
@@ -1053,6 +1054,7 @@ describe("worker inspection", () => {
       },
       tmuxBackend,
       runner,
+      awaitOrchestration: false,
     });
 
     expect(secondInspection.reviewStatus).toBe("pending");
@@ -1065,6 +1067,163 @@ describe("worker inspection", () => {
     expect(firstResult.status).toBe("landed");
     expect(firstResult.reviewStatus).toBe("approved");
     expect(reviewRuns).toBe(1);
+  });
+
+  it("queues explicit landing retries without blocking on reviewer completion", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-queued-land-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      status: "attention",
+      reviewStatus: "review-blocked",
+      reviewSummary: "Previous reviewer run timed out.",
+      lastError: "Previous reviewer run timed out.",
+    });
+    await saveWorkerRegistry(registryPath, [worker]);
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Retry the reviewer gate in the background.",
+          children: [],
+        }),
+      ),
+    });
+
+    let merged = false;
+    let allowReviewToFinish!: () => void;
+    const reviewCanFinish = new Promise<void>((resolve) => {
+      allowReviewToFinish = resolve;
+    });
+
+    const runner = vi.fn(
+      async (
+        command: string,
+        args: string[],
+        options?: {
+          cwd?: string;
+          onStdoutChunk?: (chunk: string) => void;
+          onStderrChunk?: (chunk: string) => void;
+        },
+      ) => {
+        if (command === "git" && args[0] === "status") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+          return { stdout: `${merged ? "worker-head" : "repo-head"}\n`, stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+          return { stdout: "worker-head\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-list") {
+          return { stdout: `${merged ? "0 0" : "0 2"}\n`, stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "log") {
+          return { stdout: "abc123 feat: reviewer gate\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "diff") {
+          return {
+            stdout: "diff --git a/orchestrator.ts b/orchestrator.ts\n",
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "bash" && args[1] === "npm run lint") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run test") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run typecheck") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1]?.includes("review-model")) {
+          options?.onStdoutChunk?.('{"verdict":"approve"');
+          await reviewCanFinish;
+          options?.onStdoutChunk?.(',"summary":"Looks good.","feedback":[]}');
+          return {
+            stdout: JSON.stringify({ verdict: "approve", summary: "Looks good.", feedback: [] }),
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "git" && args[0] === "merge") {
+          merged = true;
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    );
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const queued = await requestWorkerLanding({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+      },
+      adapter,
+      ticketId: "BW-101",
+      tmuxBackend,
+      runner,
+    });
+
+    expect(queued.status).toBe("exited");
+    expect(queued.landingRequestedAt).toBeTruthy();
+    expect(queued.validationStatus).toBe("pending");
+    expect(queued.reviewStatus).toBe("pending");
+    expect(queued.reviewSummary).toContain("review.log");
+
+    const queuedRegistry = await readFile(registryPath, "utf8");
+    expect(queuedRegistry).toContain("landingRequestedAt");
+
+    allowReviewToFinish();
+
+    let finalRegistry = "";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      finalRegistry = await readFile(registryPath, "utf8");
+      if (finalRegistry.includes('"status": "landed"')) {
+        break;
+      }
+    }
+    expect(finalRegistry).toContain('"status": "landed"');
+
+    const reviewLog = await readFile(path.join(runtimeDir, "review.log"), "utf8");
+    expect(reviewLog).toContain("[beadwork reviewer]");
   });
 
   it("lands a previously held worker when explicitly requested", async () => {

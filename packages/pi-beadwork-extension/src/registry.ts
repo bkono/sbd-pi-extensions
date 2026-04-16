@@ -201,6 +201,11 @@ export async function upsertWorkerRuntime(
   worker: WorkerRuntime,
 ): Promise<WorkerRuntime[]> {
   const workers = await loadWorkerRegistry(registryPath);
+  const existing = workers.find((entry) => entry.workerId === worker.workerId);
+  if (existing && existing.updatedAt > worker.updatedAt) {
+    return workers;
+  }
+
   const filtered = workers.filter((entry) => entry.workerId !== worker.workerId);
   filtered.push(worker);
   filtered.sort((left, right) => left.startedAt.localeCompare(right.startedAt));

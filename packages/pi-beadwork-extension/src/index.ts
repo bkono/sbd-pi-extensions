@@ -46,8 +46,8 @@ import { buildBeadworkPromptAppendix } from "./prompt.js";
 import {
   loadWorkerRegistry,
   resolveWorkerRegistryPath,
-  saveWorkerRegistry,
   summarizeWorkers,
+  upsertWorkerRuntime,
 } from "./registry.js";
 import {
   loadSessionState,
@@ -309,6 +309,7 @@ function buildWorkerNotice(input: {
   const key = [
     worker.status,
     worker.ticketStatus ?? "",
+    worker.landingRequestedAt ?? "",
     inspection.validation.state,
     inspection.review.state,
     inspection.landing.state,
@@ -318,6 +319,28 @@ function buildWorkerNotice(input: {
     worker.landingVerification ?? "",
     worker.lastError ?? "",
   ].join("|");
+
+  if (
+    worker.landingRequestedAt &&
+    !worker.landingVerifiedAt &&
+    (inspection.validation.state === "pending" ||
+      inspection.review.state === "pending" ||
+      worker.ticketStatus !== "closed")
+  ) {
+    const reviewLogFile = path.join(worker.runtimeDir, "review.log");
+    const detail =
+      inspection.review.state === "pending"
+        ? ` Follow reviewer output in ${reviewLogFile}.`
+        : inspection.validation.state === "pending"
+          ? ` Follow orchestrator progress in ${worker.logFile}.`
+          : "";
+    return {
+      key,
+      level: "info",
+      message:
+        `Delegated ticket ${worker.ticketId} has an explicit landing request in flight. ${inspection.followUp.action}${detail}`.trim(),
+    };
+  }
 
   if (worker.status === "running" && worker.remediationStatus === "running") {
     return {
@@ -866,6 +889,57 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     };
   }
 
+  function shouldKeepWorkerTracked(
+    worker: WorkerRuntime,
+    inspection: ReturnType<typeof inspectWorker>,
+  ): boolean {
+    if (
+      worker.status === "launching" ||
+      worker.status === "running" ||
+      worker.status === "held" ||
+      inspection.followUp.needsAttention
+    ) {
+      return true;
+    }
+
+    if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
+      return true;
+    }
+
+    return (
+      worker.ticketStatus === "closed" &&
+      worker.status === "exited" &&
+      (worker.validationStatus === "pending" || worker.reviewStatus === "pending")
+    );
+  }
+
+  async function trackWorkerForBackground(
+    ctx: ExtensionContext,
+    activation: ActivationState,
+    config: BeadworkConfig,
+    state: SessionState,
+    worker: WorkerRuntime,
+  ): Promise<SessionState> {
+    const trackedWorkerIds = [
+      ...new Set([...(state.trackedWorkerIds ?? []), worker.workerId]),
+    ].sort();
+    const workerNotices = { ...(state.workerNotices ?? {}) };
+    delete workerNotices[worker.workerId];
+
+    const nextState = await writeSessionState(ctx, activation, config, {
+      ...state,
+      trackedWorkerIds,
+      workerNotices: Object.keys(workerNotices).length > 0 ? workerNotices : undefined,
+    });
+    const workerSummary = await resolveWorkerSummary(
+      activation,
+      config,
+      nextState.scope.kind === "epic" ? nextState.scope.id : undefined,
+    );
+    updateStatusline(ctx, activation, nextState, config, workerSummary);
+    return nextState;
+  }
+
   async function inspectWorkers(
     ctx: ExtensionContext,
     activation: ActivationState,
@@ -888,6 +962,11 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       })
     ).filter((worker) => (selectedIds ? selectedIds.has(worker.workerId) : true));
 
+    const registryPath = resolveWorkerRegistryPath(
+      activation.repoRoot,
+      config.storage.workerRegistryFile,
+    );
+
     const inspected = await Promise.all(
       workers.map((worker) =>
         inspectWorkerRuntime({
@@ -896,29 +975,24 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           worker,
           adapter,
           config,
+          awaitOrchestration: false,
           onLifecycleEvent: (event) => {
             const notice = buildLifecycleEventNotice(event);
             ctx.ui.notify(notice.message, notice.level);
+          },
+          onWorkerUpdate: async (nextWorker) => {
+            await upsertWorkerRuntime(registryPath, nextWorker);
           },
         }),
       ),
     );
 
-    const registryPath = resolveWorkerRegistryPath(
-      activation.repoRoot,
-      config.storage.workerRegistryFile,
-    );
-    const existing = await loadWorkerRegistry(registryPath);
-    const merged = [
-      ...existing.filter(
-        (worker) => !inspected.some((candidate) => candidate.workerId === worker.workerId),
-      ),
-      ...inspected,
-    ];
-    await saveWorkerRegistry(registryPath, merged);
-    return options.epicId
-      ? inspected.filter((worker) => worker.epicId === options.epicId)
-      : inspected;
+    await Promise.all(inspected.map((worker) => upsertWorkerRuntime(registryPath, worker)));
+    const latest = await loadWorkerRegistry(registryPath);
+    const scoped = options.epicId
+      ? latest.filter((worker) => worker.epicId === options.epicId)
+      : latest;
+    return selectedIds ? scoped.filter((worker) => selectedIds.has(worker.workerId)) : scoped;
   }
 
   async function syncWorkerTracking(
@@ -936,11 +1010,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     const inspections = workers.map((worker) => {
       const inspection = inspectWorker(worker);
       const notice = buildWorkerNotice({ worker, inspection });
-      const keepTracked =
-        worker.status === "launching" ||
-        worker.status === "running" ||
-        worker.status === "held" ||
-        inspection.followUp.needsAttention;
+      const keepTracked = shouldKeepWorkerTracked(worker, inspection);
       return { worker, inspection, notice, keepTracked };
     });
 
@@ -1580,14 +1650,19 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           const inspection = inspectWorker(worker);
           const landed = worker.status === "landed";
           const level = inspection.followUp.needsAttention ? "warning" : "info";
+          await trackWorkerForBackground(
+            ctx,
+            active.activation,
+            active.config,
+            active.state,
+            worker,
+          );
           ctx.ui.notify(
             landed
               ? `Delegated ticket ${worker.ticketId} landed successfully. ${inspection.followUp.action}`
-              : `Landing request processed for ${worker.ticketId}. ${inspection.followUp.action}`,
+              : `Queued landing retry for ${worker.ticketId}. Background supervision will keep validating/reviewing/merging and notify when it finishes. ${inspection.followUp.action}`,
             level,
           );
-
-          await refreshStatus(ctx);
           return;
         }
 
@@ -2263,6 +2338,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         };
       }
 
+      const state = await readSessionState(ctx, activation, config);
       const worker = await requestWorkerLanding({
         cwd: ctx.cwd,
         repoRoot: activation.repoRoot,
@@ -2271,6 +2347,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         ticketId: params.ticket_id,
         workerId: params.worker_id,
       });
+      await trackWorkerForBackground(ctx, activation, config, state, worker);
       const inspection = inspectWorker(worker);
 
       return {

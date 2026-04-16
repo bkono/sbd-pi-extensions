@@ -193,6 +193,25 @@ describe("worker diagnostics", () => {
     expect(inspection.landing.state).toBe("waiting-ticket-close");
   });
 
+  it("treats explicit landing retries as background progress instead of attention", () => {
+    const inspection = inspectWorker(
+      createWorker({
+        status: "exited",
+        ticketStatus: "closed",
+        landingRequestedAt: "2026-04-16T16:00:00.000Z",
+        validationStatus: "pending",
+        validationSummary:
+          "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.",
+        landingVerification:
+          "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.",
+      }),
+    );
+
+    expect(inspection.followUp.needsAttention).toBe(false);
+    expect(inspection.followUp.action).toContain("Explicit landing request queued");
+    expect(inspection.validation.state).toBe("pending");
+  });
+
   it("tells the operator when a closed ticket is waiting on worker exit", () => {
     const inspection = inspectWorker(createWorker({ status: "running", ticketStatus: "closed" }));
 
