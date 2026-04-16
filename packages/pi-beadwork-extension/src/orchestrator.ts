@@ -121,11 +121,17 @@ export function buildWorkerAgentCommand(config: BeadworkConfig): string {
 }
 
 export function buildReviewerAgentCommand(config: BeadworkConfig): string {
-  return buildModelScopedAgentCommand({
+  const command = buildModelScopedAgentCommand({
     command: config.tmux.workerCommand,
     provider: config.landing.review.provider ?? config.tmux.workerProvider,
     model: config.landing.review.model ?? config.tmux.workerModel,
   });
+
+  if (!shouldNormalizePiWorkerCommand(config.tmux.workerCommand)) {
+    return command;
+  }
+
+  return `${command} --no-tools --no-extensions --no-skills`;
 }
 
 function buildWorkerScript(input: {
@@ -224,6 +230,108 @@ function truncateForPrompt(value: string | undefined, maxChars: number): string 
   return `${trimmed.slice(0, maxChars).trimEnd()}\n\n[truncated]`;
 }
 
+function extractAssistantTextParts(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .flatMap((entry) => {
+      if (typeof entry === "string") {
+        return entry.trim().length > 0 ? [entry.trim()] : [];
+      }
+
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+
+      const item = entry as { type?: unknown; text?: unknown; content?: unknown };
+      if (typeof item.text === "string" && item.text.trim().length > 0) {
+        return [item.text.trim()];
+      }
+
+      if (item.type === "output_text" && typeof item.content === "string") {
+        const text = item.content.trim();
+        return text.length > 0 ? [text] : [];
+      }
+
+      return [];
+    })
+    .filter((entry) => entry.length > 0);
+}
+
+function extractPiJsonAssistantText(raw: string): string | undefined {
+  let latestAssistantText: string | undefined;
+  let sawAssistantToolCall = false;
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine.startsWith("{")) {
+      continue;
+    }
+
+    let event: unknown;
+    try {
+      event = JSON.parse(trimmedLine) as unknown;
+    } catch {
+      continue;
+    }
+
+    if (!event || typeof event !== "object") {
+      continue;
+    }
+
+    const record = event as {
+      message?: { role?: unknown; content?: unknown };
+      assistantMessageEvent?: {
+        partial?: { role?: unknown; content?: unknown };
+        message?: { role?: unknown; content?: unknown };
+      };
+    };
+
+    const assistantMessages = [
+      record.message,
+      record.assistantMessageEvent?.message,
+      record.assistantMessageEvent?.partial,
+    ].filter(
+      (message): message is { role?: unknown; content?: unknown } =>
+        Boolean(message) && typeof message === "object" && message.role === "assistant",
+    );
+
+    for (const message of assistantMessages) {
+      const content = Array.isArray(message.content) ? message.content : [];
+      if (
+        content.some(
+          (entry) =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            ((entry as { type?: unknown }).type === "toolCall" ||
+              (entry as { type?: unknown }).type === "toolResult"),
+        )
+      ) {
+        sawAssistantToolCall = true;
+      }
+
+      const text = extractAssistantTextParts(content).join("\n").trim();
+      if (text.length > 0) {
+        latestAssistantText = text;
+      }
+    }
+  }
+
+  if (latestAssistantText) {
+    return latestAssistantText;
+  }
+
+  if (sawAssistantToolCall) {
+    throw new Error(
+      "Reviewer agent attempted tool use instead of returning strict JSON. Re-run with reviewer tools/extensions disabled.",
+    );
+  }
+
+  return undefined;
+}
+
 function extractJsonPayload(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -243,6 +351,11 @@ function extractJsonPayload(raw: string): unknown {
     } catch {
       // fall through to broad object extraction
     }
+  }
+
+  const piAssistantText = extractPiJsonAssistantText(trimmed);
+  if (piAssistantText) {
+    return extractJsonPayload(piAssistantText);
   }
 
   const objectMatch = trimmed.match(/\{[\s\S]*\}/);
@@ -874,6 +987,7 @@ function buildAttentionState(
     ...worker,
     ...overrides,
     status: "attention",
+    landingRequestedAt: overrides.landingRequestedAt,
     landingVerification: overrides.landingVerification ?? detail,
     lastError: detail,
     updatedAt: new Date().toISOString(),

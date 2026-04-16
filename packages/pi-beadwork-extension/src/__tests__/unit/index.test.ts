@@ -759,6 +759,56 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications).toHaveLength(notificationCount);
   });
 
+  it("does not re-notify identical review-blocked workers when only landingRequestedAt changes", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-worker-attention-dedupe",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "attention" as const,
+      ticketStatus: "closed",
+      validationStatus: "passed" as const,
+      reviewStatus: "review-blocked" as const,
+      reviewSummary: "Reviewer gate failed: output was malformed.",
+      landingVerification: "Landing blocked: reviewer gate failed (output was malformed).",
+      lastError: "Reviewer gate failed: output was malformed.",
+      landingRequestedAt: "2026-04-16T17:40:00.000Z",
+    };
+
+    await saveWorkerRegistry(registryPath, [worker]);
+    await saveSessionState(stateDir, "session-worker-attention-dedupe", {
+      mode: "neutral",
+      scope: { kind: "none" },
+      updatedAt: "2026-04-16T17:40:00.000Z",
+      trackedWorkerIds: [worker.workerId],
+    });
+
+    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
+    const firstWarningCount = ui.notifications.length;
+    expect(ui.notifications.at(-1)?.message).toContain("Delegated ticket BW-101");
+
+    await saveWorkerRegistry(registryPath, [
+      {
+        ...worker,
+        landingRequestedAt: "2026-04-16T17:41:00.000Z",
+        updatedAt: "2026-04-16T17:41:00.000Z",
+      },
+    ]);
+
+    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
+    expect(ui.notifications).toHaveLength(firstWarningCount);
+  });
+
   it("tracks delegated workers in the background without manual polling", async () => {
     vi.stubEnv("PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS", "10");
 

@@ -116,7 +116,9 @@ describe("orchestrator helpers", () => {
   });
 
   it("builds reviewer commands with independently configurable provider/model", () => {
-    expect(buildReviewerAgentCommand(DEFAULT_CONFIG)).toBe("pi --mode json");
+    expect(buildReviewerAgentCommand(DEFAULT_CONFIG)).toBe(
+      "pi --mode json --no-tools --no-extensions --no-skills",
+    );
 
     expect(
       buildReviewerAgentCommand({
@@ -136,7 +138,9 @@ describe("orchestrator helpers", () => {
           },
         },
       }),
-    ).toBe("pi --mode json --provider 'openai' --model 'gpt-5.4-reviewer'");
+    ).toBe(
+      "pi --mode json --provider 'openai' --model 'gpt-5.4-reviewer' --no-tools --no-extensions --no-skills",
+    );
   });
 
   it("stops active workers and persists the updated runtime state", async () => {
@@ -763,6 +767,123 @@ describe("worker inspection", () => {
     expect(landed.reviewStatus).toBe("approved");
     expect(landed.reviewVerdict).toBe("approve");
     expect(reviewRuns).toBe(2);
+  });
+
+  it("parses reviewer decisions from pi json-mode event streams", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-stream-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Return strict JSON from the reviewer stream.",
+          children: [],
+        }),
+      ),
+    });
+
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: merged ? "0 0\n" : "0 1\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123 feat: reviewer gate\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "diff") {
+        return {
+          stdout: "diff --git a/orchestrator.ts b/orchestrator.ts\n",
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("review-model")) {
+        return {
+          stdout: [
+            '{"type":"session"}',
+            '{"type":"message_start","message":{"role":"assistant","content":[]}}',
+            '{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"{\\"verdict\\":\\"approve-with-nits\\",\\"summary\\":\\"Looks good overall.\\",\\"feedback\\":[{\\"comment\\":\\"README examples could mention /om observations explicitly.\\",\\"intentAlignment\\":\\"aligned\\",\\"requiresChanges\\":false}]}"}]}}',
+          ].join("\n"),
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "merge") {
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("landed");
+    expect(inspected.reviewStatus).toBe("nits-only");
+    expect(inspected.reviewVerdict).toBe("approve-with-nits");
+    expect(inspected.reviewSummary).toContain("Looks good overall.");
   });
 
   it("streams reviewer output to review.log and preserves truthful timeout details", async () => {

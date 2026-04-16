@@ -309,7 +309,6 @@ function buildWorkerNotice(input: {
   const key = [
     worker.status,
     worker.ticketStatus ?? "",
-    worker.landingRequestedAt ?? "",
     inspection.validation.state,
     inspection.review.state,
     inspection.landing.state,
