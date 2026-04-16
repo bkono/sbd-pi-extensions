@@ -11,6 +11,7 @@ import {
   runBoundedEpicLoop,
   stopWorkers,
 } from "../../orchestrator.js";
+import { ProcessCommandError } from "../../process.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
 import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
@@ -761,6 +762,309 @@ describe("worker inspection", () => {
     expect(landed.reviewStatus).toBe("approved");
     expect(landed.reviewVerdict).toBe("approve");
     expect(reviewRuns).toBe(2);
+  });
+
+  it("streams reviewer output to review.log and preserves truthful timeout details", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-timeout-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Run a reviewer gate before delegated merge-back.",
+          children: [],
+        }),
+      ),
+    });
+
+    const runner = vi.fn(
+      async (
+        command: string,
+        args: string[],
+        options?: {
+          cwd?: string;
+          onStdoutChunk?: (chunk: string) => void;
+          onStderrChunk?: (chunk: string) => void;
+        },
+      ) => {
+        if (command === "git" && args[0] === "status") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+          return { stdout: "repo-head\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+          return { stdout: "worker-head\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-list") {
+          return { stdout: "0 2\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "log") {
+          return { stdout: "abc123 feat: reviewer gate\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "diff") {
+          return {
+            stdout: "diff --git a/orchestrator.ts b/orchestrator.ts\n",
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "bash" && args[1] === "npm run lint") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run test") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run typecheck") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1]?.includes("review-model")) {
+          options?.onStdoutChunk?.('{"partial":"review output"}\n');
+          options?.onStderrChunk?.("still reviewing...\n");
+          throw new ProcessCommandError({
+            command,
+            args,
+            cwd: options?.cwd,
+            code: 124,
+            stdout: '{"partial":"review output"}\n',
+            stderr: "still reviewing...\n",
+            timedOut: true,
+            killed: true,
+            timeoutMs: 1_800_000,
+          });
+        }
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    );
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.reviewStatus).toBe("review-blocked");
+    expect(inspected.lastError).toContain("timed out after 1800000ms");
+    expect(inspected.reviewSummary).toContain("review.log");
+
+    const reviewLog = await readFile(path.join(runtimeDir, "review.log"), "utf8");
+    expect(reviewLog).toContain("[beadwork reviewer stdout]");
+    expect(reviewLog).toContain('{"partial":"review output"}');
+    expect(reviewLog).toContain("[beadwork reviewer stderr]");
+    expect(reviewLog).toContain("still reviewing...");
+
+    const workerLog = await readFile(worker.logFile, "utf8");
+    expect(workerLog).toContain("running reviewer-agent gating pass before landing (log:");
+  });
+
+  it("serializes concurrent reviewer orchestration for the same worker", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-lock-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Run reviewer gating once per worker.",
+          children: [],
+        }),
+      ),
+    });
+
+    let merged = false;
+    let reviewRuns = 0;
+    let resolveReviewStarted!: () => void;
+    const reviewStarted = new Promise<void>((resolve) => {
+      resolveReviewStarted = resolve;
+    });
+    let allowReviewToFinish!: () => void;
+    const reviewCanFinish = new Promise<void>((resolve) => {
+      allowReviewToFinish = resolve;
+    });
+
+    const runner = vi.fn(
+      async (
+        command: string,
+        args: string[],
+        options?: {
+          cwd?: string;
+          onStdoutChunk?: (chunk: string) => void;
+          onStderrChunk?: (chunk: string) => void;
+        },
+      ) => {
+        if (command === "git" && args[0] === "status") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+          return { stdout: `${merged ? "worker-head" : "repo-head"}\n`, stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+          return { stdout: "worker-head\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-list") {
+          return { stdout: `${merged ? "0 0" : "0 2"}\n`, stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "log") {
+          return { stdout: "abc123 feat: reviewer gate\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "diff") {
+          return {
+            stdout: "diff --git a/orchestrator.ts b/orchestrator.ts\n",
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "bash" && args[1] === "npm run lint") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run test") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run typecheck") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1]?.includes("review-model")) {
+          reviewRuns += 1;
+          resolveReviewStarted();
+          await reviewCanFinish;
+          return {
+            stdout: JSON.stringify({
+              verdict: "approve",
+              summary: "Looks good.",
+              feedback: [],
+            }),
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "git" && args[0] === "merge") {
+          merged = true;
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    );
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const firstInspection = inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    await reviewStarted;
+
+    const secondInspection = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(secondInspection.reviewStatus).toBe("pending");
+    expect(secondInspection.reviewSummary).toContain("Reviewer gate is running before merge-back");
+    expect(reviewRuns).toBe(1);
+
+    allowReviewToFinish();
+    const firstResult = await firstInspection;
+
+    expect(firstResult.status).toBe("landed");
+    expect(firstResult.reviewStatus).toBe("approved");
+    expect(reviewRuns).toBe(1);
   });
 
   it("lands a previously held worker when explicitly requested", async () => {

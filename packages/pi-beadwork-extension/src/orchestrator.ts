@@ -1,3 +1,4 @@
+import { createWriteStream } from "node:fs";
 import { appendFile, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BeadworkAdapter } from "./bw.js";
@@ -169,6 +170,17 @@ async function appendWorkerLog(logFile: string, message: string): Promise<void> 
     // best-effort runtime logging only
   }
 }
+
+function resolveReviewerLogFile(worker: WorkerRuntime): string {
+  return path.join(worker.runtimeDir, "review.log");
+}
+
+type WorkerOrchestrationLock = {
+  snapshot: WorkerRuntime;
+  promise: Promise<WorkerRuntime>;
+};
+
+const workerOrchestrationLocks = new Map<string, WorkerOrchestrationLock>();
 
 const MAX_VALIDATION_REMEDIATION_ATTEMPTS = 1;
 const REVIEWER_ALLOWED_VERDICTS: WorkerReviewVerdict[] = [
@@ -577,6 +589,7 @@ async function runReviewerPass(input: {
   checkedAt: string;
   decision: ReviewerDecision;
   assessment: ReviewerAssessment;
+  reviewLogFile: string;
 }> {
   const ticket = await input.adapter.show(input.cwd, input.worker.ticketId);
   const epic = ticket.parentId ? await input.adapter.show(input.cwd, ticket.parentId) : undefined;
@@ -595,13 +608,53 @@ async function runReviewerPass(input: {
     artifacts,
   });
   const promptFile = path.join(input.worker.runtimeDir, "review-handoff.txt");
+  const reviewLogFile = resolveReviewerLogFile(input.worker);
   await writeFile(promptFile, `${prompt}\n`, "utf8");
+
+  const reviewLog = createWriteStream(reviewLogFile, { flags: "a", encoding: "utf8" });
+  let sawStdout = false;
+  let sawStderr = false;
+  reviewLog.write(
+    `[beadwork reviewer] started ${new Date().toISOString()}\n` +
+      `[beadwork reviewer] cwd: ${input.worker.worktreePath}\n` +
+      `[beadwork reviewer] handoff: ${promptFile}\n`,
+  );
 
   const reviewerCommand = buildReviewerAgentCommand(input.config);
   const reviewerInvocation = `${reviewerCommand} "$(cat ${shellQuote(promptFile)})"`;
-  const reviewResult = await input.runner("bash", ["-lc", reviewerInvocation], {
-    cwd: input.worker.worktreePath,
-    timeout: input.config.landing.review.commandTimeoutMs,
+  reviewLog.write(`[beadwork reviewer] command: ${reviewerInvocation}\n`);
+
+  let reviewResult: Awaited<ReturnType<ProcessRunner>>;
+  try {
+    reviewResult = await input.runner("bash", ["-lc", reviewerInvocation], {
+      cwd: input.worker.worktreePath,
+      timeout: input.config.landing.review.commandTimeoutMs,
+      onStdoutChunk: (chunk) => {
+        if (!sawStdout) {
+          sawStdout = true;
+          reviewLog.write("[beadwork reviewer stdout]\n");
+        }
+        reviewLog.write(chunk);
+      },
+      onStderrChunk: (chunk) => {
+        if (!sawStderr) {
+          sawStderr = true;
+          reviewLog.write("[beadwork reviewer stderr]\n");
+        }
+        reviewLog.write(chunk);
+      },
+    });
+  } catch (error) {
+    reviewLog.write(`\n[beadwork reviewer] failed ${new Date().toISOString()}\n`);
+    await new Promise<void>((resolve) => {
+      reviewLog.end(resolve);
+    });
+    throw error;
+  }
+
+  reviewLog.write(`\n[beadwork reviewer] finished ${new Date().toISOString()}\n`);
+  await new Promise<void>((resolve) => {
+    reviewLog.end(resolve);
   });
 
   const rawOutput = `${reviewResult.stdout}\n${reviewResult.stderr}`;
@@ -612,6 +665,7 @@ async function runReviewerPass(input: {
     checkedAt: new Date().toISOString(),
     decision,
     assessment,
+    reviewLogFile,
   };
 }
 
@@ -966,6 +1020,7 @@ async function autoLandCompletedWorker(input: {
   runner: ProcessRunner;
   requestLanding?: boolean;
   onLifecycleEvent?: (event: WorkerLifecycleEvent) => Promise<void> | void;
+  onWorkerUpdate?: (worker: WorkerRuntime) => void;
 }): Promise<WorkerRuntime> {
   if (
     !input.requestLanding &&
@@ -1010,6 +1065,13 @@ async function autoLandCompletedWorker(input: {
       ? (input.worker.reviewStatus ?? "pending")
       : input.worker.reviewStatus,
   };
+  const updateWorker = (nextWorker: WorkerRuntime): WorkerRuntime => {
+    worker = nextWorker;
+    input.onWorkerUpdate?.(worker);
+    return worker;
+  };
+
+  updateWorker(worker);
 
   if (input.requestLanding) {
     await appendWorkerLog(worker.logFile, `explicit landing requested for ${worker.ticketId}`);
@@ -1211,7 +1273,19 @@ async function autoLandCompletedWorker(input: {
     }
 
     if (input.config.landing.review.enabled && (postValidationLanding.aheadCount ?? 0) > 0) {
-      await appendWorkerLog(worker.logFile, "running reviewer-agent gating pass before landing");
+      const reviewLogFile = resolveReviewerLogFile(worker);
+      worker = updateWorker({
+        ...worker,
+        reviewStatus: "pending",
+        reviewAt: new Date().toISOString(),
+        reviewSummary: `Reviewer gate is running before merge-back. See ${reviewLogFile} for live output.`,
+        landingVerification: `Running reviewer-agent gate before landing. See ${reviewLogFile} for live output.`,
+        updatedAt: new Date().toISOString(),
+      });
+      await appendWorkerLog(
+        worker.logFile,
+        `running reviewer-agent gating pass before landing (log: ${reviewLogFile})`,
+      );
       let reviewPass: Awaited<ReturnType<typeof runReviewerPass>>;
 
       try {
@@ -1225,11 +1299,16 @@ async function autoLandCompletedWorker(input: {
           runner: input.runner,
         });
       } catch (error) {
-        return buildAttentionState(worker, `Reviewer gate failed: ${humanizeError(error)}`, {
-          reviewStatus: "review-blocked",
-          reviewSummary: `Reviewer gate failed: ${humanizeError(error)}`,
-          landingVerification: `Landing blocked: reviewer gate failed (${humanizeError(error)}).`,
-        });
+        const reviewLogFile = resolveReviewerLogFile(worker);
+        return buildAttentionState(
+          worker,
+          `Reviewer gate failed: ${humanizeError(error)}. See ${reviewLogFile}.`,
+          {
+            reviewStatus: "review-blocked",
+            reviewSummary: `Reviewer gate failed: ${humanizeError(error)}. See ${reviewLogFile}.`,
+            landingVerification: `Landing blocked: reviewer gate failed (${humanizeError(error)}). See ${reviewLogFile}.`,
+          },
+        );
       }
 
       const validFeedback = reviewPass.assessment.validFeedback;
@@ -1238,6 +1317,11 @@ async function autoLandCompletedWorker(input: {
         invalidFeedback.length > 0
           ? `${reviewPass.decision.summary} (${invalidFeedback.length} feedback item(s) rejected as out-of-scope by orchestrator intent checks.)`
           : reviewPass.decision.summary;
+
+      await appendWorkerLog(
+        worker.logFile,
+        `reviewer gate completed with verdict ${reviewPass.decision.verdict} (log: ${reviewPass.reviewLogFile})`,
+      );
 
       worker = {
         ...worker,
@@ -1663,25 +1747,58 @@ export async function inspectWorkerRuntime(input: {
     input.worker.status === "landed";
 
   if (ticketStatus === "closed" && workerFinished && config) {
-    const orchestrated = await autoLandCompletedWorker({
-      cwd: input.cwd,
-      repoRoot: input.repoRoot,
-      worker: {
-        ...input.worker,
+    const orchestratedWorker = {
+      ...input.worker,
+      ticketStatus,
+      tmuxSession: resolvedTmuxSession,
+      tmuxWindow: resolvedTmuxWindow,
+      tmuxPane: resolvedTmuxPane,
+      finishedAt: finishedAtText ?? input.worker.finishedAt,
+    };
+    const existingLock = workerOrchestrationLocks.get(orchestratedWorker.workerId);
+    if (existingLock) {
+      return {
+        ...existingLock.snapshot,
         ticketStatus,
         tmuxSession: resolvedTmuxSession,
         tmuxWindow: resolvedTmuxWindow,
         tmuxPane: resolvedTmuxPane,
-        finishedAt: finishedAtText ?? input.worker.finishedAt,
-      },
+        finishedAt: existingLock.snapshot.finishedAt ?? finishedAtText,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    let snapshot: WorkerRuntime = {
+      ...orchestratedWorker,
+      updatedAt: new Date().toISOString(),
+    };
+    const orchestrationPromise = autoLandCompletedWorker({
+      cwd: input.cwd,
+      repoRoot: input.repoRoot,
+      worker: orchestratedWorker,
       config,
       adapter: input.adapter,
       tmuxBackend,
       runner,
       requestLanding: input.requestLanding,
       onLifecycleEvent: input.onLifecycleEvent,
+      onWorkerUpdate: (nextWorker) => {
+        snapshot = nextWorker;
+        const current = workerOrchestrationLocks.get(orchestratedWorker.workerId);
+        if (current) {
+          current.snapshot = nextWorker;
+        }
+      },
+    }).finally(() => {
+      workerOrchestrationLocks.delete(orchestratedWorker.workerId);
     });
 
+    workerOrchestrationLocks.set(orchestratedWorker.workerId, {
+      snapshot,
+      promise: orchestrationPromise,
+    });
+
+    const orchestrated = await orchestrationPromise;
     return {
       ...orchestrated,
       ticketStatus,
