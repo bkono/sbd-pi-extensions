@@ -4,14 +4,15 @@
   "blocks": [
     "sbdpi-swx.6.4.2"
   ],
+  "closed_at": "2026-04-16T03:29:08Z",
   "created": "2026-04-16T03:09:24Z",
   "description": "Add a landing policy for delegated workers that stops after validation/landability checks and leaves the worktree unmerged for human testing when desired.\n\nScope:\n- support a deferred landing mode alongside the current auto-land flow\n- allow the orchestrator to validate the delegated result, confirm its current mergeability, and then intentionally hold the worktree unmerged\n- preserve enough runtime state that a later explicit command or natural-language direction can tell the orchestrator to bring the work in\n- when later told to land, keep the LLM/orchestrator responsible for the full landing flow: confirm the work is still valid in context, fast-forward merge when possible, or drive rebase/update/fix work when drift/conflicts require it\n- surface truthful operator-facing states for 'validated and held', 'ready to land', 'needs refresh', and 'needs attention'\n- add tests covering hold-then-land flows\n\nGoal: delegated work should be able to pause in a clean, reviewable, testable pre-merge state without abandoning orchestrator ownership of the final merge-back.",
   "id": "sbdpi-swx.6.4.1",
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Support deferred landing after validation so delegated work can be tested before merge-back",
   "type": "task",
-  "updated_at": "2026-04-16T03:10:50Z"
+  "updated_at": "2026-04-16T03:29:08Z"
 }
