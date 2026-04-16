@@ -34,8 +34,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
+    "@mariozechner/pi-ai": "^0.67.3",
+    "@mariozechner/pi-coding-agent": "^0.67.3",
+    "@mariozechner/pi-tui": "^0.67.3",
+    "@types/node": "^24.12.2",
     "tsdown": "^0.21.7",
     "typescript": "^6.0.2",
+    "vite": "^8.0.8",
     "vitest": "^4.1.2"
   }
 }
