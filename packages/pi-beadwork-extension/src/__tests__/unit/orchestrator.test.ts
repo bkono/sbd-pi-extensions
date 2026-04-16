@@ -469,13 +469,21 @@ describe("worker inspection", () => {
     expect(log).toContain("running configured validation commands before landing");
   });
 
-  it("moves completed workers into attention when validation fails", async () => {
+  it("launches an automatic remediation pass when validation fails", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
     await mkdir(worktreePath, { recursive: true });
 
     const worker = createWorker({
       worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
       ticketStatus: "closed",
       validationStatus: "pending",
       status: "exited",
@@ -513,6 +521,69 @@ describe("worker inspection", () => {
     });
 
     const tmuxBackend = {
+      ensureSession: vi.fn().mockResolvedValue({ sessionName: "pi-bw", created: false }),
+      launchWorker: vi.fn().mockResolvedValue({
+        sessionName: "pi-bw",
+        windowName: "bw-101-remediation",
+        paneId: "%77",
+        launchCommand: worker.launchCommand,
+      }),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+    const onLifecycleEvent = vi.fn();
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+      onLifecycleEvent,
+    });
+
+    expect(inspected.status).toBe("running");
+    expect(inspected.validationStatus).toBe("pending");
+    expect(inspected.remediationStatus).toBe("running");
+    expect(inspected.remediationAttempts).toBe(1);
+    expect(inspected.tmuxPane).toBe("%77");
+    expect(tmuxBackend.launchWorker).toHaveBeenCalled();
+    expect(onLifecycleEvent).toHaveBeenCalledWith({
+      type: "remediation-started",
+      ticketId: "BW-101",
+      message:
+        "Validation failed for delegated ticket BW-101. Launching remediation attempt 1/1 in the existing worktree.",
+    });
+  });
+
+  it("does not blindly rerun failed validation after remediation is exhausted", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
+
+    const worker = createWorker({
+      worktreePath: path.join(repoRoot, "worktree"),
+      ticketStatus: "closed",
+      status: "attention",
+      validationStatus: "failed",
+      validationSummary: "Validation failed on `npm run lint`: lint failed",
+      remediationStatus: "exhausted",
+      remediationAttempts: 1,
+      remediationSummary:
+        "Automatic remediation was attempted 1 time(s) and did not produce a passing validation result.",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async () => {
+      throw new Error("validation should not rerun");
+    });
+
+    const tmuxBackend = {
       ensureSession: vi.fn(),
       launchWorker: vi.fn(),
       inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
@@ -531,7 +602,8 @@ describe("worker inspection", () => {
 
     expect(inspected.status).toBe("attention");
     expect(inspected.validationStatus).toBe("failed");
-    expect(inspected.lastError).toContain("npm run lint");
+    expect(inspected.remediationStatus).toBe("exhausted");
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it("refreshes closed ticket status even while the worker process is still running", async () => {

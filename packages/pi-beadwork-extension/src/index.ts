@@ -293,6 +293,7 @@ function buildLifecycleEventNotice(event: WorkerLifecycleEvent): {
 } {
   switch (event.type) {
     case "post-exit-started":
+    case "remediation-started":
       return { level: "info", message: event.message };
   }
 }
@@ -312,6 +313,16 @@ function buildWorkerNotice(input: {
     worker.landingVerification ?? "",
     worker.lastError ?? "",
   ].join("|");
+
+  if (worker.status === "running" && worker.remediationStatus === "running") {
+    return {
+      key,
+      level: "info",
+      message:
+        `Delegated ticket ${worker.ticketId} failed validation, and an automatic remediation pass is now running in the existing worktree. ` +
+        `Follow streamed worker activity in ${worker.logFile}.`,
+    };
+  }
 
   if (worker.status === "running" && worker.ticketStatus === "closed") {
     return {

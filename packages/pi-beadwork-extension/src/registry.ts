@@ -89,6 +89,17 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     validationAt: typeof value.validationAt === "string" ? value.validationAt : undefined,
     validationSummary:
       typeof value.validationSummary === "string" ? value.validationSummary : undefined,
+    remediationStatus:
+      value.remediationStatus === "running" ||
+      value.remediationStatus === "failed" ||
+      value.remediationStatus === "exhausted"
+        ? value.remediationStatus
+        : undefined,
+    remediationAttempts:
+      typeof value.remediationAttempts === "number" ? value.remediationAttempts : undefined,
+    remediationAt: typeof value.remediationAt === "string" ? value.remediationAt : undefined,
+    remediationSummary:
+      typeof value.remediationSummary === "string" ? value.remediationSummary : undefined,
     landingVerifiedAt:
       typeof value.landingVerifiedAt === "string" ? value.landingVerifiedAt : undefined,
     landingVerification:

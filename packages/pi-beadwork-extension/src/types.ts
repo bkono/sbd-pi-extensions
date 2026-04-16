@@ -54,6 +54,8 @@ export type WorkerCleanupStatus = "pending" | "cleaned" | "failed";
 
 export type WorkerValidationStatus = "pending" | "passed" | "failed";
 
+export type WorkerRemediationStatus = "running" | "failed" | "exhausted";
+
 export type WorktreeCopyRule =
   | string
   | {
@@ -253,6 +255,10 @@ export type WorkerRuntime = {
   validationStatus?: WorkerValidationStatus;
   validationAt?: string;
   validationSummary?: string;
+  remediationStatus?: WorkerRemediationStatus;
+  remediationAttempts?: number;
+  remediationAt?: string;
+  remediationSummary?: string;
   landingVerifiedAt?: string;
   landingVerification?: string;
   landingAheadCount?: number;

@@ -184,6 +184,15 @@ function describeFollowUp(
   }
 
   if (worker.status === "running") {
+    if (worker.remediationStatus === "running") {
+      return {
+        needsAttention: false,
+        action:
+          worker.remediationSummary ??
+          "Validation previously failed. Automatic remediation is running in the worker worktree.",
+      };
+    }
+
     if (worker.ticketStatus === "closed") {
       return {
         needsAttention: false,
@@ -210,7 +219,12 @@ function describeFollowUp(
       return {
         needsAttention: true,
         action:
-          worker.validationSummary ?? "Validation failed; fix the worktree and re-run /bw workers.",
+          worker.remediationStatus === "exhausted"
+            ? (worker.remediationSummary ??
+              worker.validationSummary ??
+              "Validation failed after automatic remediation. Fix the worktree manually.")
+            : (worker.validationSummary ??
+              "Validation failed; fix the worktree and re-run /bw workers."),
       };
     }
 

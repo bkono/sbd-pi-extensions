@@ -134,11 +134,133 @@ async function appendWorkerLog(logFile: string, message: string): Promise<void> 
   }
 }
 
-export type WorkerLifecycleEvent = {
-  type: "post-exit-started";
-  ticketId: string;
-  message: string;
-};
+const MAX_VALIDATION_REMEDIATION_ATTEMPTS = 1;
+
+export type WorkerLifecycleEvent =
+  | {
+      type: "post-exit-started";
+      ticketId: string;
+      message: string;
+    }
+  | {
+      type: "remediation-started";
+      ticketId: string;
+      message: string;
+    };
+
+function buildValidationRemediationPrompt(input: {
+  worker: WorkerRuntime;
+  validationDetail: string;
+  validationCommands: string[];
+}): string {
+  const lines = [
+    "You are continuing delegated work in an existing beadwork ticket worktree.",
+    "",
+    `Ticket: ${input.worker.ticketId} ${input.worker.ticketTitle}`,
+    `Worktree: ${input.worker.worktreePath}`,
+    `Branch: ${input.worker.branchName}`,
+    "",
+    "The previous delegated pass finished and closed the ticket, but orchestrator validation failed.",
+    `Validation failure: ${input.validationDetail}`,
+  ];
+
+  if (input.validationCommands.length > 0) {
+    lines.push("", "Validation commands to satisfy:");
+    for (const command of input.validationCommands) {
+      lines.push(`- ${command}`);
+    }
+  }
+
+  lines.push(
+    "",
+    "Rules:",
+    "- Stay scoped to fixing the validation failure in this worktree.",
+    "- Do not reopen the ticket unless absolutely necessary.",
+    "- If you change code, commit the follow-up fix on the current branch.",
+    "- Re-run the necessary validation commands until they pass.",
+    "- If you make additional commits, run `bw sync` before exiting.",
+    "- If you are blocked or cannot remediate cleanly, explain that clearly and exit.",
+  );
+
+  return lines.join("\n");
+}
+
+async function relaunchWorkerForValidationFailure(input: {
+  worker: WorkerRuntime;
+  config: BeadworkConfig;
+  tmuxBackend: TmuxBackend;
+  validationDetail: string;
+}): Promise<WorkerRuntime> {
+  const remediationAttempt = (input.worker.remediationAttempts ?? 0) + 1;
+  const remediationPrompt = buildValidationRemediationPrompt({
+    worker: input.worker,
+    validationDetail: input.validationDetail,
+    validationCommands: input.config.landing.validateCommands,
+  });
+  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+
+  await writeFile(input.worker.promptFile, `${remediationPrompt}\n`, "utf8");
+  await writeFile(
+    input.worker.scriptFile,
+    buildWorkerScript({
+      workerAgentCommand,
+      promptFile: input.worker.promptFile,
+      logFile: input.worker.logFile,
+      stateFile: input.worker.stateFile,
+      exitCodeFile: input.worker.exitCodeFile,
+      finishedAtFile: input.worker.finishedAtFile,
+    }),
+    "utf8",
+  );
+  await chmod(input.worker.scriptFile, 0o755);
+  await writeFile(input.worker.stateFile, "launching\n", "utf8");
+  await writeFile(input.worker.exitCodeFile, "", "utf8");
+  await writeFile(input.worker.finishedAtFile, "", "utf8");
+
+  try {
+    await input.tmuxBackend.cleanupWorker({
+      paneId: input.worker.tmuxPane !== "pending" ? input.worker.tmuxPane : undefined,
+      sessionName: input.worker.tmuxSession,
+      windowName: input.worker.tmuxWindow,
+    });
+  } catch {
+    // best-effort cleanup in case the previous tmux window is still hanging around
+  }
+
+  await input.tmuxBackend.ensureSession({ sessionName: input.worker.tmuxSession });
+  const launched = await input.tmuxBackend.launchWorker({
+    sessionName: input.worker.tmuxSession,
+    workerId: input.worker.workerId,
+    title: input.worker.ticketTitle,
+    worktreePath: input.worker.worktreePath,
+    launchCommand: input.worker.launchCommand,
+  });
+
+  const now = new Date().toISOString();
+  return {
+    ...input.worker,
+    tmuxSession: launched.sessionName,
+    tmuxWindow: launched.windowName,
+    tmuxPane: launched.paneId,
+    launchCommand: launched.launchCommand,
+    workerCommand: input.config.tmux.workerCommand,
+    workerProvider: input.config.tmux.workerProvider,
+    workerModel: input.config.tmux.workerModel,
+    status: "running",
+    validationStatus: "pending",
+    validationAt: now,
+    validationSummary: `Automatic remediation attempt ${remediationAttempt} started after validation failed: ${input.validationDetail}`,
+    remediationStatus: "running",
+    remediationAttempts: remediationAttempt,
+    remediationAt: now,
+    remediationSummary: `Automatic remediation attempt ${remediationAttempt}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS} is running in the existing worktree.`,
+    landingVerifiedAt: undefined,
+    landingVerification: `Validation failed; remediation attempt ${remediationAttempt}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS} is running.`,
+    lastError: undefined,
+    finishedAt: undefined,
+    updatedAt: now,
+  };
+}
 
 async function cleanupLandedWorker(input: {
   repoRoot: string;
@@ -194,6 +316,17 @@ async function autoLandCompletedWorker(input: {
   runner: ProcessRunner;
   onLifecycleEvent?: (event: WorkerLifecycleEvent) => Promise<void> | void;
 }): Promise<WorkerRuntime> {
+  if (
+    input.worker.status === "attention" &&
+    input.worker.validationStatus === "failed" &&
+    input.worker.remediationStatus === "exhausted"
+  ) {
+    return {
+      ...input.worker,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   const attempts = Math.max(1, input.config.landing.maxRebaseAttempts);
   const validationRequired = input.config.landing.validateCommands.length > 0;
   let worker = {
@@ -287,6 +420,8 @@ async function autoLandCompletedWorker(input: {
         validationStatus: validation.passed ? "passed" : "failed",
         validationAt: validation.checkedAt,
         validationSummary: validation.detail,
+        remediationStatus: validation.passed ? undefined : worker.remediationStatus,
+        remediationSummary: validation.passed ? undefined : worker.remediationSummary,
         updatedAt: new Date().toISOString(),
       };
 
@@ -296,7 +431,63 @@ async function autoLandCompletedWorker(input: {
       );
 
       if (!validation.passed) {
+        const remediationAttempt = worker.remediationAttempts ?? 0;
+        if (remediationAttempt < MAX_VALIDATION_REMEDIATION_ATTEMPTS) {
+          await appendWorkerLog(
+            worker.logFile,
+            `validation failed; launching automatic remediation attempt ${remediationAttempt + 1}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS}`,
+          );
+          await input.onLifecycleEvent?.({
+            type: "remediation-started",
+            ticketId: worker.ticketId,
+            message:
+              `Validation failed for delegated ticket ${worker.ticketId}. ` +
+              `Launching remediation attempt ${remediationAttempt + 1}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS} in the existing worktree.`,
+          });
+
+          try {
+            return await relaunchWorkerForValidationFailure({
+              worker: {
+                ...worker,
+                validationStatus: "failed",
+                validationAt: validation.checkedAt,
+                validationSummary: validation.detail,
+              },
+              config: input.config,
+              tmuxBackend: input.tmuxBackend,
+              validationDetail: validation.detail,
+            });
+          } catch (error) {
+            return buildAttentionState(
+              {
+                ...worker,
+                remediationAttempts: remediationAttempt + 1,
+                remediationStatus: "failed",
+                remediationAt: new Date().toISOString(),
+                remediationSummary: `Failed to launch remediation attempt ${remediationAttempt + 1}: ${humanizeError(error)}`,
+              },
+              `Validation failed and remediation could not be started: ${humanizeError(error)}`,
+              {
+                validationStatus: "failed",
+                validationAt: validation.checkedAt,
+                validationSummary: validation.detail,
+                landingVerification: `Landing blocked after validation failure. ${validation.detail}`,
+              },
+            );
+          }
+        }
+
         return buildAttentionState(worker, validation.detail, {
+          validationStatus: "failed",
+          validationAt: validation.checkedAt,
+          validationSummary: validation.detail,
+          remediationAttempts: remediationAttempt,
+          remediationStatus: "exhausted",
+          remediationAt: new Date().toISOString(),
+          remediationSummary:
+            remediationAttempt > 0
+              ? `Automatic remediation was attempted ${remediationAttempt} time(s) and did not produce a passing validation result.`
+              : "Automatic remediation was not attempted.",
           landingVerification: `Landing blocked after validation failure. ${validation.detail}`,
         });
       }
@@ -666,10 +857,10 @@ export async function inspectWorkerRuntime(input: {
     return {
       ...orchestrated,
       ticketStatus,
-      tmuxSession: resolvedTmuxSession,
-      tmuxWindow: resolvedTmuxWindow,
-      tmuxPane: resolvedTmuxPane,
-      finishedAt: finishedAtText ?? orchestrated.finishedAt,
+      tmuxSession: orchestrated.tmuxSession,
+      tmuxWindow: orchestrated.tmuxWindow,
+      tmuxPane: orchestrated.tmuxPane,
+      finishedAt: orchestrated.finishedAt ?? finishedAtText,
       updatedAt: new Date().toISOString(),
     };
   }
