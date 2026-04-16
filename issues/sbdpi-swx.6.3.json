@@ -4,6 +4,8 @@
   "blocks": [
     "sbdpi-swx.3"
   ],
+  "closed_at": "2026-04-16T00:27:13Z",
+  "close_reason": "Orchestrator now launches one automatic remediation pass in the existing worktree after validation failure and then stops in an exhausted attention state rather than blindly rerunning validation forever; commit e3e37da.",
   "created": "2026-04-16T00:15:44Z",
   "description": "Current post-worker orchestration is still not truly orchestrating validation failures. When delegated work fails the configured validation gates, the parent session merely reports the failure and then background supervision reruns the same failing validation on an interval until a human enters the worktree and fixes it manually.\n\nScope:\n- stop treating validation failure as a passive poll/retry loop\n- when the session is idle and delegated work fails validation, drive a real remediation attempt in the worker worktree instead of just rerunning the same commands forever\n- ensure the orchestrator reaches a truthful terminal state when remediation is not possible, instead of repeated noisy retries\n- add regression coverage for the remediation / stop-retrying behavior so dogfood runs no longer require manual rescue by default",
   "id": "sbdpi-swx.6.3",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Make validation failures trigger real remediation instead of blind retries",
   "type": "task",
-  "updated_at": "2026-04-16T00:26:34Z"
+  "updated_at": "2026-04-16T00:27:13Z"
 }
