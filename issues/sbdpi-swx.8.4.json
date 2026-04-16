@@ -13,11 +13,15 @@
     {
       "text": "Started the observability fix alongside the detached-launch change. Commit `fb1fa8f` now forces pi workers into `--mode json` when using the default non-interactive worker command, so `worker.log` captures streaming JSON events instead of staying silent until the end; related notify/test expectations were updated too.",
       "timestamp": "2026-04-16T00:20:39Z"
+    },
+    {
+      "text": "Implemented in commit `fb1fa8f`. Pi-based delegated workers now default to `--print --mode json`, so `worker.log` captures streaming JSON events throughout the run instead of sitting silent until the end; launch guidance/tests were updated to point operators at the streamed activity log.",
+      "timestamp": "2026-04-16T00:26:56Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Stream delegated worker activity so long-running work is observable",
   "type": "task",
-  "updated_at": "2026-04-16T00:20:39Z"
+  "updated_at": "2026-04-16T00:26:56Z"
 }
