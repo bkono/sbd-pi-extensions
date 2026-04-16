@@ -10,6 +10,12 @@ import {
   getUnobservedMessages,
   runObservationCycle,
 } from "./engine.js";
+import {
+  formatObservationsReport,
+  formatStatusReport,
+  OM_COMMAND_USAGE,
+  type OMStatusReport,
+} from "./format.js";
 import { loadSessionState, saveSessionState } from "./state.js";
 import { countMessageTokens } from "./tokens.js";
 import type { OMConfig } from "./types.js";
@@ -270,6 +276,128 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     debugLog(config, "session_shutdown", { sessionId });
   });
 
+  function getBranchMessages(ctx: ExtensionContext): Message[] {
+    const entries = ctx.sessionManager.getBranch();
+    const messages: Message[] = [];
+
+    for (const entry of entries) {
+      if (entry.type === "message") {
+        messages.push(entry.message as Message);
+      }
+    }
+
+    return messages;
+  }
+
+  async function buildStatusSnapshot(
+    ctx: ExtensionContext,
+    sessionId: string,
+  ): Promise<OMStatusReport> {
+    const { config: cfg } = ensureInitialized(ctx);
+    const statePath = sessionStatePath(cfg.storage.stateDir, sessionId);
+    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+    const messages = getBranchMessages(ctx);
+    const unobservedWindow = getUnobservedMessages(
+      messages,
+      state.lastObservedEntryId,
+      state.lastObservedTimestamp,
+    );
+
+    return {
+      sessionId,
+      stateDir: cfg.storage.stateDir,
+      statePath,
+      observationTokens: state.observationTokens,
+      observationThreshold: cfg.observation.messageTokens,
+      observationModel: `${cfg.observation.provider}/${cfg.observation.modelId}`,
+      reflectionThreshold: cfg.reflection.observationTokens,
+      reflectionModel: `${cfg.reflection.provider}/${cfg.reflection.modelId}`,
+      observationsPresent: Boolean(state.observations.trim()),
+      lastObservedEntryId: state.lastObservedEntryId ?? null,
+      lastObservedTimestamp: state.lastObservedTimestamp
+        ? new Date(state.lastObservedTimestamp).toISOString()
+        : null,
+      cursorModeForCurrentWindow: unobservedWindow.mode,
+      unobservedMessages: unobservedWindow.messages.length,
+      unobservedMessageTokens: countMessageTokens(unobservedWindow.messages),
+      lastCycleAt: state.lastCycleAt ? new Date(state.lastCycleAt).toISOString() : null,
+      lastCycleReason: state.lastCycleReason ?? null,
+      lastCursorMode: state.lastCursorMode ?? null,
+      observeTriggered: state.observeTriggered ?? null,
+      reflectTriggered: state.reflectTriggered ?? null,
+      tailEntriesBeforePrune: state.tailEntriesBeforePrune ?? null,
+      tailTokensBeforePrune: state.tailTokensBeforePrune ?? null,
+      tailEntriesAfterPrune: state.tailEntriesAfterPrune ?? null,
+      tailTokensAfterPrune: state.tailTokensAfterPrune ?? null,
+      prunedEntriesCount: state.prunedEntriesCount ?? null,
+      currentTask: state.currentTask ?? null,
+      suggestedResponse: state.suggestedResponse ?? null,
+      updatedAt: new Date(state.updatedAt).toISOString(),
+    };
+  }
+
+  async function buildObservationSections(ctx: ExtensionContext): Promise<string[]> {
+    const { config: cfg } = ensureInitialized(ctx);
+    const sessionId = ctx.sessionManager.getSessionId();
+    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+
+    if (!state.observations.trim()) {
+      return ["(no observations stored)"];
+    }
+
+    const sections = [
+      `<session>${sessionId}</session>`,
+      "",
+      "<observations>",
+      state.observations,
+      "</observations>",
+    ];
+
+    if (state.currentTask) {
+      sections.push("", "<current-task>", state.currentTask, "</current-task>");
+    }
+
+    if (state.suggestedResponse) {
+      sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
+    }
+
+    return sections;
+  }
+
+  // -------------------------------------------------------------------------
+  // Slash command
+  // -------------------------------------------------------------------------
+
+  pi.registerCommand("om", {
+    description: "Inspect observational memory status and stored observations",
+    handler: async (args, ctx) => {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const subcommand = parts[0]?.toLowerCase() ?? "status";
+
+      if (parts.length > 1) {
+        ctx.ui.notify(OM_COMMAND_USAGE, "info");
+        return;
+      }
+
+      if (subcommand === "status") {
+        const sessionId = ctx.sessionManager.getSessionId();
+        const status = await buildStatusSnapshot(ctx, sessionId);
+        ctx.ui.notify(formatStatusReport(status), "info");
+        return;
+      }
+
+      if (subcommand === "observations") {
+        const { config: cfg } = ensureInitialized(ctx);
+        const sessionId = ctx.sessionManager.getSessionId();
+        const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+        ctx.ui.notify(formatObservationsReport(state), "info");
+        return;
+      }
+
+      ctx.ui.notify(OM_COMMAND_USAGE, "info");
+    },
+  });
+
   // -------------------------------------------------------------------------
   // Tools
   // -------------------------------------------------------------------------
@@ -285,57 +413,8 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { config: cfg } = ensureInitialized(ctx);
       const sessionId = params.session_id ?? ctx.sessionManager.getSessionId();
-      const statePath = sessionStatePath(cfg.storage.stateDir, sessionId);
-      const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-
-      // Get current messages to compute unobserved window
-      const entries = ctx.sessionManager.getBranch();
-      const messages: Message[] = [];
-      for (const entry of entries) {
-        if (entry.type === "message") {
-          messages.push(entry.message as Message);
-        }
-      }
-
-      const unobservedWindow = getUnobservedMessages(
-        messages,
-        state.lastObservedEntryId,
-        state.lastObservedTimestamp,
-      );
-
-      const status = {
-        sessionId,
-        stateDir: cfg.storage.stateDir,
-        statePath,
-        observationTokens: state.observationTokens,
-        observationThreshold: cfg.observation.messageTokens,
-        observationModel: `${cfg.observation.provider}/${cfg.observation.modelId}`,
-        reflectionThreshold: cfg.reflection.observationTokens,
-        reflectionModel: `${cfg.reflection.provider}/${cfg.reflection.modelId}`,
-        observationsPresent: Boolean(state.observations.trim()),
-        lastObservedEntryId: state.lastObservedEntryId ?? null,
-        lastObservedTimestamp: state.lastObservedTimestamp
-          ? new Date(state.lastObservedTimestamp).toISOString()
-          : null,
-        cursorModeForCurrentWindow: unobservedWindow.mode,
-        unobservedMessages: unobservedWindow.messages.length,
-        unobservedMessageTokens: countMessageTokens(unobservedWindow.messages),
-        lastCycleAt: state.lastCycleAt ? new Date(state.lastCycleAt).toISOString() : null,
-        lastCycleReason: state.lastCycleReason ?? null,
-        lastCursorMode: state.lastCursorMode ?? null,
-        observeTriggered: state.observeTriggered ?? null,
-        reflectTriggered: state.reflectTriggered ?? null,
-        tailEntriesBeforePrune: state.tailEntriesBeforePrune ?? null,
-        tailTokensBeforePrune: state.tailTokensBeforePrune ?? null,
-        tailEntriesAfterPrune: state.tailEntriesAfterPrune ?? null,
-        tailTokensAfterPrune: state.tailTokensAfterPrune ?? null,
-        prunedEntriesCount: state.prunedEntriesCount ?? null,
-        currentTask: state.currentTask ?? null,
-        suggestedResponse: state.suggestedResponse ?? null,
-        updatedAt: new Date(state.updatedAt).toISOString(),
-      };
+      const status = await buildStatusSnapshot(ctx, sessionId);
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
@@ -350,32 +429,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     description: "Return the stored observational memory block for the current session.",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const { config: cfg } = ensureInitialized(ctx);
-      const sessionId = ctx.sessionManager.getSessionId();
-      const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-
-      if (!state.observations.trim()) {
-        return {
-          content: [{ type: "text" as const, text: "(no observations stored)" }],
-          details: undefined,
-        };
-      }
-
-      const sections = [
-        `<session>${sessionId}</session>`,
-        "",
-        "<observations>",
-        state.observations,
-        "</observations>",
-      ];
-
-      if (state.currentTask) {
-        sections.push("", "<current-task>", state.currentTask, "</current-task>");
-      }
-
-      if (state.suggestedResponse) {
-        sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
-      }
+      const sections = await buildObservationSections(ctx);
 
       return {
         content: [{ type: "text" as const, text: sections.join("\n") }],

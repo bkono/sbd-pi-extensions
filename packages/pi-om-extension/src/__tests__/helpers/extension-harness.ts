@@ -1,6 +1,14 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 
 type AnyHandler = (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>;
+type CommandRegistration = {
+  description?: string;
+  handler: (args: string, ctx: ExtensionCommandContext) => unknown | Promise<unknown>;
+};
 type AnyTool = {
   name: string;
   label: string;
@@ -17,6 +25,7 @@ type AnyTool = {
 
 export interface ExtensionTestHarness {
   handlers: Map<string, AnyHandler[]>;
+  commands: Map<string, CommandRegistration>;
   tools: Map<string, AnyTool>;
   /**
    * Invoke all handlers registered for `eventType` in order, returning the
@@ -29,6 +38,10 @@ export interface ExtensionTestHarness {
     event: unknown,
     ctx: ExtensionContext,
   ): Promise<T | undefined>;
+  /**
+   * Invoke a registered command handler.
+   */
+  invokeCommand(name: string, args: string, ctx: ExtensionCommandContext): Promise<unknown>;
   /**
    * Invoke a registered tool's execute function.
    */
@@ -52,6 +65,7 @@ export async function createExtensionTestHarness(
   factory: (pi: ExtensionAPI) => void | Promise<void>,
 ): Promise<ExtensionTestHarness> {
   const handlers = new Map<string, AnyHandler[]>();
+  const commands = new Map<string, CommandRegistration>();
   const tools = new Map<string, AnyTool>();
 
   const fakeApi: Partial<ExtensionAPI> = {
@@ -63,7 +77,9 @@ export async function createExtensionTestHarness(
     registerTool: ((tool: AnyTool) => {
       tools.set(tool.name, tool);
     }) as unknown as ExtensionAPI["registerTool"],
-    registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
+    registerCommand: ((name: string, options: CommandRegistration) => {
+      commands.set(name, options);
+    }) as unknown as ExtensionAPI["registerCommand"],
     registerShortcut: (() => {}) as ExtensionAPI["registerShortcut"],
     registerFlag: (() => {}) as ExtensionAPI["registerFlag"],
     getFlag: (() => undefined) as ExtensionAPI["getFlag"],
@@ -76,6 +92,7 @@ export async function createExtensionTestHarness(
 
   return {
     handlers,
+    commands,
     tools,
     async dispatch(eventType, event, ctx) {
       const list = handlers.get(eventType) ?? [];
@@ -84,6 +101,11 @@ export async function createExtensionTestHarness(
         last = await h(event, ctx);
       }
       return last as never;
+    },
+    async invokeCommand(name, args, ctx) {
+      const command = commands.get(name);
+      if (!command) throw new Error(`Command not registered: ${name}`);
+      return command.handler(args, ctx);
     },
     async invokeTool(name, params, ctx) {
       const tool = tools.get(name);
@@ -97,11 +119,34 @@ export async function createExtensionTestHarness(
  * Minimal ExtensionContext stub. Override fields via the argument.
  * Most tests only need `cwd` and `sessionManager.getSessionId()`.
  */
+export type FakeUi = {
+  notifications: Array<{ message: string; level?: string }>;
+  notify: (message: string, level?: string) => void;
+};
+
+export function createFakeUi(): FakeUi {
+  const notifications: Array<{ message: string; level?: string }> = [];
+
+  return {
+    notifications,
+    notify: (message, level) => {
+      notifications.push({ message, level });
+    },
+  };
+}
+
 export function createFakeExtensionContext(
-  overrides: { cwd?: string; sessionId?: string; entries?: unknown[]; systemPrompt?: string } = {},
+  overrides: {
+    cwd?: string;
+    sessionId?: string;
+    entries?: unknown[];
+    systemPrompt?: string;
+    ui?: FakeUi;
+  } = {},
 ): ExtensionContext {
   const sessionId = overrides.sessionId ?? "test-session-123";
   const entries = overrides.entries ?? [];
+  const ui = overrides.ui ?? createFakeUi();
   const ctx = {
     cwd: overrides.cwd ?? "/tmp/test-cwd",
     sessionManager: {
@@ -119,8 +164,8 @@ export function createFakeExtensionContext(
       getTree: () => [],
       getSessionName: () => undefined,
     },
-    ui: {},
-    hasUI: false,
+    ui,
+    hasUI: true,
     modelRegistry: {},
     model: undefined,
     isIdle: () => true,
@@ -133,4 +178,16 @@ export function createFakeExtensionContext(
     getSystemPrompt: () => overrides.systemPrompt ?? "",
   };
   return ctx as unknown as ExtensionContext;
+}
+
+export function createFakeCommandContext(
+  overrides: {
+    cwd?: string;
+    sessionId?: string;
+    entries?: unknown[];
+    systemPrompt?: string;
+    ui?: FakeUi;
+  } = {},
+): ExtensionCommandContext {
+  return createFakeExtensionContext(overrides) as unknown as ExtensionCommandContext;
 }

@@ -149,6 +149,17 @@ Reasoning models (GPT-5.x, some Opus 4.6 variants) reject the `temperature` para
 
 Set `OM_DEBUG=1` for verbose logging to stderr covering observation cycles, token counts, state persistence, and hook firing.
 
+## Slash Commands
+
+The extension registers a user-facing slash command so OM data is visible without LLM tool use:
+
+### `/om`
+
+- `/om` or `/om status` — show a human-readable summary of the current session's observational-memory state, including token counts, thresholds, unobserved-window info, and any tracked current task / suggested response.
+- `/om observations` — show the stored observations for the current session in a human-friendly layout.
+
+These commands read the same JSON-backed session state used by the tools below; they do not introduce a separate storage layer or make any LLM calls.
+
 ## Tools
 
 The extension registers two tools that the LLM can call during sessions:
