@@ -4,14 +4,15 @@
     "sbdpi-swx.6.4.1"
   ],
   "blocks": [],
+  "closed_at": "2026-04-16T03:49:51Z",
   "created": "2026-04-16T03:09:34Z",
   "description": "Add an optional reviewer step before delegated merge-back, using a separately configurable reviewer model.\n\nScope:\n- support a reviewer-agent pass over the delegated worktree commits/diff together with the bead, task goals, and relevant context\n- use explicit review outcomes: approve, approve-with-nits, request-changes\n- require the orchestrator to assess whether review feedback is actually valid in the context of the bead intent, task goals, and surrounding constraints before acting on it\n- avoid blindly applying arbitrary or irrelevant reviewer comments that do not match the real purpose of the change\n- when feedback is valid and requires fixes, run a bounded remediation pass and then re-review\n- support reviewer gating in both immediate-landing and deferred-landing modes\n- make the reviewer provider/model configurable independently from the main worker/orchestrator model\n- surface clear operator-facing state for approved, nits-only, changes-requested, remediation-in-progress, and review-blocked cases\n- add tests for review verdict handling, invalid-feedback rejection, remediation/re-review, and reviewer-model configuration\n\nGoal: delegated landing should be able to include a realistic second-pass review without surrendering the final judgment to arbitrary reviewer comments or removing orchestrator ownership of the landing flow.",
   "id": "sbdpi-swx.6.4.2",
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add reviewer-agent gating before delegated merge-back with intent-aware review handling",
   "type": "task",
-  "updated_at": "2026-04-16T03:29:56Z"
+  "updated_at": "2026-04-16T03:49:51Z"
 }
