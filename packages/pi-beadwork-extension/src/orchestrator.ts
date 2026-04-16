@@ -59,11 +59,18 @@ function hasPiPrintFlag(command: string): boolean {
   return /(^|\s)(?:--print|-p)(?=\s|$)/.test(command);
 }
 
+function stripPiPrintFlag(command: string): string {
+  return command
+    .replace(/(^|\s)(?:--print|-p)(?=\s|$)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function hasPiModeFlag(command: string): boolean {
   return /(^|\s)--mode(?:=|\s+)[^\s]+/.test(command);
 }
 
-function shouldForcePiPrintMode(command: string): boolean {
+function shouldNormalizePiWorkerCommand(command: string): boolean {
   const [executable = ""] = command.trim().split(/\s+/, 1);
   return executable === "pi" || executable.endsWith("/pi");
 }
@@ -72,9 +79,9 @@ export function buildWorkerAgentCommand(config: BeadworkConfig): string {
   const baseCommand = config.tmux.workerCommand.trim();
   let normalizedCommand = baseCommand;
 
-  if (shouldForcePiPrintMode(baseCommand)) {
-    if (!hasPiPrintFlag(normalizedCommand)) {
-      normalizedCommand = `${normalizedCommand} --print`;
+  if (shouldNormalizePiWorkerCommand(baseCommand)) {
+    if (hasPiPrintFlag(normalizedCommand)) {
+      normalizedCommand = stripPiPrintFlag(normalizedCommand);
     }
     if (!hasPiModeFlag(normalizedCommand)) {
       normalizedCommand = `${normalizedCommand} --mode json`;

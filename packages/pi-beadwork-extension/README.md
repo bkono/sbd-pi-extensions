@@ -145,6 +145,7 @@ Current config keys:
 Notes:
 
 - `tmux.workerProvider` and `tmux.workerModel` are optional; when set, the extension appends `--provider` / `--model` to the worker `pi` launch command without changing the current orchestrator session model.
+- A bare `tmux.workerCommand: "pi"` is normalized to `pi --mode json` so delegated workers emit structured progress into `worker.log`; if you include `--print`, the extension strips it rather than combining mutually conflicting output modes.
 - `copyFiles` paths are resolved relative to the repo root and copied into the same relative path inside the worktree by default.
 - String entries in `copyFiles` are optional by default, so missing `.env`-style files are skipped quietly.
 - Use object form with `required: true` if a copied file must exist.

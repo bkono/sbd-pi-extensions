@@ -80,8 +80,8 @@ function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
 }
 
 describe("orchestrator helpers", () => {
-  it("forces pi workers into print + json mode before appending provider/model flags", () => {
-    expect(buildWorkerAgentCommand(DEFAULT_CONFIG)).toBe("pi --print --mode json");
+  it("normalizes pi workers into a valid mode before appending provider/model flags", () => {
+    expect(buildWorkerAgentCommand(DEFAULT_CONFIG)).toBe("pi --mode json");
     expect(
       buildWorkerAgentCommand({
         ...DEFAULT_CONFIG,
@@ -91,7 +91,7 @@ describe("orchestrator helpers", () => {
           workerModel: "gpt-5.4",
         },
       }),
-    ).toBe("pi --print --mode json --provider 'openai' --model 'gpt-5.4'");
+    ).toBe("pi --mode json --provider 'openai' --model 'gpt-5.4'");
     expect(
       buildWorkerAgentCommand({
         ...DEFAULT_CONFIG,
@@ -100,7 +100,7 @@ describe("orchestrator helpers", () => {
           workerCommand: "pi --print",
         },
       }),
-    ).toBe("pi --print --mode json");
+    ).toBe("pi --mode json");
     expect(
       buildWorkerAgentCommand({
         ...DEFAULT_CONFIG,
@@ -109,7 +109,7 @@ describe("orchestrator helpers", () => {
           workerCommand: "pi --print --mode text",
         },
       }),
-    ).toBe("pi --print --mode text");
+    ).toBe("pi --mode text");
   });
 
   it("stops active workers and persists the updated runtime state", async () => {
