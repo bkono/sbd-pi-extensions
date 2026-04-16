@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-16T05:08:50Z",
+  "close_reason": "Implemented",
   "created": "2026-04-16T05:03:02Z",
   "description": "Follow-up under sbdpi-swx.6.4: rename the reviewer context-budget setting to reflect that it caps review artifacts/diff payloads rather than all prompt content, update docs/tests/env handling accordingly, and increase the default reviewer timeout to 30 minutes for long GPT-5.4 high reviews.",
   "id": "sbdpi-swx.6.4.3",
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Rename reviewer context budget config and increase reviewer timeout default",
   "type": "task",
-  "updated_at": "2026-04-16T05:03:06Z"
+  "updated_at": "2026-04-16T05:08:50Z"
 }
