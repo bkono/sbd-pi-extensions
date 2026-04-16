@@ -2,13 +2,14 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-16T05:46:04Z",
   "created": "2026-04-16T05:37:44Z",
   "description": "Expose a slash command in `@packages/pi-om-extension` so the user can inspect the same observational-memory data currently available via the `om_status` and `om_observations` tools, without requiring LLM tool use.\n\nScope:\n- Add a user-facing slash command (or commands) that surfaces OM status and/or observations directly in the Pi UI.\n- Read from the existing JSON-backed observational-memory data source rather than introducing new storage.\n- Render the output in a human-friendly format instead of raw JSON.\n- Keep the implementation lightweight and non-LLM-driven.\n\nAcceptance criteria:\n- A user can run a slash command and view OM information directly.\n- Output is clearly formatted for humans.\n- Existing tool behavior for `om_status` / `om_observations` remains intact.\n- Tests cover formatting / command behavior in `@packages/pi-om-extension`.",
   "id": "sbdpi-5r5",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add user-facing slash command for OM status/observations in @packages/pi-om-extension",
   "type": "task",
-  "updated_at": "2026-04-16T05:38:34Z"
+  "updated_at": "2026-04-16T05:46:04Z"
 }
