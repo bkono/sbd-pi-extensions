@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-16T00:42:23Z",
+  "close_reason": "Fixed bare pi worker normalization to use valid JSON mode and added regression coverage.",
   "created": "2026-04-16T00:40:34Z",
   "description": "The delegated-worker launcher currently normalizes bare `pi` worker commands to `pi --print --mode json`. A user flagged that this is not a valid combination in practice. Update normalization so pi workers default to a valid JSON-streaming invocation, keep worker logs observable, and add regression coverage for `workerCommand: \"pi\"` / `\"pi --print\"` cases.",
   "id": "sbdpi-swx.8.6",
   "labels": [],
   "parent": "sbdpi-swx.8",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix pi worker command normalization for JSON mode",
   "type": "task",
-  "updated_at": "2026-04-16T00:40:37Z"
+  "updated_at": "2026-04-16T00:42:23Z"
 }
