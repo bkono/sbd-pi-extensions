@@ -2,14 +2,16 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-16T06:43:10Z",
+  "close_reason": "Implemented in 988c8d4",
   "created": "2026-04-16T06:29:48Z",
   "description": "Follow-up under sbdpi-swx.6.4 after the delegated worker review-gate dogfood failure on runtime sbdpi-5r5-mo11tiwj-u5ipl8.\n\nScope:\n- stream reviewer subprocess activity into an operator-visible log instead of hiding it behind buffered exec output\n- preserve truthful timeout / signal / stderr reporting so review failures do not collapse to a generic `exit code 1`\n- surface enough context in worker diagnostics/logging that operators can tell whether the reviewer is still running, timed out, or failed for another reason\n- add regression coverage around reviewer logging and timeout/error semantics\n\nGoal: when reviewer gating is enabled, failures should be diagnosable from the runtime artifacts without guessing.",
   "id": "sbdpi-swx.6.4.4",
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Make reviewer-gate execution observable and preserve truthful failures",
   "type": "task",
-  "updated_at": "2026-04-16T06:29:48Z"
+  "updated_at": "2026-04-16T06:43:10Z"
 }
