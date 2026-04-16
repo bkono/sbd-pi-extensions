@@ -1446,8 +1446,8 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             prime: stateWithPrime.prime?.content,
           });
           ctx.ui.notify(
-            `Launched worker ${worker.workerId} for ${worker.ticketId} in ${worker.worktreePath}. ` +
-              `Background supervision will keep checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and will notify when the worker exits and when landing completes. Follow progress in ${worker.logFile}.`,
+            `Launched worker ${worker.workerId} for ${worker.ticketId} in the background at ${worker.worktreePath}. ` +
+              `You should stay in the current pane while background supervision keeps checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and notifies when the worker exits and when landing completes. Follow streamed worker activity in ${worker.logFile}.`,
             "info",
           );
           const workers = await inspectWorkers(ctx, active.activation, active.config, {

@@ -20,7 +20,7 @@ describe("tmux backend", () => {
     );
   });
 
-  it("launches a worker window and returns the pane id", async () => {
+  it("launches a detached worker window and returns the pane id", async () => {
     const runner = vi.fn().mockResolvedValue({
       stdout: "bw-worker\t%42\n",
       stderr: "",
@@ -39,7 +39,7 @@ describe("tmux backend", () => {
     expect(result.paneId).toBe("%42");
     expect(runner).toHaveBeenCalledWith(
       "tmux",
-      expect.arrayContaining(["new-window", "-t", "pi-bw", "-c", "/tmp/worktree"]),
+      expect.arrayContaining(["new-window", "-d", "-t", "pi-bw", "-c", "/tmp/worktree"]),
       { timeout: 10_000 },
     );
   });

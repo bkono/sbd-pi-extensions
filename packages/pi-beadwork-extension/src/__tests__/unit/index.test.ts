@@ -596,8 +596,10 @@ describe("pi beadwork extension", () => {
     await harness.invokeCommand("bw", "delegate BW-101", ctx);
 
     const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("Launched worker bw-101-worker for BW-101");
-    expect(message).toContain("Background supervision will keep checking every 30s");
+    expect(message).toContain("Launched worker bw-101-worker for BW-101 in the background");
+    expect(message).toContain("stay in the current pane");
+    expect(message).toContain("background supervision keeps checking every 30s");
+    expect(message).toContain("Follow streamed worker activity in");
     expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
   });
 

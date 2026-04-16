@@ -65,6 +65,7 @@ export function createTmuxBackend(runner: ProcessRunner = defaultProcessRunner):
         "tmux",
         [
           "new-window",
+          "-d",
           "-P",
           "-F",
           "#{window_name}\t#{pane_id}",
