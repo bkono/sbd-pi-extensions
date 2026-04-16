@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-swx.3"
+  ],
   "created": "2026-04-16T00:15:15Z",
   "description": "`worker.log` is still too silent for real operator use: after switching workers to non-interactive `pi --print`, long delegated runs can show almost no activity until final output. That leaves the operator unable to tell whether the worker is progressing, stuck, or waiting.\n\nScope:\n- change delegated worker execution/logging so meaningful activity is streamed during the run instead of only at the end\n- prefer a machine-readable mode such as `pi --mode json` when possible so logs can include structured events without overwhelming noise\n- keep the log useful for humans by filtering or summarizing event types when appropriate, rather than dumping raw unreadable noise\n- add regression coverage for streamed progress appearing during worker execution",
   "id": "sbdpi-swx.8.4",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Stream delegated worker activity so long-running work is observable",
   "type": "task",
-  "updated_at": "2026-04-16T00:15:15Z"
+  "updated_at": "2026-04-16T00:15:49Z"
 }

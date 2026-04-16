@@ -7,7 +7,8 @@
     "sbdpi-swx.6.1",
     "sbdpi-swx.7.2",
     "sbdpi-swx.8.1",
-    "sbdpi-swx.8.2"
+    "sbdpi-swx.8.2",
+    "sbdpi-swx.8.4"
   ],
   "blocks": [],
   "created": "2026-04-14T18:31:43Z",
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "Add tests and README/docs for verification and diagnostics behavior",
   "type": "task",
-  "updated_at": "2026-04-15T17:39:17Z"
+  "updated_at": "2026-04-16T00:15:49Z"
 }
