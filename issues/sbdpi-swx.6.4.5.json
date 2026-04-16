@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-16T06:29:54Z",
+  "description": "Follow-up under sbdpi-swx.6.4 after seeing duplicate reviewer-gate starts for the same delegated worker.\n\nScope:\n- prevent concurrent post-worker inspection / reviewer / landing passes from running twice against the same worker runtime\n- reuse or await the in-flight orchestration work instead of starting duplicate reviewer commands\n- keep `/bw workers`, background supervision, and turn-end inspection behavior truthful while avoiding duplicate notices / duplicate review passes\n- add regression coverage for overlapping inspections on one worker\n\nGoal: one worker should have at most one reviewer/landing orchestration pass in flight at a time.",
+  "id": "sbdpi-swx.6.4.5",
+  "labels": [],
+  "parent": "sbdpi-swx.6.4",
+  "priority": 1,
+  "status": "open",
+  "title": "Serialize reviewer and landing orchestration per worker",
+  "type": "task",
+  "updated_at": "2026-04-16T06:29:54Z"
+}
