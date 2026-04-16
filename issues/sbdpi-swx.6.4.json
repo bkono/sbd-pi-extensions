@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-16T03:09:16Z",
+  "description": "Extend the delegated-worker/orchestrator flow beyond immediate auto-landing. This epic covers two operator-visible landing level-ups now that `/bw delegate` is landing successfully:\n\n1. staged/deferred landing so validated work can remain unmerged for independent human testing until explicitly brought in later\n2. reviewer-agent gating before merge-back, with review outcomes interpreted against the bead intent and actual task goals rather than blindly following arbitrary review notes\n\nGoal: keep the LLM/orchestrator responsible for the post-worker landing lifecycle, but allow more realistic policies than 'always merge immediately after validation'.",
+  "id": "sbdpi-swx.6.4",
+  "labels": [],
+  "parent": "sbdpi-swx.6",
+  "priority": 1,
+  "status": "open",
+  "title": "Add review-gated and deferred landing modes for delegated workers",
+  "type": "epic",
+  "updated_at": "2026-04-16T03:09:16Z"
+}
