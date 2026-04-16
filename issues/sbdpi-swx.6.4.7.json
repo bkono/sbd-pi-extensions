@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-16T17:52:10Z",
+  "close_reason": "Fixed reviewer-gate parsing for Pi JSON-mode streams, disabled reviewer-side tools/extensions for Pi reviewers, and deduped repeated landing-request notices.",
   "created": "2026-04-16T17:42:41Z",
   "description": "Fix reviewer-gate runs that use `pi --mode json` so the orchestrator extracts the reviewer verdict from Pi's JSON event stream rather than trying to parse the whole stdout blob as a single JSON object. Also make sure repeated failed-review attention notices do not spam the parent session once the failure state is unchanged.",
   "id": "sbdpi-swx.6.4.7",
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Parse reviewer JSON-mode output correctly and avoid repeated failed-review noise",
   "type": "task",
-  "updated_at": "2026-04-16T17:44:01Z"
+  "updated_at": "2026-04-16T17:52:10Z"
 }
