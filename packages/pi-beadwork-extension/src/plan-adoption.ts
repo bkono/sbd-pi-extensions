@@ -12,6 +12,7 @@ import type {
 const HEADING_REGEX = /^\s*#{1,6}\s+(.+?)\s*$/;
 const SOURCE_EXCERPT_LINE_LIMIT = 20;
 const SOURCE_EXCERPT_CHAR_LIMIT = 2_500;
+const DECOMPOSITION_SOURCE_CHAR_LIMIT = 12_000;
 
 function trimBlock(value: string): string {
   return value.replace(/^\s+|\s+$/g, "");
@@ -152,6 +153,18 @@ function buildPreviewPrefix(plan: AdoptionPlan): string[] {
   return [...lines, "", ...formatSourceExcerpt(plan.source), ""];
 }
 
+function truncateDecompositionSource(source: string): string {
+  if (source.length <= DECOMPOSITION_SOURCE_CHAR_LIMIT) {
+    return source;
+  }
+
+  return [
+    source.slice(0, DECOMPOSITION_SOURCE_CHAR_LIMIT).trimEnd(),
+    "",
+    `[plan truncated after ${DECOMPOSITION_SOURCE_CHAR_LIMIT} chars]`,
+  ].join("\n");
+}
+
 export function resolvePlanSource(input: {
   inlineText: string;
   editorText: string | undefined;
@@ -245,6 +258,51 @@ function buildMultiStepSummary(plan: AdoptionPlan): string[] {
   }
 
   return lines;
+}
+
+export function buildAdoptionDecompositionPrompt(plan: AdoptionPlan): string {
+  const lines = [
+    "You are handling /bw adopt in multi-step mode.",
+    "Convert the explicit markdown plan below into a durable beadwork graph by calling beadwork tools.",
+    "Do not invent or parse pseudo-DSL from chat history; execute tool calls to materialize the graph.",
+    "",
+    "Planning requirements:",
+    "- Build one root epic that represents the overall outcome.",
+    "- Decompose into concrete child tasks with testable outcomes.",
+    "- Reason explicitly about sequencing and dependency edges.",
+    "- Evaluate safe parallelism: tasks can run in parallel only when file-surface areas are mostly disjoint.",
+    "- When tasks likely touch the same files or tightly coupled modules, serialize them with dependency edges to reduce worker interference.",
+    "- Keep the graph pragmatic: enough detail to coordinate delivery, but avoid unnecessary micro-tasks.",
+    "",
+    "Required tool workflow:",
+    "1) Create the epic with beadwork_create_issue (type=epic).",
+    "2) Create each child task with beadwork_create_issue (parent_id=<epic id>).",
+    "3) Add dependency edges with beadwork_add_dependency (blocker blocks blocked).",
+    "4) Call beadwork_show on the epic to verify children and summarize the resulting graph.",
+    "",
+    "Final response requirements:",
+    "- Provide epic id/title.",
+    "- List child ticket ids/titles with rationale and expected file-surface area.",
+    "- List dependency edges with sequencing rationale.",
+    "- Identify which tickets are safe to run in parallel and which must be serialized.",
+    "",
+    `Plan title candidate: ${plan.title}`,
+    `Plan source: ${plan.sourceLabel} (${plan.sourceKind})`,
+  ];
+
+  if (plan.sourcePath) {
+    lines.push(`Plan source path: ${plan.sourcePath}`);
+  }
+
+  lines.push(
+    "",
+    "Plan markdown:",
+    "```md",
+    truncateDecompositionSource(plan.source) || "(empty)",
+    "```",
+  );
+
+  return lines.join("\n");
 }
 
 export function formatAdoptionPreview(plan: AdoptionPlan): string {

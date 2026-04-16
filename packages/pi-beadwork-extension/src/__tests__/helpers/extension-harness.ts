@@ -13,6 +13,8 @@ type CommandRegistration = {
 export interface ExtensionTestHarness {
   handlers: Map<string, AnyHandler[]>;
   commands: Map<string, CommandRegistration>;
+  sentMessages: Array<{ message: unknown; options?: unknown }>;
+  sentUserMessages: Array<{ content: unknown; options?: unknown }>;
   dispatch<T = unknown>(
     eventType: string,
     event: unknown,
@@ -26,6 +28,8 @@ export async function createExtensionTestHarness(
 ): Promise<ExtensionTestHarness> {
   const handlers = new Map<string, AnyHandler[]>();
   const commands = new Map<string, CommandRegistration>();
+  const sentMessages: Array<{ message: unknown; options?: unknown }> = [];
+  const sentUserMessages: Array<{ content: unknown; options?: unknown }> = [];
 
   const fakeApi: Partial<ExtensionAPI> = {
     on: ((event: string, handler: AnyHandler) => {
@@ -43,6 +47,12 @@ export async function createExtensionTestHarness(
     registerProvider: (() => {}) as unknown as ExtensionAPI["registerProvider"],
     unregisterProvider: (() => {}) as unknown as ExtensionAPI["unregisterProvider"],
     registerMessageRenderer: (() => {}) as unknown as ExtensionAPI["registerMessageRenderer"],
+    sendMessage: ((message: unknown, options?: unknown) => {
+      sentMessages.push({ message, options });
+    }) as ExtensionAPI["sendMessage"],
+    sendUserMessage: ((content: unknown, options?: unknown) => {
+      sentUserMessages.push({ content, options });
+    }) as ExtensionAPI["sendUserMessage"],
   };
 
   await factory(fakeApi as ExtensionAPI);
@@ -50,6 +60,8 @@ export async function createExtensionTestHarness(
   return {
     handlers,
     commands,
+    sentMessages,
+    sentUserMessages,
     async dispatch(eventType, event, ctx) {
       const list = handlers.get(eventType) ?? [];
       let last: unknown;

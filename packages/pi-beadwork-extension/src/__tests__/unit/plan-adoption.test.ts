@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyAdoptionPlan,
+  buildAdoptionDecompositionPrompt,
   buildAdoptionPlan,
   formatAdoptionPreview,
   resolvePlanSource,
@@ -43,6 +44,20 @@ describe("plan adoption", () => {
       { blockerIndex: 2, blockedIndex: 3 },
     ]);
     expect(plan.dependencyStrategy).toBe("explicit");
+  });
+
+  it("builds an LLM decomposition prompt that enforces dependency and interference reasoning", () => {
+    const plan = buildAdoptionPlan("# Ship feature\n\n- parser\n- command wiring\n- tests", {
+      landMode: "multi",
+    });
+
+    const prompt = buildAdoptionDecompositionPrompt(plan);
+    expect(prompt).toContain("/bw adopt in multi-step mode");
+    expect(prompt).toContain("file-surface areas are mostly disjoint");
+    expect(prompt).toContain("beadwork_create_issue");
+    expect(prompt).toContain("beadwork_add_dependency");
+    expect(prompt).toContain("Plan markdown:");
+    expect(prompt).toContain("# Ship feature");
   });
 
   it("resolves plan text from explicit file input, inline markdown, or editor markdown", () => {

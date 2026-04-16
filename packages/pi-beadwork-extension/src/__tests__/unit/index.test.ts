@@ -488,6 +488,37 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications.at(-1)?.message).toContain("No markdown content found");
   });
 
+  it("queues an LLM-guided decomposition turn for /bw adopt --land multi --apply", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-adopt-multi-apply",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    await writeFile(
+      path.join(tempDir, "proposal.md"),
+      "# Proposal\n\n## Scope\n- parser\n- command wiring\n- tests\n",
+      "utf8",
+    );
+
+    await harness.invokeCommand("bw", "adopt --file proposal.md --land multi --apply", ctx);
+
+    expect(adapterMock.createIssue).not.toHaveBeenCalled();
+    expect(harness.sentUserMessages).toHaveLength(1);
+    const queuedPrompt = String(harness.sentUserMessages[0]?.content ?? "");
+    expect(queuedPrompt).toContain("/bw adopt in multi-step mode");
+    expect(queuedPrompt).toContain("beadwork_create_issue");
+    expect(queuedPrompt).toContain("beadwork_add_dependency");
+    expect(queuedPrompt).toContain("file-surface areas");
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("Queued an LLM-guided decomposition turn");
+  });
+
   it("shows worker diagnostics with landing, cleanup, and follow-up details", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

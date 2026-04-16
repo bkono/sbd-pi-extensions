@@ -31,7 +31,7 @@ Implemented:
 - `/bw defer <id> <when>`
 - `/bw undefer <id>`
 - `/bw sync`
-- `/bw adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]`
+- `/bw adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]` with an LLM-guided multi-step decomposition flow that materializes epics/tasks/dependencies through beadwork tools
 - `/bw workers [epic-id]` with validation/landing/cleanup diagnostics and explicit `Next` follow-up actions
 - `/bw delegate <ticket-id>`
 - delegated-worker completion tracking in the parent session, including terminal-state notifications on later turns
@@ -86,7 +86,7 @@ Via `settings.json`:
 4. Inspect state with `/bw ready` and `/bw show <id>`.
 5. Provide an explicit markdown plan source with `/bw adopt --file path/to/plan.md --title "..."` (or inline/editor markdown).
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
-7. For multi-ticket decomposition, ask the model to call `beadwork_create_issue` and `beadwork_add_dependency` tools explicitly.
+7. For multi-ticket decomposition, use `--land multi --apply` to queue an LLM-guided turn that creates the epic/tasks/dependencies with `beadwork_create_issue` + `beadwork_add_dependency`.
 8. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
 9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, merge the worktree branch back into the parent branch, verify containment, and clean it up automatically.
 10. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.

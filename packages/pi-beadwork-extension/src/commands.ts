@@ -235,7 +235,9 @@ export async function showAdoptionPreview(
   const hint =
     plan.landMode === "quick"
       ? "Run again with --land quick --apply to confirm the quick-fix posture."
-      : "Run again with --apply to create beadwork artifacts.";
+      : plan.landMode === "multi"
+        ? "Run again with --land multi --apply to launch an LLM-guided decomposition turn that materializes the graph with beadwork tools."
+        : "Run again with --apply to create beadwork artifacts.";
   ctx.ui.notify(`${preview}\n\n${hint}`, "info");
 }
 

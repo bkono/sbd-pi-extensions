@@ -35,6 +35,7 @@ import {
 } from "./orchestrator.js";
 import {
   applyAdoptionPlan,
+  buildAdoptionDecompositionPrompt,
   buildAdoptionPlan,
   formatAdoptionPreview,
   parseLandMode,
@@ -1541,6 +1542,19 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             return;
           }
 
+          if (plan.landMode === "multi") {
+            const decompositionPrompt = buildAdoptionDecompositionPrompt(plan);
+            pi.sendUserMessage(decompositionPrompt);
+            await showAdoptionResult(ctx, [
+              preview,
+              "",
+              "Queued an LLM-guided decomposition turn.",
+              "The model will materialize the graph via beadwork_create_issue and beadwork_add_dependency.",
+              "Review the resulting epic/task graph, then run /bw status or /bw show <epic-id>.",
+            ]);
+            return;
+          }
+
           const result = await applyAdoptionPlan(adapter, ctx.cwd, plan);
           const resultLines = [preview, "", "Created:"];
           for (const issue of result.created) {
@@ -1562,13 +1576,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
               rootScope,
             );
             resultLines.push(`Session scope set to ${rootScope.kind}:${rootScope.id}`);
-          }
-
-          if (plan.landMode === "multi") {
-            resultLines.push(
-              "",
-              "Next: ask the model to decompose this plan with beadwork_create_issue and beadwork_add_dependency.",
-            );
           }
 
           await showAdoptionResult(ctx, resultLines);
