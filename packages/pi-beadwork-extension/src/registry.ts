@@ -72,6 +72,9 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     workerCommand: value.workerCommand,
     workerProvider: typeof value.workerProvider === "string" ? value.workerProvider : undefined,
     workerModel: typeof value.workerModel === "string" ? value.workerModel : undefined,
+    reviewerProvider:
+      typeof value.reviewerProvider === "string" ? value.reviewerProvider : undefined,
+    reviewerModel: typeof value.reviewerModel === "string" ? value.reviewerModel : undefined,
     cleanupPolicy:
       value.cleanupPolicy === "cleanup-after-landing" ? "cleanup-after-landing" : "keep",
     landingPolicy:
@@ -108,6 +111,42 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     remediationAt: typeof value.remediationAt === "string" ? value.remediationAt : undefined,
     remediationSummary:
       typeof value.remediationSummary === "string" ? value.remediationSummary : undefined,
+    reviewStatus:
+      value.reviewStatus === "pending" ||
+      value.reviewStatus === "approved" ||
+      value.reviewStatus === "nits-only" ||
+      value.reviewStatus === "changes-requested" ||
+      value.reviewStatus === "remediation-in-progress" ||
+      value.reviewStatus === "review-blocked"
+        ? value.reviewStatus
+        : undefined,
+    reviewVerdict:
+      value.reviewVerdict === "approve" ||
+      value.reviewVerdict === "approve-with-nits" ||
+      value.reviewVerdict === "request-changes"
+        ? value.reviewVerdict
+        : undefined,
+    reviewAt: typeof value.reviewAt === "string" ? value.reviewAt : undefined,
+    reviewSummary: typeof value.reviewSummary === "string" ? value.reviewSummary : undefined,
+    reviewFeedback:
+      Array.isArray(value.reviewFeedback) &&
+      value.reviewFeedback.every((entry) => typeof entry === "string")
+        ? value.reviewFeedback
+        : undefined,
+    reviewValidFeedbackCount:
+      typeof value.reviewValidFeedbackCount === "number"
+        ? value.reviewValidFeedbackCount
+        : undefined,
+    reviewInvalidFeedbackCount:
+      typeof value.reviewInvalidFeedbackCount === "number"
+        ? value.reviewInvalidFeedbackCount
+        : undefined,
+    reviewRemediationAttempts:
+      typeof value.reviewRemediationAttempts === "number"
+        ? value.reviewRemediationAttempts
+        : undefined,
+    reviewRemediationAt:
+      typeof value.reviewRemediationAt === "string" ? value.reviewRemediationAt : undefined,
     landingVerifiedAt:
       typeof value.landingVerifiedAt === "string" ? value.landingVerifiedAt : undefined,
     landingVerification:

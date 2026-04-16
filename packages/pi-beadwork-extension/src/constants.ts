@@ -42,6 +42,14 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     validateCommands: ["npm run lint", "npm run test", "npm run typecheck"],
     commandTimeoutMs: 600_000,
     maxRebaseAttempts: 2,
+    review: {
+      enabled: false,
+      provider: undefined,
+      model: undefined,
+      commandTimeoutMs: 180_000,
+      maxRemediationAttempts: 1,
+      maxContextChars: 12_000,
+    },
   },
   supervisor: {
     pollIntervalMs: 30_000,

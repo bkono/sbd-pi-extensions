@@ -10,7 +10,9 @@ type PartialConfig = {
   tmux?: Partial<BeadworkConfig["tmux"]>;
   worktrees?: Partial<BeadworkConfig["worktrees"]>;
   run?: Partial<BeadworkConfig["run"]>;
-  landing?: Partial<BeadworkConfig["landing"]>;
+  landing?: Partial<Omit<BeadworkConfig["landing"], "review">> & {
+    review?: Partial<BeadworkConfig["landing"]["review"]>;
+  };
   supervisor?: Partial<BeadworkConfig["supervisor"]>;
 };
 
@@ -76,6 +78,22 @@ function normalizeLandingPolicy(value: unknown): LandingPolicy | undefined {
   return value === "auto" || value === "deferred" ? value : undefined;
 }
 
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "1" || normalized === "true") {
+      return true;
+    }
+    if (normalized === "0" || normalized === "false") {
+      return false;
+    }
+  }
+  return undefined;
+}
+
 function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkConfig {
   if (!override) {
     return base;
@@ -116,6 +134,18 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
         normalizeStringArray(override.landing?.validateCommands) ?? base.landing.validateCommands,
       commandTimeoutMs: override.landing?.commandTimeoutMs ?? base.landing.commandTimeoutMs,
       maxRebaseAttempts: override.landing?.maxRebaseAttempts ?? base.landing.maxRebaseAttempts,
+      review: {
+        enabled: normalizeBoolean(override.landing?.review?.enabled) ?? base.landing.review.enabled,
+        provider: override.landing?.review?.provider ?? base.landing.review.provider,
+        model: override.landing?.review?.model ?? base.landing.review.model,
+        commandTimeoutMs:
+          override.landing?.review?.commandTimeoutMs ?? base.landing.review.commandTimeoutMs,
+        maxRemediationAttempts:
+          override.landing?.review?.maxRemediationAttempts ??
+          base.landing.review.maxRemediationAttempts,
+        maxContextChars:
+          override.landing?.review?.maxContextChars ?? base.landing.review.maxContextChars,
+      },
     },
     supervisor: {
       pollIntervalMs: override.supervisor?.pollIntervalMs ?? base.supervisor.pollIntervalMs,
@@ -169,6 +199,12 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const validateTimeoutMs = process.env.PI_BEADWORK_VALIDATE_TIMEOUT_MS;
   const maxRebaseAttempts = process.env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
   const landingPolicy = process.env.PI_BEADWORK_LANDING_POLICY;
+  const reviewEnabled = process.env.PI_BEADWORK_REVIEW_ENABLED;
+  const reviewProvider = process.env.PI_BEADWORK_REVIEW_PROVIDER;
+  const reviewModel = process.env.PI_BEADWORK_REVIEW_MODEL;
+  const reviewTimeoutMs = process.env.PI_BEADWORK_REVIEW_TIMEOUT_MS;
+  const reviewMaxRemediationAttempts = process.env.PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS;
+  const reviewMaxContextChars = process.env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS;
   const supervisorPollIntervalMs = process.env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
 
   config = mergeConfig(config, {
@@ -201,6 +237,18 @@ export function loadConfig(cwd: string): BeadworkConfig {
       policy: normalizeLandingPolicy(landingPolicy),
       commandTimeoutMs: validateTimeoutMs ? Number.parseInt(validateTimeoutMs, 10) : undefined,
       maxRebaseAttempts: maxRebaseAttempts ? Number.parseInt(maxRebaseAttempts, 10) : undefined,
+      review: {
+        enabled: normalizeBoolean(reviewEnabled),
+        provider: reviewProvider,
+        model: reviewModel,
+        commandTimeoutMs: reviewTimeoutMs ? Number.parseInt(reviewTimeoutMs, 10) : undefined,
+        maxRemediationAttempts: reviewMaxRemediationAttempts
+          ? Number.parseInt(reviewMaxRemediationAttempts, 10)
+          : undefined,
+        maxContextChars: reviewMaxContextChars
+          ? Number.parseInt(reviewMaxContextChars, 10)
+          : undefined,
+      },
     },
     supervisor: {
       pollIntervalMs: supervisorPollIntervalMs

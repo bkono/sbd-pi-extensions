@@ -310,9 +310,11 @@ function buildWorkerNotice(input: {
     worker.status,
     worker.ticketStatus ?? "",
     inspection.validation.state,
+    inspection.review.state,
     inspection.landing.state,
     inspection.cleanup.state,
     worker.validationSummary ?? "",
+    worker.reviewSummary ?? "",
     worker.landingVerification ?? "",
     worker.lastError ?? "",
   ].join("|");
@@ -323,6 +325,16 @@ function buildWorkerNotice(input: {
       level: "info",
       message:
         `Delegated ticket ${worker.ticketId} failed validation, and an automatic remediation pass is now running in the existing worktree. ` +
+        `Follow streamed worker activity in ${worker.logFile}.`,
+    };
+  }
+
+  if (worker.status === "running" && worker.reviewStatus === "remediation-in-progress") {
+    return {
+      key,
+      level: "info",
+      message:
+        `Delegated ticket ${worker.ticketId} is remediating reviewer-requested changes before merge-back. ` +
         `Follow streamed worker activity in ${worker.logFile}.`,
     };
   }
@@ -371,11 +383,17 @@ function buildWorkerNotice(input: {
 
   if (worker.status === "held") {
     if (inspection.landing.state === "ready-to-land") {
+      const review =
+        inspection.review.state === "approved"
+          ? " Reviewer approved."
+          : inspection.review.state === "nits-only"
+            ? " Reviewer approved with non-blocking nits."
+            : "";
       return {
         key,
         level: "info",
         message:
-          `Delegated ticket ${worker.ticketId} is validated and held in deferred-landing mode. ` +
+          `Delegated ticket ${worker.ticketId} is validated and held in deferred-landing mode.${review} ` +
           `It is ready to land when requested with /bw land ${worker.ticketId}.`,
       };
     }
@@ -434,11 +452,17 @@ function buildWorkerNotice(input: {
 
     const validation =
       inspection.validation.state === "passed" ? " Validation passed before merge-back." : "";
+    const review =
+      inspection.review.state === "approved"
+        ? " Reviewer approved the merge-back."
+        : inspection.review.state === "nits-only"
+          ? " Reviewer approved with non-blocking nits."
+          : "";
     return {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} completed successfully: changes were merged back into the repo branch.${validation} ${inspection.followUp.action}`.trim(),
+        `Delegated ticket ${worker.ticketId} completed successfully: changes were merged back into the repo branch.${validation}${review} ${inspection.followUp.action}`.trim(),
     };
   }
 

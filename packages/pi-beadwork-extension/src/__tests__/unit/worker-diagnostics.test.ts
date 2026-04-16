@@ -117,6 +117,36 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.action).toContain("npm run test");
   });
 
+  it("surfaces reviewer remediation and blocked states to operators", () => {
+    const remediationInspection = inspectWorker(
+      createWorker({
+        status: "running",
+        ticketStatus: "closed",
+        reviewStatus: "remediation-in-progress",
+        reviewVerdict: "request-changes",
+        reviewSummary: "Reviewer requested in-scope fixes.",
+      }),
+    );
+
+    expect(remediationInspection.review.state).toBe("remediation-in-progress");
+    expect(remediationInspection.followUp.needsAttention).toBe(false);
+    expect(remediationInspection.followUp.action).toContain("Reviewer requested in-scope fixes");
+
+    const blockedInspection = inspectWorker(
+      createWorker({
+        status: "attention",
+        ticketStatus: "closed",
+        reviewStatus: "review-blocked",
+        reviewVerdict: "request-changes",
+        reviewSummary: "Reviewer-requested changes are still unresolved.",
+      }),
+    );
+
+    expect(blockedInspection.review.state).toBe("review-blocked");
+    expect(blockedInspection.followUp.needsAttention).toBe(true);
+    expect(blockedInspection.followUp.action).toContain("unresolved");
+  });
+
   it("marks deferred workers as ready to land when validation passed and branch is still mergeable", () => {
     const inspection = inspectWorker(
       createWorker({

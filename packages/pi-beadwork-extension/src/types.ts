@@ -65,6 +65,16 @@ export type WorkerValidationStatus = "pending" | "passed" | "failed";
 
 export type WorkerRemediationStatus = "running" | "failed" | "exhausted";
 
+export type WorkerReviewVerdict = "approve" | "approve-with-nits" | "request-changes";
+
+export type WorkerReviewStatus =
+  | "pending"
+  | "approved"
+  | "nits-only"
+  | "changes-requested"
+  | "remediation-in-progress"
+  | "review-blocked";
+
 export type WorktreeCopyRule =
   | string
   | {
@@ -106,6 +116,14 @@ export type BeadworkConfig = {
     validateCommands: string[];
     commandTimeoutMs: number;
     maxRebaseAttempts: number;
+    review: {
+      enabled: boolean;
+      provider?: string;
+      model?: string;
+      commandTimeoutMs: number;
+      maxRemediationAttempts: number;
+      maxContextChars: number;
+    };
   };
   supervisor: {
     pollIntervalMs: number;
@@ -272,6 +290,17 @@ export type WorkerRuntime = {
   remediationAttempts?: number;
   remediationAt?: string;
   remediationSummary?: string;
+  reviewerProvider?: string;
+  reviewerModel?: string;
+  reviewStatus?: WorkerReviewStatus;
+  reviewVerdict?: WorkerReviewVerdict;
+  reviewAt?: string;
+  reviewSummary?: string;
+  reviewFeedback?: string[];
+  reviewValidFeedbackCount?: number;
+  reviewInvalidFeedbackCount?: number;
+  reviewRemediationAttempts?: number;
+  reviewRemediationAt?: string;
   landingVerifiedAt?: string;
   landingVerification?: string;
   landingAheadCount?: number;

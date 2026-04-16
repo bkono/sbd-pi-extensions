@@ -8,6 +8,22 @@ export type WorkerInspection = {
     detail?: string;
     at?: string;
   };
+  review: {
+    state:
+      | "not-run"
+      | "pending"
+      | "approved"
+      | "nits-only"
+      | "changes-requested"
+      | "remediation-in-progress"
+      | "review-blocked";
+    summary: string;
+    detail?: string;
+    at?: string;
+    verdict?: WorkerRuntime["reviewVerdict"];
+    validFeedbackCount?: number;
+    invalidFeedbackCount?: number;
+  };
   landing: {
     state:
       | "waiting-ticket-close"
@@ -80,6 +96,99 @@ function describeValidation(worker: WorkerRuntime): WorkerInspection["validation
     summary: "not-run",
     detail: worker.validationSummary,
     at: worker.validationAt,
+  };
+}
+
+function describeReview(worker: WorkerRuntime): WorkerInspection["review"] {
+  const feedbackCounts = {
+    validFeedbackCount: worker.reviewValidFeedbackCount,
+    invalidFeedbackCount: worker.reviewInvalidFeedbackCount,
+  };
+
+  if (worker.reviewStatus === "approved") {
+    return {
+      state: "approved",
+      summary: "approved",
+      detail: worker.reviewSummary,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  if (worker.reviewStatus === "nits-only") {
+    return {
+      state: "nits-only",
+      summary: "approved-with-nits",
+      detail: worker.reviewSummary,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  if (worker.reviewStatus === "changes-requested") {
+    return {
+      state: "changes-requested",
+      summary: "changes-requested",
+      detail: worker.reviewSummary,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  if (worker.reviewStatus === "remediation-in-progress") {
+    return {
+      state: "remediation-in-progress",
+      summary: "remediation-in-progress",
+      detail: worker.reviewSummary,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  if (worker.reviewStatus === "review-blocked") {
+    return {
+      state: "review-blocked",
+      summary: "review-blocked",
+      detail: worker.reviewSummary ?? worker.lastError,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  if (worker.reviewStatus === "pending") {
+    return {
+      state: "pending",
+      summary: "pending",
+      detail: worker.reviewSummary,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  if (worker.reviewVerdict) {
+    return {
+      state: "pending",
+      summary: `pending (${worker.reviewVerdict})`,
+      detail: worker.reviewSummary,
+      at: worker.reviewAt,
+      verdict: worker.reviewVerdict,
+      ...feedbackCounts,
+    };
+  }
+
+  return {
+    state: "not-run",
+    summary: "not-run",
+    detail: worker.reviewSummary,
+    at: worker.reviewAt,
+    verdict: worker.reviewVerdict,
+    ...feedbackCounts,
   };
 }
 
@@ -227,6 +336,7 @@ function describeCleanup(worker: WorkerRuntime): WorkerInspection["cleanup"] {
 function describeFollowUp(
   worker: WorkerRuntime,
   validation: WorkerInspection["validation"],
+  review: WorkerInspection["review"],
   landing: WorkerInspection["landing"],
   cleanup: WorkerInspection["cleanup"],
 ): WorkerInspection["followUp"] {
@@ -244,6 +354,15 @@ function describeFollowUp(
         action:
           worker.remediationSummary ??
           "Validation previously failed. Automatic remediation is running in the worker worktree.",
+      };
+    }
+
+    if (review.state === "remediation-in-progress") {
+      return {
+        needsAttention: false,
+        action:
+          review.detail ??
+          "Reviewer requested in-scope fixes. Remediation is running before re-review.",
       };
     }
 
@@ -282,6 +401,15 @@ function describeFollowUp(
       };
     }
 
+    if (review.state === "review-blocked" || review.state === "changes-requested") {
+      return {
+        needsAttention: true,
+        action:
+          review.detail ??
+          "Reviewer requested in-scope changes that still need remediation before landing.",
+      };
+    }
+
     return {
       needsAttention: true,
       action: worker.lastError ?? "Worker needs operator attention before it can be landed.",
@@ -289,6 +417,15 @@ function describeFollowUp(
   }
 
   if (worker.status === "held") {
+    if (review.state === "review-blocked" || review.state === "changes-requested") {
+      return {
+        needsAttention: true,
+        action:
+          review.detail ??
+          `Deferred landing for ${worker.ticketId} is blocked by reviewer-requested changes.`,
+      };
+    }
+
     if (landing.state === "ready-to-land") {
       return {
         needsAttention: false,
@@ -360,6 +497,22 @@ function describeFollowUp(
     };
   }
 
+  if (review.state === "pending") {
+    return {
+      needsAttention: true,
+      action: "Landing is integrated, but reviewer gating is still pending.",
+    };
+  }
+
+  if (review.state === "changes-requested" || review.state === "review-blocked") {
+    return {
+      needsAttention: true,
+      action:
+        review.detail ??
+        "Landing is integrated, but reviewer-requested changes are still unresolved.",
+    };
+  }
+
   if (cleanup.state === "failed") {
     return {
       needsAttention: true,
@@ -389,12 +542,14 @@ function describeFollowUp(
 
 export function inspectWorker(worker: WorkerRuntime): WorkerInspection {
   const validation = describeValidation(worker);
+  const review = describeReview(worker);
   const landing = describeLanding(worker);
   const cleanup = describeCleanup(worker);
-  const followUp = describeFollowUp(worker, validation, landing, cleanup);
+  const followUp = describeFollowUp(worker, validation, review, landing, cleanup);
   return {
     runtime: worker,
     validation,
+    review,
     landing,
     cleanup,
     followUp,
@@ -406,12 +561,16 @@ export function formatWorkerInspectionLines(inspection: WorkerInspection): strin
   const lines = [
     `- ${worker.ticketId} · ${worker.status} · ${worker.ticketTitle}`,
     `  Worker: ${worker.workerId} · pane:${worker.tmuxPane}`,
-    `  Ticket: ${worker.ticketStatus ?? "unknown"} · validation:${inspection.validation.summary} · landing:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
+    `  Ticket: ${worker.ticketStatus ?? "unknown"} · validation:${inspection.validation.summary} · review:${inspection.review.summary} · landing:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
     `  Next: ${inspection.followUp.action}`,
   ];
 
   if (inspection.validation.detail) {
     lines.push(`  Validation detail: ${inspection.validation.detail}`);
+  }
+
+  if (inspection.review.detail) {
+    lines.push(`  Review detail: ${inspection.review.detail}`);
   }
 
   if (inspection.landing.detail) {

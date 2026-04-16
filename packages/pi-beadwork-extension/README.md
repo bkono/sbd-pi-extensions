@@ -139,7 +139,15 @@ Current config keys:
     "policy": "auto",
     "validateCommands": ["npm run lint", "npm run test", "npm run typecheck"],
     "commandTimeoutMs": 600000,
-    "maxRebaseAttempts": 2
+    "maxRebaseAttempts": 2,
+    "review": {
+      "enabled": false,
+      "provider": "openai",
+      "model": "gpt-5.4",
+      "commandTimeoutMs": 180000,
+      "maxRemediationAttempts": 1,
+      "maxContextChars": 12000
+    }
   }
 }
 ```
@@ -158,6 +166,10 @@ Notes:
 - A worker only counts as landed when the parent branch actually contains the worker HEAD; equivalent diffs or partially integrated state do not count as a clean landing.
 - `landing.commandTimeoutMs` applies to each validation command.
 - `landing.maxRebaseAttempts` controls how many times the orchestrator will retry a drifted worker through rebase + validation + merge-back before leaving it in an explicit attention state.
+- `landing.review.enabled` turns on reviewer-agent gating before merge-back/hold; the reviewer sees ticket context plus commit/diff excerpts.
+- Reviewer outcomes are explicit (`approve`, `approve-with-nits`, `request-changes`). The orchestrator filters reviewer feedback against ticket intent before deciding whether remediation is required.
+- Valid `request-changes` feedback triggers bounded remediation + re-review (`landing.review.maxRemediationAttempts`) before landing can continue.
+- `landing.review.provider` / `landing.review.model` are independent overrides for the reviewer agent; when unset they fall back to the worker provider/model.
 - `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
 
 Environment overrides:
@@ -177,3 +189,9 @@ Environment overrides:
 - `PI_BEADWORK_VALIDATE_TIMEOUT_MS`
 - `PI_BEADWORK_MAX_REBASE_ATTEMPTS`
 - `PI_BEADWORK_LANDING_POLICY`
+- `PI_BEADWORK_REVIEW_ENABLED`
+- `PI_BEADWORK_REVIEW_PROVIDER`
+- `PI_BEADWORK_REVIEW_MODEL`
+- `PI_BEADWORK_REVIEW_TIMEOUT_MS`
+- `PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS`
+- `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS`

@@ -12,7 +12,15 @@ import {
   upsertWorkerRuntime,
 } from "./registry.js";
 import { createTmuxBackend, type TmuxBackend, type TmuxPaneInspection } from "./tmux.js";
-import type { BeadworkConfig, RunOptions, RunSummary, RunUntil, WorkerRuntime } from "./types.js";
+import type {
+  BeadworkConfig,
+  BeadworkIssueDetail,
+  RunOptions,
+  RunSummary,
+  RunUntil,
+  WorkerReviewVerdict,
+  WorkerRuntime,
+} from "./types.js";
 import {
   cleanupTicketWorktree,
   type LandingVerificationResult,
@@ -75,8 +83,12 @@ function shouldNormalizePiWorkerCommand(command: string): boolean {
   return executable === "pi" || executable.endsWith("/pi");
 }
 
-export function buildWorkerAgentCommand(config: BeadworkConfig): string {
-  const baseCommand = config.tmux.workerCommand.trim();
+function buildModelScopedAgentCommand(input: {
+  command: string;
+  provider?: string;
+  model?: string;
+}): string {
+  const baseCommand = input.command.trim();
   let normalizedCommand = baseCommand;
 
   if (shouldNormalizePiWorkerCommand(baseCommand)) {
@@ -89,13 +101,30 @@ export function buildWorkerAgentCommand(config: BeadworkConfig): string {
   }
 
   const parts = [normalizedCommand];
-  if (config.tmux.workerProvider?.trim()) {
-    parts.push(`--provider ${shellQuote(config.tmux.workerProvider.trim())}`);
+  if (input.provider?.trim()) {
+    parts.push(`--provider ${shellQuote(input.provider.trim())}`);
   }
-  if (config.tmux.workerModel?.trim()) {
-    parts.push(`--model ${shellQuote(config.tmux.workerModel.trim())}`);
+  if (input.model?.trim()) {
+    parts.push(`--model ${shellQuote(input.model.trim())}`);
   }
+
   return parts.filter((part) => part.length > 0).join(" ");
+}
+
+export function buildWorkerAgentCommand(config: BeadworkConfig): string {
+  return buildModelScopedAgentCommand({
+    command: config.tmux.workerCommand,
+    provider: config.tmux.workerProvider,
+    model: config.tmux.workerModel,
+  });
+}
+
+export function buildReviewerAgentCommand(config: BeadworkConfig): string {
+  return buildModelScopedAgentCommand({
+    command: config.tmux.workerCommand,
+    provider: config.landing.review.provider ?? config.tmux.workerProvider,
+    model: config.landing.review.model ?? config.tmux.workerModel,
+  });
 }
 
 function buildWorkerScript(input: {
@@ -142,6 +171,222 @@ async function appendWorkerLog(logFile: string, message: string): Promise<void> 
 }
 
 const MAX_VALIDATION_REMEDIATION_ATTEMPTS = 1;
+const REVIEWER_ALLOWED_VERDICTS: WorkerReviewVerdict[] = [
+  "approve",
+  "approve-with-nits",
+  "request-changes",
+];
+
+function isReviewVerdict(value: unknown): value is WorkerReviewVerdict {
+  return (
+    typeof value === "string" && REVIEWER_ALLOWED_VERDICTS.includes(value as WorkerReviewVerdict)
+  );
+}
+
+type ReviewFeedbackItem = {
+  comment: string;
+  intentAlignment: "aligned" | "unclear" | "misaligned";
+  requiresChanges: boolean;
+};
+
+type ReviewerDecision = {
+  verdict: WorkerReviewVerdict;
+  summary: string;
+  feedback: ReviewFeedbackItem[];
+};
+
+type ReviewerAssessment = {
+  validFeedback: ReviewFeedbackItem[];
+  invalidFeedback: ReviewFeedbackItem[];
+  requiresChanges: boolean;
+};
+
+function truncateForPrompt(value: string | undefined, maxChars: number): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxChars).trimEnd()}\n\n[truncated]`;
+}
+
+function extractJsonPayload(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("Reviewer output was empty.");
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    // Try markdown JSON fences.
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1]) as unknown;
+    } catch {
+      // fall through to broad object extraction
+    }
+  }
+
+  const objectMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (objectMatch?.[0]) {
+    return JSON.parse(objectMatch[0]) as unknown;
+  }
+
+  throw new Error("Reviewer output did not contain a JSON object.");
+}
+
+function normalizeReviewFeedbackItem(value: unknown): ReviewFeedbackItem | undefined {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return {
+      comment: value.trim(),
+      intentAlignment: "unclear",
+      requiresChanges: true,
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const objectValue = value as {
+    comment?: unknown;
+    intentAlignment?: unknown;
+    requiresChanges?: unknown;
+    severity?: unknown;
+  };
+  if (typeof objectValue.comment !== "string" || objectValue.comment.trim().length === 0) {
+    return undefined;
+  }
+
+  const rawAlignment =
+    typeof objectValue.intentAlignment === "string" ? objectValue.intentAlignment : undefined;
+  const intentAlignment =
+    rawAlignment === "aligned" || rawAlignment === "unclear" || rawAlignment === "misaligned"
+      ? rawAlignment
+      : "unclear";
+
+  const requiresChanges =
+    typeof objectValue.requiresChanges === "boolean"
+      ? objectValue.requiresChanges
+      : objectValue.severity !== "nit";
+
+  return {
+    comment: objectValue.comment.trim(),
+    intentAlignment,
+    requiresChanges,
+  };
+}
+
+function normalizeReviewerDecision(raw: string): ReviewerDecision {
+  const payload = extractJsonPayload(raw);
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Reviewer output was not a JSON object.");
+  }
+
+  const value = payload as {
+    verdict?: unknown;
+    summary?: unknown;
+    feedback?: unknown;
+  };
+
+  if (!isReviewVerdict(value.verdict)) {
+    throw new Error(
+      `Reviewer verdict must be one of: ${REVIEWER_ALLOWED_VERDICTS.join(", ")}. Received: ${String(value.verdict)}.`,
+    );
+  }
+
+  const feedback = Array.isArray(value.feedback)
+    ? value.feedback
+        .map((entry) => normalizeReviewFeedbackItem(entry))
+        .filter((entry): entry is ReviewFeedbackItem => entry !== undefined)
+    : [];
+
+  return {
+    verdict: value.verdict,
+    summary:
+      typeof value.summary === "string" && value.summary.trim().length > 0
+        ? value.summary.trim()
+        : "Reviewer did not provide a summary.",
+    feedback,
+  };
+}
+
+function tokenizeIntent(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/g)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 4),
+  );
+}
+
+function feedbackLooksRelevant(comment: string, intentTokens: Set<string>): boolean {
+  const tokens = comment
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+
+  for (const token of tokens) {
+    if (intentTokens.has(token)) {
+      return true;
+    }
+  }
+
+  return /(lint|test|typecheck|build|compile|regression|bug|error|security|crash|perf)/i.test(
+    comment,
+  );
+}
+
+function assessReviewerFeedback(input: {
+  decision: ReviewerDecision;
+  ticket: BeadworkIssueDetail;
+  epic?: BeadworkIssueDetail;
+}): ReviewerAssessment {
+  const intentTokens = tokenizeIntent(
+    [
+      input.ticket.id,
+      input.ticket.title,
+      input.ticket.description,
+      input.epic?.id,
+      input.epic?.title,
+      input.epic?.description,
+    ]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join("\n"),
+  );
+
+  const validFeedback: ReviewFeedbackItem[] = [];
+  const invalidFeedback: ReviewFeedbackItem[] = [];
+
+  for (const feedback of input.decision.feedback) {
+    const aligned = feedback.intentAlignment !== "misaligned";
+    const relevant =
+      feedback.intentAlignment === "aligned" ||
+      feedbackLooksRelevant(feedback.comment, intentTokens);
+
+    if (aligned && relevant) {
+      validFeedback.push(feedback);
+    } else {
+      invalidFeedback.push(feedback);
+    }
+  }
+
+  return {
+    validFeedback,
+    invalidFeedback,
+    requiresChanges:
+      input.decision.verdict === "request-changes" &&
+      validFeedback.some((feedback) => feedback.requiresChanges),
+  };
+}
 
 export type WorkerLifecycleEvent =
   | {
@@ -190,6 +435,184 @@ function buildValidationRemediationPrompt(input: {
   );
 
   return lines.join("\n");
+}
+
+function buildReviewRemediationPrompt(input: {
+  worker: WorkerRuntime;
+  reviewSummary: string;
+  validFeedback: ReviewFeedbackItem[];
+}): string {
+  const lines = [
+    "You are continuing delegated work in an existing beadwork ticket worktree.",
+    "",
+    `Ticket: ${input.worker.ticketId} ${input.worker.ticketTitle}`,
+    `Worktree: ${input.worker.worktreePath}`,
+    `Branch: ${input.worker.branchName}`,
+    "",
+    "The reviewer requested changes that the orchestrator deemed valid for this ticket.",
+    `Review summary: ${input.reviewSummary}`,
+  ];
+
+  if (input.validFeedback.length > 0) {
+    lines.push("", "Valid feedback that must be addressed before landing:");
+    for (const feedback of input.validFeedback) {
+      lines.push(`- ${feedback.comment}`);
+    }
+  }
+
+  lines.push(
+    "",
+    "Rules:",
+    "- Stay scoped to the ticket intent and the listed valid review feedback.",
+    "- Ignore reviewer comments that are not in the valid-feedback list.",
+    "- Keep commits focused; commit follow-up fixes on the current branch.",
+    "- Re-run any needed quality checks before exiting.",
+    "- Do not reopen the ticket unless absolutely necessary.",
+    "- If blocked, explain the blocker clearly and exit.",
+  );
+
+  return lines.join("\n");
+}
+
+async function gatherReviewArtifacts(input: {
+  workerHead: string;
+  repoHead: string;
+  worktreePath: string;
+  maxContextChars: number;
+  runner: ProcessRunner;
+}): Promise<{ commitSummary: string; diffStat: string; diff: string }> {
+  const safeRun = async (args: string[]): Promise<string> => {
+    try {
+      const result = await input.runner("git", args, {
+        cwd: input.worktreePath,
+        timeout: 60_000,
+      });
+      return result.stdout.trim();
+    } catch (error) {
+      return `[unavailable: ${humanizeError(error)}]`;
+    }
+  };
+
+  const [commitSummaryRaw, diffStatRaw, diffRaw] = await Promise.all([
+    safeRun(["log", "--no-color", "--oneline", `${input.repoHead}..${input.workerHead}`]),
+    safeRun(["diff", "--no-color", "--stat", `${input.repoHead}...${input.workerHead}`]),
+    safeRun(["diff", "--no-color", `${input.repoHead}...${input.workerHead}`]),
+  ]);
+
+  const maxChars = Math.max(2_000, input.maxContextChars);
+  const maxDiffChars = Math.max(1_000, Math.floor(maxChars * 0.65));
+
+  return {
+    commitSummary: truncateForPrompt(commitSummaryRaw, Math.floor(maxChars * 0.2)),
+    diffStat: truncateForPrompt(diffStatRaw, Math.floor(maxChars * 0.2)),
+    diff: truncateForPrompt(diffRaw, maxDiffChars),
+  };
+}
+
+function buildReviewerPrompt(input: {
+  worker: WorkerRuntime;
+  ticket: BeadworkIssueDetail;
+  epic?: BeadworkIssueDetail;
+  artifacts: { commitSummary: string; diffStat: string; diff: string };
+}): string {
+  const lines = [
+    "You are a reviewer agent performing a merge-back gate for delegated beadwork work.",
+    "Assess the change against the ticket intent and task goals. Do not invent unrelated scope.",
+    "",
+    "Return STRICT JSON only with this schema:",
+    "{",
+    '  "verdict": "approve" | "approve-with-nits" | "request-changes",',
+    '  "summary": "short summary",',
+    '  "feedback": [',
+    '    { "comment": "text", "intentAlignment": "aligned" | "unclear" | "misaligned", "requiresChanges": true | false }',
+    "  ]",
+    "}",
+    "",
+    `Ticket: ${input.ticket.id} ${input.ticket.title}`,
+    `Branch: ${input.worker.branchName}`,
+    `Worktree: ${input.worker.worktreePath}`,
+  ];
+
+  if (input.epic) {
+    lines.push(`Epic: ${input.epic.id} ${input.epic.title}`);
+  }
+
+  if (input.ticket.description.trim()) {
+    lines.push("", "Ticket context:", truncateForPrompt(input.ticket.description, 2_500));
+  }
+
+  if (input.epic?.description.trim()) {
+    lines.push("", "Epic context:", truncateForPrompt(input.epic.description, 2_500));
+  }
+
+  lines.push(
+    "",
+    "Worker commits (repo HEAD..worker HEAD):",
+    input.artifacts.commitSummary || "[none]",
+    "",
+    "Diff stat:",
+    input.artifacts.diffStat || "[none]",
+    "",
+    "Unified diff excerpt:",
+    input.artifacts.diff || "[none]",
+    "",
+    "Review rules:",
+    "- Only request changes when the issue is truly relevant to this ticket's intent/constraints.",
+    "- Use intentAlignment=misaligned for comments that are not truly in scope.",
+    "- For minor polish that should not block landing, use verdict=approve-with-nits and requiresChanges=false.",
+  );
+
+  return lines.join("\n");
+}
+
+async function runReviewerPass(input: {
+  cwd: string;
+  worker: WorkerRuntime;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  repoHead: string;
+  workerHead: string;
+  runner: ProcessRunner;
+}): Promise<{
+  checkedAt: string;
+  decision: ReviewerDecision;
+  assessment: ReviewerAssessment;
+}> {
+  const ticket = await input.adapter.show(input.cwd, input.worker.ticketId);
+  const epic = ticket.parentId ? await input.adapter.show(input.cwd, ticket.parentId) : undefined;
+  const artifacts = await gatherReviewArtifacts({
+    repoHead: input.repoHead,
+    workerHead: input.workerHead,
+    worktreePath: input.worker.worktreePath,
+    maxContextChars: input.config.landing.review.maxContextChars,
+    runner: input.runner,
+  });
+
+  const prompt = buildReviewerPrompt({
+    worker: input.worker,
+    ticket,
+    epic,
+    artifacts,
+  });
+  const promptFile = path.join(input.worker.runtimeDir, "review-handoff.txt");
+  await writeFile(promptFile, `${prompt}\n`, "utf8");
+
+  const reviewerCommand = buildReviewerAgentCommand(input.config);
+  const reviewerInvocation = `${reviewerCommand} "$(cat ${shellQuote(promptFile)})"`;
+  const reviewResult = await input.runner("bash", ["-lc", reviewerInvocation], {
+    cwd: input.worker.worktreePath,
+    timeout: input.config.landing.review.commandTimeoutMs,
+  });
+
+  const rawOutput = `${reviewResult.stdout}\n${reviewResult.stderr}`;
+  const decision = normalizeReviewerDecision(rawOutput);
+  const assessment = assessReviewerFeedback({ decision, ticket, epic });
+
+  return {
+    checkedAt: new Date().toISOString(),
+    decision,
+    assessment,
+  };
 }
 
 async function relaunchWorkerForValidationFailure(input: {
@@ -269,6 +692,93 @@ async function relaunchWorkerForValidationFailure(input: {
   };
 }
 
+async function relaunchWorkerForReviewFeedback(input: {
+  worker: WorkerRuntime;
+  config: BeadworkConfig;
+  tmuxBackend: TmuxBackend;
+  reviewSummary: string;
+  validFeedback: ReviewFeedbackItem[];
+}): Promise<WorkerRuntime> {
+  const remediationAttempt = (input.worker.reviewRemediationAttempts ?? 0) + 1;
+  const remediationPrompt = buildReviewRemediationPrompt({
+    worker: input.worker,
+    reviewSummary: input.reviewSummary,
+    validFeedback: input.validFeedback,
+  });
+  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+
+  await writeFile(input.worker.promptFile, `${remediationPrompt}\n`, "utf8");
+  await writeFile(
+    input.worker.scriptFile,
+    buildWorkerScript({
+      workerAgentCommand,
+      promptFile: input.worker.promptFile,
+      logFile: input.worker.logFile,
+      stateFile: input.worker.stateFile,
+      exitCodeFile: input.worker.exitCodeFile,
+      finishedAtFile: input.worker.finishedAtFile,
+    }),
+    "utf8",
+  );
+  await chmod(input.worker.scriptFile, 0o755);
+  await writeFile(input.worker.stateFile, "launching\n", "utf8");
+  await writeFile(input.worker.exitCodeFile, "", "utf8");
+  await writeFile(input.worker.finishedAtFile, "", "utf8");
+
+  try {
+    await input.tmuxBackend.cleanupWorker({
+      paneId: input.worker.tmuxPane !== "pending" ? input.worker.tmuxPane : undefined,
+      sessionName: input.worker.tmuxSession,
+      windowName: input.worker.tmuxWindow,
+    });
+  } catch {
+    // best-effort cleanup in case the previous tmux window is still hanging around
+  }
+
+  await input.tmuxBackend.ensureSession({ sessionName: input.worker.tmuxSession });
+  const launched = await input.tmuxBackend.launchWorker({
+    sessionName: input.worker.tmuxSession,
+    workerId: input.worker.workerId,
+    title: input.worker.ticketTitle,
+    worktreePath: input.worker.worktreePath,
+    launchCommand: input.worker.launchCommand,
+  });
+
+  const now = new Date().toISOString();
+  return {
+    ...input.worker,
+    tmuxSession: launched.sessionName,
+    tmuxWindow: launched.windowName,
+    tmuxPane: launched.paneId,
+    launchCommand: launched.launchCommand,
+    workerCommand: input.config.tmux.workerCommand,
+    workerProvider: input.config.tmux.workerProvider,
+    workerModel: input.config.tmux.workerModel,
+    reviewerProvider: input.config.landing.review.provider ?? input.config.tmux.workerProvider,
+    reviewerModel: input.config.landing.review.model ?? input.config.tmux.workerModel,
+    status: "running",
+    validationStatus: "pending",
+    validationAt: now,
+    validationSummary: `Review remediation attempt ${remediationAttempt} started after reviewer requested changes.`,
+    reviewStatus: "remediation-in-progress",
+    reviewVerdict: "request-changes",
+    reviewAt: now,
+    reviewSummary: input.reviewSummary,
+    reviewFeedback: input.validFeedback.map((feedback) => feedback.comment),
+    reviewValidFeedbackCount: input.validFeedback.length,
+    reviewInvalidFeedbackCount: input.worker.reviewInvalidFeedbackCount,
+    reviewRemediationAttempts: remediationAttempt,
+    reviewRemediationAt: now,
+    landingVerifiedAt: undefined,
+    landingVerification:
+      `Review requested changes; remediation attempt ${remediationAttempt}/` +
+      `${Math.max(1, input.config.landing.review.maxRemediationAttempts)} is running.`,
+    lastError: undefined,
+    finishedAt: undefined,
+    updatedAt: now,
+  };
+}
+
 async function cleanupLandedWorker(input: {
   repoRoot: string;
   worker: WorkerRuntime;
@@ -323,15 +833,28 @@ function buildDeferredHoldDetail(worker: WorkerRuntime): string {
   const aheadCount = worker.landingAheadCount ?? 0;
   const behindCount = worker.landingBehindCount ?? 0;
 
+  const reviewDetail =
+    worker.reviewStatus === "approved"
+      ? " Reviewer approved."
+      : worker.reviewStatus === "nits-only"
+        ? " Reviewer approved with non-blocking nits."
+        : "";
+
   if (aheadCount > 0 && behindCount > 0) {
-    return `Validated and held. Landing needs refresh before merge-back (ahead=${aheadCount}, behind=${behindCount}).`;
+    return (
+      `Validated and held. Landing needs refresh before merge-back (ahead=${aheadCount}, behind=${behindCount}).` +
+      reviewDetail
+    );
   }
 
   if (aheadCount > 0) {
-    return `Validated and held. Ready to land on explicit request (ahead=${aheadCount}, behind=${behindCount}).`;
+    return (
+      `Validated and held. Ready to land on explicit request (ahead=${aheadCount}, behind=${behindCount}).` +
+      reviewDetail
+    );
   }
 
-  return "Validated and held. Waiting for an explicit landing request.";
+  return `Validated and held. Waiting for an explicit landing request.${reviewDetail}`;
 }
 
 async function finalizeLandedWorker(input: {
@@ -434,9 +957,11 @@ async function refreshDeferredHoldState(input: {
 }
 
 async function autoLandCompletedWorker(input: {
+  cwd: string;
   repoRoot: string;
   worker: WorkerRuntime;
   config: BeadworkConfig;
+  adapter: BeadworkAdapter;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
   requestLanding?: boolean;
@@ -445,8 +970,9 @@ async function autoLandCompletedWorker(input: {
   if (
     !input.requestLanding &&
     input.worker.status === "attention" &&
-    input.worker.validationStatus === "failed" &&
-    input.worker.remediationStatus === "exhausted"
+    ((input.worker.validationStatus === "failed" &&
+      input.worker.remediationStatus === "exhausted") ||
+      input.worker.reviewStatus === "review-blocked")
   ) {
     return {
       ...input.worker,
@@ -474,10 +1000,15 @@ async function autoLandCompletedWorker(input: {
   let worker: WorkerRuntime = {
     ...input.worker,
     landingPolicy,
+    reviewerProvider: input.config.landing.review.provider ?? input.config.tmux.workerProvider,
+    reviewerModel: input.config.landing.review.model ?? input.config.tmux.workerModel,
     landingRequestedAt: input.requestLanding
       ? new Date().toISOString()
       : input.worker.landingRequestedAt,
     validationStatus: validationRequired ? (input.worker.validationStatus ?? "pending") : undefined,
+    reviewStatus: input.config.landing.review.enabled
+      ? (input.worker.reviewStatus ?? "pending")
+      : input.worker.reviewStatus,
   };
 
   if (input.requestLanding) {
@@ -677,6 +1208,134 @@ async function autoLandCompletedWorker(input: {
         tmuxBackend: input.tmuxBackend,
         runner: input.runner,
       });
+    }
+
+    if (input.config.landing.review.enabled && (postValidationLanding.aheadCount ?? 0) > 0) {
+      await appendWorkerLog(worker.logFile, "running reviewer-agent gating pass before landing");
+      let reviewPass: Awaited<ReturnType<typeof runReviewerPass>>;
+
+      try {
+        reviewPass = await runReviewerPass({
+          cwd: input.cwd,
+          worker,
+          config: input.config,
+          adapter: input.adapter,
+          repoHead: postValidationLanding.repoHead ?? "HEAD",
+          workerHead: postValidationLanding.workerHead ?? "HEAD",
+          runner: input.runner,
+        });
+      } catch (error) {
+        return buildAttentionState(worker, `Reviewer gate failed: ${humanizeError(error)}`, {
+          reviewStatus: "review-blocked",
+          reviewSummary: `Reviewer gate failed: ${humanizeError(error)}`,
+          landingVerification: `Landing blocked: reviewer gate failed (${humanizeError(error)}).`,
+        });
+      }
+
+      const validFeedback = reviewPass.assessment.validFeedback;
+      const invalidFeedback = reviewPass.assessment.invalidFeedback;
+      const normalizedSummary =
+        invalidFeedback.length > 0
+          ? `${reviewPass.decision.summary} (${invalidFeedback.length} feedback item(s) rejected as out-of-scope by orchestrator intent checks.)`
+          : reviewPass.decision.summary;
+
+      worker = {
+        ...worker,
+        reviewAt: reviewPass.checkedAt,
+        reviewVerdict: reviewPass.decision.verdict,
+        reviewSummary: normalizedSummary,
+        reviewFeedback: validFeedback.map((feedback) => feedback.comment),
+        reviewValidFeedbackCount: validFeedback.length,
+        reviewInvalidFeedbackCount: invalidFeedback.length,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (reviewPass.decision.verdict === "approve") {
+        worker = {
+          ...worker,
+          reviewStatus: "approved",
+          reviewSummary: `Reviewer approved merge-back. ${normalizedSummary}`,
+        };
+      } else if (reviewPass.decision.verdict === "approve-with-nits") {
+        worker = {
+          ...worker,
+          reviewStatus: "nits-only",
+          reviewSummary: `Reviewer approved with nits. ${normalizedSummary}`,
+        };
+      } else if (!reviewPass.assessment.requiresChanges) {
+        worker = {
+          ...worker,
+          reviewStatus: "nits-only",
+          reviewSummary:
+            "Reviewer requested changes, but no valid in-scope blockers were found. " +
+            normalizedSummary,
+        };
+      } else {
+        worker = {
+          ...worker,
+          reviewStatus: "changes-requested",
+          reviewSummary: `Reviewer requested valid in-scope changes. ${normalizedSummary}`,
+        };
+
+        const remediationAttempt = worker.reviewRemediationAttempts ?? 0;
+        const maxReviewRemediationAttempts = Math.max(
+          0,
+          input.config.landing.review.maxRemediationAttempts,
+        );
+
+        if (remediationAttempt < maxReviewRemediationAttempts) {
+          await appendWorkerLog(
+            worker.logFile,
+            "review requested changes; launching automatic review remediation pass",
+          );
+          await input.onLifecycleEvent?.({
+            type: "remediation-started",
+            ticketId: worker.ticketId,
+            message:
+              `Reviewer requested changes for delegated ticket ${worker.ticketId}. ` +
+              `Launching remediation attempt ${remediationAttempt + 1}/${maxReviewRemediationAttempts}.`,
+          });
+
+          try {
+            return await relaunchWorkerForReviewFeedback({
+              worker,
+              config: input.config,
+              tmuxBackend: input.tmuxBackend,
+              reviewSummary: worker.reviewSummary ?? normalizedSummary,
+              validFeedback,
+            });
+          } catch (error) {
+            return buildAttentionState(
+              {
+                ...worker,
+                reviewStatus: "review-blocked",
+                reviewRemediationAttempts: remediationAttempt + 1,
+                reviewRemediationAt: new Date().toISOString(),
+                reviewSummary: `Review requested changes, but remediation launch failed: ${humanizeError(error)}`,
+              },
+              `Review requested changes and remediation failed to launch: ${humanizeError(error)}`,
+              {
+                landingVerification:
+                  "Landing blocked after valid reviewer change requests could not be remediated.",
+              },
+            );
+          }
+        }
+
+        return buildAttentionState(
+          {
+            ...worker,
+            reviewStatus: "review-blocked",
+            reviewRemediationAttempts: remediationAttempt,
+            reviewRemediationAt: new Date().toISOString(),
+            reviewSummary: `Reviewer requested valid in-scope changes, but remediation attempts are exhausted (${remediationAttempt}/${maxReviewRemediationAttempts}).`,
+          },
+          "Landing blocked by reviewer-requested changes that still need remediation.",
+          {
+            landingVerification: "Landing blocked by reviewer-requested changes.",
+          },
+        );
+      }
     }
 
     if (deferLanding) {
@@ -902,8 +1561,11 @@ export async function launchTicketWorker(input: {
     workerCommand: input.config.tmux.workerCommand,
     workerProvider: input.config.tmux.workerProvider,
     workerModel: input.config.tmux.workerModel,
+    reviewerProvider: input.config.landing.review.provider ?? input.config.tmux.workerProvider,
+    reviewerModel: input.config.landing.review.model ?? input.config.tmux.workerModel,
     cleanupPolicy: input.config.worktrees.cleanup,
     landingPolicy: input.config.landing.policy,
+    reviewStatus: input.config.landing.review.enabled ? "pending" : undefined,
     cleanupStatus:
       input.config.worktrees.cleanup === "cleanup-after-landing" ? "pending" : undefined,
     status: "launching",
@@ -1002,6 +1664,7 @@ export async function inspectWorkerRuntime(input: {
 
   if (ticketStatus === "closed" && workerFinished && config) {
     const orchestrated = await autoLandCompletedWorker({
+      cwd: input.cwd,
       repoRoot: input.repoRoot,
       worker: {
         ...input.worker,
@@ -1012,6 +1675,7 @@ export async function inspectWorkerRuntime(input: {
         finishedAt: finishedAtText ?? input.worker.finishedAt,
       },
       config,
+      adapter: input.adapter,
       tmuxBackend,
       runner,
       requestLanding: input.requestLanding,
