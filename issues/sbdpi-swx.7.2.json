@@ -6,14 +6,15 @@
   "blocks": [
     "sbdpi-swx.3"
   ],
+  "closed_at": "2026-04-16T01:22:22Z",
   "created": "2026-04-15T17:38:33Z",
   "description": "Implement the agentic part of `/bw adopt`.\n\nScope:\n- inject a focused prompt that teaches the model how to decompose a plan into issues, epics, and dependencies\n- have the model reason about sequencing, dependency edges, and safe parallelism\n- consider file-surface-area conflicts / worker interference when suggesting decomposition\n- materialize the resulting structure through stable beadwork tools/commands instead of bespoke text parsing\n\nGoal: the extension should guide the model to create a useful beadwork graph from a written plan, not parse a pseudo-DSL out of chat history.",
   "id": "sbdpi-swx.7.2",
   "labels": [],
   "parent": "sbdpi-swx.7",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Use an LLM-guided decomposition flow to turn plans into beadwork graphs",
   "type": "task",
-  "updated_at": "2026-04-16T01:14:45Z"
+  "updated_at": "2026-04-16T01:22:22Z"
 }
