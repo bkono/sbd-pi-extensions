@@ -9,9 +9,15 @@
   "id": "sbdpi-swx.8.5",
   "labels": [],
   "parent": "sbdpi-swx.8",
+  "comments": [
+    {
+      "text": "Recorded follow-on from dogfood feedback and started the fix. Commit `fb1fa8f` makes tmux worker launch detached (`new-window -d`) so `/bw delegate` no longer steals operator focus, and updates the launch notice/tests to make the background behavior explicit.",
+      "timestamp": "2026-04-16T00:20:34Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Launch delegated workers without stealing the operator's tmux focus",
   "type": "task",
-  "updated_at": "2026-04-16T00:16:29Z"
+  "updated_at": "2026-04-16T00:20:34Z"
 }
