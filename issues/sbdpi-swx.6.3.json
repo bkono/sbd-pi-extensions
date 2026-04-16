@@ -9,9 +9,15 @@
   "id": "sbdpi-swx.6.3",
   "labels": [],
   "parent": "sbdpi-swx.6",
+  "comments": [
+    {
+      "text": "Implemented the first real remediation path in commit `e3e37da`. When delegated worker validation fails, the orchestrator now launches one automatic remediation pass back into the same worktree instead of immediately falling into `attention`, and if that remediation attempt still does not yield a passing validation result the worker is left in a truthful exhausted-attention state rather than blindly rerunning the same failing checks forever. Added persistence/diagnostics fields plus regression coverage for both remediation launch and no-blind-retry behavior.",
+      "timestamp": "2026-04-16T00:26:34Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Make validation failures trigger real remediation instead of blind retries",
   "type": "task",
-  "updated_at": "2026-04-16T00:16:02Z"
+  "updated_at": "2026-04-16T00:26:34Z"
 }
