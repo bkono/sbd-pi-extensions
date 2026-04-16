@@ -13,14 +13,16 @@
     "sbdpi-swx.8.5"
   ],
   "blocks": [],
+  "closed_at": "2026-04-16T05:18:27Z",
+  "close_reason": "README and docs folder now cover the current delegated worker lifecycle, landing policies, reviewer config, command/tool surface, and quickstart/operator workflows.",
   "created": "2026-04-14T18:31:43Z",
   "description": "Turn the existing docs/tests sink into the full documentation pass needed before merging and dogfooding.\n\nScope:\n- refresh the package README so it serves as the overview + quickstart for the beadwork extension\n- document the real operator workflow for `/bw engage`, `/bw delegate`, `/bw run`, `/bw workers`, and `/bw land`\n- add/update config examples covering worktree bootstrap, worker model overrides, landing policies (`auto` vs `deferred`), reviewer-agent configuration, remediation/validation behavior, and relevant env vars\n- move deeper/reference material into a `docs/` folder so README stays oriented around overview, setup, common workflows, and example configs\n- make sure recent behavior changes are covered truthfully: background supervision cadence, worker logs/notifications, deferred landing states, review verdicts, reviewer artifact budget naming, and 30-minute reviewer timeout defaults\n- add any needed tests/docs adjustments so the documented workflow matches the current implementation\n\nGoal: after this ticket, the extension should have an accurate top-level README and supporting docs that codify the real current workflow well enough to merge to main and continue dogfooding.",
   "id": "sbdpi-swx.3",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add comprehensive README/docs for delegated worker lifecycle and landing modes",
   "type": "task",
-  "updated_at": "2026-04-16T05:12:07Z"
+  "updated_at": "2026-04-16T05:18:27Z"
 }
