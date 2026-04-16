@@ -46,9 +46,9 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
       enabled: false,
       provider: undefined,
       model: undefined,
-      commandTimeoutMs: 180_000,
+      commandTimeoutMs: 1_800_000,
       maxRemediationAttempts: 1,
-      maxContextChars: 12_000,
+      maxArtifactChars: 12_000,
     },
   },
   supervisor: {

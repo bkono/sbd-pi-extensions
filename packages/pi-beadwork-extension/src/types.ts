@@ -122,7 +122,7 @@ export type BeadworkConfig = {
       model?: string;
       commandTimeoutMs: number;
       maxRemediationAttempts: number;
-      maxContextChars: number;
+      maxArtifactChars: number;
     };
   };
   supervisor: {

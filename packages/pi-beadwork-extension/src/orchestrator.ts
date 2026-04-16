@@ -478,7 +478,7 @@ async function gatherReviewArtifacts(input: {
   workerHead: string;
   repoHead: string;
   worktreePath: string;
-  maxContextChars: number;
+  maxArtifactChars: number;
   runner: ProcessRunner;
 }): Promise<{ commitSummary: string; diffStat: string; diff: string }> {
   const safeRun = async (args: string[]): Promise<string> => {
@@ -499,7 +499,7 @@ async function gatherReviewArtifacts(input: {
     safeRun(["diff", "--no-color", `${input.repoHead}...${input.workerHead}`]),
   ]);
 
-  const maxChars = Math.max(2_000, input.maxContextChars);
+  const maxChars = Math.max(2_000, input.maxArtifactChars);
   const maxDiffChars = Math.max(1_000, Math.floor(maxChars * 0.65));
 
   return {
@@ -584,7 +584,7 @@ async function runReviewerPass(input: {
     repoHead: input.repoHead,
     workerHead: input.workerHead,
     worktreePath: input.worker.worktreePath,
-    maxContextChars: input.config.landing.review.maxContextChars,
+    maxArtifactChars: input.config.landing.review.maxArtifactChars,
     runner: input.runner,
   });
 

@@ -144,9 +144,9 @@ Current config keys:
       "enabled": false,
       "provider": "openai",
       "model": "gpt-5.4",
-      "commandTimeoutMs": 180000,
+      "commandTimeoutMs": 1800000,
       "maxRemediationAttempts": 1,
-      "maxContextChars": 12000
+      "maxArtifactChars": 12000
     }
   }
 }
@@ -166,9 +166,11 @@ Notes:
 - A worker only counts as landed when the parent branch actually contains the worker HEAD; equivalent diffs or partially integrated state do not count as a clean landing.
 - `landing.commandTimeoutMs` applies to each validation command.
 - `landing.maxRebaseAttempts` controls how many times the orchestrator will retry a drifted worker through rebase + validation + merge-back before leaving it in an explicit attention state.
-- `landing.review.enabled` turns on reviewer-agent gating before merge-back/hold; the reviewer sees ticket context plus commit/diff excerpts.
+- `landing.review.enabled` turns on reviewer-agent gating before merge-back/hold; the reviewer sees ticket context plus bounded commit/diff review artifacts.
 - Reviewer outcomes are explicit (`approve`, `approve-with-nits`, `request-changes`). The orchestrator filters reviewer feedback against ticket intent before deciding whether remediation is required.
 - Valid `request-changes` feedback triggers bounded remediation + re-review (`landing.review.maxRemediationAttempts`) before landing can continue.
+- `landing.review.commandTimeoutMs` defaults to 30 minutes so slower high-thinking reviews can complete without being killed early.
+- `landing.review.maxArtifactChars` caps the commit-summary / diff-stat / unified-diff artifacts included in the reviewer prompt; ticket and epic descriptions are truncated separately. Legacy `maxContextChars` config is still accepted as a compatibility alias.
 - `landing.review.provider` / `landing.review.model` are independent overrides for the reviewer agent; when unset they fall back to the worker provider/model.
 - `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
 
@@ -194,4 +196,6 @@ Environment overrides:
 - `PI_BEADWORK_REVIEW_MODEL`
 - `PI_BEADWORK_REVIEW_TIMEOUT_MS`
 - `PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS`
-- `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS`
+- `PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS`
+
+Legacy `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS` is still accepted as a compatibility alias.

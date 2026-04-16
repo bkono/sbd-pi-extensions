@@ -4,6 +4,10 @@ import path from "node:path";
 import { DEFAULT_CONFIG } from "./constants.js";
 import type { BeadworkConfig, LandingPolicy, WorktreeCopyRule } from "./types.js";
 
+type PartialReviewConfig = Partial<BeadworkConfig["landing"]["review"]> & {
+  maxContextChars?: number;
+};
+
 type PartialConfig = {
   ui?: Partial<BeadworkConfig["ui"]>;
   storage?: Partial<BeadworkConfig["storage"]>;
@@ -11,7 +15,7 @@ type PartialConfig = {
   worktrees?: Partial<BeadworkConfig["worktrees"]>;
   run?: Partial<BeadworkConfig["run"]>;
   landing?: Partial<Omit<BeadworkConfig["landing"], "review">> & {
-    review?: Partial<BeadworkConfig["landing"]["review"]>;
+    review?: PartialReviewConfig;
   };
   supervisor?: Partial<BeadworkConfig["supervisor"]>;
 };
@@ -94,6 +98,10 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+function resolveReviewMaxArtifactChars(review?: PartialReviewConfig): number | undefined {
+  return review?.maxArtifactChars ?? review?.maxContextChars;
+}
+
 function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkConfig {
   if (!override) {
     return base;
@@ -143,8 +151,9 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
         maxRemediationAttempts:
           override.landing?.review?.maxRemediationAttempts ??
           base.landing.review.maxRemediationAttempts,
-        maxContextChars:
-          override.landing?.review?.maxContextChars ?? base.landing.review.maxContextChars,
+        maxArtifactChars:
+          resolveReviewMaxArtifactChars(override.landing?.review) ??
+          base.landing.review.maxArtifactChars,
       },
     },
     supervisor: {
@@ -204,7 +213,9 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const reviewModel = process.env.PI_BEADWORK_REVIEW_MODEL;
   const reviewTimeoutMs = process.env.PI_BEADWORK_REVIEW_TIMEOUT_MS;
   const reviewMaxRemediationAttempts = process.env.PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS;
-  const reviewMaxContextChars = process.env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS;
+  const reviewMaxArtifactChars =
+    process.env.PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS ??
+    process.env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS;
   const supervisorPollIntervalMs = process.env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
 
   config = mergeConfig(config, {
@@ -245,8 +256,8 @@ export function loadConfig(cwd: string): BeadworkConfig {
         maxRemediationAttempts: reviewMaxRemediationAttempts
           ? Number.parseInt(reviewMaxRemediationAttempts, 10)
           : undefined,
-        maxContextChars: reviewMaxContextChars
-          ? Number.parseInt(reviewMaxContextChars, 10)
+        maxArtifactChars: reviewMaxArtifactChars
+          ? Number.parseInt(reviewMaxArtifactChars, 10)
           : undefined,
       },
     },
