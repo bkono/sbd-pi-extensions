@@ -1,63 +1,38 @@
 # @solvedbydev/pi-beadwork-extension
 
-A [pi coding-agent](https://github.com/badlogic/pi-mono) extension for beadwork-aware session engagement, ticket inspection, plan adoption, and tmux-backed worker orchestration.
+A [pi coding-agent](https://github.com/badlogic/pi-mono) extension that makes pi beadwork-aware for human-led planning, ticket operations, explicit plan adoption, and tmux-backed delegated workers.
 
-## Current state
+This package is meant to make the real beadwork workflow usable inside pi:
 
-This package is now usable for **human-led beadwork workflow feedback** and an initial tmux-backed `/bw run` loop over existing epics.
+- engage a session around a repo, epic, or ticket
+- inspect and mutate beadwork issues without leaving pi
+- turn an explicit markdown plan into an epic/task graph
+- delegate one ticket into an isolated worktree-backed worker
+- let the orchestrator supervise worker exit, validation, review, merge-back, and cleanup
+- optionally hold validated work for later `/bw land` instead of merging immediately
 
-Implemented:
+## Status
 
-- beadwork activation detection
-- persisted session mode, scope, and cached `bw prime`
-- prompt enrichment in engaged sessions
-- typed beadwork adapter for issue inspection/mutation flows: `prime`, `ready`, `blocked`, `list`, `show`, `history`, `create`, `update`, `dep add/remove`, `comment`, `label`, `start`, `close`, `reopen`, `defer`, `undefer`, and `sync`
-- richer `/bw status`
-- `/bw engage [scope]`
-- `/bw prime [--refresh]`
-- `/bw ready [scope]`
-- `/bw blocked`
-- `/bw list [filters]`
-- `/bw history <id> [--limit n]`
-- `/bw show <id>`
-- `/bw create <title> [--type ... --description ... --priority n --parent id]`
-- `/bw update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]`
-- `/bw dep <add|remove> <blocker-id> [blocks] <blocked-id>`
-- `/bw comment <id> <text> [--author name]`
-- `/bw label <id> +label [-label]...`
-- `/bw start <id>`
-- `/bw close <id>`
-- `/bw reopen <id>`
-- `/bw defer <id> <when>`
-- `/bw undefer <id>`
-- `/bw sync`
-- `/bw adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]` with an LLM-guided multi-step decomposition flow that materializes epics/tasks/dependencies through beadwork tools
-- `/bw workers [epic-id]` with validation/landing/cleanup diagnostics and explicit `Next` follow-up actions
-- `/bw delegate <ticket-id>`
-- `/bw land <ticket-id|worker-id>` to explicitly merge back deferred workers
-- delegated-worker completion tracking in the parent session, including terminal-state notifications on later turns
-- orchestrator-owned post-worker handling: auto-validate, rebase on drift when possible, fast-forward land (or hold validated work for deferred landing), and optionally clean up delegated worktrees
-- `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
-- `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
-- tmux-backed worker launch with per-ticket worktree creation; successful worker processes now exit cleanly instead of idling in a shell
-- optional worker-specific `--provider` / `--model` launch config separate from the orchestrator session
-- orchestrator-driven landing that runs required quality gates before landing, retries through repo drift with a rebase flow, and verifies the final landed state
-- optional post-landing worktree + tmux cleanup when `worktrees.cleanup` is set to `cleanup-after-landing`
-- configurable worktree bootstrap: file copies (for `.env`, `.mise.local.toml`, etc.) and post-create setup commands (`mise trust`, `npm install`, etc.)
-- local worker registry and runtime artifacts under `.pi/beadwork/workers/`
-- bounded run-loop orchestration over an epic’s scoped `bw ready` queue
-- LLM-callable tools for beadwork status, reads, mutations, delegation, and structured worker inspection diagnostics
-- lightweight statusline updates including active worker counts
+This extension is now in a practical dogfooding state for:
 
-Still conservative / incomplete:
+- human-led beadwork sessions
+- explicit markdown-plan adoption
+- delegated `/bw delegate` worker flows with streamed logs + notifications
+- orchestrator-owned validation / remediation / merge-back
+- deferred landing and reviewer-gated landing modes
+- bounded `/bw run` orchestration over an epic
 
-- landing verification is still conservative for work that was integrated outside the orchestrator, but now recognizes some squash/cherry-pick/rebase-style landings via reverse-applicable worker diffs
-- quality gates currently run synchronously during worker inspection / `/bw run`, so large repos may feel this on the next parent-session turn after a worker exits
-- no background daemonized run supervisor beyond the bounded `/bw run` invocation
+Truths to keep in mind:
+
+- the worker backend is tmux-first today
+- background supervision is **session-local**, not a standalone daemon
+- supervisor work happens while the parent pi session is alive and idle enough to process turns
+- validation runs synchronously in delegated worktrees, so large repos can still take a while after a worker exits
+- `/bw adopt` now expects an **explicit** markdown source (inline, file, or editor text), not scraped chat history
 
 ## Install
 
-### Workspace use
+### Workspace dependency
 
 ```json
 {
@@ -69,7 +44,7 @@ Still conservative / incomplete:
 
 ### Register with pi
 
-Via `settings.json`:
+Add the extension entrypoint to `settings.json`:
 
 ```json
 {
@@ -79,29 +54,220 @@ Via `settings.json`:
 }
 ```
 
-## Suggested first-use flow
+## Quickstart
 
-1. Open a beadwork-enabled repo.
-2. Run `/bw status`.
-3. Run `/bw engage` or `/bw engage <epic-id>`.
-4. Inspect state with `/bw ready` and `/bw show <id>`.
-5. Provide an explicit markdown plan source with `/bw adopt --file path/to/plan.md --title "..."` (or inline/editor markdown).
-6. Re-run `/bw adopt ... --apply` once the preview looks right.
-7. For multi-ticket decomposition, use `--land multi --apply` to queue an LLM-guided turn that creates the epic/tasks/dependencies with `beadwork_create_issue` + `beadwork_add_dependency`.
-8. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
-9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will validate and check mergeability. With `landing.policy: "auto"`, it rebase/merges/verifies automatically. With `landing.policy: "deferred"`, it holds validated work unmerged until you run `/bw land <ticket-id|worker-id>`.
-10. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.
+### 1. Enter beadwork mode
 
-## Config
+```text
+/bw status
+/bw engage
+```
 
-Optional config resolution order:
+Or scope the session immediately:
+
+```text
+/bw engage sbdpi-swx.6
+```
+
+### 2. Inspect the queue
+
+```text
+/bw ready
+/bw show sbdpi-swx.6
+```
+
+### 3. Materialize a plan from explicit markdown
+
+Preview first:
+
+```text
+/bw adopt --file docs/plan.md --title "Worker landing polish" --land multi
+```
+
+Apply once the preview looks right:
+
+```text
+/bw adopt --file docs/plan.md --title "Worker landing polish" --land multi --apply
+```
+
+`/bw adopt` accepts:
+
+- inline markdown
+- `--file path/to/plan.md`
+- markdown in the editor
+
+### 4. Delegate one ready ticket
+
+```text
+/bw delegate sbdpi-swx.6.4.2
+```
+
+What happens:
+
+1. the extension creates or reuses a per-ticket worktree
+2. it launches a tmux-backed worker in the background
+3. the worker writes streamed activity to `worker.log`
+4. the parent session stays in place and polls on the configured supervisor interval
+5. after worker exit, the orchestrator handles validation / review / merge-back / cleanup
+
+Use `/bw workers` any time for the full breakdown.
+
+### 5. Choose your landing policy
+
+#### Auto landing
+
+With the default policy:
+
+```json
+{
+  "landing": {
+    "policy": "auto"
+  }
+}
+```
+
+A validated worker is merged back automatically once review/remediation is satisfied.
+
+#### Deferred landing
+
+```json
+{
+  "landing": {
+    "policy": "deferred"
+  }
+}
+```
+
+In deferred mode, the orchestrator validates the work, confirms current mergeability, then holds it unmerged until you explicitly say:
+
+```text
+/bw land sbdpi-swx.6.4.1
+```
+
+### 6. Run an epic with bounded orchestration
+
+```text
+/bw run sbdpi-swx.6 --workers 2 --until blocked --max-cycles 12
+```
+
+If the bounded run stops because it hit `--max-cycles`, the same session keeps background supervision armed and continues on later idle turns.
+
+## Recommended config examples
+
+Config resolution order:
 
 1. environment variables
 2. `<repo>/.pi/beadwork-config.json`
 3. `~/.pi/beadwork-config.json`
 4. built-in defaults
 
-Current config keys:
+### Example: worker on one model, reviewer on GPT-5.4 high
+
+```json
+{
+  "tmux": {
+    "workerProvider": "anthropic",
+    "workerModel": "claude-opus-4.1"
+  },
+  "landing": {
+    "review": {
+      "enabled": true,
+      "provider": "openai",
+      "model": "gpt-5.4:high",
+      "commandTimeoutMs": 1800000,
+      "maxArtifactChars": 16000
+    }
+  }
+}
+```
+
+Notes:
+
+- reviewer provider/model are independent from worker provider/model
+- reviewer timeout now defaults to **30 minutes** (`1800000` ms)
+- `maxArtifactChars` caps the diff/commit artifacts sent to the reviewer; it does **not** cap the entire review prompt
+- legacy `maxContextChars` / `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS` are still accepted for compatibility
+
+### Example: deferred landing with review gating
+
+```json
+{
+  "landing": {
+    "policy": "deferred",
+    "validateCommands": [
+      "npm run lint",
+      "npm run test",
+      "npm run typecheck"
+    ],
+    "review": {
+      "enabled": true,
+      "provider": "openai",
+      "model": "gpt-5.4:high",
+      "commandTimeoutMs": 1800000,
+      "maxRemediationAttempts": 1,
+      "maxArtifactChars": 12000
+    }
+  },
+  "supervisor": {
+    "pollIntervalMs": 30000
+  }
+}
+```
+
+### Example: worktree bootstrap
+
+```json
+{
+  "worktrees": {
+    "cleanup": "cleanup-after-landing",
+    "copyFiles": [
+      ".env",
+      ".mise.local.toml",
+      { "from": ".env.local", "to": ".env.local", "required": false }
+    ],
+    "setupCommands": ["mise trust", "npm install"],
+    "rerunSetupOnReuse": false
+  }
+}
+```
+
+## Command overview
+
+Core human workflow:
+
+- `/bw status`
+- `/bw engage [scope]`
+- `/bw ready [scope]`
+- `/bw show <id>`
+- `/bw adopt [markdown] [--file path] [--title ...] [--land quick|branch|multi] [--apply]`
+- `/bw delegate <ticket-id>`
+- `/bw workers [epic-id]`
+- `/bw land <ticket-id|worker-id>`
+- `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
+- `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
+
+Issue-management coverage:
+
+- `/bw blocked`
+- `/bw list ...`
+- `/bw history <id> [--limit n]`
+- `/bw create ...`
+- `/bw update ...`
+- `/bw dep <add|remove> ...`
+- `/bw comment ...`
+- `/bw label ...`
+- `/bw start <id>`
+- `/bw close <id> [--reason ...]`
+- `/bw reopen <id>`
+- `/bw defer <id> <when>`
+- `/bw undefer <id>`
+- `/bw sync`
+
+For the full reference, see [docs/commands.md](./docs/commands.md).
+
+## Config defaults
+
+Current built-in defaults:
 
 ```json
 {
@@ -115,18 +281,12 @@ Current config keys:
   },
   "tmux": {
     "sessionName": "pi-bw",
-    "workerCommand": "pi",
-    "workerProvider": "anthropic",
-    "workerModel": "claude-opus-4.1"
+    "workerCommand": "pi"
   },
   "worktrees": {
     "cleanup": "keep",
-    "copyFiles": [
-      ".env",
-      ".mise.local.toml",
-      { "from": ".env.local", "to": ".env.local", "required": false }
-    ],
-    "setupCommands": ["mise trust", "npm install"],
+    "copyFiles": [],
+    "setupCommands": [],
     "rerunSetupOnReuse": false
   },
   "run": {
@@ -142,60 +302,44 @@ Current config keys:
     "maxRebaseAttempts": 2,
     "review": {
       "enabled": false,
-      "provider": "openai",
-      "model": "gpt-5.4",
       "commandTimeoutMs": 1800000,
       "maxRemediationAttempts": 1,
       "maxArtifactChars": 12000
     }
+  },
+  "supervisor": {
+    "pollIntervalMs": 30000
   }
 }
 ```
 
-Notes:
+Important behavior notes:
 
-- `tmux.workerProvider` and `tmux.workerModel` are optional; when set, the extension appends `--provider` / `--model` to the worker `pi` launch command without changing the current orchestrator session model.
-- A bare `tmux.workerCommand: "pi"` is normalized to `pi --mode json` so delegated workers emit structured progress into `worker.log`; if you include `--print`, the extension strips it rather than combining mutually conflicting output modes.
-- `copyFiles` paths are resolved relative to the repo root and copied into the same relative path inside the worktree by default.
-- String entries in `copyFiles` are optional by default, so missing `.env`-style files are skipped quietly.
-- Use object form with `required: true` if a copied file must exist.
-- `setupCommands` run inside the worktree after creation.
-- `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after orchestrator landing succeeds.
-- `landing.policy` controls merge timing: `"auto"` (default) merges immediately after validation; `"deferred"` validates and confirms landability, then holds the worktree until `/bw land` is requested.
-- `landing.validateCommands` defaults to the repo quality gates (`npm run lint`, `npm run test`, `npm run typecheck`) and runs inside the delegated worktree before a worker is treated as landed.
-- A worker only counts as landed when the parent branch actually contains the worker HEAD; equivalent diffs or partially integrated state do not count as a clean landing.
-- `landing.commandTimeoutMs` applies to each validation command.
-- `landing.maxRebaseAttempts` controls how many times the orchestrator will retry a drifted worker through rebase + validation + merge-back before leaving it in an explicit attention state.
-- `landing.review.enabled` turns on reviewer-agent gating before merge-back/hold; the reviewer sees ticket context plus bounded commit/diff review artifacts.
-- Reviewer outcomes are explicit (`approve`, `approve-with-nits`, `request-changes`). The orchestrator filters reviewer feedback against ticket intent before deciding whether remediation is required.
-- Valid `request-changes` feedback triggers bounded remediation + re-review (`landing.review.maxRemediationAttempts`) before landing can continue.
-- `landing.review.commandTimeoutMs` defaults to 30 minutes so slower high-thinking reviews can complete without being killed early.
-- `landing.review.maxArtifactChars` caps the commit-summary / diff-stat / unified-diff artifacts included in the reviewer prompt; ticket and epic descriptions are truncated separately. Legacy `maxContextChars` config is still accepted as a compatibility alias.
-- `landing.review.provider` / `landing.review.model` are independent overrides for the reviewer agent; when unset they fall back to the worker provider/model.
-- `rerunSetupOnReuse: true` re-applies file copies and setup commands when an existing worktree is reused.
+- a bare `tmux.workerCommand: "pi"` is normalized to `pi --mode json`
+- if `tmux.workerCommand` includes `--print`, that flag is stripped so worker output still uses JSON mode cleanly
+- `tmux.workerProvider` / `tmux.workerModel` only affect delegated workers, not the current parent session
+- reviewer provider/model fall back to the worker provider/model when not set explicitly
+- `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after successful orchestrator landing
+- a worker only counts as `landed` when the parent branch actually contains the worker head; equivalent diff heuristics alone do not count as landed
 
-Environment overrides:
+For the full config reference and all environment variables, see [docs/configuration.md](./docs/configuration.md).
 
-- `PI_BEADWORK_SHOW_INACTIVE_STATUS`
-- `PI_BEADWORK_SESSION_STATE_DIR`
-- `PI_BEADWORK_WORKER_REGISTRY_FILE`
-- `PI_BEADWORK_RUNTIME_DIR`
-- `PI_BEADWORK_TMUX_SESSION_NAME`
-- `PI_BEADWORK_WORKER_COMMAND`
-- `PI_BEADWORK_WORKER_PROVIDER`
-- `PI_BEADWORK_WORKER_MODEL`
-- `PI_BEADWORK_WORKTREE_BASE_DIR`
-- `PI_BEADWORK_DEFAULT_WORKERS`
-- `PI_BEADWORK_DEFAULT_MAX_CYCLES`
-- `PI_BEADWORK_POLL_INTERVAL_MS`
-- `PI_BEADWORK_VALIDATE_TIMEOUT_MS`
-- `PI_BEADWORK_MAX_REBASE_ATTEMPTS`
-- `PI_BEADWORK_LANDING_POLICY`
-- `PI_BEADWORK_REVIEW_ENABLED`
-- `PI_BEADWORK_REVIEW_PROVIDER`
-- `PI_BEADWORK_REVIEW_MODEL`
-- `PI_BEADWORK_REVIEW_TIMEOUT_MS`
-- `PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS`
-- `PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS`
+## Docs
 
-Legacy `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS` is still accepted as a compatibility alias.
+- [docs/README.md](./docs/README.md) — docs index
+- [docs/workflows.md](./docs/workflows.md) — operator workflows, delegated worker lifecycle, deferred landing, reviewer gating, `/bw run`
+- [docs/configuration.md](./docs/configuration.md) — config keys, environment variables, examples, compatibility aliases
+- [docs/commands.md](./docs/commands.md) — slash command reference, worker states, and tool surface
+
+## Tool surface
+
+The extension also exposes beadwork-aware tools to the model, including:
+
+- status / prime / ready / blocked / list / show / history
+- create / update / dependency add-remove
+- start / close / reopen / comment / label / defer / undefer / sync
+- delegated worker launch (`beadwork_delegate`)
+- deferred explicit landing (`beadwork_land_worker`)
+- worker inspection (`beadwork_worker_check`)
+
+See [docs/commands.md](./docs/commands.md#tool-reference) for the full list.
