@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [
     "sbdpi-swx.6.4.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Support deferred landing after validation so delegated work can be tested before merge-back",
   "type": "task",
-  "updated_at": "2026-04-16T03:09:37Z"
+  "updated_at": "2026-04-16T03:10:50Z"
 }
