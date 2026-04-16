@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-16T05:37:44Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-5r5",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Add user-facing slash command for OM status/observations in @packages/pi-om-extension",
   "type": "task",
-  "updated_at": "2026-04-16T05:37:44Z"
+  "updated_at": "2026-04-16T05:38:34Z"
 }
