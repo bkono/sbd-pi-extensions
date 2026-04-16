@@ -2,14 +2,16 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-16T17:23:58Z",
+  "close_reason": "Implemented async /bw land retry handoff, truthful pending-state tracking, durable reviewer logging on retry, and regression coverage in commit f06a839.",
   "created": "2026-04-16T17:04:27Z",
   "description": "Follow-up under sbdpi-swx.6.4 for the delegated worker retry flow after `beadwork_land_worker` reran review for runtime `sbdpi-5r5-mo11tiwj-u5ipl8` but blocked the UI for the full reviewer timeout and still surfaced a generic failure.\n\nScope:\n- make explicit landing/review retries (`/bw land` / `beadwork_land_worker`) hand off asynchronously instead of blocking the operator session until validation/review completes\n- expose truthful retry state transitions such as pending/running review/landing so operators can see that a retry is in progress\n- ensure retry paths always create and append reviewer runtime artifacts/logs (`review.log`) just like the initial pass\n- preserve and surface real timeout/signal/stderr failure details on retry, not just generic exit-code summaries\n- add regression coverage for async retry behavior and retry-state/log semantics\n\nGoal: retrying a blocked delegated landing should return control immediately while making the ongoing review/landing work observable and diagnosable.",
   "id": "sbdpi-swx.6.4.6",
   "labels": [],
   "parent": "sbdpi-swx.6.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Make /bw land retries asynchronous and truthfully observable",
   "type": "task",
-  "updated_at": "2026-04-16T17:04:34Z"
+  "updated_at": "2026-04-16T17:23:58Z"
 }
