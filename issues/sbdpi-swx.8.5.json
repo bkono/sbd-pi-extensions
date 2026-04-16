@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-swx.3"
+  ],
   "created": "2026-04-16T00:15:37Z",
   "description": "A real `/bw delegate` dogfood run showed that launching a delegated tmux worker currently switches the human into the new worker pane/window unexpectedly. That makes it look like the main pi session was taken over and breaks the expectation that delegation starts in the background unless the operator explicitly chooses to attach.\n\nScope:\n- make delegated worker launch detached by default so `/bw delegate` keeps the operator in the current pane/session\n- preserve worker runtime metadata so later inspection/cleanup still knows the correct tmux session/window/pane\n- keep the start acknowledgement as an in-pi notification/status update rather than an implicit focus switch\n- add regression coverage for detached launch behavior",
   "id": "sbdpi-swx.8.5",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Launch delegated workers without stealing the operator's tmux focus",
   "type": "task",
-  "updated_at": "2026-04-16T00:15:37Z"
+  "updated_at": "2026-04-16T00:15:59Z"
 }
