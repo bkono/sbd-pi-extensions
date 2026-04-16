@@ -48,7 +48,16 @@ export type SessionState = {
 
 export type RunUntil = "blocked" | "empty";
 
-export type WorkerStatus = "launching" | "running" | "exited" | "landed" | "failed" | "attention";
+export type LandingPolicy = "auto" | "deferred";
+
+export type WorkerStatus =
+  | "launching"
+  | "running"
+  | "exited"
+  | "held"
+  | "landed"
+  | "failed"
+  | "attention";
 
 export type WorkerCleanupStatus = "pending" | "cleaned" | "failed";
 
@@ -93,6 +102,7 @@ export type BeadworkConfig = {
     pollIntervalMs: number;
   };
   landing: {
+    policy: LandingPolicy;
     validateCommands: string[];
     commandTimeoutMs: number;
     maxRebaseAttempts: number;
@@ -250,6 +260,9 @@ export type WorkerRuntime = {
   workerProvider?: string;
   workerModel?: string;
   cleanupPolicy: BeadworkConfig["worktrees"]["cleanup"];
+  landingPolicy?: LandingPolicy;
+  landingHeldAt?: string;
+  landingRequestedAt?: string;
   cleanupStatus?: WorkerCleanupStatus;
   cleanupAt?: string;
   validationStatus?: WorkerValidationStatus;
@@ -276,6 +289,7 @@ export type WorkerSummary = {
   launching: number;
   running: number;
   exited: number;
+  held: number;
   landed: number;
   failed: number;
   attention: number;
@@ -296,6 +310,7 @@ export type RunCycleSummary = {
   ready: string[];
   launched: string[];
   running: string[];
+  held: string[];
   landed: string[];
   failed: string[];
   attention: string[];

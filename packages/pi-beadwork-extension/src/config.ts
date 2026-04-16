@@ -2,7 +2,7 @@ import { accessSync, existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_CONFIG } from "./constants.js";
-import type { BeadworkConfig, WorktreeCopyRule } from "./types.js";
+import type { BeadworkConfig, LandingPolicy, WorktreeCopyRule } from "./types.js";
 
 type PartialConfig = {
   ui?: Partial<BeadworkConfig["ui"]>;
@@ -72,6 +72,10 @@ function normalizeStringArray(value: unknown): string[] | undefined {
   return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
 }
 
+function normalizeLandingPolicy(value: unknown): LandingPolicy | undefined {
+  return value === "auto" || value === "deferred" ? value : undefined;
+}
+
 function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkConfig {
   if (!override) {
     return base;
@@ -107,6 +111,7 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
       pollIntervalMs: override.run?.pollIntervalMs ?? base.run.pollIntervalMs,
     },
     landing: {
+      policy: normalizeLandingPolicy(override.landing?.policy) ?? base.landing.policy,
       validateCommands:
         normalizeStringArray(override.landing?.validateCommands) ?? base.landing.validateCommands,
       commandTimeoutMs: override.landing?.commandTimeoutMs ?? base.landing.commandTimeoutMs,
@@ -163,6 +168,7 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const pollIntervalMs = process.env.PI_BEADWORK_POLL_INTERVAL_MS;
   const validateTimeoutMs = process.env.PI_BEADWORK_VALIDATE_TIMEOUT_MS;
   const maxRebaseAttempts = process.env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
+  const landingPolicy = process.env.PI_BEADWORK_LANDING_POLICY;
   const supervisorPollIntervalMs = process.env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
 
   config = mergeConfig(config, {
@@ -192,6 +198,7 @@ export function loadConfig(cwd: string): BeadworkConfig {
       pollIntervalMs: pollIntervalMs ? Number.parseInt(pollIntervalMs, 10) : undefined,
     },
     landing: {
+      policy: normalizeLandingPolicy(landingPolicy),
       commandTimeoutMs: validateTimeoutMs ? Number.parseInt(validateTimeoutMs, 10) : undefined,
       maxRebaseAttempts: maxRebaseAttempts ? Number.parseInt(maxRebaseAttempts, 10) : undefined,
     },

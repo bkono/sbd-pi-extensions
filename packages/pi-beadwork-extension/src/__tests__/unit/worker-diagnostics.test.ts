@@ -112,9 +112,45 @@ describe("worker diagnostics", () => {
     );
 
     expect(inspection.validation.state).toBe("failed");
-    expect(inspection.landing.state).toBe("blocked");
+    expect(inspection.landing.state).toBe("needs-attention");
     expect(inspection.followUp.needsAttention).toBe(true);
     expect(inspection.followUp.action).toContain("npm run test");
+  });
+
+  it("marks deferred workers as ready to land when validation passed and branch is still mergeable", () => {
+    const inspection = inspectWorker(
+      createWorker({
+        status: "held",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        landingAheadCount: 2,
+        landingBehindCount: 0,
+        landingVerification:
+          "Validated and held. Ready to land on explicit request (ahead=2, behind=0).",
+      }),
+    );
+
+    expect(inspection.landing.state).toBe("ready-to-land");
+    expect(inspection.followUp.needsAttention).toBe(false);
+    expect(inspection.followUp.action).toContain("/bw land BW-101");
+  });
+
+  it("marks deferred workers as needing refresh when repo drift appears", () => {
+    const inspection = inspectWorker(
+      createWorker({
+        status: "held",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        landingAheadCount: 2,
+        landingBehindCount: 1,
+        landingVerification:
+          "Validated and held. Landing needs refresh before merge-back (ahead=2, behind=1).",
+      }),
+    );
+
+    expect(inspection.landing.state).toBe("needs-refresh");
+    expect(inspection.followUp.needsAttention).toBe(true);
+    expect(inspection.followUp.action).toContain("needs refresh");
   });
 
   it("keeps follow-up informational while a worker is still running", () => {

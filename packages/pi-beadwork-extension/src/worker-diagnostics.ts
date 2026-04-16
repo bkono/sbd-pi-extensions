@@ -12,9 +12,12 @@ export type WorkerInspection = {
     state:
       | "waiting-ticket-close"
       | "verified"
+      | "validated-and-held"
+      | "ready-to-land"
+      | "needs-refresh"
       | "pending-review"
       | "verification-failed"
-      | "blocked";
+      | "needs-attention";
     summary: string;
     detail?: string;
     aheadCount?: number;
@@ -83,8 +86,8 @@ function describeValidation(worker: WorkerRuntime): WorkerInspection["validation
 function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
   if (worker.status === "attention" && worker.lastError) {
     return {
-      state: "blocked",
-      summary: "blocked",
+      state: "needs-attention",
+      summary: "needs attention",
       detail: worker.lastError,
       aheadCount: worker.landingAheadCount,
       behindCount: worker.landingBehindCount,
@@ -111,6 +114,57 @@ function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
       aheadCount: worker.landingAheadCount,
       behindCount: worker.landingBehindCount,
       verifiedAt: worker.landingVerifiedAt,
+    };
+  }
+
+  if (worker.status === "held") {
+    const aheadCount = worker.landingAheadCount ?? 0;
+    const behindCount = worker.landingBehindCount ?? 0;
+
+    if (worker.validationStatus !== "passed") {
+      return {
+        state: "needs-attention",
+        summary: "needs attention",
+        detail:
+          worker.validationSummary ??
+          "Deferred landing is held, but validation is no longer in a passing state.",
+        aheadCount: worker.landingAheadCount,
+        behindCount: worker.landingBehindCount,
+      };
+    }
+
+    if (aheadCount > 0 && behindCount > 0) {
+      return {
+        state: "needs-refresh",
+        summary: `validated and held · needs refresh (ahead=${aheadCount}, behind=${behindCount})`,
+        detail:
+          worker.landingVerification ??
+          "Validated and held, but repo HEAD moved. Run /bw land to refresh and merge.",
+        aheadCount: worker.landingAheadCount,
+        behindCount: worker.landingBehindCount,
+      };
+    }
+
+    if (aheadCount > 0) {
+      return {
+        state: "ready-to-land",
+        summary: `validated and held · ready to land (ahead=${aheadCount}, behind=${behindCount})`,
+        detail:
+          worker.landingVerification ??
+          "Validated and held. Ready to land when explicitly requested.",
+        aheadCount: worker.landingAheadCount,
+        behindCount: worker.landingBehindCount,
+      };
+    }
+
+    return {
+      state: "validated-and-held",
+      summary: "validated and held",
+      detail:
+        worker.landingVerification ??
+        "Validated and held for deferred landing. Run /bw land when ready.",
+      aheadCount: worker.landingAheadCount,
+      behindCount: worker.landingBehindCount,
     };
   }
 
@@ -231,6 +285,29 @@ function describeFollowUp(
     return {
       needsAttention: true,
       action: worker.lastError ?? "Worker needs operator attention before it can be landed.",
+    };
+  }
+
+  if (worker.status === "held") {
+    if (landing.state === "ready-to-land") {
+      return {
+        needsAttention: false,
+        action: `Validated and held. Run /bw land ${worker.ticketId} when you're ready to merge-back.`,
+      };
+    }
+
+    if (landing.state === "needs-refresh") {
+      return {
+        needsAttention: true,
+        action: `Deferred landing needs refresh before merge-back. Run /bw land ${worker.ticketId} to rebase/revalidate.`,
+      };
+    }
+
+    return {
+      needsAttention: true,
+      action:
+        worker.landingVerification ??
+        `Deferred landing for ${worker.ticketId} needs attention before it can be merged back.`,
     };
   }
 

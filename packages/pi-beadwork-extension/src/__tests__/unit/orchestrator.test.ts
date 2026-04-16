@@ -245,6 +245,237 @@ describe("worker inspection", () => {
     expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
   });
 
+  it("holds a validated worker in deferred mode instead of auto-merging", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-held-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "0 2\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        throw new Error("merge should not run in deferred mode");
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          policy: "deferred",
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("held");
+    expect(inspected.validationStatus).toBe("passed");
+    expect(inspected.landingVerification).toContain("Validated and held");
+    expect(inspected.landingHeldAt).toBeTruthy();
+  });
+
+  it("lands a previously held worker when explicitly requested", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-held-land-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      status: "held",
+      validationStatus: "passed",
+      landingPolicy: "deferred",
+      landingHeldAt: "2026-04-14T00:55:00.000Z",
+      landingAheadCount: 2,
+      landingBehindCount: 0,
+      landingVerification:
+        "Validated and held. Ready to land on explicit request (ahead=2, behind=0).",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: `${merged ? "worker-head" : "repo-head"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: `${merged ? "0 0" : "0 2"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          policy: "deferred",
+        },
+      },
+      tmuxBackend,
+      runner,
+      requestLanding: true,
+    });
+
+    expect(inspected.status).toBe("landed");
+    expect(inspected.validationStatus).toBe("passed");
+    expect(inspected.landingVerifiedAt).toBeTruthy();
+    expect(runner).toHaveBeenCalledWith(
+      "git",
+      ["merge", "--ff-only", "worker-head"],
+      expect.objectContaining({ cwd: repoRoot }),
+    );
+  });
+
+  it("keeps held workers unmerged and marks them for refresh when repo drift appears", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-held-refresh-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      ticketStatus: "closed",
+      status: "held",
+      validationStatus: "passed",
+      landingPolicy: "deferred",
+      landingHeldAt: "2026-04-14T00:55:00.000Z",
+      landingAheadCount: 2,
+      landingBehindCount: 0,
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "1 2\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        throw new Error("held refresh should not merge");
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          policy: "deferred",
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("held");
+    expect(inspected.landingVerification).toContain("needs refresh");
+  });
+
   it("validates already-contained worker heads before marking them landed", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-contained-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");

@@ -10,6 +10,7 @@ function normalizeWorkerStatus(value: unknown): WorkerRuntime["status"] {
   return value === "launching" ||
     value === "running" ||
     value === "exited" ||
+    value === "held" ||
     value === "landed" ||
     value === "failed" ||
     value === "attention"
@@ -73,6 +74,13 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     workerModel: typeof value.workerModel === "string" ? value.workerModel : undefined,
     cleanupPolicy:
       value.cleanupPolicy === "cleanup-after-landing" ? "cleanup-after-landing" : "keep",
+    landingPolicy:
+      value.landingPolicy === "deferred" || value.landingPolicy === "auto"
+        ? value.landingPolicy
+        : undefined,
+    landingHeldAt: typeof value.landingHeldAt === "string" ? value.landingHeldAt : undefined,
+    landingRequestedAt:
+      typeof value.landingRequestedAt === "string" ? value.landingRequestedAt : undefined,
     cleanupStatus:
       value.cleanupStatus === "pending" ||
       value.cleanupStatus === "cleaned" ||
@@ -167,6 +175,7 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
     launching: 0,
     running: 0,
     exited: 0,
+    held: 0,
     landed: 0,
     failed: 0,
     attention: 0,
@@ -182,6 +191,8 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
       summary.active += 1;
     } else if (worker.status === "exited") {
       summary.exited += 1;
+    } else if (worker.status === "held") {
+      summary.held += 1;
     } else if (worker.status === "landed") {
       summary.landed += 1;
       if (worker.cleanupStatus === "cleaned") {

@@ -17,6 +17,7 @@ const {
   createBeadworkAdapterMock,
   runBoundedEpicLoopMock,
   launchTicketWorkerMock,
+  requestWorkerLandingMock,
 } = vi.hoisted(() => ({
   detectActivationMock: vi.fn(),
   adapterMock: {
@@ -43,6 +44,7 @@ const {
   createBeadworkAdapterMock: vi.fn(),
   runBoundedEpicLoopMock: vi.fn(),
   launchTicketWorkerMock: vi.fn(),
+  requestWorkerLandingMock: vi.fn(),
 }));
 
 vi.mock("@mariozechner/pi-ai", () => ({
@@ -71,6 +73,7 @@ vi.mock("../../orchestrator.js", async () => {
     ...actual,
     runBoundedEpicLoop: runBoundedEpicLoopMock,
     launchTicketWorker: launchTicketWorkerMock,
+    requestWorkerLanding: requestWorkerLandingMock,
   };
 });
 
@@ -89,6 +92,7 @@ function createRunSummary(
       launching: 0,
       running: 0,
       exited: 0,
+      held: 0,
       landed: 0,
       failed: 0,
       attention: 0,
@@ -137,6 +141,7 @@ describe("pi beadwork extension", () => {
     createBeadworkAdapterMock.mockReturnValue(adapterMock);
     adapterMock.prime.mockResolvedValue("prime guidance");
     launchTicketWorkerMock.mockReset();
+    requestWorkerLandingMock.mockReset();
     adapterMock.ready.mockResolvedValue([]);
     adapterMock.blocked.mockResolvedValue([]);
     adapterMock.list.mockResolvedValue([]);
@@ -632,6 +637,37 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("background supervision keeps checking every 30s");
     expect(message).toContain("Follow streamed worker activity in");
     expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
+  });
+
+  it("allows explicit landing requests for deferred workers", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-land-worker",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    requestWorkerLandingMock.mockResolvedValue({
+      ...createWorkerRuntime(tempDir),
+      status: "landed",
+      ticketStatus: "closed",
+      validationStatus: "passed",
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingAheadCount: 0,
+      landingBehindCount: 0,
+      landingVerification: "Landing verified: worktree is clean and worker HEAD matches repo HEAD.",
+    });
+
+    await harness.invokeCommand("bw", "land BW-101", ctx);
+
+    expect(requestWorkerLandingMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ticketId: "BW-101" }),
+    );
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("landed successfully");
   });
 
   it("tracks delegated workers from a neutral session and notifies once when they land", async () => {

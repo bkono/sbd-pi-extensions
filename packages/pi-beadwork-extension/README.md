@@ -34,8 +34,9 @@ Implemented:
 - `/bw adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]` with an LLM-guided multi-step decomposition flow that materializes epics/tasks/dependencies through beadwork tools
 - `/bw workers [epic-id]` with validation/landing/cleanup diagnostics and explicit `Next` follow-up actions
 - `/bw delegate <ticket-id>`
+- `/bw land <ticket-id|worker-id>` to explicitly merge back deferred workers
 - delegated-worker completion tracking in the parent session, including terminal-state notifications on later turns
-- orchestrator-owned post-worker handling: auto-validate, rebase on drift when possible, fast-forward land, and optionally clean up delegated worktrees
+- orchestrator-owned post-worker handling: auto-validate, rebase on drift when possible, fast-forward land (or hold validated work for deferred landing), and optionally clean up delegated worktrees
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`
 - `/bw off [--stop-workers] [--all-workers] [--leave-workers]`
 - tmux-backed worker launch with per-ticket worktree creation; successful worker processes now exit cleanly instead of idling in a shell
@@ -88,7 +89,7 @@ Via `settings.json`:
 6. Re-run `/bw adopt ... --apply` once the preview looks right.
 7. For multi-ticket decomposition, use `--land multi --apply` to queue an LLM-guided turn that creates the epic/tasks/dependencies with `beadwork_create_issue` + `beadwork_add_dependency`.
 8. Launch one worker manually with `/bw delegate <ticket-id>`, or run the bounded orchestrator with `/bw run <epic-id>`.
-9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will try to validate, rebase, merge the worktree branch back into the parent branch, verify containment, and clean it up automatically.
+9. Keep working in the parent session; when a worker exits after closing its ticket, the orchestrator will validate and check mergeability. With `landing.policy: "auto"`, it rebase/merges/verifies automatically. With `landing.policy: "deferred"`, it holds validated work unmerged until you run `/bw land <ticket-id|worker-id>`.
 10. Watch for parent-session notifications on later turns, or inspect the full validation/landing/cleanup breakdown with `/bw workers`.
 
 ## Config
@@ -135,6 +136,7 @@ Current config keys:
     "pollIntervalMs": 2000
   },
   "landing": {
+    "policy": "auto",
     "validateCommands": ["npm run lint", "npm run test", "npm run typecheck"],
     "commandTimeoutMs": 600000,
     "maxRebaseAttempts": 2
@@ -151,6 +153,7 @@ Notes:
 - Use object form with `required: true` if a copied file must exist.
 - `setupCommands` run inside the worktree after creation.
 - `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after orchestrator landing succeeds.
+- `landing.policy` controls merge timing: `"auto"` (default) merges immediately after validation; `"deferred"` validates and confirms landability, then holds the worktree until `/bw land` is requested.
 - `landing.validateCommands` defaults to the repo quality gates (`npm run lint`, `npm run test`, `npm run typecheck`) and runs inside the delegated worktree before a worker is treated as landed.
 - A worker only counts as landed when the parent branch actually contains the worker HEAD; equivalent diffs or partially integrated state do not count as a clean landing.
 - `landing.commandTimeoutMs` applies to each validation command.
@@ -173,3 +176,4 @@ Environment overrides:
 - `PI_BEADWORK_POLL_INTERVAL_MS`
 - `PI_BEADWORK_VALIDATE_TIMEOUT_MS`
 - `PI_BEADWORK_MAX_REBASE_ATTEMPTS`
+- `PI_BEADWORK_LANDING_POLICY`

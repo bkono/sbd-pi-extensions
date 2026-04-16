@@ -29,6 +29,7 @@ import {
   inspectWorkerRuntime,
   launchTicketWorker,
   listWorkers,
+  requestWorkerLanding,
   runBoundedEpicLoop,
   stopWorkers,
   type WorkerLifecycleEvent,
@@ -88,6 +89,7 @@ export type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
+  LandingPolicy,
   RunOptions,
   RunSummary,
   SessionMode,
@@ -364,6 +366,34 @@ function buildWorkerNotice(input: {
       level: "warning",
       message:
         `Delegated ticket ${worker.ticketId} finished, but landing still needs review. ${inspection.followUp.action}${detail}`.trim(),
+    };
+  }
+
+  if (worker.status === "held") {
+    if (inspection.landing.state === "ready-to-land") {
+      return {
+        key,
+        level: "info",
+        message:
+          `Delegated ticket ${worker.ticketId} is validated and held in deferred-landing mode. ` +
+          `It is ready to land when requested with /bw land ${worker.ticketId}.`,
+      };
+    }
+
+    if (inspection.landing.state === "needs-refresh") {
+      return {
+        key,
+        level: "warning",
+        message:
+          `Delegated ticket ${worker.ticketId} is validated and held, but repo drift means it needs refresh before merge-back. ` +
+          inspection.followUp.action,
+      };
+    }
+
+    return {
+      key,
+      level: "warning",
+      message: `Delegated ticket ${worker.ticketId} is held and needs attention. ${inspection.followUp.action}`,
     };
   }
 
@@ -885,6 +915,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       const keepTracked =
         worker.status === "launching" ||
         worker.status === "running" ||
+        worker.status === "held" ||
         inspection.followUp.needsAttention;
       return { worker, inspection, notice, keepTracked };
     });
@@ -1457,9 +1488,10 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             epicId: active.state.scope.kind === "epic" ? active.state.scope.id : undefined,
             prime: stateWithPrime.prime?.content,
           });
+          const landingMode = active.config.landing.policy === "deferred" ? "held" : "completed";
           ctx.ui.notify(
             `Launched worker ${worker.workerId} for ${worker.ticketId} in the background at ${worker.worktreePath}. ` +
-              `You should stay in the current pane while background supervision keeps checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and notifies when the worker exits and when landing completes. Follow streamed worker activity in ${worker.logFile}.`,
+              `You should stay in the current pane while background supervision keeps checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and notifies when the worker exits and when landing is ${landingMode}. Follow streamed worker activity in ${worker.logFile}.`,
             "info",
           );
           const workers = await inspectWorkers(ctx, active.activation, active.config, {
@@ -1479,6 +1511,59 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             active.config,
             summarizeWorkers(workers),
           );
+          return;
+        }
+
+        if (subcommand === "land") {
+          const active = await requireActive(ctx);
+          if (!active) {
+            return;
+          }
+
+          const target = parsed.positional[0];
+          if (!target) {
+            ctx.ui.notify("Usage: /bw land <ticket-id|worker-id>", "info");
+            return;
+          }
+
+          let worker: WorkerRuntime | undefined;
+          let lastError: unknown;
+
+          try {
+            worker = await requestWorkerLanding({
+              cwd: ctx.cwd,
+              repoRoot: active.activation.repoRoot ?? ctx.cwd,
+              config: active.config,
+              adapter,
+              ticketId: target,
+            });
+          } catch (error) {
+            lastError = error;
+          }
+
+          if (!worker) {
+            worker = await requestWorkerLanding({
+              cwd: ctx.cwd,
+              repoRoot: active.activation.repoRoot ?? ctx.cwd,
+              config: active.config,
+              adapter,
+              workerId: target,
+            }).catch((error) => {
+              throw lastError ?? error;
+            });
+          }
+
+          const inspection = inspectWorker(worker);
+          const landed = worker.status === "landed";
+          const level = inspection.followUp.needsAttention ? "warning" : "info";
+          ctx.ui.notify(
+            landed
+              ? `Delegated ticket ${worker.ticketId} landed successfully. ${inspection.followUp.action}`
+              : `Landing request processed for ${worker.ticketId}. ${inspection.followUp.action}`,
+            level,
+          );
+
+          await refreshStatus(ctx);
           return;
         }
 
@@ -1679,7 +1764,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id>|land <ticket-id|worker-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
           "info",
         );
       } catch (error) {
@@ -2122,6 +2207,56 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(worker, null, 2) }],
         details: worker,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_land_worker",
+    label: "Beadwork Land Worker",
+    description:
+      "Request explicit merge-back for a delegated worker that was held after validation.",
+    parameters: Type.Object({
+      ticket_id: Type.Optional(Type.String({ description: "Ticket id to land." })),
+      worker_id: Type.Optional(Type.String({ description: "Worker id to land." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (!params.ticket_id && !params.worker_id) {
+        throw new Error("Provide either ticket_id or worker_id.");
+      }
+
+      const config = loadConfig(ctx.cwd);
+      const activation = await detectActivation(ctx.cwd);
+      if (activation.kind !== "active" || !activation.repoRoot) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ error: "beadwork is not active" }, null, 2),
+            },
+          ],
+          details: { error: "beadwork is not active" },
+        };
+      }
+
+      const worker = await requestWorkerLanding({
+        cwd: ctx.cwd,
+        repoRoot: activation.repoRoot,
+        config,
+        adapter,
+        ticketId: params.ticket_id,
+        workerId: params.worker_id,
+      });
+      const inspection = inspectWorker(worker);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ worker, inspection }, null, 2),
+          },
+        ],
+        details: { worker, inspection },
       };
     },
   });
