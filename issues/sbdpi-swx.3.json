@@ -14,13 +14,13 @@
   ],
   "blocks": [],
   "created": "2026-04-14T18:31:43Z",
-  "description": "Add or update tests and documentation covering landing verification behavior and worker diagnostics so the intended workflow, edge cases, and operator expectations are clear.",
+  "description": "Turn the existing docs/tests sink into the full documentation pass needed before merging and dogfooding.\n\nScope:\n- refresh the package README so it serves as the overview + quickstart for the beadwork extension\n- document the real operator workflow for `/bw engage`, `/bw delegate`, `/bw run`, `/bw workers`, and `/bw land`\n- add/update config examples covering worktree bootstrap, worker model overrides, landing policies (`auto` vs `deferred`), reviewer-agent configuration, remediation/validation behavior, and relevant env vars\n- move deeper/reference material into a `docs/` folder so README stays oriented around overview, setup, common workflows, and example configs\n- make sure recent behavior changes are covered truthfully: background supervision cadence, worker logs/notifications, deferred landing states, review verdicts, reviewer artifact budget naming, and 30-minute reviewer timeout defaults\n- add any needed tests/docs adjustments so the documented workflow matches the current implementation\n\nGoal: after this ticket, the extension should have an accurate top-level README and supporting docs that codify the real current workflow well enough to merge to main and continue dogfooding.",
   "id": "sbdpi-swx.3",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 2,
   "status": "open",
-  "title": "Add tests and README/docs for verification and diagnostics behavior",
+  "title": "Add comprehensive README/docs for delegated worker lifecycle and landing modes",
   "type": "task",
-  "updated_at": "2026-04-16T00:16:02Z"
+  "updated_at": "2026-04-16T05:11:56Z"
 }
