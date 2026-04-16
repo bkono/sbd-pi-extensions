@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-swx.7.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "sbdpi-swx.7",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Use an LLM-guided decomposition flow to turn plans into beadwork graphs",
   "type": "task",
-  "updated_at": "2026-04-15T17:39:07Z"
+  "updated_at": "2026-04-16T01:14:45Z"
 }
