@@ -20,9 +20,15 @@
   "id": "sbdpi-swx.3",
   "labels": [],
   "parent": "sbdpi-swx",
+  "comments": [
+    {
+      "text": "Landed docs pass in commit f2f5cc9. README now serves as overview/quickstart/config examples, with deeper references in packages/pi-beadwork-extension/docs/{README,workflows,configuration,commands}. Also documented deferred landing, reviewer gating, supervisor cadence, /bw land, the reviewer maxArtifactChars rename, and the 30-minute reviewer timeout default.",
+      "timestamp": "2026-04-16T05:18:41Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "Add comprehensive README/docs for delegated worker lifecycle and landing modes",
   "type": "task",
-  "updated_at": "2026-04-16T05:18:27Z"
+  "updated_at": "2026-04-16T05:18:41Z"
 }
