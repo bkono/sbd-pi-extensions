@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-f51.1"
+    "sbdpi-f51.1",
+    "sbdpi-f51.1.2"
   ],
   "created": "2026-04-17T01:27:31Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 completion tracking.\n\nIntroduce explicit lifecycle state and/or markers in OM observations so task/subgoal status transitions are durable and do not collapse into vague summaries.",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Add explicit lifecycle markers for planned, active, blocked, completed, and abandoned work",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }

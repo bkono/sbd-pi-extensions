@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.1.1"
+  ],
   "blocks": [
     "sbdpi-f51.1"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Keep current-task and reflection state in sync with completion transitions",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
