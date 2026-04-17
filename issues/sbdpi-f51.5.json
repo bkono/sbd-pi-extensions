@@ -12,7 +12,7 @@
     "sbdpi-f51.9"
   ],
   "created": "2026-04-17T01:26:02Z",
-  "description": "Practical backlog summary anchor: **Tier 1 → Prompt/output upgrades for lists, exact numbers, constraints, and distinctions**.\n\nScope stronger observer/reflector guidance plus tests that preserve item structure, exact numbers, constraints, distinguishing attributes, and outcome states.",
+  "description": "Practical backlog summary anchor: **Tier 1 → Prompt/output upgrades for lists, exact numbers, constraints, and distinctions**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 4. Prompt and output-structure upgrades for specificity preservation**.\n\nImplementation context:\n- observer/reflector prompt text is in `packages/pi-om-extension/src/prompts.ts`\n- XML-ish parsing and LLM call wiring are in `src/agents.ts`\n- final injected layout is built in `src/engine.ts`\n- current behavior already asks for specifics, but the practical gap is stricter preservation of structure and exactness under long-session compression\n\nWhat this epic should establish:\n- stronger preservation of lists, counts, exact numbers, paths, commands, constraints, rejected alternatives, and distinguishing attributes\n- reflector behavior that keeps that structure during consolidation instead of flattening it\n- regression tests that catch specificity loss\n\nUseful references:\n- backlog doc section 4 plus linked Mastra refs (`observer-agent.ts`, `reflector-agent.ts`, `long-session.test.ts`)\n- local unit/integration tests for prompt parsing and cycle behavior\n\nThis should improve extraction fidelity without overfitting to one exact output phrasing.",
   "id": "sbdpi-f51.5",
   "labels": [],
   "parent": "sbdpi-f51",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Upgrade OM prompts and output structure for specificity preservation",
   "type": "epic",
-  "updated_at": "2026-04-17T01:35:48Z"
+  "updated_at": "2026-04-17T01:41:49Z"
 }
