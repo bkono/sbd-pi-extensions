@@ -8,7 +8,8 @@
   "blocks": [
     "sbdpi-f51",
     "sbdpi-f51.7",
-    "sbdpi-f51.8"
+    "sbdpi-f51.8",
+    "sbdpi-f51.9"
   ],
   "created": "2026-04-17T01:25:47Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Temporal reasoning overhaul: preserve the original phrase, but normalize stale relative references to absolute/ranged anchors**.\n\nScope the temporal-anchor work for `@packages/pi-om-extension`: durable absolute/ranged anchoring, ambiguity handling, chronology/state-change preservation, and multi-day regression coverage.",
