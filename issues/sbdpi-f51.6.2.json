@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.6.1"
+  ],
   "blocks": [
     "sbdpi-f51.6"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Minimize churn in unchanged OM sections and keep durable observations formatting stable",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }

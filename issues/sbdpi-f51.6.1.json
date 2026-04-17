@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-f51.6"
+    "sbdpi-f51.6",
+    "sbdpi-f51.6.2"
   ],
   "created": "2026-04-17T01:27:42Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 stable/cache-friendly layout.\n\nRefactor injected OM layout so durable observations, active task state, suggested response/next action, and continuation guidance are rendered in a stable deterministic structure that maps cleanly to future multi-message injection if hooks allow it.",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Redesign OM injection into deterministic durable, active, and guidance segments",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
