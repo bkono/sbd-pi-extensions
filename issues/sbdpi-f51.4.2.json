@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:27:11Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 lower/earlier thresholds.\n\nIntroduce smaller incremental observation chunks plus heuristics based on message count and tool-output weight so long runs do not wait for one giant token-based extraction pass.",
+  "id": "sbdpi-f51.4.2",
+  "labels": [],
+  "parent": "sbdpi-f51.4",
+  "priority": 1,
+  "status": "open",
+  "title": "Add smaller observation chunking and heuristics beyond raw token totals",
+  "type": "task",
+  "updated_at": "2026-04-17T01:27:11Z"
+}
