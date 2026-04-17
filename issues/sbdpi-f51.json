@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:25:20Z",
+  "description": "Umbrella epic for the work in `packages/pi-om-extension/docs/mastra-parity-backlog.md`, anchored to the **Practical backlog summary** as the grouping source of truth.\n\nThis epic tracks the Tier 1 and Tier 2 implementation work for the single-session pi OM port, following the doc's current prioritization instead of a literal Mastra subsystem port.",
+  "id": "sbdpi-f51",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Implement the practical Mastra-parity backlog for @packages/pi-om-extension",
+  "type": "epic",
+  "updated_at": "2026-04-17T01:25:20Z"
+}
