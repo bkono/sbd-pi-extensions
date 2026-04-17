@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.1.3"
+  ],
   "blocks": [
     "sbdpi-f51.9",
     "sbdpi-f51.9.2"
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Detect degenerate or lossy reflector outputs before they replace useful observations",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:47Z"
+  "updated_at": "2026-04-17T01:35:49Z"
 }

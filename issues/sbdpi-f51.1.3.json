@@ -6,7 +6,8 @@
   "blocks": [
     "sbdpi-f51.1",
     "sbdpi-f51.7.1",
-    "sbdpi-f51.8.1"
+    "sbdpi-f51.8.1",
+    "sbdpi-f51.9.1"
   ],
   "created": "2026-04-17T01:27:38Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 completion tracking.\n\nAdd tests that ensure completed items, resolved blockers, and explicit outcomes remain present after reflection instead of disappearing or being folded back into active state.",
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Add regression coverage so completion state survives reflection and consolidation",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:48Z"
+  "updated_at": "2026-04-17T01:35:49Z"
 }
