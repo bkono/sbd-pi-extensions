@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.3"
+  ],
   "created": "2026-04-17T01:26:52Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 continuous/background observation.\n\nAdd draft observation/task/response state and any separate staged cursors needed so long-turn observation work can accumulate without mutating the published observation block used for prompt injection.",
   "id": "sbdpi-f51.3.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Introduce staged draft observation state separate from published OM state",
   "type": "task",
-  "updated_at": "2026-04-17T01:26:52Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
