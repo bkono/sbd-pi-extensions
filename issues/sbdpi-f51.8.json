@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:26:13Z",
+  "description": "Practical backlog summary anchor: **Tier 2 → Gap markers and session-phase organization**.\n\nScope chronology/readability improvements for the single-session model: long-gap markers, resumed-work markers, and lightweight session-phase headers without introducing thread semantics.",
+  "id": "sbdpi-f51.8",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 2,
+  "status": "open",
+  "title": "Add gap markers and session-phase organization",
+  "type": "epic",
+  "updated_at": "2026-04-17T01:26:13Z"
+}
