@@ -8,7 +8,8 @@
   "blocks": [
     "sbdpi-f51",
     "sbdpi-f51.7",
-    "sbdpi-f51.8"
+    "sbdpi-f51.8",
+    "sbdpi-f51.9"
   ],
   "created": "2026-04-17T01:25:38Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Completion markers and completed-observation tracking**.\n\nScope explicit lifecycle state for planned/active/blocked/completed/abandoned work, plus durable preservation of completion state through reflection and current-task updates.",
