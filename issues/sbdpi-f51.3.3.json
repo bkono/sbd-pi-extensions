@@ -6,7 +6,8 @@
   "blocks": [
     "sbdpi-f51.3",
     "sbdpi-f51.7.1",
-    "sbdpi-f51.8.1"
+    "sbdpi-f51.8.1",
+    "sbdpi-f51.9.1"
   ],
   "created": "2026-04-17T01:27:02Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 continuous/background observation.\n\nOn `agent_end`, reconcile staged observation output into durable session state, and on the next `before_agent_start` inject only the published block so mid-turn raw context remains untouched.",
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Publish staged observations only at turn boundaries and inject only published state next turn",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:48Z"
+  "updated_at": "2026-04-17T01:35:49Z"
 }
