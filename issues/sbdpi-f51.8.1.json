@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:28:09Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 gap markers/session phases.\n\nAdd explicit markers for meaningful pauses and resumed work so chronology remains legible in longer-running single-session histories.",
+  "id": "sbdpi-f51.8.1",
+  "labels": [],
+  "parent": "sbdpi-f51.8",
+  "priority": 2,
+  "status": "open",
+  "title": "Detect and render long inactivity gaps and resumed-work markers",
+  "type": "task",
+  "updated_at": "2026-04-17T01:28:09Z"
+}
