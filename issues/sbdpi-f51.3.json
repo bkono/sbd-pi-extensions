@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:25:50Z",
+  "description": "Practical backlog summary anchor: **Tier 1 → Continuous/background observation with next-turn-only publication**.\n\nScope the staged-observation design for `@packages/pi-om-extension`: observe incrementally during long runs, keep the public injected block frozen mid-turn, and publish only at turn boundaries.",
+  "id": "sbdpi-f51.3",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 1,
+  "status": "open",
+  "title": "Continuous/background observation with next-turn-only publication",
+  "type": "epic",
+  "updated_at": "2026-04-17T01:25:50Z"
+}
