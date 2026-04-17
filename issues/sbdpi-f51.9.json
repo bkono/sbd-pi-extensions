@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:26:18Z",
+  "description": "Practical backlog summary anchor: **Tier 2 → Reflection robustness and retry ladder**.\n\nScope reflector failure detection, retry strategy, failure preservation, and targeted tests so bad compression does not silently destroy useful observations.",
+  "id": "sbdpi-f51.9",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 2,
+  "status": "open",
+  "title": "Harden reflection robustness with retry and fallback behavior",
+  "type": "epic",
+  "updated_at": "2026-04-17T01:26:18Z"
+}
