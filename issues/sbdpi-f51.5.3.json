@@ -10,7 +10,7 @@
     "sbdpi-f51.9.1"
   ],
   "created": "2026-04-17T01:27:26Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 prompt/output upgrades.\n\nAdd targeted tests that fail when observations or reflections flatten itemized structure, lose exact numbers/counts, merge distinct items, or drop critical constraints.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 4. Prompt and output-structure upgrades for specificity preservation**.\n\nGoal: add regressions that fail when OM output flattens lists, loses exact numbers/counts, merges distinct items, or drops key constraints.\n\nRelevant test surfaces:\n- `packages/pi-om-extension/src/__tests__/integration/observation-cycle-reflection.test.ts`\n- `packages/pi-om-extension/src/__tests__/unit/parse-observer-output.test.ts`\n- `packages/pi-om-extension/src/__tests__/unit/engine-build-context.test.ts`\n- any new scenario tests under `packages/pi-om-extension/src/__tests__/integration`\n\nWorker notes:\n- include technical examples with file paths, commands, rejected alternatives, and distinguishing attributes\n- test observer and reflector behavior together where possible\n- prefer assertions that demonstrate practical recoverability of the original detail",
   "id": "sbdpi-f51.5.3",
   "labels": [],
   "parent": "sbdpi-f51.5",
@@ -18,5 +18,5 @@
   "status": "open",
   "title": "Add regression coverage for list, number, and constraint preservation in OM output",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:49Z"
+  "updated_at": "2026-04-17T01:44:09Z"
 }
