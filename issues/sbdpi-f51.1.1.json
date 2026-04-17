@@ -6,7 +6,7 @@
     "sbdpi-f51.1.2"
   ],
   "created": "2026-04-17T01:27:31Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 completion tracking.\n\nIntroduce explicit lifecycle state and/or markers in OM observations so task/subgoal status transitions are durable and do not collapse into vague summaries.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 5. Completion markers and completed-observation lifecycle**.\n\nGoal: define how planned / active / blocked / completed / abandoned-or-superseded work is represented so those states survive observation and reflection instead of living only as vague prose.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/types.ts`\n- `packages/pi-om-extension/src/state.ts`\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- `packages/pi-om-extension/src/engine.ts`\n\nWorker notes:\n- it is fine if the durable representation is textual markers, lightweight structured metadata, or a hybrid; avoid overdesign\n- preserve the current single-session OM model\n- keep human-readable observations legible in the injected block\n\nValidation should include tests under `packages/pi-om-extension/src/__tests__` that show lifecycle states do not collapse back into undifferentiated summaries.",
   "id": "sbdpi-f51.1.1",
   "labels": [],
   "parent": "sbdpi-f51.1",
@@ -14,5 +14,5 @@
   "status": "open",
   "title": "Add explicit lifecycle markers for planned, active, blocked, completed, and abandoned work",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:47Z"
+  "updated_at": "2026-04-17T01:42:36Z"
 }
