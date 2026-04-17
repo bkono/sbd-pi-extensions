@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.9"
+  ],
   "created": "2026-04-17T01:28:19Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nAdd checks for empty, malformed, or obviously lossy reflection output, including collapse of chronology, disappearance of current task state, or dropped completion/constraint information.",
   "id": "sbdpi-f51.9.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Detect degenerate or lossy reflector outputs before they replace useful observations",
   "type": "task",
-  "updated_at": "2026-04-17T01:28:19Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
