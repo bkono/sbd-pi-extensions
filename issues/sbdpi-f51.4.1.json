@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:27:06Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 lower/earlier thresholds.\n\nSplit the current late trigger into separately configurable thresholds for staged observation work, published observation updates, and reflection/consolidation so OM can start working earlier without overcommitting to one policy.",
+  "id": "sbdpi-f51.4.1",
+  "labels": [],
+  "parent": "sbdpi-f51.4",
+  "priority": 1,
+  "status": "open",
+  "title": "Add separate configurable thresholds for staging, publishing, and reflection",
+  "type": "task",
+  "updated_at": "2026-04-17T01:27:06Z"
+}
