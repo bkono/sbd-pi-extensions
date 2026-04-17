@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.6"
+  ],
   "created": "2026-04-17T01:27:45Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 stable/cache-friendly layout.\n\nReduce unnecessary rewriting, reflow, and whitespace churn in the injected OM block so unchanged durable observations remain stable and only volatile sections update when needed.",
   "id": "sbdpi-f51.6.2",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Minimize churn in unchanged OM sections and keep durable observations formatting stable",
   "type": "task",
-  "updated_at": "2026-04-17T01:27:45Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
