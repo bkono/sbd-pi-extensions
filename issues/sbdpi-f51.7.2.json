@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:27:58Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 current-task lifecycle.\n\nRefine OM task-state representation so primary user goals, secondary pending items, waiting-for-user states, and assistant next actions are distinct instead of being blended into one blunt field.",
+  "id": "sbdpi-f51.7.2",
+  "labels": [],
+  "parent": "sbdpi-f51.7",
+  "priority": 2,
+  "status": "open",
+  "title": "Separate primary goal, secondary pending items, waiting state, and next-action guidance in OM state",
+  "type": "task",
+  "updated_at": "2026-04-17T01:27:58Z"
+}
