@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.8"
+  ],
   "created": "2026-04-17T01:28:16Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 gap markers/session phases.\n\nAdd regression coverage showing that gap markers and phase markers improve chronology/readability without drifting into thread attribution or multi-resource semantics.",
   "id": "sbdpi-f51.8.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add chronology/readability tests for gap and phase markers in the single-session model",
   "type": "task",
-  "updated_at": "2026-04-17T01:28:16Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
