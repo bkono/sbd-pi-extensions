@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-f51.9"
+    "sbdpi-f51.9",
+    "sbdpi-f51.9.2"
   ],
   "created": "2026-04-17T01:28:19Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nAdd checks for empty, malformed, or obviously lossy reflection output, including collapse of chronology, disappearance of current task state, or dropped completion/constraint information.",
