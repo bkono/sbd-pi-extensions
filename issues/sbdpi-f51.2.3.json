@@ -5,7 +5,8 @@
   ],
   "blocks": [
     "sbdpi-f51.2",
-    "sbdpi-f51.7.1"
+    "sbdpi-f51.7.1",
+    "sbdpi-f51.8.1"
   ],
   "created": "2026-04-17T01:26:49Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 temporal reasoning overhaul.\n\nAdd tests that simulate multi-day sessions so stale relative references, long pauses, resumed work, and future planned changes remain chronologically correct and do not collapse into present-tense facts.",
