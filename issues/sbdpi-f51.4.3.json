@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.4"
+  ],
   "created": "2026-04-17T01:27:14Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 lower/earlier thresholds.\n\nChoose materially earlier but still conservative defaults, and add tests that demonstrate long turns are handled by multiple smaller observation passes instead of one very-late giant dump.",
   "id": "sbdpi-f51.4.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Tune earlier OM defaults and add regressions against giant late-pass extraction",
   "type": "task",
-  "updated_at": "2026-04-17T01:27:14Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
