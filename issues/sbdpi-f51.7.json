@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.7.1"
+  ],
   "blocks": [
     "sbdpi-f51"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Improve current-task and suggested-response lifecycle management",
   "type": "epic",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
