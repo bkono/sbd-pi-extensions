@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.2"
+  ],
   "created": "2026-04-17T01:26:44Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 temporal reasoning overhaul.\n\nTeach the observer/formatter flow to normalize phrases like `tomorrow`, `next Friday`, `last week`, and similar references into absolute dates or ranges when confidence is high, while preserving uncertainty for ambiguous phrases instead of inventing precise dates.",
   "id": "sbdpi-f51.2.2",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Normalize relative time phrases into absolute or ranged anchors without fake precision",
   "type": "task",
-  "updated_at": "2026-04-17T01:26:44Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
