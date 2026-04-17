@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-17T01:27:18Z",
+  "close_reason": "all child work closed",
   "created": "2026-04-14T18:31:27Z",
   "description": "Improve the beadwork extension around post-worker landing verification and operator-facing diagnostics.\n\nScope:\n1. Tighten landing verification for squash/cherry-pick/rebase-style landings\n2. Improve `/bw workers` diagnostics and worker inspection output\n3. Add tests and README/docs for verification and diagnostics behavior",
   "id": "sbdpi-swx",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "Improve beadwork landing verification and diagnostics",
   "type": "epic",
-  "updated_at": "2026-04-14T18:31:27Z"
+  "updated_at": "2026-04-17T01:27:18Z"
 }
