@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.2"
+  ],
   "created": "2026-04-17T01:26:38Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 temporal reasoning overhaul.\n\nImplement a small temporal metadata model in OM state (for example `recordedAt`, referenced start/end, precision, relation, original phrase) plus durable rendering that preserves the original phrase while attaching a normalized anchor in the stored observation output.",
   "id": "sbdpi-f51.2.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add TemporalAnchor metadata and durable rendering for OM observations",
   "type": "task",
-  "updated_at": "2026-04-17T01:26:38Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
