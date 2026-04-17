@@ -4,7 +4,8 @@
     "sbdpi-f51.7.1"
   ],
   "blocks": [
-    "sbdpi-f51.7"
+    "sbdpi-f51.7",
+    "sbdpi-f51.7.3"
   ],
   "created": "2026-04-17T01:27:58Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 current-task lifecycle.\n\nRefine OM task-state representation so primary user goals, secondary pending items, waiting-for-user states, and assistant next actions are distinct instead of being blended into one blunt field.",
