@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51"
+  ],
   "created": "2026-04-17T01:26:02Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Prompt/output upgrades for lists, exact numbers, constraints, and distinctions**.\n\nScope stronger observer/reflector guidance plus tests that preserve item structure, exact numbers, constraints, distinguishing attributes, and outcome states.",
   "id": "sbdpi-f51.5",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Upgrade OM prompts and output structure for specificity preservation",
   "type": "epic",
-  "updated_at": "2026-04-17T01:26:02Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
