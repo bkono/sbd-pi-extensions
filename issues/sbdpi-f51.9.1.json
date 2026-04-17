@@ -13,7 +13,7 @@
     "sbdpi-f51.9.2"
   ],
   "created": "2026-04-17T01:28:19Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nAdd checks for empty, malformed, or obviously lossy reflection output, including collapse of chronology, disappearance of current task state, or dropped completion/constraint information.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 2 / section 7. Reflection robustness and retry ladder**.\n\nGoal: detect empty, malformed, or obviously lossy reflector output before it replaces useful observations.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/types.ts`\n\nWorker notes:\n- catch practical failure modes such as lost current task, collapsed chronology, dropped completion markers, or vanished constraints\n- keep the checks pragmatic and testable; this does not need a heavyweight validation framework\n- assume the stronger Tier 1 semantics are now available to validate against",
   "id": "sbdpi-f51.9.1",
   "labels": [],
   "parent": "sbdpi-f51.9",
@@ -21,5 +21,5 @@
   "status": "open",
   "title": "Detect degenerate or lossy reflector outputs before they replace useful observations",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:49Z"
+  "updated_at": "2026-04-17T01:45:16Z"
 }
