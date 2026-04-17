@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.5"
+  ],
   "created": "2026-04-17T01:27:19Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 prompt/output upgrades.\n\nTighten observer instructions so extracted observations preserve exact numbers, counts, lists, distinguishing attributes, constraints, rejected alternatives, and important paths/commands/results when they matter.",
   "id": "sbdpi-f51.5.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Strengthen observer prompts to preserve exact structure, numbers, constraints, and distinctions",
   "type": "task",
-  "updated_at": "2026-04-17T01:27:19Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
