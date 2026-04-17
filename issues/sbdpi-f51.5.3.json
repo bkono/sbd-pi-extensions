@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.5.2"
+  ],
   "blocks": [
     "sbdpi-f51.5"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Add regression coverage for list, number, and constraint preservation in OM output",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }

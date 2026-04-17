@@ -4,7 +4,8 @@
     "sbdpi-f51.5.1"
   ],
   "blocks": [
-    "sbdpi-f51.5"
+    "sbdpi-f51.5",
+    "sbdpi-f51.5.3"
   ],
   "created": "2026-04-17T01:27:22Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 prompt/output upgrades.\n\nTighten reflector instructions so consolidation preserves dates/times, lists, exact numbers, completion markers, constraints, and planned/in-progress/done distinctions instead of flattening them.",
