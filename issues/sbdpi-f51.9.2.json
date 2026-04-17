@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:28:23Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nImplement a bounded retry path for bad reflection results, using stricter prompting and, where appropriate, lower compression or alternate fallback behavior before giving up.",
+  "id": "sbdpi-f51.9.2",
+  "labels": [],
+  "parent": "sbdpi-f51.9",
+  "priority": 2,
+  "status": "open",
+  "title": "Add a retry ladder for reflection with stricter prompts and lower-compression fallback",
+  "type": "task",
+  "updated_at": "2026-04-17T01:28:23Z"
+}
