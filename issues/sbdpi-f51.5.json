@@ -7,7 +7,8 @@
   ],
   "blocks": [
     "sbdpi-f51",
-    "sbdpi-f51.7"
+    "sbdpi-f51.7",
+    "sbdpi-f51.8"
   ],
   "created": "2026-04-17T01:26:02Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Prompt/output upgrades for lists, exact numbers, constraints, and distinctions**.\n\nScope stronger observer/reflector guidance plus tests that preserve item structure, exact numbers, constraints, distinguishing attributes, and outcome states.",
