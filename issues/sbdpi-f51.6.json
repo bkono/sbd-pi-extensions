@@ -6,7 +6,8 @@
     "sbdpi-f51.6.3"
   ],
   "blocks": [
-    "sbdpi-f51"
+    "sbdpi-f51",
+    "sbdpi-f51.7"
   ],
   "created": "2026-04-17T01:26:05Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Stable, cache-friendly observation block layout**.\n\nScope deterministic, segmented OM injection with minimal churn between turns so prompt caching and continuation stability improve without changing the single-session model.",
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Make the injected OM block stable and cache-friendly",
   "type": "epic",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:48Z"
 }
