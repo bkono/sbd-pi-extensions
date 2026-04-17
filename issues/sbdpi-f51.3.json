@@ -7,7 +7,8 @@
   ],
   "blocks": [
     "sbdpi-f51",
-    "sbdpi-f51.7"
+    "sbdpi-f51.7",
+    "sbdpi-f51.8"
   ],
   "created": "2026-04-17T01:25:50Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Continuous/background observation with next-turn-only publication**.\n\nScope the staged-observation design for `@packages/pi-om-extension`: observe incrementally during long runs, keep the public injected block frozen mid-turn, and publish only at turn boundaries.",
