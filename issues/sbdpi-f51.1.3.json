@@ -10,7 +10,7 @@
     "sbdpi-f51.9.1"
   ],
   "created": "2026-04-17T01:27:38Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 completion tracking.\n\nAdd tests that ensure completed items, resolved blockers, and explicit outcomes remain present after reflection instead of disappearing or being folded back into active state.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 5. Completion markers and completed-observation lifecycle**.\n\nGoal: add regression coverage proving completion state survives observation, reflection, and later consolidation instead of disappearing or being folded back into active work.\n\nRelevant test surfaces:\n- `packages/pi-om-extension/src/__tests__/integration/observation-cycle-reflection.test.ts`\n- `packages/pi-om-extension/src/__tests__/integration/observation-cycle-threshold.test.ts`\n- `packages/pi-om-extension/src/__tests__/unit/engine-build-context.test.ts`\n- extension-level lifecycle tests under `packages/pi-om-extension/src/__tests__/extension`\n\nWorker notes:\n- include examples for completed items, resolved blockers, and abandoned/superseded work\n- assertions should check durable rendered output and task-state fields, not only raw LLM text parsing\n- this ticket is a foundation for later Tier 2 lifecycle/gap/robustness work, so prefer scenarios other tickets can build on",
   "id": "sbdpi-f51.1.3",
   "labels": [],
   "parent": "sbdpi-f51.1",
@@ -18,5 +18,5 @@
   "status": "open",
   "title": "Add regression coverage so completion state survives reflection and consolidation",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:49Z"
+  "updated_at": "2026-04-17T01:42:50Z"
 }
