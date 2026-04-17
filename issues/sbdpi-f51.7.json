@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:26:09Z",
+  "description": "Practical backlog summary anchor: **Tier 2 → Better current-task / suggested-response lifecycle management**.\n\nScope clearer semantics for replace/merge/clear behavior, waiting-for-user state, secondary pending items, and next-action guidance in `@packages/pi-om-extension`.",
+  "id": "sbdpi-f51.7",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 2,
+  "status": "open",
+  "title": "Improve current-task and suggested-response lifecycle management",
+  "type": "epic",
+  "updated_at": "2026-04-17T01:26:09Z"
+}
