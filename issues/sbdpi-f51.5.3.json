@@ -6,7 +6,8 @@
   "blocks": [
     "sbdpi-f51.5",
     "sbdpi-f51.7.1",
-    "sbdpi-f51.8.1"
+    "sbdpi-f51.8.1",
+    "sbdpi-f51.9.1"
   ],
   "created": "2026-04-17T01:27:26Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 prompt/output upgrades.\n\nAdd targeted tests that fail when observations or reflections flatten itemized structure, lose exact numbers/counts, merge distinct items, or drop critical constraints.",
