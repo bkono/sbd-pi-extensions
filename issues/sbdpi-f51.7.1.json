@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-f51.7"
+    "sbdpi-f51.7",
+    "sbdpi-f51.7.2"
   ],
   "created": "2026-04-17T01:27:55Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 current-task lifecycle.\n\nClarify the rules for when `currentTask` and `suggestedResponse` should be replaced, merged, preserved, or cleared so turn-to-turn task continuity becomes more disciplined and predictable.",
