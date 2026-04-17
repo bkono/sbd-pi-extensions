@@ -2,14 +2,16 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-17T01:27:14Z",
+  "close_reason": "all child tasks closed",
   "created": "2026-04-15T17:38:38Z",
   "description": "Realign the extension architecture toward human-usable workflows.\n\nThis epic tracks the shift away from parser-heavy, over-engineered flows and toward:\n- useful operator-facing status/TUI interactions\n- stable slash commands and tool APIs for durable actions\n- clear separation between non-LLM infrastructure and LLM-driven reasoning/tool use",
   "id": "sbdpi-swx.8",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Simplify the human/operator surface and beadwork tool boundaries",
   "type": "epic",
-  "updated_at": "2026-04-15T17:38:38Z"
+  "updated_at": "2026-04-17T01:27:14Z"
 }
