@@ -7,7 +7,8 @@
   ],
   "blocks": [
     "sbdpi-f51",
-    "sbdpi-f51.7"
+    "sbdpi-f51.7",
+    "sbdpi-f51.8"
   ],
   "created": "2026-04-17T01:25:54Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Lower/earlier thresholds and smaller observation chunks**.\n\nScope earlier triggering, chunked observation policy, and heuristics beyond raw token totals so long turns do not collapse into one giant extraction pass.",
