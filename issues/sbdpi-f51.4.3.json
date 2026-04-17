@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.4.2"
+  ],
   "blocks": [
     "sbdpi-f51.4"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Tune earlier OM defaults and add regressions against giant late-pass extraction",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }

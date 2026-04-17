@@ -4,7 +4,8 @@
     "sbdpi-f51.4.1"
   ],
   "blocks": [
-    "sbdpi-f51.4"
+    "sbdpi-f51.4",
+    "sbdpi-f51.4.3"
   ],
   "created": "2026-04-17T01:27:11Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 lower/earlier thresholds.\n\nIntroduce smaller incremental observation chunks plus heuristics based on message count and tool-output weight so long runs do not wait for one giant token-based extraction pass.",
