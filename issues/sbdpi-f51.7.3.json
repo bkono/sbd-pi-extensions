@@ -7,7 +7,7 @@
     "sbdpi-f51.7"
   ],
   "created": "2026-04-17T01:28:04Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 current-task lifecycle.\n\nAdd targeted regression coverage for superseded tasks, waiting-for-user transitions, and preservation of completed secondary work without polluting active state.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 2 / section 11. Better current-task / suggested-response lifecycle management**.\n\nGoal: add lifecycle regressions for supersession, waiting-for-user transitions, and completed secondary tasks so the refined semantics stay stable over time.\n\nRelevant test surfaces:\n- `packages/pi-om-extension/src/__tests__/integration/observation-cycle-*.test.ts`\n- `packages/pi-om-extension/src/__tests__/unit/engine-build-context.test.ts`\n- extension lifecycle tests under `packages/pi-om-extension/src/__tests__/extension`\n\nWorker notes:\n- test state transitions across multiple turns, not single snapshots only\n- include interactions with completion markers and temporal anchors from Tier 1\n- assertions should cover both stored state and rendered injected context",
   "id": "sbdpi-f51.7.3",
   "labels": [],
   "parent": "sbdpi-f51.7",
@@ -15,5 +15,5 @@
   "status": "open",
   "title": "Add lifecycle tests for supersession, waiting-for-user transitions, and completed secondary tasks",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:47Z"
+  "updated_at": "2026-04-17T01:44:49Z"
 }
