@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:27:35Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 completion tracking.\n\nUpdate current-task maintenance and reflection behavior so completed work exits the active block cleanly, completed outcomes stay visible, and superseded or abandoned work is distinguished from done work.",
+  "id": "sbdpi-f51.1.2",
+  "labels": [],
+  "parent": "sbdpi-f51.1",
+  "priority": 1,
+  "status": "open",
+  "title": "Keep current-task and reflection state in sync with completion transitions",
+  "type": "task",
+  "updated_at": "2026-04-17T01:27:35Z"
+}
