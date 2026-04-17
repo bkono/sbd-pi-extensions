@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:28:27Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nEnsure OM keeps the pre-reflection observation set when retries still fail, and add targeted tests for empty, over-compressed, or malformed reflector outputs.",
+  "id": "sbdpi-f51.9.3",
+  "labels": [],
+  "parent": "sbdpi-f51.9",
+  "priority": 2,
+  "status": "open",
+  "title": "Preserve pre-reflection observations on failure and add bad-reflector regression coverage",
+  "type": "task",
+  "updated_at": "2026-04-17T01:28:27Z"
+}
