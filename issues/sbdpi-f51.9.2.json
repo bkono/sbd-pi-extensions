@@ -4,7 +4,8 @@
     "sbdpi-f51.9.1"
   ],
   "blocks": [
-    "sbdpi-f51.9"
+    "sbdpi-f51.9",
+    "sbdpi-f51.9.3"
   ],
   "created": "2026-04-17T01:28:23Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nImplement a bounded retry path for bad reflection results, using stricter prompting and, where appropriate, lower compression or alternate fallback behavior before giving up.",
