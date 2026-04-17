@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "sbdpi-f51.2.1",
-    "sbdpi-f51.2.2"
+    "sbdpi-f51.2.2",
+    "sbdpi-f51.2.3"
   ],
   "blocks": [
     "sbdpi-f51"

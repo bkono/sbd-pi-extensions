@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.2"
+  ],
   "created": "2026-04-17T01:26:49Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 temporal reasoning overhaul.\n\nAdd tests that simulate multi-day sessions so stale relative references, long pauses, resumed work, and future planned changes remain chronologically correct and do not collapse into present-tense facts.",
   "id": "sbdpi-f51.2.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add multi-day temporal regressions for stale references, elapsed gaps, and future state changes",
   "type": "task",
-  "updated_at": "2026-04-17T01:26:49Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
