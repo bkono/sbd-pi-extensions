@@ -6,7 +6,8 @@
     "sbdpi-f51.2.3"
   ],
   "blocks": [
-    "sbdpi-f51"
+    "sbdpi-f51",
+    "sbdpi-f51.7"
   ],
   "created": "2026-04-17T01:25:47Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Temporal reasoning overhaul: preserve the original phrase, but normalize stale relative references to absolute/ranged anchors**.\n\nScope the temporal-anchor work for `@packages/pi-om-extension`: durable absolute/ranged anchoring, ambiguity handling, chronology/state-change preservation, and multi-day regression coverage.",
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Temporal reasoning overhaul for observational memory",
   "type": "epic",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:48Z"
 }
