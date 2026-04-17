@@ -10,7 +10,7 @@
     "sbdpi-f51.9.1"
   ],
   "created": "2026-04-17T01:26:49Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 temporal reasoning overhaul.\n\nAdd tests that simulate multi-day sessions so stale relative references, long pauses, resumed work, and future planned changes remain chronologically correct and do not collapse into present-tense facts.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 1. Temporal reasoning overhaul**.\n\nGoal: add multi-day regression coverage so stale relative references, elapsed gaps, resumed work, and future state changes remain chronologically correct over time.\n\nRelevant test surfaces:\n- `packages/pi-om-extension/src/__tests__/integration/observation-cycle-*.test.ts`\n- `packages/pi-om-extension/src/__tests__/unit/engine-build-context.test.ts`\n- `packages/pi-om-extension/src/__tests__/unit/format.test.ts`\n- any new temporal helper tests added under `packages/pi-om-extension/src/__tests__/unit`\n\nWorker notes:\n- simulate passage of time explicitly rather than relying on same-day examples only\n- include ambiguous phrases and future-planned transitions\n- prefer scenarios reusable by later gap-marker and lifecycle tickets",
   "id": "sbdpi-f51.2.3",
   "labels": [],
   "parent": "sbdpi-f51.2",
@@ -18,5 +18,5 @@
   "status": "open",
   "title": "Add multi-day temporal regressions for stale references, elapsed gaps, and future state changes",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:49Z"
+  "updated_at": "2026-04-17T01:43:09Z"
 }
