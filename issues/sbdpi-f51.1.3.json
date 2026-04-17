@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.1.2"
+  ],
   "blocks": [
     "sbdpi-f51.1"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Add regression coverage so completion state survives reflection and consolidation",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:46Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
