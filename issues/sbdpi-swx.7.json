@@ -2,14 +2,16 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-17T01:27:09Z",
+  "close_reason": "all child tasks closed",
   "created": "2026-04-15T17:38:17Z",
   "description": "Replace the current brittle `/bw adopt` concept with an explicit plan-driven workflow. The extension should consume a real written markdown proposal/plan and drive an LLM-assisted decomposition flow, instead of scraping recent session text and hoping bullets/numbers parse correctly.\n\nThis epic tracks the redesign from parser-heavy heuristics to a prompt/tool-driven workflow that better fits real beadwork planning.",
   "id": "sbdpi-swx.7",
   "labels": [],
   "parent": "sbdpi-swx",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Redesign `/bw adopt` into an explicit plan-to-graph workflow",
   "type": "epic",
-  "updated_at": "2026-04-15T17:38:17Z"
+  "updated_at": "2026-04-17T01:27:09Z"
 }
