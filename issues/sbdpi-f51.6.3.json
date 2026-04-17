@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.6"
+  ],
   "created": "2026-04-17T01:27:51Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 stable/cache-friendly layout.\n\nAdd tests and snapshots that verify semantically unchanged OM content stays byte-stable when possible, and that the single-string fallback preserves the same logical segmentation used by a future multi-message implementation.",
   "id": "sbdpi-f51.6.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add cache-stability regression coverage for OM rendering and segmented fallback layout",
   "type": "task",
-  "updated_at": "2026-04-17T01:27:51Z"
+  "updated_at": "2026-04-17T01:35:46Z"
 }
