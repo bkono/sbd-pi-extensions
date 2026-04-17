@@ -4,7 +4,8 @@
     "sbdpi-f51.3.1"
   ],
   "blocks": [
-    "sbdpi-f51.3"
+    "sbdpi-f51.3",
+    "sbdpi-f51.3.3"
   ],
   "created": "2026-04-17T01:26:59Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 continuous/background observation.\n\nImplement incremental/background observation over large new message ranges during a long agent loop while keeping the injected observation block and pruning cursor frozen until the turn ends.",
