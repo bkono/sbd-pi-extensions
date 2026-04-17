@@ -6,7 +6,7 @@
     "sbdpi-f51.5.2"
   ],
   "created": "2026-04-17T01:27:19Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 prompt/output upgrades.\n\nTighten observer instructions so extracted observations preserve exact numbers, counts, lists, distinguishing attributes, constraints, rejected alternatives, and important paths/commands/results when they matter.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 4. Prompt and output-structure upgrades for specificity preservation**.\n\nGoal: strengthen observer instructions so extracted observations keep exact numbers, counts, list structure, distinguishing attributes, constraints, paths, commands, and rejected alternatives when they matter.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- prompt-parse tests under `packages/pi-om-extension/src/__tests__/unit`\n\nWorker notes:\n- this is a prompt-quality ticket, but it should still be validated by behavior tests rather than prompt diff alone\n- preserve the existing user-assertion vs question framing\n- improve specificity without making the prompt so long/noisy that it becomes brittle",
   "id": "sbdpi-f51.5.1",
   "labels": [],
   "parent": "sbdpi-f51.5",
@@ -14,5 +14,5 @@
   "status": "open",
   "title": "Strengthen observer prompts to preserve exact structure, numbers, constraints, and distinctions",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:47Z"
+  "updated_at": "2026-04-17T01:43:56Z"
 }
