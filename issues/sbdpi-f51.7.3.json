@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-f51.7"
+  ],
   "created": "2026-04-17T01:28:04Z",
   "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 current-task lifecycle.\n\nAdd targeted regression coverage for superseded tasks, waiting-for-user transitions, and preservation of completed secondary work without polluting active state.",
   "id": "sbdpi-f51.7.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add lifecycle tests for supersession, waiting-for-user transitions, and completed secondary tasks",
   "type": "task",
-  "updated_at": "2026-04-17T01:28:04Z"
+  "updated_at": "2026-04-17T01:35:47Z"
 }
