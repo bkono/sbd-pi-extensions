@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-17T01:27:26Z",
+  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 prompt/output upgrades.\n\nAdd targeted tests that fail when observations or reflections flatten itemized structure, lose exact numbers/counts, merge distinct items, or drop critical constraints.",
+  "id": "sbdpi-f51.5.3",
+  "labels": [],
+  "parent": "sbdpi-f51.5",
+  "priority": 1,
+  "status": "open",
+  "title": "Add regression coverage for list, number, and constraint preservation in OM output",
+  "type": "task",
+  "updated_at": "2026-04-17T01:27:26Z"
+}
