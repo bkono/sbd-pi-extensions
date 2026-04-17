@@ -8,7 +8,7 @@
     "sbdpi-f51.6.3"
   ],
   "created": "2026-04-17T01:27:45Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 1 stable/cache-friendly layout.\n\nReduce unnecessary rewriting, reflow, and whitespace churn in the injected OM block so unchanged durable observations remain stable and only volatile sections update when needed.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 6. Stable, cache-friendly observation block layout**.\n\nGoal: minimize byte churn in unchanged OM sections so durable observations stay stable while only volatile task/guidance sections move when necessary.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/format.ts`\n- `packages/pi-om-extension/src/state.ts`\n- any helper introduced for deterministic rendering/normalization\n\nWorker notes:\n- watch for unnecessary reflow, whitespace churn, and reordered sections/items\n- keep append/reflection behavior compatible with the stability goal\n- this is about deterministic rendering, not changing the semantic content model",
   "id": "sbdpi-f51.6.2",
   "labels": [],
   "parent": "sbdpi-f51.6",
@@ -16,5 +16,5 @@
   "status": "open",
   "title": "Minimize churn in unchanged OM sections and keep durable observations formatting stable",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:47Z"
+  "updated_at": "2026-04-17T01:44:23Z"
 }
