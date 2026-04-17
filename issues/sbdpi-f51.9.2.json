@@ -8,7 +8,7 @@
     "sbdpi-f51.9.3"
   ],
   "created": "2026-04-17T01:28:23Z",
-  "description": "Under `packages/pi-om-extension/docs/mastra-parity-backlog.md` → Practical backlog summary Tier 2 reflection robustness.\n\nImplement a bounded retry path for bad reflection results, using stricter prompting and, where appropriate, lower compression or alternate fallback behavior before giving up.",
+  "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 2 / section 7. Reflection robustness and retry ladder**.\n\nGoal: add a bounded retry ladder for bad reflection results, using stricter prompts and/or lower-compression fallback before giving up.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/config.ts` if retry behavior needs configuration\n\nWorker notes:\n- keep retries bounded and explicit\n- prefer preserving useful observations over chasing perfect compression\n- if configuration is introduced, keep it simple and document it in the package README",
   "id": "sbdpi-f51.9.2",
   "labels": [],
   "parent": "sbdpi-f51.9",
@@ -16,5 +16,5 @@
   "status": "open",
   "title": "Add a retry ladder for reflection with stricter prompts and lower-compression fallback",
   "type": "task",
-  "updated_at": "2026-04-17T01:35:47Z"
+  "updated_at": "2026-04-17T01:45:23Z"
 }
