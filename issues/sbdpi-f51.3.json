@@ -12,7 +12,7 @@
     "sbdpi-f51.9"
   ],
   "created": "2026-04-17T01:25:50Z",
-  "description": "Practical backlog summary anchor: **Tier 1 → Continuous/background observation with next-turn-only publication**.\n\nScope the staged-observation design for `@packages/pi-om-extension`: observe incrementally during long runs, keep the public injected block frozen mid-turn, and publish only at turn boundaries.",
+  "description": "Practical backlog summary anchor: **Tier 1 → Continuous/background observation with next-turn-only publication**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 2. Continuous/background observation, but only next-turn publication**.\n\nImplementation context:\n- current lifecycle is documented in `packages/pi-om-extension/docs/observation-timing-deviation.md`\n- hooks are wired in `packages/pi-om-extension/src/index.ts`\n- observation state and cursor logic live in `src/engine.ts`, `src/types.ts`, and `src/state.ts`\n- today observation runs in `agent_end`, injection happens in `before_agent_start`, and pruning happens in `context`\n\nWhat this epic should establish:\n- staged/draft observation state that can accumulate during long runs\n- publication only at turn boundaries\n- no mid-turn system-prompt mutation and no pruning cursor drift ahead of published observations\n\nUseful references:\n- backlog doc section 2 plus linked Mastra refs (`buffering-coordinator.ts`, `async-buffer.ts`, `mid-loop-observation.test.ts`)\n- local extension/integration tests around lifecycle timing in `src/__tests__`\n\nNon-goal: do not recreate Mastra/OpenCode mid-turn swap behavior in pi.",
   "id": "sbdpi-f51.3",
   "labels": [],
   "parent": "sbdpi-f51",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Continuous/background observation with next-turn-only publication",
   "type": "epic",
-  "updated_at": "2026-04-17T01:35:48Z"
+  "updated_at": "2026-04-17T01:41:25Z"
 }
