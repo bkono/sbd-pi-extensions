@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "sbdpi-f51.1.2",
     "sbdpi-f51.5.1"
   ],
   "blocks": [
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Strengthen reflector prompts to preserve structure and outcome state during consolidation",
   "type": "task",
-  "updated_at": "2026-04-17T01:44:02Z"
+  "updated_at": "2026-04-18T06:38:43Z"
 }
