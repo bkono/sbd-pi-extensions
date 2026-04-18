@@ -15,10 +15,10 @@
   "description": "Practical backlog summary anchor: **Tier 1 → Lower/earlier thresholds and smaller observation chunks**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 3. Lower / earlier observation thresholds and smaller observation chunks**.\n\nImplementation context:\n- defaults and config surface live in `packages/pi-om-extension/src/config.ts` and `src/types.ts`\n- threshold evaluation and reflection triggering live in `src/engine.ts`\n- token counting utilities live in `src/tokens.ts`\n- visibility/diagnostics for threshold behavior show up through `src/format.ts`, `/om status`, and related tests\n\nWhat this epic should establish:\n- earlier-but-conservative trigger behavior\n- separate policy knobs for staging, publishing, and reflection where needed\n- smaller incremental work instead of one giant late extraction pass\n\nUseful references:\n- backlog doc section 3\n- package README sections on config and lifecycle\n- local tests around thresholds and cycle behavior in `src/__tests__/integration`\n\nStay aligned with the single-session staged-publication design rather than inventing an unrelated buffering system.",
   "id": "sbdpi-f51.4",
   "labels": [],
-  "parent": "sbdpi-f51",
+  "parent": "sbdpi-f51.10",
   "priority": 1,
   "status": "open",
   "title": "Lower observation thresholds and smaller incremental chunks",
   "type": "epic",
-  "updated_at": "2026-04-17T01:41:31Z"
+  "updated_at": "2026-04-18T07:05:02Z"
 }
