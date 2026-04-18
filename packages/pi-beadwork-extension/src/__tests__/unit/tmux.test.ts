@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ProcessCommandError } from "../../process.js";
 import { createTmuxBackend } from "../../tmux.js";
 
 describe("tmux backend", () => {
@@ -79,5 +80,45 @@ describe("tmux backend", () => {
     expect(runner).toHaveBeenCalledWith("tmux", ["kill-window", "-t", "pi-bw:bw-worker"], {
       timeout: 5_000,
     });
+  });
+
+  it("ignores missing worker windows during cleanup so landed runtime artifacts still get removed", async () => {
+    const runner = vi.fn().mockRejectedValue(
+      new ProcessCommandError({
+        command: "tmux",
+        args: ["kill-window", "-t", "pi-bw:bw-worker"],
+        code: 1,
+        stderr: "can't find pane: pi-bw:bw-worker",
+      }),
+    );
+    const backend = createTmuxBackend(runner);
+
+    await expect(
+      backend.cleanupWorker({
+        paneId: "%42",
+        sessionName: "pi-bw",
+        windowName: "bw-worker",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("still surfaces unexpected tmux cleanup failures", async () => {
+    const runner = vi.fn().mockRejectedValue(
+      new ProcessCommandError({
+        command: "tmux",
+        args: ["kill-window", "-t", "pi-bw:bw-worker"],
+        code: 1,
+        stderr: "permission denied",
+      }),
+    );
+    const backend = createTmuxBackend(runner);
+
+    await expect(
+      backend.cleanupWorker({
+        paneId: "%42",
+        sessionName: "pi-bw",
+        windowName: "bw-worker",
+      }),
+    ).rejects.toThrow("permission denied");
   });
 });

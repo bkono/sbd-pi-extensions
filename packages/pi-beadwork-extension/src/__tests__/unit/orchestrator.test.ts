@@ -15,6 +15,7 @@ import {
 } from "../../orchestrator.js";
 import { ProcessCommandError } from "../../process.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
+import { createTmuxBackend } from "../../tmux.js";
 import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
 const itInTmuxSession = process.env.TMUX?.trim() ? it : it.skip;
@@ -308,6 +309,100 @@ describe("worker inspection", () => {
     expect(inspected.landingVerifiedAt).toBeTruthy();
     expect(inspected.lastError).toBeUndefined();
     expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
+    expect(existsSync(runtimeDir)).toBe(false);
+  });
+
+  it("still removes landed runtime artifacts when tmux teardown reports the worker window is already gone", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-landed-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeRoot = path.join(repoRoot, ".pi", "beadwork", "workers", "runtime");
+    const runtimeDir = path.join(runtimeRoot, "bw-101-worker");
+    await mkdir(worktreePath, { recursive: true });
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      launchCommand: `bash ${path.join(runtimeDir, "launch.sh")}`,
+      cleanupPolicy: "cleanup-after-landing",
+      cleanupStatus: "pending",
+      validationStatus: "passed",
+      ticketStatus: "closed",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    let repoHead = "repo-head";
+    const workerHead = "worker-head";
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "tmux" && args[0] === "kill-window") {
+        throw new ProcessCommandError({
+          command,
+          args,
+          code: 1,
+          stderr: "can't find pane: pi-bw:bw-101",
+        });
+      }
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: `${repoHead}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: `${workerHead}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: merged ? "0 0\n" : "0 2\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "merge-base\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        repoHead = workerHead;
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "worktree" && args[1] === "remove") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend: createTmuxBackend(runner),
+      runner,
+    });
+
+    expect(inspected.status).toBe("landed");
+    expect(inspected.cleanupStatus).toBe("cleaned");
+    expect(inspected.lastError).toBeUndefined();
     expect(existsSync(runtimeDir)).toBe(false);
   });
 

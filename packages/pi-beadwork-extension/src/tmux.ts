@@ -1,4 +1,9 @@
-import { defaultProcessRunner, type ProcessRunner, slugify } from "./process.js";
+import {
+  defaultProcessRunner,
+  ProcessCommandError,
+  type ProcessRunner,
+  slugify,
+} from "./process.js";
 
 export type LaunchTmuxWorkerInput = {
   sessionName: string;
@@ -43,6 +48,17 @@ export interface TmuxBackend {
 
 function normalizeWindowName(workerId: string, title: string): string {
   return `${workerId}-${slugify(title, 24)}`.slice(0, 48);
+}
+
+function isMissingTmuxTargetError(error: unknown): boolean {
+  const detail =
+    error instanceof ProcessCommandError
+      ? `${error.stderr}\n${error.stdout}\n${error.message}`
+      : error instanceof Error
+        ? error.message
+        : String(error);
+
+  return /can't find (?:pane|window|session)|no server running on/i.test(detail);
 }
 
 export function createTmuxBackend(runner: ProcessRunner = defaultProcessRunner): TmuxBackend {
@@ -156,14 +172,26 @@ export function createTmuxBackend(runner: ProcessRunner = defaultProcessRunner):
 
     async cleanupWorker(input) {
       if (input.sessionName && input.windowName) {
-        await runner("tmux", ["kill-window", "-t", `${input.sessionName}:${input.windowName}`], {
-          timeout: 5_000,
-        });
+        try {
+          await runner("tmux", ["kill-window", "-t", `${input.sessionName}:${input.windowName}`], {
+            timeout: 5_000,
+          });
+        } catch (error) {
+          if (!isMissingTmuxTargetError(error)) {
+            throw error;
+          }
+        }
         return;
       }
 
       if (input.paneId) {
-        await runner("tmux", ["kill-pane", "-t", input.paneId], { timeout: 5_000 });
+        try {
+          await runner("tmux", ["kill-pane", "-t", input.paneId], { timeout: 5_000 });
+        } catch (error) {
+          if (!isMissingTmuxTargetError(error)) {
+            throw error;
+          }
+        }
       }
     },
   };
