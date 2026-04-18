@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T05:08:13Z",
+  "description": "When a landing attempt passes review but then fails during the final rebase/merge step, a subsequent `land` retry should not send the change back through review again.\n\nScope:\n- capture/persist the distinction between review success and a later integration failure\n- ensure a retry resumes from the correct post-review stage\n- add regression coverage for: review passes -\u003e final rebase/merge fails -\u003e retry lands without re-review\n\nNotes:\n- this shares landing-state logic with the other landing-flow tickets; prefer landing-lane work to happen in the same branch/worker sequence\n- preserve existing review behavior for tickets that truly need re-review\n\nDefinition of done:\n- tests added/updated under `packages/pi-beadwork-extension/src/__tests__`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+  "id": "sbdpi-ik2.1",
+  "labels": [],
+  "parent": "sbdpi-ik2",
+  "priority": 1,
+  "status": "open",
+  "title": "Do not re-queue review after review passed and `land` only failed at final rebase/merge",
+  "type": "task",
+  "updated_at": "2026-04-18T05:08:13Z"
+}
