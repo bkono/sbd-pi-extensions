@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "sbdpi-f51.3.2",
     "sbdpi-f51.4.1"
   ],
   "blocks": [
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Add smaller observation chunking and heuristics beyond raw token totals",
   "type": "task",
-  "updated_at": "2026-04-17T01:43:45Z"
+  "updated_at": "2026-04-18T06:38:36Z"
 }
