@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T05:07:41Z",
+  "description": "Follow-up work from real-world beadwork usage on another dev machine. Scope this epic to `packages/pi-beadwork-extension`.\n\nRequested outcomes:\n- harden the `land` path around rebase/merge failures and retry behavior\n- respect configured worker concurrency limits during orchestration\n- support a per-delegate model override for one-off runs\n- clean up `.pi/beadwork/workers/runtime` artifacts alongside worker/worktree teardown\n\nRecommended execution lanes to avoid merge stomps:\n1. Landing lane (shared files/flow; prefer one worker or one serial branch):\n   - mechanical rebase failure should resubmit with LLM assistance\n   - preserve passed review when final rebase/merge fails and land is retried\n   - fix dirty-worktree / `context.md` interaction during landing\n2. Independent lane: respect configured concurrent worker limit during run\n3. Independent lane: add per-delegate `--model provider/model` override\n4. Independent lane: clean up worker runtime state/logs when worktree is removed\n\nDefinition of done for implementation tickets:\n- add/update tests under `packages/pi-beadwork-extension/src/__tests__`\n- run `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- run `npm run test -w @solvedbydev/pi-beadwork-extension`\n- run `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+  "id": "sbdpi-ik2",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Stabilize beadwork landing flow and worker orchestration follow-ups",
+  "type": "epic",
+  "updated_at": "2026-04-18T05:07:41Z"
+}
