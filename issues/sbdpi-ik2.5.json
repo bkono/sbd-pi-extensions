@@ -2,14 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T06:16:01Z",
   "created": "2026-04-18T05:08:51Z",
   "description": "Add a simple one-off model override for `delegate`, e.g. `--model cursor/composer-2`, so a single ticket can run with a different provider/model than the default beadwork configuration.\n\nScope:\n- extend delegate CLI parsing in `packages/pi-beadwork-extension/src/argv.ts` / related command wiring\n- thread the override through worker launch/config resolution without mutating global defaults\n- support the existing `provider/model` style requested by the user\n- add regression coverage for parsing and runtime propagation of the override\n- document the new flag where delegate usage is described\n\nDefinition of done:\n- tests added/updated under `packages/pi-beadwork-extension/src/__tests__`\n- documentation updated where delegate flags/options are described\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
   "id": "sbdpi-ik2.5",
   "labels": [],
   "parent": "sbdpi-ik2",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add a per-delegate `--model provider/model` override",
   "type": "task",
-  "updated_at": "2026-04-18T06:05:16Z"
+  "updated_at": "2026-04-18T06:16:01Z"
 }
