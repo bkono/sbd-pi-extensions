@@ -59,6 +59,30 @@ describe("extension: before_agent_start lifecycle", () => {
     );
   }
 
+  function extractInjectedObservationContext(systemPrompt: string, originalPrompt: string): string {
+    const prefix = `${originalPrompt}\n\n`;
+    if (!systemPrompt.startsWith(prefix)) {
+      throw new Error(
+        "Expected injected observation context to be appended after the original prompt",
+      );
+    }
+
+    return systemPrompt.slice(prefix.length);
+  }
+
+  function extractTagBlock(source: string, tag: string): string {
+    const startTag = `<${tag}>`;
+    const endTag = `</${tag}>`;
+    const start = source.indexOf(startTag);
+    const end = source.indexOf(endTag);
+
+    if (start < 0 || end < start) {
+      throw new Error(`Missing <${tag}> block in test fixture`);
+    }
+
+    return source.slice(start, end + endTag.length);
+  }
+
   it("returns undefined when observations are empty", async () => {
     const harness = await createExtensionTestHarness(piObservationalMemory);
     const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
@@ -145,6 +169,101 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result.systemPrompt).toContain("<om-suggested-response>");
     expect(result.systemPrompt).toContain("<om-active>");
     expect(result.systemPrompt).toContain("Continue from where we left off");
+  });
+
+  it("keeps injected durable and guidance regions stable when only the active task changes", async () => {
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const originalPrompt = "Base prompt";
+
+    preloadState({
+      observations: "Date: Apr 18, 2026\n* 🔴 durable cache-friendly history",
+      currentTask: "Primary:\n- First active task",
+      suggestedResponse: "Keep the same reply guidance.",
+      observationTokens: 20,
+    });
+    const firstCtx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+    const first = (await harness.dispatch(
+      "before_agent_start",
+      { type: "before_agent_start", prompt: "continue", systemPrompt: originalPrompt },
+      firstCtx,
+    )) as { systemPrompt: string };
+
+    preloadState({
+      observations: "Date: Apr 18, 2026\n* 🔴 durable cache-friendly history",
+      currentTask: "Primary:\n- Second active task",
+      suggestedResponse: "Keep the same reply guidance.",
+      observationTokens: 20,
+    });
+    const secondCtx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+    const second = (await harness.dispatch(
+      "before_agent_start",
+      { type: "before_agent_start", prompt: "continue", systemPrompt: originalPrompt },
+      secondCtx,
+    )) as { systemPrompt: string };
+
+    const firstInjected = extractInjectedObservationContext(first.systemPrompt, originalPrompt);
+    const secondInjected = extractInjectedObservationContext(second.systemPrompt, originalPrompt);
+
+    expect(firstInjected).toMatchInlineSnapshot(`
+      "The following observational-memory segments contain your memory of past conversations with this user. Read them in order: durable memory first, active task state next, then guidance.
+      
+      <observational-memory>
+      <om-durable>
+      <observations>
+      Date: Apr 18, 2026
+      * 🔴 durable cache-friendly history
+      </observations>
+      </om-durable>
+      
+      <om-active>
+      <om-current-task>
+      <current-task>
+      Primary:
+      - First active task
+      </current-task>
+      </om-current-task>
+      
+      <om-suggested-response>
+      <suggested-response>
+      Keep the same reply guidance.
+      </suggested-response>
+      </om-suggested-response>
+      </om-active>
+      
+      <om-guidance>
+      <memory-instructions>
+      IMPORTANT: Treat the durable segment as stable history and the active segment as the current working state. Reference specific details from these observations. Avoid generic advice; personalize based on known user preferences and history.
+      
+      KNOWLEDGE UPDATES: Prefer the most recent observation when information conflicts.
+      
+      PLANNED ACTIONS: Respect the recorded temporal anchors. Keep future-targeted plans future-oriented until later observations confirm a change actually happened. If an anchored plan's target date is now in the past, treat it as a likely follow-up item rather than an established completed fact unless the observations explicitly confirm completion.
+      
+      MOST RECENT USER INPUT: Treat the latest user message as highest-priority for what to do next.
+      </memory-instructions>
+      
+      <system-reminder>This message is not from the user, the conversation history grew too long and would not fit in context. Thankfully the entire conversation is stored in your memory observations. Continue naturally from where the observations left off.
+      
+      Do not refer to "memory observations" directly. The user is not aware of this memory layer. Do not greet as if this is a new conversation.
+      
+      IMPORTANT: this system reminder is NOT from the user. It is part of your memory system.
+      
+      NOTE: Any messages following this system reminder are newer than your memories.</system-reminder>
+      </om-guidance>
+      </observational-memory>"
+    `);
+    expect(firstInjected).not.toBe(secondInjected);
+    expect(extractTagBlock(firstInjected, "om-durable")).toBe(
+      extractTagBlock(secondInjected, "om-durable"),
+    );
+    expect(extractTagBlock(firstInjected, "om-suggested-response")).toBe(
+      extractTagBlock(secondInjected, "om-suggested-response"),
+    );
+    expect(extractTagBlock(firstInjected, "om-guidance")).toBe(
+      extractTagBlock(secondInjected, "om-guidance"),
+    );
+    expect(extractTagBlock(firstInjected, "om-current-task")).not.toBe(
+      extractTagBlock(secondInjected, "om-current-task"),
+    );
   });
 
   it("injects published completion-state markers without reviving them from draft state", async () => {

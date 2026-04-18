@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildContinuationReminder, buildObservationContext } from "../../engine.js";
+import {
+  buildContinuationReminder,
+  buildObservationContext,
+  buildStoredObservationBlock,
+  buildStoredObservationSegments,
+} from "../../engine.js";
 import { OBSERVATION_CONTEXT_INSTRUCTIONS, OBSERVATION_CONTEXT_PROMPT } from "../../prompts.js";
 import type { SessionState } from "../../types.js";
 
@@ -18,6 +23,30 @@ function state(partial: Partial<SessionState>): SessionState {
     updatedAt: Date.now(),
     ...partial,
   };
+}
+
+function extractTagBlock(source: string, tag: string): string {
+  const startTag = `<${tag}>`;
+  const endTag = `</${tag}>`;
+  const start = source.indexOf(startTag);
+  const end = source.indexOf(endTag);
+
+  if (start < 0 || end < start) {
+    throw new Error(`Missing <${tag}> block in test fixture`);
+  }
+
+  return source.slice(start, end + endTag.length);
+}
+
+function extractObservationPrefixBeforeGuidance(source: string): string {
+  const start = source.indexOf("<observational-memory>");
+  const guidance = source.indexOf("\n\n<om-guidance>");
+
+  if (start < 0 || guidance < start) {
+    throw new Error("Missing observational-memory guidance boundary in test fixture");
+  }
+
+  return source.slice(start, guidance);
 }
 
 describe("buildObservationContext", () => {
@@ -89,6 +118,62 @@ describe("buildObservationContext", () => {
     expect(result).toContain("<system-reminder>");
   });
 
+  it("preserves the future segmented layout inside the single-string fallback prefix", () => {
+    const published = state({
+      observations: `Date: Apr 18, 2026
+* 🔴 Durable preference: keep cache-friendly prompt prefixes stable.
+
+Date: Apr 19, 2026
+* 🟡 Tooling note: later active-state updates should stay localized.`,
+      currentTask: `Primary:
+- Verify the active task segment changes without rewriting durable memory.
+Secondary:
+- Keep the fallback layout ready for future multi-message injection.`,
+      suggestedResponse:
+        "Confirm the durable history is stable, then explain that only the active segment changed.",
+    });
+    const segments = buildStoredObservationSegments(published);
+    const storedBlock = buildStoredObservationBlock(published);
+    const context = buildObservationContext(published);
+
+    expect(segments).toBeDefined();
+    expect(storedBlock).toBeDefined();
+    expect(context).toBeDefined();
+
+    const prefix = extractObservationPrefixBeforeGuidance(context!);
+    expect(prefix).toMatchInlineSnapshot(`
+      "<observational-memory>
+      <om-durable>
+      <observations>
+      Date: Apr 18, 2026
+      * 🔴 Durable preference: keep cache-friendly prompt prefixes stable.
+      
+      Date: Apr 19, 2026
+      * 🟡 Tooling note: later active-state updates should stay localized.
+      </observations>
+      </om-durable>
+      
+      <om-active>
+      <om-current-task>
+      <current-task>
+      Primary:
+      - Verify the active task segment changes without rewriting durable memory.
+      Secondary:
+      - Keep the fallback layout ready for future multi-message injection.
+      </current-task>
+      </om-current-task>
+      
+      <om-suggested-response>
+      <suggested-response>
+      Confirm the durable history is stable, then explain that only the active segment changed.
+      </suggested-response>
+      </om-suggested-response>
+      </om-active>"
+    `);
+    expect(prefix).toBe(["<observational-memory>", ...segments!].join("\n"));
+    expect(storedBlock).toBe(`${prefix}\n</observational-memory>`);
+  });
+
   it("keeps empty active subsegments even when no task state is stored", () => {
     const result = buildObservationContext(state({ observations: "* obs" }))!;
     expect(result).toContain(
@@ -147,6 +232,33 @@ describe("buildObservationContext", () => {
 
     expect(first.slice(durableStart, durableEnd)).toBe(
       second.slice(secondDurableStart, secondDurableEnd),
+    );
+  });
+
+  it("localizes diffs to the active task block when durable and guidance content are unchanged", () => {
+    const first = buildObservationContext(
+      state({
+        observations: "Date: Apr 18, 2026\n* 🔴 durable history",
+        currentTask: "Primary:\n- First active task",
+        suggestedResponse: "Keep the same suggested response.",
+      }),
+    )!;
+    const second = buildObservationContext(
+      state({
+        observations: "Date: Apr 18, 2026\n* 🔴 durable history",
+        currentTask: "Primary:\n- Second active task",
+        suggestedResponse: "Keep the same suggested response.",
+      }),
+    )!;
+
+    expect(first).not.toBe(second);
+    expect(extractTagBlock(first, "om-durable")).toBe(extractTagBlock(second, "om-durable"));
+    expect(extractTagBlock(first, "om-suggested-response")).toBe(
+      extractTagBlock(second, "om-suggested-response"),
+    );
+    expect(extractTagBlock(first, "om-guidance")).toBe(extractTagBlock(second, "om-guidance"));
+    expect(extractTagBlock(first, "om-current-task")).not.toBe(
+      extractTagBlock(second, "om-current-task"),
     );
   });
   it("includes durable, active, and guidance sections in expected order", () => {
