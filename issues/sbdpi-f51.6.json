@@ -11,14 +11,16 @@
     "sbdpi-f51.8",
     "sbdpi-f51.9"
   ],
+  "closed_at": "2026-04-18T23:29:53Z",
+  "close_reason": "All child tasks are closed and landed on feat/more-om.",
   "created": "2026-04-17T01:26:05Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Stable, cache-friendly observation block layout**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 6. Stable, cache-friendly observation block layout**.\n\nImplementation context:\n- current injected block is assembled in `packages/pi-om-extension/src/engine.ts`\n- lifecycle hook for prompt injection is `packages/pi-om-extension/src/index.ts` (`before_agent_start`)\n- prompt guidance and continuation reminder live in `src/prompts.ts`\n- formatting/reporting utilities are in `src/format.ts`\n\nWhat this epic should establish:\n- deterministic segmentation between durable observations, active task state, suggested response/next action, and continuation guidance\n- minimal churn when content is semantically unchanged\n- a layout that is easy to migrate to multiple cache-stable messages later if pi exposes the right hook surface\n\nUseful references:\n- backlog doc section 6 plus linked Mastra refs (`processor.ts`, `observational-memory.mdx`)\n- local tests for context building and extension injection lifecycle\n\nIf pi still only permits one mutable system-prompt string here, preserve the same logical segmentation inside that single injected region.",
   "id": "sbdpi-f51.6",
   "labels": [],
   "parent": "sbdpi-f51.10",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Make the injected OM block stable and cache-friendly",
   "type": "epic",
-  "updated_at": "2026-04-18T07:05:06Z"
+  "updated_at": "2026-04-18T23:29:53Z"
 }
