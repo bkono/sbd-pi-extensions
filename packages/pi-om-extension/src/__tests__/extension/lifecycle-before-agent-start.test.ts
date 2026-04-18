@@ -35,6 +35,10 @@ describe("extension: before_agent_start lifecycle", () => {
     currentTask?: string;
     suggestedResponse?: string;
     observationTokens?: number;
+    draftObservations?: string;
+    draftObservationTokens?: number;
+    draftCurrentTask?: string;
+    draftSuggestedResponse?: string;
   }) {
     const stateDir = `${temp.stateDir}/.pi/om-state`;
     mkdirSync(stateDir, { recursive: true });
@@ -46,6 +50,10 @@ describe("extension: before_agent_start lifecycle", () => {
         observationTokens: state.observationTokens ?? 0,
         currentTask: state.currentTask,
         suggestedResponse: state.suggestedResponse,
+        draftObservations: state.draftObservations,
+        draftObservationTokens: state.draftObservationTokens,
+        draftCurrentTask: state.draftCurrentTask,
+        draftSuggestedResponse: state.draftSuggestedResponse,
         updatedAt: Date.now(),
       }),
     );
@@ -84,6 +92,34 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result!.systemPrompt).toContain("🔴 user likes X");
     expect(result!.systemPrompt).toContain("<om-guidance>");
     expect(result!.systemPrompt).toContain("<system-reminder>");
+  });
+
+  it("injects only the published snapshot when draft state is ahead", async () => {
+    preloadState({
+      observations: "* 🔴 published snapshot",
+      observationTokens: 20,
+      currentTask: "Published task",
+      suggestedResponse: "Published response",
+      draftObservations: "* 🟡 staged draft only",
+      draftObservationTokens: 40,
+      draftCurrentTask: "Draft task",
+      draftSuggestedResponse: "Draft response",
+    });
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = (await harness.dispatch(
+      "before_agent_start",
+      { type: "before_agent_start", prompt: "continue", systemPrompt: "Base prompt" },
+      ctx,
+    )) as { systemPrompt: string };
+
+    expect(result.systemPrompt).toContain("published snapshot");
+    expect(result.systemPrompt).toContain("Published task");
+    expect(result.systemPrompt).toContain("Published response");
+    expect(result.systemPrompt).not.toContain("staged draft only");
+    expect(result.systemPrompt).not.toContain("Draft task");
+    expect(result.systemPrompt).not.toContain("Draft response");
   });
 
   it("includes currentTask and suggestedResponse in the appendix", async () => {

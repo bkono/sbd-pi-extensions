@@ -169,6 +169,17 @@ export function getMessagesBetweenCursors(
   };
 }
 
+/**
+ * Published observation snapshot that is safe to inject into prompts, expose in
+ * slash-command output, and use for pruning decisions on the next turn.
+ * Draft fields are intentionally excluded.
+ */
+export interface PublishedObservationState {
+  observations: string;
+  observationEntries?: ObservationEntry[];
+  currentTask?: string;
+  suggestedResponse?: string;
+}
 function getDraftObservationState(state: SessionState): DraftObservationState {
   return {
     observations: state.draftObservations,
@@ -180,6 +191,15 @@ function getDraftObservationState(state: SessionState): DraftObservationState {
     lastObservedTimestamp: state.draftLastObservedTimestamp,
     currentTask: state.draftCurrentTask,
     suggestedResponse: state.draftSuggestedResponse,
+  };
+}
+
+export function getPublishedObservationState(state: SessionState): PublishedObservationState {
+  return {
+    observations: state.observations,
+    observationEntries: cloneObservationEntries(state.observationEntries),
+    currentTask: state.currentTask,
+    suggestedResponse: state.suggestedResponse,
   };
 }
 
@@ -520,10 +540,7 @@ export async function runObservationCycle(
 // Context building (injected into system prompt area)
 // ---------------------------------------------------------------------------
 
-type StoredObservationContextState = Pick<
-  SessionState,
-  "observations" | "observationEntries" | "currentTask" | "suggestedResponse"
->;
+type StoredObservationContextState = PublishedObservationState;
 
 function normalizeContextSection(value?: string): string | undefined {
   if (typeof value !== "string") {
@@ -580,7 +597,7 @@ export function buildStoredObservationBlock(
 
   return ["<observational-memory>", ...segments, "</observational-memory>"].join("\n");
 }
-export function buildObservationContext(state: SessionState): string | undefined {
+export function buildObservationContext(state: PublishedObservationState): string | undefined {
   const segments = buildStoredObservationSegments(state);
   if (!segments) {
     return undefined;

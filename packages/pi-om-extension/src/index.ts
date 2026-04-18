@@ -11,6 +11,7 @@ import {
   getMessagesBetweenCursors,
   getObservationChunk,
   getObservationTriggerThresholds,
+  getPublishedObservationState,
   getUnobservedMessages,
   runObservationCycle,
 } from "./engine.js";
@@ -93,7 +94,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
-    const observationContext = buildObservationContext(state);
+    const observationContext = buildObservationContext(getPublishedObservationState(state));
     if (!observationContext) return;
 
     // Append the segmented observation context to the system prompt. The chaining
@@ -232,7 +233,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     // matching the original opencode behavior where observations were injected
     // into the compaction context.
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    const observationContext = buildObservationContext(state);
+    const observationContext = buildObservationContext(getPublishedObservationState(state));
 
     if (observationContext) {
       const { preparation } = event;
@@ -379,7 +380,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
-    const storedBlock = buildStoredObservationBlock(state);
+    const storedBlock = buildStoredObservationBlock(getPublishedObservationState(state));
     if (!storedBlock) {
       return ["(no observations stored)"];
     }

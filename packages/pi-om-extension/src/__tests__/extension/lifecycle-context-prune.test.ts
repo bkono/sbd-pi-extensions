@@ -180,6 +180,82 @@ describe("extension: context lifecycle (message pruning)", () => {
     }
   });
 
+  it("keeps staged observations out of the prompt until agent_end publishes them", async () => {
+    const originalStageEnv = process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS;
+    const originalPublishEnv = process.env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS;
+    process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS = "50";
+    process.env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS = "50";
+
+    try {
+      mock = new MockObservationAgents({
+        observeResponses: [
+          { observations: "* 🟡 staged mid-turn", raw: "" },
+          { observations: "* 🟡 staged mid-turn\n\n* 🔴 published at turn boundary", raw: "" },
+        ],
+      });
+      __installMockAgents(mock);
+
+      const msgs = conversation(5, { baseTs: 1_700_000_000_000, contentSize: 200 });
+      preloadState({
+        observations: "* published from previous turn",
+        observationTokens: 10,
+        lastObservedEntryId: messageId(msgs[1]!),
+        lastObservedTimestamp: 1_700_000_000_000 + 1000,
+      });
+      const harness = await createExtensionTestHarness(piObservationalMemory);
+      const ctx = createFakeExtensionContext({
+        cwd: temp.stateDir,
+        sessionId,
+        entries: asBranchEntries(msgs),
+      });
+
+      const initialPrompt = (await harness.dispatch(
+        "before_agent_start",
+        { type: "before_agent_start", prompt: "continue", systemPrompt: "Base prompt" },
+        ctx,
+      )) as { systemPrompt: string };
+      expect(initialPrompt.systemPrompt).toContain("published from previous turn");
+      expect(initialPrompt.systemPrompt).not.toContain("staged mid-turn");
+
+      const contextResult = (await harness.dispatch(
+        "context",
+        { type: "context", messages: msgs },
+        ctx,
+      )) as { messages: Message[] };
+      expect(contextResult.messages).toHaveLength(3);
+
+      const midTurnPrompt = (await harness.dispatch(
+        "before_agent_start",
+        { type: "before_agent_start", prompt: "continue", systemPrompt: "Base prompt" },
+        ctx,
+      )) as { systemPrompt: string };
+      expect(midTurnPrompt.systemPrompt).toContain("published from previous turn");
+      expect(midTurnPrompt.systemPrompt).not.toContain("staged mid-turn");
+
+      await harness.dispatch("agent_end", { type: "agent_end", messages: msgs.slice(-2) }, ctx);
+
+      const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+      expect(state.observations).toContain("staged mid-turn");
+      expect(state.observations).toContain("published at turn boundary");
+      expect(state.lastObservedEntryId).toBe(messageId(msgs[4]!));
+
+      const nextTurnPrompt = (await harness.dispatch(
+        "before_agent_start",
+        { type: "before_agent_start", prompt: "continue", systemPrompt: "Base prompt" },
+        ctx,
+      )) as { systemPrompt: string };
+      expect(nextTurnPrompt.systemPrompt).toContain("staged mid-turn");
+      expect(nextTurnPrompt.systemPrompt).toContain("published at turn boundary");
+    } finally {
+      if (originalStageEnv === undefined) delete process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS;
+      else process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS = originalStageEnv;
+
+      if (originalPublishEnv === undefined)
+        delete process.env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS;
+      else process.env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS = originalPublishEnv;
+    }
+  });
+
   it("does NOT advance the cursor", async () => {
     const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
     const harness = await createExtensionTestHarness(piObservationalMemory);
