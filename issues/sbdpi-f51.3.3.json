@@ -6,6 +6,7 @@
   ],
   "blocks": [
     "sbdpi-f51.3",
+    "sbdpi-f51.4.3",
     "sbdpi-f51.7.1",
     "sbdpi-f51.8.1",
     "sbdpi-f51.9.1"
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "Publish staged observations only at turn boundaries and inject only published state next turn",
   "type": "task",
-  "updated_at": "2026-04-18T06:38:48Z"
+  "updated_at": "2026-04-18T06:38:53Z"
 }
