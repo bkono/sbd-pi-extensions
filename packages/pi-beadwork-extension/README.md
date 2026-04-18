@@ -100,7 +100,11 @@ Apply once the preview looks right:
 
 ```text
 /bw delegate sbdpi-swx.6.4.2
+/bw delegate sbdpi-swx.6.4.2 --model cursor/composer-2
 ```
+
+Use `--model provider/model` for a one-off worker override without changing the
+repo or global beadwork defaults.
 
 What happens:
 
@@ -240,7 +244,7 @@ Core human workflow:
 - `/bw ready [scope]`
 - `/bw show <id>`
 - `/bw adopt [markdown] [--file path] [--title ...] [--land quick|branch|multi] [--apply]`
-- `/bw delegate <ticket-id>`
+- `/bw delegate <ticket-id> [--model provider/model]`
 - `/bw workers [epic-id]`
 - `/bw land <ticket-id|worker-id>`
 - `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]`

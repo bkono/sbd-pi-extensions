@@ -65,6 +65,8 @@ Use `multi` when the markdown describes the intent but the graph still benefits 
 ## Delegated worker lifecycle
 
 `/bw delegate <ticket-id>` launches one ticket into its own worktree-backed tmux worker.
+Add `--model provider/model` when one delegated pass should run on a different
+worker model without changing shared defaults.
 
 ### What delegation does
 

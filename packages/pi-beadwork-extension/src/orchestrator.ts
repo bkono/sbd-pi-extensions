@@ -113,22 +113,59 @@ function buildModelScopedAgentCommand(input: {
   return parts.filter((part) => part.length > 0).join(" ");
 }
 
-export function buildWorkerAgentCommand(config: BeadworkConfig): string {
+type WorkerAgentSettings = Partial<
+  Pick<WorkerRuntime, "workerCommand" | "workerProvider" | "workerModel">
+>;
+
+function resolveWorkerAgentSettings(
+  config: BeadworkConfig,
+  override?: WorkerAgentSettings,
+): Required<Pick<WorkerRuntime, "workerCommand">> &
+  Pick<WorkerRuntime, "workerProvider" | "workerModel"> {
+  return {
+    workerCommand: override?.workerCommand?.trim() || config.tmux.workerCommand,
+    workerProvider: override?.workerProvider?.trim() || config.tmux.workerProvider,
+    workerModel: override?.workerModel?.trim() || config.tmux.workerModel,
+  };
+}
+
+function resolveReviewerAgentSettings(
+  config: BeadworkConfig,
+  worker?: WorkerAgentSettings,
+): Required<Pick<WorkerRuntime, "workerCommand">> &
+  Pick<WorkerRuntime, "workerProvider" | "workerModel"> {
+  const resolvedWorker = resolveWorkerAgentSettings(config, worker);
+  return {
+    workerCommand: resolvedWorker.workerCommand,
+    workerProvider: config.landing.review.provider ?? resolvedWorker.workerProvider,
+    workerModel: config.landing.review.model ?? resolvedWorker.workerModel,
+  };
+}
+
+export function buildWorkerAgentCommand(
+  config: BeadworkConfig,
+  override?: WorkerAgentSettings,
+): string {
+  const worker = resolveWorkerAgentSettings(config, override);
   return buildModelScopedAgentCommand({
-    command: config.tmux.workerCommand,
-    provider: config.tmux.workerProvider,
-    model: config.tmux.workerModel,
+    command: worker.workerCommand,
+    provider: worker.workerProvider,
+    model: worker.workerModel,
   });
 }
 
-export function buildReviewerAgentCommand(config: BeadworkConfig): string {
+export function buildReviewerAgentCommand(
+  config: BeadworkConfig,
+  worker?: WorkerAgentSettings,
+): string {
+  const reviewer = resolveReviewerAgentSettings(config, worker);
   const command = buildModelScopedAgentCommand({
-    command: config.tmux.workerCommand,
-    provider: config.landing.review.provider ?? config.tmux.workerProvider,
-    model: config.landing.review.model ?? config.tmux.workerModel,
+    command: reviewer.workerCommand,
+    provider: reviewer.workerProvider,
+    model: reviewer.workerModel,
   });
 
-  if (!shouldNormalizePiWorkerCommand(config.tmux.workerCommand)) {
+  if (!shouldNormalizePiWorkerCommand(reviewer.workerCommand)) {
     return command;
   }
 
@@ -797,7 +834,7 @@ async function runReviewerPass(input: {
       `[beadwork reviewer] handoff: ${promptFile}\n`,
   );
 
-  const reviewerCommand = buildReviewerAgentCommand(input.config);
+  const reviewerCommand = buildReviewerAgentCommand(input.config, input.worker);
   const reviewerInvocation = `${reviewerCommand} "$(cat ${shellQuote(promptFile)})"`;
   reviewLog.write(`[beadwork reviewer] command: ${reviewerInvocation}\n`);
 
@@ -858,7 +895,7 @@ async function relaunchWorkerForValidationFailure(input: {
     validationDetail: input.validationDetail,
     validationCommands: input.config.landing.validateCommands,
   });
-  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+  const workerAgentCommand = buildWorkerAgentCommand(input.config, input.worker);
 
   await writeFile(input.worker.promptFile, `${remediationPrompt}\n`, "utf8");
   await writeFile(
@@ -904,9 +941,9 @@ async function relaunchWorkerForValidationFailure(input: {
     tmuxWindow: launched.windowName,
     tmuxPane: launched.paneId,
     launchCommand: launched.launchCommand,
-    workerCommand: input.config.tmux.workerCommand,
-    workerProvider: input.config.tmux.workerProvider,
-    workerModel: input.config.tmux.workerModel,
+    workerCommand: input.worker.workerCommand,
+    workerProvider: input.worker.workerProvider,
+    workerModel: input.worker.workerModel,
     status: "running",
     validationStatus: "pending",
     validationAt: now,
@@ -936,7 +973,7 @@ async function relaunchWorkerForLandingFailure(input: {
     rebaseDetail: input.rebaseDetail,
     validationCommands: input.config.landing.validateCommands,
   });
-  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+  const workerAgentCommand = buildWorkerAgentCommand(input.config, input.worker);
 
   await writeFile(input.worker.promptFile, `${remediationPrompt}\n`, "utf8");
   await writeFile(
@@ -982,9 +1019,9 @@ async function relaunchWorkerForLandingFailure(input: {
     tmuxWindow: launched.windowName,
     tmuxPane: launched.paneId,
     launchCommand: launched.launchCommand,
-    workerCommand: input.config.tmux.workerCommand,
-    workerProvider: input.config.tmux.workerProvider,
-    workerModel: input.config.tmux.workerModel,
+    workerCommand: input.worker.workerCommand,
+    workerProvider: input.worker.workerProvider,
+    workerModel: input.worker.workerModel,
     status: "running",
     validationStatus: input.config.landing.validateCommands.length > 0 ? "pending" : undefined,
     validationAt: input.config.landing.validateCommands.length > 0 ? now : undefined,
@@ -1030,7 +1067,8 @@ async function relaunchWorkerForReviewFeedback(input: {
     reviewSummary: input.reviewSummary,
     validFeedback: input.validFeedback,
   });
-  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+  const workerAgentCommand = buildWorkerAgentCommand(input.config, input.worker);
+  const reviewerAgent = resolveReviewerAgentSettings(input.config, input.worker);
 
   await writeFile(input.worker.promptFile, `${remediationPrompt}\n`, "utf8");
   await writeFile(
@@ -1076,11 +1114,11 @@ async function relaunchWorkerForReviewFeedback(input: {
     tmuxWindow: launched.windowName,
     tmuxPane: launched.paneId,
     launchCommand: launched.launchCommand,
-    workerCommand: input.config.tmux.workerCommand,
-    workerProvider: input.config.tmux.workerProvider,
-    workerModel: input.config.tmux.workerModel,
-    reviewerProvider: input.config.landing.review.provider ?? input.config.tmux.workerProvider,
-    reviewerModel: input.config.landing.review.model ?? input.config.tmux.workerModel,
+    workerCommand: input.worker.workerCommand,
+    workerProvider: input.worker.workerProvider,
+    workerModel: input.worker.workerModel,
+    reviewerProvider: reviewerAgent.workerProvider,
+    reviewerModel: reviewerAgent.workerModel,
     status: "running",
     validationStatus: "pending",
     validationAt: now,
@@ -1493,11 +1531,12 @@ async function autoLandCompletedWorker(input: {
     });
   }
 
+  const reviewerAgent = resolveReviewerAgentSettings(input.config, input.worker);
   let worker: WorkerRuntime = {
     ...input.worker,
     landingPolicy,
-    reviewerProvider: input.config.landing.review.provider ?? input.config.tmux.workerProvider,
-    reviewerModel: input.config.landing.review.model ?? input.config.tmux.workerModel,
+    reviewerProvider: reviewerAgent.workerProvider,
+    reviewerModel: reviewerAgent.workerModel,
     landingRequestedAt: input.requestLanding
       ? new Date().toISOString()
       : input.worker.landingRequestedAt,
@@ -2082,6 +2121,8 @@ export async function launchTicketWorker(input: {
   ticketId: string;
   epicId?: string;
   prime?: string;
+  workerProviderOverride?: string;
+  workerModelOverride?: string;
   tmuxBackend?: TmuxBackend;
 }): Promise<WorkerRuntime> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
@@ -2126,7 +2167,12 @@ export async function launchTicketWorker(input: {
   const exitCodeFile = path.join(runtimeDir, "exit-code.txt");
   const finishedAtFile = path.join(runtimeDir, "finished-at.txt");
   const scriptFile = path.join(runtimeDir, "launch.sh");
-  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+  const workerAgent = resolveWorkerAgentSettings(input.config, {
+    workerProvider: input.workerProviderOverride,
+    workerModel: input.workerModelOverride,
+  });
+  const reviewerAgent = resolveReviewerAgentSettings(input.config, workerAgent);
+  const workerAgentCommand = buildWorkerAgentCommand(input.config, workerAgent);
 
   await writeFile(promptFile, `${prompt}\n`, "utf8");
   await writeFile(
@@ -2165,11 +2211,11 @@ export async function launchTicketWorker(input: {
     exitCodeFile,
     finishedAtFile,
     launchCommand,
-    workerCommand: input.config.tmux.workerCommand,
-    workerProvider: input.config.tmux.workerProvider,
-    workerModel: input.config.tmux.workerModel,
-    reviewerProvider: input.config.landing.review.provider ?? input.config.tmux.workerProvider,
-    reviewerModel: input.config.landing.review.model ?? input.config.tmux.workerModel,
+    workerCommand: workerAgent.workerCommand,
+    workerProvider: workerAgent.workerProvider,
+    workerModel: workerAgent.workerModel,
+    reviewerProvider: reviewerAgent.workerProvider,
+    reviewerModel: reviewerAgent.workerModel,
     cleanupPolicy: input.config.worktrees.cleanup,
     landingPolicy: input.config.landing.policy,
     reviewStatus: input.config.landing.review.enabled ? "pending" : undefined,

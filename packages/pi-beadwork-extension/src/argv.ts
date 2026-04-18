@@ -3,6 +3,11 @@ export type ParsedArgv = {
   options: Map<string, string | true>;
 };
 
+export type ParsedModelOverride = {
+  provider?: string;
+  model: string;
+};
+
 export function tokenizeArgs(input: string): string[] {
   const tokens: string[] = [];
   const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
@@ -47,4 +52,26 @@ export function parseArgv(input: string): ParsedArgv {
   }
 
   return { positional, options };
+}
+
+export function parseModelOverride(value: string): ParsedModelOverride {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Model override cannot be empty.");
+  }
+
+  const separatorIndex = trimmed.indexOf("/");
+  if (separatorIndex === -1) {
+    return { model: trimmed };
+  }
+
+  const provider = trimmed.slice(0, separatorIndex).trim();
+  const model = trimmed.slice(separatorIndex + 1).trim();
+  if (!provider || !model) {
+    throw new Error(
+      `Invalid model override: ${value}. Expected provider/model or a bare model name.`,
+    );
+  }
+
+  return { provider, model };
 }

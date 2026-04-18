@@ -146,6 +146,26 @@ describe("orchestrator helpers", () => {
     );
   });
 
+  it("builds worker commands with a one-off provider/model override without mutating defaults", () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      tmux: {
+        ...DEFAULT_CONFIG.tmux,
+        workerProvider: "openai",
+        workerModel: "gpt-5.4",
+      },
+    };
+
+    expect(
+      buildWorkerAgentCommand(config, {
+        workerProvider: "cursor",
+        workerModel: "composer-2",
+      }),
+    ).toBe("pi --mode json --provider 'cursor' --model 'composer-2'");
+    expect(config.tmux.workerProvider).toBe("openai");
+    expect(config.tmux.workerModel).toBe("gpt-5.4");
+  });
+
   it("stops active workers and persists the updated runtime state", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-stop-"));
     const registryPath = resolveWorkerRegistryPath(
@@ -486,6 +506,124 @@ describe("worker inspection", () => {
     expect(inspected.reviewStatus).toBe("nits-only");
     expect(inspected.reviewVerdict).toBe("approve-with-nits");
     expect(inspected.landingVerification).toContain("Reviewer approved with non-blocking nits");
+  });
+
+  it("falls back to the launched worker provider/model for reviewer runs", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-worker-model-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      workerProvider: "cursor",
+      workerModel: "composer-2",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd, issueId) => {
+        if (issueId === "BW-100") {
+          return createIssue({ id: "BW-100", type: "epic", title: "Epic" });
+        }
+        return createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Verify reviewer fallback uses the launched worker override.",
+          parentId: "BW-100",
+          children: [],
+        });
+      }),
+    });
+
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: "repo-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: "0 1\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123 feat: worker override\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "diff") {
+        return { stdout: "diff --git a/file b/file\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("--provider 'cursor' --model 'composer-2'")) {
+        return {
+          stdout: JSON.stringify({
+            verdict: "approve",
+            summary: "Looks good.",
+            feedback: [],
+          }),
+          stderr: "",
+          code: 0,
+        };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          policy: "deferred",
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+          },
+        },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.reviewStatus).toBe("approved");
+    expect(inspected.reviewerProvider).toBe("cursor");
+    expect(inspected.reviewerModel).toBe("composer-2");
+    expect(runner).toHaveBeenCalledWith(
+      "bash",
+      [expect.any(String), expect.stringContaining("--provider 'cursor' --model 'composer-2'")],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
   });
 
   it("rejects out-of-scope reviewer feedback instead of blindly blocking landing", async () => {

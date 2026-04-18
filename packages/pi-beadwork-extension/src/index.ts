@@ -7,7 +7,7 @@ import type {
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { detectActivation } from "./activation.js";
-import { parseArgv } from "./argv.js";
+import { parseArgv, parseModelOverride } from "./argv.js";
 import { createBeadworkAdapter } from "./bw.js";
 import {
   showAdoptionPreview,
@@ -1561,9 +1561,14 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
 
           const ticketId = parsed.positional[0];
           if (!ticketId) {
-            ctx.ui.notify("Usage: /bw delegate <ticket-id>", "info");
+            ctx.ui.notify("Usage: /bw delegate <ticket-id> [--model provider/model]", "info");
             return;
           }
+
+          const modelOverrideValue = readStringOption(parsed.options, "model");
+          const modelOverride = modelOverrideValue
+            ? parseModelOverride(modelOverrideValue)
+            : undefined;
 
           const stateWithPrime = await ensurePrime(
             ctx,
@@ -1580,6 +1585,8 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             ticketId,
             epicId: active.state.scope.kind === "epic" ? active.state.scope.id : undefined,
             prime: stateWithPrime.prime?.content,
+            workerProviderOverride: modelOverride?.provider,
+            workerModelOverride: modelOverride?.model,
           });
           const landingMode = active.config.landing.policy === "deferred" ? "held" : "completed";
           ctx.ui.notify(
@@ -1862,7 +1869,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         }
 
         ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id>|land <ticket-id|worker-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id> [--model provider/model]|land <ticket-id|worker-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
           "info",
         );
       } catch (error) {
@@ -2279,6 +2286,11 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     parameters: Type.Object({
       ticket_id: Type.String({ description: "Ticket id to launch in a worktree." }),
       epic_id: Type.Optional(Type.String({ description: "Optional parent epic id." })),
+      model: Type.Optional(
+        Type.String({
+          description: "Optional one-off worker model override. Supports provider/model.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
@@ -2292,6 +2304,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           details: { activation, state },
         };
       }
+      const modelOverride = params.model ? parseModelOverride(params.model) : undefined;
       const primedState = await ensurePrime(ctx, activation, config, state, false);
       const worker = await launchTicketWorker({
         cwd: ctx.cwd,
@@ -2301,6 +2314,8 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         ticketId: params.ticket_id,
         epicId: params.epic_id,
         prime: primedState.prime?.content,
+        workerProviderOverride: modelOverride?.provider,
+        workerModelOverride: modelOverride?.model,
       });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(worker, null, 2) }],

@@ -639,6 +639,33 @@ describe("pi beadwork extension", () => {
     expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
   });
 
+  it("passes one-off provider/model overrides through /bw delegate", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      sessionId: "session-delegate-model-override",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    launchTicketWorkerMock.mockResolvedValue({
+      ...createWorkerRuntime(tempDir),
+      status: "running",
+      ticketStatus: "open",
+      workerId: "bw-101-worker",
+    });
+
+    await harness.invokeCommand("bw", "delegate BW-101 --model cursor/composer-2", ctx);
+
+    expect(launchTicketWorkerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ticketId: "BW-101",
+        workerProviderOverride: "cursor",
+        workerModelOverride: "composer-2",
+      }),
+    );
+  });
+
   it("allows explicit landing requests for deferred workers", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

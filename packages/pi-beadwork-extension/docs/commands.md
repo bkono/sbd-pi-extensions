@@ -15,7 +15,7 @@ All commands are exposed under `/bw`.
 | `/bw ready [scope]` | Show ready work, optionally scoped. |
 | `/bw blocked` | List currently blocked work. |
 | `/bw workers [epic-id]` | Show delegated worker diagnostics and next actions. |
-| `/bw delegate <ticket-id>` | Launch one ticket into a tmux-backed delegated worker. |
+| `/bw delegate <ticket-id> [--model provider/model]` | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
 | `/bw land <ticket-id|worker-id>` | Resume merge-back for a deferred worker. |
 | `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]` | Run bounded orchestration over an epic. |
 | `/bw adopt [markdown] [--file path] [--title ...] [--land quick|branch|multi] [--apply]` | Turn an explicit markdown plan into a beadwork-aware preview or graph-materialization flow. |
@@ -45,7 +45,14 @@ Usage:
 
 ```text
 /bw delegate <ticket-id>
+/bw delegate <ticket-id> --model cursor/composer-2
 ```
+
+Notes:
+
+- `--model provider/model` only affects that delegated worker launch
+- repo/global `tmux.workerProvider` and `tmux.workerModel` defaults are left unchanged
+- reviewer fallback still follows the launched worker when dedicated reviewer settings are not set
 
 What it does:
 
@@ -209,7 +216,7 @@ The extension also exposes beadwork-aware tools to the model.
 | `beadwork_label_issue` | Apply label mutations. |
 | `beadwork_defer_issue` | Defer one issue. |
 | `beadwork_undefer_issue` | Undefer one issue. |
-| `beadwork_delegate` | Launch a delegated worker for a ticket. |
+| `beadwork_delegate` | Launch a delegated worker for a ticket, optionally with a one-off model override. |
 | `beadwork_land_worker` | Explicitly request merge-back for a held worker. |
 | `beadwork_worker_check` | Inspect worker runtime/diagnostic state. |
 | `beadwork_sync` | Run `bw sync`. |
