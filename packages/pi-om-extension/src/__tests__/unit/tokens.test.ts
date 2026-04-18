@@ -29,6 +29,11 @@ describe("countTokens", () => {
     const long = countTokens("this is a much longer piece of text with many more tokens");
     expect(long).toBeGreaterThan(short);
   });
+
+  it("counts literal special-token text without throwing", () => {
+    expect(() => countTokens("before <|endoftext|> after")).not.toThrow();
+    expect(countTokens("before <|endoftext|> after")).toBeGreaterThan(0);
+  });
 });
 
 describe("serializeMessage", () => {

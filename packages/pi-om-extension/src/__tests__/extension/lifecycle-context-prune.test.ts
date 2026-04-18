@@ -8,7 +8,7 @@ import {
   createExtensionTestHarness,
   createFakeExtensionContext,
 } from "../helpers/extension-harness.js";
-import { conversation, messageId, resetMessageCounter } from "../helpers/fixtures.js";
+import { conversation, messageId, resetMessageCounter, userMsg } from "../helpers/fixtures.js";
 import { MockObservationAgents } from "../helpers/mock-agents.js";
 import { __clearMockAgents, __installMockAgents } from "../helpers/mock-agents-module.js";
 import { createTempStateDir, type TempStateDir } from "../helpers/temp-state-dir.js";
@@ -131,6 +131,26 @@ describe("extension: context lifecycle (message pruning)", () => {
     expect(state.tailEntriesAfterPrune).toBe(3);
     expect(state.prunedEntriesCount).toBe(2);
     expect(state.lastCycleReason).toBe("context");
+  });
+
+  it("does not crash when messages contain literal tiktoken sentinel text", async () => {
+    resetMessageCounter();
+    const msgs = [userMsg("please keep literal <|endoftext|> in the transcript")];
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: msgs },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toHaveLength(1);
+
+    const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+    expect(state.tailEntriesBeforePrune).toBe(1);
+    expect(state.tailTokensBeforePrune).toBeGreaterThan(0);
   });
 
   it("stages observations during context events without publishing them", async () => {

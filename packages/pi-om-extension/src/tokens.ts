@@ -19,7 +19,10 @@ const EMPTY_WINDOW_STATS: ObservationWindowStats = {
 };
 
 export function countTokens(text: string): number {
-  return encoder.encode(text).length;
+  // Raw transcripts can legitimately contain tokenizer sentinel literals like
+  // `<|endoftext|>`. Allow them during accounting so OM lifecycle hooks don't
+  // crash while measuring message windows.
+  return encoder.encode(text, "all").length;
 }
 
 export function serializeMessage(message: Message): string {
