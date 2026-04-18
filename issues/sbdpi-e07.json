@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T04:55:46Z",
+  "description": "Update repo version references from the just-cut `v0.1.0` baseline to `v0.2.0` so upcoming branches and commits clearly target the next round of work. Adjust package metadata and any obvious version references, then validate and commit the change.",
+  "id": "sbdpi-e07",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Bump workspace packages to v0.2.0 for upcoming development cycle",
+  "type": "task",
+  "updated_at": "2026-04-18T04:55:46Z"
+}
