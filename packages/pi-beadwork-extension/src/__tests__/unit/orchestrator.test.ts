@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1190,6 +1191,340 @@ describe("worker inspection", () => {
     expect(firstResult.status).toBe("landed");
     expect(firstResult.reviewStatus).toBe("approved");
     expect(reviewRuns).toBe(1);
+  });
+
+  it("relaunches the worker to resolve a failed landing rebase and lands on retry", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-rebase-remediation-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const initialWorker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    let phase: "rebase-fails" | "after-remediation" = "rebase-fails";
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: `${merged ? "worker-remediated" : "repo-head"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return {
+          stdout: `${phase === "after-remediation" ? "worker-remediated" : "worker-head"}\n`,
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        if (merged) {
+          return { stdout: "0 0\n", stderr: "", code: 0 };
+        }
+        return {
+          stdout: `${phase === "after-remediation" ? "0 1" : "1 1"}\n`,
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "rebase") {
+        throw new Error("CONFLICT (content): Merge conflict in src/orchestrator.ts");
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn().mockResolvedValue({ sessionName: "pi-bw", created: false }),
+      launchWorker: vi.fn().mockResolvedValue({
+        sessionName: "pi-bw",
+        windowName: "bw-101-rebase-remediation",
+        paneId: "%90",
+        launchCommand: initialWorker.launchCommand,
+      }),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const onLifecycleEvent = vi.fn();
+    const remediationStarted = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker: initialWorker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+      onLifecycleEvent,
+    });
+
+    expect(remediationStarted.status).toBe("running");
+    expect(remediationStarted.landingRemediationAttempts).toBe(1);
+    expect(remediationStarted.reviewedWorkerHead).toBeUndefined();
+    expect(onLifecycleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "remediation-started", ticketId: "BW-101" }),
+    );
+
+    const remediationPrompt = await readFile(initialWorker.promptFile, "utf8");
+    expect(remediationPrompt).toContain("The orchestrator attempted to rebase");
+    expect(remediationPrompt).toContain("context.md");
+
+    phase = "after-remediation";
+    const landed = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker: {
+        ...remediationStarted,
+        status: "exited",
+        ticketStatus: "closed",
+        finishedAt: "2026-04-14T01:05:00.000Z",
+      },
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(landed.status).toBe("landed");
+    expect(landed.validationStatus).toBe("passed");
+    expect(landed.landingRemediationAttempts).toBe(1);
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses an approved review when a landing retry only needs final merge-back", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-reuse-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(worktreePath, { recursive: true });
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "passed",
+      status: "attention",
+      reviewStatus: "approved",
+      reviewVerdict: "approve",
+      reviewSummary: "Reviewer approved merge-back. Looks good.",
+      reviewedWorkerHead: "worker-head",
+      landingVerification: "Fast-forward landing failed: repo advanced during merge.",
+      lastError: "Fast-forward landing failed: repo advanced during merge.",
+    });
+    await saveWorkerRegistry(registryPath, [worker]);
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Retry merge-back without rerunning review.",
+          children: [],
+        }),
+      ),
+    });
+
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: `${merged ? "worker-head" : "repo-head"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: `${merged ? "0 0" : "0 1"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("review-model")) {
+        throw new Error("review should not rerun");
+      }
+      if (command === "git" && args[0] === "merge") {
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const queued = await requestWorkerLanding({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+      },
+      adapter,
+      ticketId: "BW-101",
+      tmuxBackend,
+      runner,
+    });
+
+    expect(queued.reviewStatus).toBe("approved");
+    expect(queued.reviewSummary).toContain("Reviewer approved merge-back");
+
+    let finalRegistry = "";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      finalRegistry = await readFile(registryPath, "utf8");
+      if (finalRegistry.includes('"status": "landed"')) {
+        break;
+      }
+    }
+
+    expect(finalRegistry).toContain('"status": "landed"');
+  });
+
+  it("lands successfully when validation leaves behind transient context.md files", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-context-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    const contextPath = path.join(worktreePath, "context.md");
+    await mkdir(worktreePath, { recursive: true });
+
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      validationStatus: "pending",
+      status: "exited",
+    });
+
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+
+    let merged = false;
+    const runner = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      if (command === "git" && args[0] === "status") {
+        return {
+          stdout: existsSync(contextPath) ? "?? context.md\n" : "",
+          stderr: "",
+          code: 0,
+        };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+        return { stdout: `${merged ? "worker-head" : "repo-head"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-list") {
+        return { stdout: `${merged ? "0 0" : "0 1"}\n`, stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run lint") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run test") {
+        await writeFile(contextPath, "generated context\n", "utf8");
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1] === "npm run typecheck") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge") {
+        merged = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const landed = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(landed.status).toBe("landed");
+    expect(landed.validationStatus).toBe("passed");
+    expect(existsSync(contextPath)).toBe(false);
+
+    const workerLog = await readFile(worker.logFile, "utf8");
+    expect(workerLog).toContain("cleaned transient worktree files after validation: context.md");
   });
 
   it("queues explicit landing retries without blocking on reviewer completion", async () => {

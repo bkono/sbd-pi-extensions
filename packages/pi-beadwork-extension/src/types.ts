@@ -299,8 +299,12 @@ export type WorkerRuntime = {
   reviewFeedback?: string[];
   reviewValidFeedbackCount?: number;
   reviewInvalidFeedbackCount?: number;
+  reviewedWorkerHead?: string;
   reviewRemediationAttempts?: number;
   reviewRemediationAt?: string;
+  landingRemediationAttempts?: number;
+  landingRemediationAt?: string;
+  landingRemediationSummary?: string;
   landingVerifiedAt?: string;
   landingVerification?: string;
   landingAheadCount?: number;

@@ -189,6 +189,7 @@ type WorkerOrchestrationLock = {
 const workerOrchestrationLocks = new Map<string, WorkerOrchestrationLock>();
 
 const MAX_VALIDATION_REMEDIATION_ATTEMPTS = 1;
+const MAX_LANDING_REMEDIATION_ATTEMPTS = 1;
 const REVIEWER_ALLOWED_VERDICTS: WorkerReviewVerdict[] = [
   "approve",
   "approve-with-nits",
@@ -513,6 +514,22 @@ function assessReviewerFeedback(input: {
   };
 }
 
+function hasReusableApprovedReview(worker: WorkerRuntime): boolean {
+  return (
+    (worker.reviewStatus === "approved" || worker.reviewStatus === "nits-only") &&
+    typeof worker.reviewedWorkerHead === "string" &&
+    worker.reviewedWorkerHead.trim().length > 0
+  );
+}
+
+function canReuseApprovedReview(worker: WorkerRuntime, workerHead: string | undefined): boolean {
+  return (
+    Boolean(workerHead) &&
+    hasReusableApprovedReview(worker) &&
+    worker.reviewedWorkerHead === workerHead
+  );
+}
+
 export type WorkerLifecycleEvent =
   | {
       type: "post-exit-started";
@@ -557,6 +574,44 @@ function buildValidationRemediationPrompt(input: {
     "- Re-run the necessary validation commands until they pass.",
     "- If you make additional commits, run `bw sync` before exiting.",
     "- If you are blocked or cannot remediate cleanly, explain that clearly and exit.",
+  );
+
+  return lines.join("\n");
+}
+
+function buildLandingRemediationPrompt(input: {
+  worker: WorkerRuntime;
+  rebaseDetail: string;
+  validationCommands: string[];
+}): string {
+  const lines = [
+    "You are continuing delegated work in an existing beadwork ticket worktree.",
+    "",
+    `Ticket: ${input.worker.ticketId} ${input.worker.ticketTitle}`,
+    `Worktree: ${input.worker.worktreePath}`,
+    `Branch: ${input.worker.branchName}`,
+    "",
+    "The orchestrator attempted to rebase this worker branch onto the latest repo HEAD before landing, but the rebase failed.",
+    `Rebase failure: ${input.rebaseDetail}`,
+  ];
+
+  if (input.validationCommands.length > 0) {
+    lines.push("", "Validation commands to satisfy after resolving the rebase:");
+    for (const command of input.validationCommands) {
+      lines.push(`- ${command}`);
+    }
+  }
+
+  lines.push(
+    "",
+    "Rules:",
+    "- Resolve the rebase/conflict mechanically in this existing worktree against the latest repo HEAD.",
+    "- Keep the ticket scoped to the original intent; do not introduce unrelated changes.",
+    "- If you change code while resolving conflicts, commit the updated result on the current branch.",
+    "- Use runtime scratch space instead of leaving transient files like context.md in the worktree.",
+    "- Re-run any required validation commands until they pass.",
+    "- Run `bw sync` before exiting if you create any commits.",
+    "- If you are blocked or cannot resolve the rebase cleanly, explain that clearly and exit.",
   );
 
   return lines.join("\n");
@@ -852,8 +907,102 @@ async function relaunchWorkerForValidationFailure(input: {
     remediationAttempts: remediationAttempt,
     remediationAt: now,
     remediationSummary: `Automatic remediation attempt ${remediationAttempt}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS} is running in the existing worktree.`,
+    reviewedWorkerHead: undefined,
     landingVerifiedAt: undefined,
     landingVerification: `Validation failed; remediation attempt ${remediationAttempt}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS} is running.`,
+    lastError: undefined,
+    finishedAt: undefined,
+    updatedAt: now,
+  };
+}
+
+async function relaunchWorkerForLandingFailure(input: {
+  worker: WorkerRuntime;
+  config: BeadworkConfig;
+  tmuxBackend: TmuxBackend;
+  rebaseDetail: string;
+}): Promise<WorkerRuntime> {
+  const remediationAttempt = (input.worker.landingRemediationAttempts ?? 0) + 1;
+  const remediationPrompt = buildLandingRemediationPrompt({
+    worker: input.worker,
+    rebaseDetail: input.rebaseDetail,
+    validationCommands: input.config.landing.validateCommands,
+  });
+  const workerAgentCommand = buildWorkerAgentCommand(input.config);
+
+  await writeFile(input.worker.promptFile, `${remediationPrompt}\n`, "utf8");
+  await writeFile(
+    input.worker.scriptFile,
+    buildWorkerScript({
+      workerAgentCommand,
+      promptFile: input.worker.promptFile,
+      logFile: input.worker.logFile,
+      stateFile: input.worker.stateFile,
+      exitCodeFile: input.worker.exitCodeFile,
+      finishedAtFile: input.worker.finishedAtFile,
+    }),
+    "utf8",
+  );
+  await chmod(input.worker.scriptFile, 0o755);
+  await writeFile(input.worker.stateFile, "launching\n", "utf8");
+  await writeFile(input.worker.exitCodeFile, "", "utf8");
+  await writeFile(input.worker.finishedAtFile, "", "utf8");
+
+  try {
+    await input.tmuxBackend.cleanupWorker({
+      paneId: input.worker.tmuxPane !== "pending" ? input.worker.tmuxPane : undefined,
+      sessionName: input.worker.tmuxSession,
+      windowName: input.worker.tmuxWindow,
+    });
+  } catch {
+    // best-effort cleanup in case the previous tmux window is still hanging around
+  }
+
+  await input.tmuxBackend.ensureSession({ sessionName: input.worker.tmuxSession });
+  const launched = await input.tmuxBackend.launchWorker({
+    sessionName: input.worker.tmuxSession,
+    workerId: input.worker.workerId,
+    title: input.worker.ticketTitle,
+    worktreePath: input.worker.worktreePath,
+    launchCommand: input.worker.launchCommand,
+  });
+
+  const now = new Date().toISOString();
+  return {
+    ...input.worker,
+    tmuxSession: launched.sessionName,
+    tmuxWindow: launched.windowName,
+    tmuxPane: launched.paneId,
+    launchCommand: launched.launchCommand,
+    workerCommand: input.config.tmux.workerCommand,
+    workerProvider: input.config.tmux.workerProvider,
+    workerModel: input.config.tmux.workerModel,
+    status: "running",
+    validationStatus: input.config.landing.validateCommands.length > 0 ? "pending" : undefined,
+    validationAt: input.config.landing.validateCommands.length > 0 ? now : undefined,
+    validationSummary:
+      input.config.landing.validateCommands.length > 0
+        ? `Landing remediation attempt ${remediationAttempt} started after a rebase failure.`
+        : undefined,
+    reviewStatus: input.config.landing.review.enabled ? "pending" : undefined,
+    reviewVerdict: undefined,
+    reviewAt: undefined,
+    reviewSummary: input.config.landing.review.enabled
+      ? "Review will rerun after the landing remediation worker exits."
+      : undefined,
+    reviewFeedback: undefined,
+    reviewValidFeedbackCount: undefined,
+    reviewInvalidFeedbackCount: undefined,
+    reviewedWorkerHead: undefined,
+    landingRemediationAttempts: remediationAttempt,
+    landingRemediationAt: now,
+    landingRemediationSummary:
+      `Automatic landing remediation attempt ${remediationAttempt}/` +
+      `${MAX_LANDING_REMEDIATION_ATTEMPTS} is running after a rebase failure.`,
+    landingVerifiedAt: undefined,
+    landingVerification:
+      `Rebase failed before landing; remediation attempt ${remediationAttempt}/` +
+      `${MAX_LANDING_REMEDIATION_ATTEMPTS} is running in the existing worktree.`,
     lastError: undefined,
     finishedAt: undefined,
     updatedAt: now,
@@ -935,6 +1084,7 @@ async function relaunchWorkerForReviewFeedback(input: {
     reviewFeedback: input.validFeedback.map((feedback) => feedback.comment),
     reviewValidFeedbackCount: input.validFeedback.length,
     reviewInvalidFeedbackCount: input.worker.reviewInvalidFeedbackCount,
+    reviewedWorkerHead: undefined,
     reviewRemediationAttempts: remediationAttempt,
     reviewRemediationAt: now,
     landingVerifiedAt: undefined,
@@ -1035,10 +1185,13 @@ function buildQueuedLandingRequestState(
   const reviewLogFile = resolveReviewerLogFile(worker);
   const validationRequired = config.landing.validateCommands.length > 0;
   const reviewEnabled = config.landing.review.enabled;
+  const preserveApprovedReview = reviewEnabled && hasReusableApprovedReview(worker);
 
   const queuedDetail = ticketClosed
     ? reviewEnabled
-      ? `Explicit landing request queued. Background supervision will rerun validation, reviewer gating, and merge-back. Reviewer output will stream to ${reviewLogFile} once it starts.`
+      ? preserveApprovedReview
+        ? "Explicit landing request queued. Background supervision will rerun validation and merge-back while reusing the previously approved reviewer result."
+        : `Explicit landing request queued. Background supervision will rerun validation, reviewer gating, and merge-back. Reviewer output will stream to ${reviewLogFile} once it starts.`
       : "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background."
     : "Explicit landing request queued. Landing will continue after the worker exits and the ticket closes.";
 
@@ -1060,13 +1213,38 @@ function buildQueuedLandingRequestState(
     remediationAttempts: worker.remediationAttempts,
     remediationAt: undefined,
     remediationSummary: undefined,
-    reviewStatus: reviewEnabled ? "pending" : undefined,
-    reviewVerdict: undefined,
-    reviewAt: reviewEnabled ? now : undefined,
-    reviewSummary: reviewEnabled ? queuedDetail : undefined,
-    reviewFeedback: undefined,
-    reviewValidFeedbackCount: undefined,
-    reviewInvalidFeedbackCount: undefined,
+    reviewStatus: reviewEnabled
+      ? preserveApprovedReview
+        ? worker.reviewStatus
+        : "pending"
+      : undefined,
+    reviewVerdict: reviewEnabled
+      ? preserveApprovedReview
+        ? worker.reviewVerdict
+        : undefined
+      : undefined,
+    reviewAt: reviewEnabled ? (preserveApprovedReview ? worker.reviewAt : now) : undefined,
+    reviewSummary: reviewEnabled
+      ? preserveApprovedReview
+        ? worker.reviewSummary
+        : queuedDetail
+      : undefined,
+    reviewFeedback: reviewEnabled
+      ? preserveApprovedReview
+        ? worker.reviewFeedback
+        : undefined
+      : undefined,
+    reviewValidFeedbackCount: reviewEnabled
+      ? preserveApprovedReview
+        ? worker.reviewValidFeedbackCount
+        : undefined
+      : undefined,
+    reviewInvalidFeedbackCount: reviewEnabled
+      ? preserveApprovedReview
+        ? worker.reviewInvalidFeedbackCount
+        : undefined
+      : undefined,
+    reviewedWorkerHead: preserveApprovedReview ? worker.reviewedWorkerHead : undefined,
     reviewRemediationAt: undefined,
     cleanupStatus:
       worker.cleanupPolicy === "cleanup-after-landing" ? "pending" : worker.cleanupStatus,
@@ -1147,6 +1325,13 @@ async function refreshDeferredHoldState(input: {
     landingBehindCount: landing.behindCount,
     updatedAt: new Date().toISOString(),
   };
+
+  if ((landing.cleanedTransientFiles?.length ?? 0) > 0) {
+    await appendWorkerLog(
+      worker.logFile,
+      `cleaned transient worktree files before deferred landing verification: ${landing.cleanedTransientFiles?.join(", ")}`,
+    );
+  }
 
   if (landing.worktreeClean === false) {
     return buildAttentionState(worker, `Deferred landing needs attention: ${landing.detail}`);
@@ -1285,6 +1470,13 @@ async function autoLandCompletedWorker(input: {
       updatedAt: new Date().toISOString(),
     };
 
+    if ((landing.cleanedTransientFiles?.length ?? 0) > 0) {
+      await appendWorkerLog(
+        worker.logFile,
+        `cleaned transient worktree files before landing verification: ${landing.cleanedTransientFiles?.join(", ")}`,
+      );
+    }
+
     if (landing.worktreeClean === false) {
       return buildAttentionState(worker, landing.detail);
     }
@@ -1309,7 +1501,51 @@ async function autoLandCompletedWorker(input: {
       };
 
       if (!rebase.rebased) {
-        return buildAttentionState(worker, rebase.detail);
+        const remediationAttempt = worker.landingRemediationAttempts ?? 0;
+        if (remediationAttempt < MAX_LANDING_REMEDIATION_ATTEMPTS) {
+          await appendWorkerLog(
+            worker.logFile,
+            "rebase failed; launching automatic landing remediation in the existing worktree",
+          );
+          await input.onLifecycleEvent?.({
+            type: "remediation-started",
+            ticketId: worker.ticketId,
+            message:
+              `Landing rebase failed for delegated ticket ${worker.ticketId}. ` +
+              `Launching remediation attempt ${remediationAttempt + 1}/${MAX_LANDING_REMEDIATION_ATTEMPTS} in the existing worktree.`,
+          });
+
+          try {
+            return await relaunchWorkerForLandingFailure({
+              worker,
+              config: input.config,
+              tmuxBackend: input.tmuxBackend,
+              rebaseDetail: rebase.detail,
+            });
+          } catch (error) {
+            return buildAttentionState(
+              {
+                ...worker,
+                landingRemediationAttempts: remediationAttempt + 1,
+                landingRemediationAt: new Date().toISOString(),
+                landingRemediationSummary:
+                  `Failed to launch landing remediation attempt ${remediationAttempt + 1}: ` +
+                  humanizeError(error),
+                reviewedWorkerHead: undefined,
+              },
+              `Landing rebase failed and remediation could not be started: ${humanizeError(error)}`,
+            );
+          }
+        }
+
+        return buildAttentionState(worker, rebase.detail, {
+          landingRemediationAttempts: remediationAttempt,
+          landingRemediationAt: new Date().toISOString(),
+          landingRemediationSummary:
+            remediationAttempt > 0
+              ? `Automatic landing remediation was attempted ${remediationAttempt} time(s) and did not produce a merge-ready branch.`
+              : "Automatic landing remediation was not attempted.",
+        });
       }
     }
 
@@ -1419,6 +1655,13 @@ async function autoLandCompletedWorker(input: {
       updatedAt: new Date().toISOString(),
     };
 
+    if ((postValidationLanding.cleanedTransientFiles?.length ?? 0) > 0) {
+      await appendWorkerLog(
+        worker.logFile,
+        `cleaned transient worktree files after validation: ${postValidationLanding.cleanedTransientFiles?.join(", ")}`,
+      );
+    }
+
     if (postValidationLanding.worktreeClean === false) {
       return buildAttentionState(worker, postValidationLanding.detail);
     }
@@ -1437,153 +1680,166 @@ async function autoLandCompletedWorker(input: {
       });
     }
 
+    const reuseApprovedReview = canReuseApprovedReview(worker, postValidationLanding.workerHead);
     if (input.config.landing.review.enabled && (postValidationLanding.aheadCount ?? 0) > 0) {
-      const reviewLogFile = resolveReviewerLogFile(worker);
-      worker = updateWorker({
-        ...worker,
-        reviewStatus: "pending",
-        reviewAt: new Date().toISOString(),
-        reviewSummary: `Reviewer gate is running before merge-back. See ${reviewLogFile} for live output.`,
-        landingVerification: `Running reviewer-agent gate before landing. See ${reviewLogFile} for live output.`,
-        updatedAt: new Date().toISOString(),
-      });
-      await appendWorkerLog(
-        worker.logFile,
-        `running reviewer-agent gating pass before landing (log: ${reviewLogFile})`,
-      );
-      let reviewPass: Awaited<ReturnType<typeof runReviewerPass>>;
-
-      try {
-        reviewPass = await runReviewerPass({
-          cwd: input.cwd,
-          worker,
-          config: input.config,
-          adapter: input.adapter,
-          repoHead: postValidationLanding.repoHead ?? "HEAD",
-          workerHead: postValidationLanding.workerHead ?? "HEAD",
-          runner: input.runner,
-        });
-      } catch (error) {
-        const reviewLogFile = resolveReviewerLogFile(worker);
-        return buildAttentionState(
-          worker,
-          `Reviewer gate failed: ${humanizeError(error)}. See ${reviewLogFile}.`,
-          {
-            reviewStatus: "review-blocked",
-            reviewSummary: `Reviewer gate failed: ${humanizeError(error)}. See ${reviewLogFile}.`,
-            landingVerification: `Landing blocked: reviewer gate failed (${humanizeError(error)}). See ${reviewLogFile}.`,
-          },
+      if (reuseApprovedReview) {
+        await appendWorkerLog(
+          worker.logFile,
+          `reusing approved reviewer result for worker HEAD ${postValidationLanding.workerHead}`,
         );
-      }
-
-      const validFeedback = reviewPass.assessment.validFeedback;
-      const invalidFeedback = reviewPass.assessment.invalidFeedback;
-      const normalizedSummary =
-        invalidFeedback.length > 0
-          ? `${reviewPass.decision.summary} (${invalidFeedback.length} feedback item(s) rejected as out-of-scope by orchestrator intent checks.)`
-          : reviewPass.decision.summary;
-
-      await appendWorkerLog(
-        worker.logFile,
-        `reviewer gate completed with verdict ${reviewPass.decision.verdict} (log: ${reviewPass.reviewLogFile})`,
-      );
-
-      worker = {
-        ...worker,
-        reviewAt: reviewPass.checkedAt,
-        reviewVerdict: reviewPass.decision.verdict,
-        reviewSummary: normalizedSummary,
-        reviewFeedback: validFeedback.map((feedback) => feedback.comment),
-        reviewValidFeedbackCount: validFeedback.length,
-        reviewInvalidFeedbackCount: invalidFeedback.length,
-        updatedAt: new Date().toISOString(),
-      };
-
-      if (reviewPass.decision.verdict === "approve") {
-        worker = {
-          ...worker,
-          reviewStatus: "approved",
-          reviewSummary: `Reviewer approved merge-back. ${normalizedSummary}`,
-        };
-      } else if (reviewPass.decision.verdict === "approve-with-nits") {
-        worker = {
-          ...worker,
-          reviewStatus: "nits-only",
-          reviewSummary: `Reviewer approved with nits. ${normalizedSummary}`,
-        };
-      } else if (!reviewPass.assessment.requiresChanges) {
-        worker = {
-          ...worker,
-          reviewStatus: "nits-only",
-          reviewSummary:
-            "Reviewer requested changes, but no valid in-scope blockers were found. " +
-            normalizedSummary,
-        };
       } else {
-        worker = {
+        const reviewLogFile = resolveReviewerLogFile(worker);
+        worker = updateWorker({
           ...worker,
-          reviewStatus: "changes-requested",
-          reviewSummary: `Reviewer requested valid in-scope changes. ${normalizedSummary}`,
-        };
-
-        const remediationAttempt = worker.reviewRemediationAttempts ?? 0;
-        const maxReviewRemediationAttempts = Math.max(
-          0,
-          input.config.landing.review.maxRemediationAttempts,
+          reviewStatus: "pending",
+          reviewAt: new Date().toISOString(),
+          reviewSummary: `Reviewer gate is running before merge-back. See ${reviewLogFile} for live output.`,
+          landingVerification: `Running reviewer-agent gate before landing. See ${reviewLogFile} for live output.`,
+          reviewedWorkerHead: undefined,
+          updatedAt: new Date().toISOString(),
+        });
+        await appendWorkerLog(
+          worker.logFile,
+          `running reviewer-agent gating pass before landing (log: ${reviewLogFile})`,
         );
 
-        if (remediationAttempt < maxReviewRemediationAttempts) {
-          await appendWorkerLog(
-            worker.logFile,
-            "review requested changes; launching automatic review remediation pass",
-          );
-          await input.onLifecycleEvent?.({
-            type: "remediation-started",
-            ticketId: worker.ticketId,
-            message:
-              `Reviewer requested changes for delegated ticket ${worker.ticketId}. ` +
-              `Launching remediation attempt ${remediationAttempt + 1}/${maxReviewRemediationAttempts}.`,
+        let reviewPass: Awaited<ReturnType<typeof runReviewerPass>>;
+        try {
+          reviewPass = await runReviewerPass({
+            cwd: input.cwd,
+            worker,
+            config: input.config,
+            adapter: input.adapter,
+            repoHead: postValidationLanding.repoHead ?? "HEAD",
+            workerHead: postValidationLanding.workerHead ?? "HEAD",
+            runner: input.runner,
           });
-
-          try {
-            return await relaunchWorkerForReviewFeedback({
-              worker,
-              config: input.config,
-              tmuxBackend: input.tmuxBackend,
-              reviewSummary: worker.reviewSummary ?? normalizedSummary,
-              validFeedback,
-            });
-          } catch (error) {
-            return buildAttentionState(
-              {
-                ...worker,
-                reviewStatus: "review-blocked",
-                reviewRemediationAttempts: remediationAttempt + 1,
-                reviewRemediationAt: new Date().toISOString(),
-                reviewSummary: `Review requested changes, but remediation launch failed: ${humanizeError(error)}`,
-              },
-              `Review requested changes and remediation failed to launch: ${humanizeError(error)}`,
-              {
-                landingVerification:
-                  "Landing blocked after valid reviewer change requests could not be remediated.",
-              },
-            );
-          }
+        } catch (error) {
+          return buildAttentionState(
+            worker,
+            `Reviewer gate failed: ${humanizeError(error)}. See ${reviewLogFile}.`,
+            {
+              reviewStatus: "review-blocked",
+              reviewSummary: `Reviewer gate failed: ${humanizeError(error)}. See ${reviewLogFile}.`,
+              landingVerification: `Landing blocked: reviewer gate failed (${humanizeError(error)}). See ${reviewLogFile}.`,
+              reviewedWorkerHead: undefined,
+            },
+          );
         }
 
-        return buildAttentionState(
-          {
-            ...worker,
-            reviewStatus: "review-blocked",
-            reviewRemediationAttempts: remediationAttempt,
-            reviewRemediationAt: new Date().toISOString(),
-            reviewSummary: `Reviewer requested valid in-scope changes, but remediation attempts are exhausted (${remediationAttempt}/${maxReviewRemediationAttempts}).`,
-          },
-          "Landing blocked by reviewer-requested changes that still need remediation.",
-          {
-            landingVerification: "Landing blocked by reviewer-requested changes.",
-          },
+        const validFeedback = reviewPass.assessment.validFeedback;
+        const invalidFeedback = reviewPass.assessment.invalidFeedback;
+        const normalizedSummary =
+          invalidFeedback.length > 0
+            ? `${reviewPass.decision.summary} (${invalidFeedback.length} feedback item(s) rejected as out-of-scope by orchestrator intent checks.)`
+            : reviewPass.decision.summary;
+
+        await appendWorkerLog(
+          worker.logFile,
+          `reviewer gate completed with verdict ${reviewPass.decision.verdict} (log: ${reviewPass.reviewLogFile})`,
         );
+
+        worker = {
+          ...worker,
+          reviewAt: reviewPass.checkedAt,
+          reviewVerdict: reviewPass.decision.verdict,
+          reviewSummary: normalizedSummary,
+          reviewFeedback: validFeedback.map((feedback) => feedback.comment),
+          reviewValidFeedbackCount: validFeedback.length,
+          reviewInvalidFeedbackCount: invalidFeedback.length,
+          updatedAt: new Date().toISOString(),
+        };
+
+        if (reviewPass.decision.verdict === "approve") {
+          worker = {
+            ...worker,
+            reviewStatus: "approved",
+            reviewSummary: `Reviewer approved merge-back. ${normalizedSummary}`,
+            reviewedWorkerHead: postValidationLanding.workerHead,
+          };
+        } else if (reviewPass.decision.verdict === "approve-with-nits") {
+          worker = {
+            ...worker,
+            reviewStatus: "nits-only",
+            reviewSummary: `Reviewer approved with nits. ${normalizedSummary}`,
+            reviewedWorkerHead: postValidationLanding.workerHead,
+          };
+        } else if (!reviewPass.assessment.requiresChanges) {
+          worker = {
+            ...worker,
+            reviewStatus: "nits-only",
+            reviewSummary:
+              "Reviewer requested changes, but no valid in-scope blockers were found. " +
+              normalizedSummary,
+            reviewedWorkerHead: postValidationLanding.workerHead,
+          };
+        } else {
+          worker = {
+            ...worker,
+            reviewStatus: "changes-requested",
+            reviewSummary: `Reviewer requested valid in-scope changes. ${normalizedSummary}`,
+            reviewedWorkerHead: undefined,
+          };
+
+          const remediationAttempt = worker.reviewRemediationAttempts ?? 0;
+          const maxReviewRemediationAttempts = Math.max(
+            0,
+            input.config.landing.review.maxRemediationAttempts,
+          );
+
+          if (remediationAttempt < maxReviewRemediationAttempts) {
+            await appendWorkerLog(
+              worker.logFile,
+              "review requested changes; launching automatic review remediation pass",
+            );
+            await input.onLifecycleEvent?.({
+              type: "remediation-started",
+              ticketId: worker.ticketId,
+              message:
+                `Reviewer requested changes for delegated ticket ${worker.ticketId}. ` +
+                `Launching remediation attempt ${remediationAttempt + 1}/${maxReviewRemediationAttempts}.`,
+            });
+
+            try {
+              return await relaunchWorkerForReviewFeedback({
+                worker,
+                config: input.config,
+                tmuxBackend: input.tmuxBackend,
+                reviewSummary: worker.reviewSummary ?? normalizedSummary,
+                validFeedback,
+              });
+            } catch (error) {
+              return buildAttentionState(
+                {
+                  ...worker,
+                  reviewStatus: "review-blocked",
+                  reviewRemediationAttempts: remediationAttempt + 1,
+                  reviewRemediationAt: new Date().toISOString(),
+                  reviewSummary: `Review requested changes, but remediation launch failed: ${humanizeError(error)}`,
+                },
+                `Review requested changes and remediation failed to launch: ${humanizeError(error)}`,
+                {
+                  landingVerification:
+                    "Landing blocked after valid reviewer change requests could not be remediated.",
+                },
+              );
+            }
+          }
+
+          return buildAttentionState(
+            {
+              ...worker,
+              reviewStatus: "review-blocked",
+              reviewRemediationAttempts: remediationAttempt,
+              reviewRemediationAt: new Date().toISOString(),
+              reviewSummary: `Reviewer requested valid in-scope changes, but remediation attempts are exhausted (${remediationAttempt}/${maxReviewRemediationAttempts}).`,
+            },
+            "Landing blocked by reviewer-requested changes that still need remediation.",
+            {
+              landingVerification: "Landing blocked by reviewer-requested changes.",
+            },
+          );
+        }
       }
     }
 
@@ -1664,6 +1920,13 @@ async function autoLandCompletedWorker(input: {
       landingBehindCount: verifiedAfterLanding.behindCount,
       updatedAt: new Date().toISOString(),
     };
+
+    if ((verifiedAfterLanding.cleanedTransientFiles?.length ?? 0) > 0) {
+      await appendWorkerLog(
+        worker.logFile,
+        `cleaned transient worktree files after merge-back: ${verifiedAfterLanding.cleanedTransientFiles?.join(", ")}`,
+      );
+    }
 
     if (verifiedAfterLanding.verified) {
       return finalizeLandedWorker({
@@ -1752,13 +2015,15 @@ export async function launchTicketWorker(input: {
   const runtimeRoot = resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir);
   const workerId = buildWorkerId(ticket.id);
   const runtimeDir = path.join(runtimeRoot, workerId);
-  await mkdir(runtimeDir, { recursive: true });
+  const runtimeScratchDir = path.join(runtimeDir, "scratch");
+  await mkdir(runtimeScratchDir, { recursive: true });
 
   const prompt = buildWorkerHandoff({
     ticket,
     epic,
     branchName: prepared.branchName,
     worktreePath: prepared.worktreePath,
+    runtimeScratchDir,
     prime: input.prime,
   });
 

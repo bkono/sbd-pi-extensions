@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir } from "node:fs/promises";
+import { access, copyFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { defaultProcessRunner, type ProcessRunner, slugify } from "./process.js";
 import type { WorktreeCopyRule } from "./types.js";
@@ -16,6 +16,7 @@ export type LandingVerificationResult = {
   verified: boolean;
   ticketClosed: boolean;
   worktreeClean?: boolean;
+  cleanedTransientFiles?: string[];
   repoHead?: string;
   workerHead?: string;
   aheadCount?: number;
@@ -116,6 +117,79 @@ async function readAheadBehindCounts(
   return {
     behindCount: Number.isFinite(behindCount) ? behindCount : 0,
     aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
+  };
+}
+
+type WorktreeStatusEntry = {
+  code: string;
+  path: string;
+};
+
+const TRANSIENT_WORKTREE_FILENAMES = new Set(["context.md"]);
+
+function parseStatusEntries(raw: string): WorktreeStatusEntry[] {
+  return raw
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length >= 3)
+    .map((line) => ({
+      code: line.slice(0, 2),
+      path: line.slice(3).trim(),
+    }))
+    .filter((entry) => entry.path.length > 0);
+}
+
+function isTransientWorktreeEntry(entry: WorktreeStatusEntry): boolean {
+  if (entry.code !== "??") {
+    return false;
+  }
+
+  return TRANSIENT_WORKTREE_FILENAMES.has(path.basename(entry.path));
+}
+
+async function cleanupTransientWorktreeEntries(input: {
+  worktreePath: string;
+  entries: WorktreeStatusEntry[];
+}): Promise<string[]> {
+  const removable = input.entries.filter((entry) => isTransientWorktreeEntry(entry));
+  const removed: string[] = [];
+
+  for (const entry of removable) {
+    await rm(path.resolve(input.worktreePath, entry.path), {
+      force: true,
+      recursive: true,
+    });
+    removed.push(entry.path);
+  }
+
+  return removed;
+}
+
+async function readWorktreeStatus(input: {
+  worktreePath: string;
+  runner: ProcessRunner;
+}): Promise<{ entries: WorktreeStatusEntry[]; cleanedTransientFiles: string[] }> {
+  let statusResult = await input.runner("git", ["status", "--porcelain"], {
+    cwd: input.worktreePath,
+    timeout: 10_000,
+  });
+  let entries = parseStatusEntries(statusResult.stdout);
+  const cleanedTransientFiles = await cleanupTransientWorktreeEntries({
+    worktreePath: input.worktreePath,
+    entries,
+  });
+
+  if (cleanedTransientFiles.length > 0) {
+    statusResult = await input.runner("git", ["status", "--porcelain"], {
+      cwd: input.worktreePath,
+      timeout: 10_000,
+    });
+    entries = parseStatusEntries(statusResult.stdout);
+  }
+
+  return {
+    entries,
+    cleanedTransientFiles,
   };
 }
 
@@ -413,11 +487,11 @@ export async function verifyWorktreeLanding(input: {
     };
   }
 
-  const statusResult = await runner("git", ["status", "--porcelain"], {
-    cwd: input.worktreePath,
-    timeout: 10_000,
+  const { entries: statusEntries, cleanedTransientFiles } = await readWorktreeStatus({
+    worktreePath: input.worktreePath,
+    runner,
   });
-  const worktreeClean = statusResult.stdout.trim().length === 0;
+  const worktreeClean = statusEntries.length === 0;
 
   if (!worktreeClean) {
     return {
@@ -425,7 +499,11 @@ export async function verifyWorktreeLanding(input: {
       verified: false,
       ticketClosed: true,
       worktreeClean,
-      detail: "Ticket is closed, but the worktree still has uncommitted changes.",
+      cleanedTransientFiles,
+      detail:
+        cleanedTransientFiles.length > 0
+          ? "Ticket is closed, and transient handoff files were cleaned up, but the worktree still has other uncommitted changes."
+          : "Ticket is closed, but the worktree still has uncommitted changes.",
     };
   }
 
@@ -446,6 +524,7 @@ export async function verifyWorktreeLanding(input: {
       verified: false,
       ticketClosed: true,
       worktreeClean,
+      cleanedTransientFiles,
       repoHead,
       workerHead,
       aheadCount,
@@ -462,6 +541,7 @@ export async function verifyWorktreeLanding(input: {
     verified: true,
     ticketClosed: true,
     worktreeClean,
+    cleanedTransientFiles,
     repoHead,
     workerHead,
     aheadCount,

@@ -15,6 +15,7 @@ export function buildWorkerHandoff(input: {
   epic?: BeadworkIssueDetail;
   branchName: string;
   worktreePath: string;
+  runtimeScratchDir?: string;
   prime?: string;
 }): string {
   const lines = [
@@ -36,8 +37,13 @@ export function buildWorkerHandoff(input: {
     "- Stay scoped to this ticket.",
     "- Do not expand into unrelated cleanup unless required to land this ticket.",
     `- Land the work completely: commit your changes, run \`bw close ${input.ticket.id}\`, then \`bw sync\`.`,
+    "- If you need scratch notes or generated context files, keep them out of git-tracked worktree paths.",
     "- If blocked, stop and report the blocker clearly.",
   );
+
+  if (input.runtimeScratchDir) {
+    lines.push(`- Use \`${input.runtimeScratchDir}\` for transient artifacts like context.md.`);
+  }
 
   if (input.ticket.blockedBy.length > 0) {
     lines.push("", `Blocked by: ${input.ticket.blockedBy.join(", ")}`);

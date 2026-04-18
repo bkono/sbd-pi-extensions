@@ -141,12 +141,24 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
       typeof value.reviewInvalidFeedbackCount === "number"
         ? value.reviewInvalidFeedbackCount
         : undefined,
+    reviewedWorkerHead:
+      typeof value.reviewedWorkerHead === "string" ? value.reviewedWorkerHead : undefined,
     reviewRemediationAttempts:
       typeof value.reviewRemediationAttempts === "number"
         ? value.reviewRemediationAttempts
         : undefined,
     reviewRemediationAt:
       typeof value.reviewRemediationAt === "string" ? value.reviewRemediationAt : undefined,
+    landingRemediationAttempts:
+      typeof value.landingRemediationAttempts === "number"
+        ? value.landingRemediationAttempts
+        : undefined,
+    landingRemediationAt:
+      typeof value.landingRemediationAt === "string" ? value.landingRemediationAt : undefined,
+    landingRemediationSummary:
+      typeof value.landingRemediationSummary === "string"
+        ? value.landingRemediationSummary
+        : undefined,
     landingVerifiedAt:
       typeof value.landingVerifiedAt === "string" ? value.landingVerifiedAt : undefined,
     landingVerification:
