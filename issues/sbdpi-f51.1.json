@@ -15,10 +15,10 @@
   "description": "Practical backlog summary anchor: **Tier 1 → Completion markers and completed-observation tracking**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 5. Completion markers and completed-observation lifecycle**.\n\nImplementation context:\n- current state shape lives in `packages/pi-om-extension/src/types.ts` and `src/state.ts`\n- observe/reflect lifecycle is driven from `src/engine.ts` and `src/agents.ts`\n- completion semantics are currently mostly implicit in observation text plus `currentTask` / `suggestedResponse`\n- injected rendering path is `src/engine.ts` (`buildObservationContext`) and prompt guidance is in `src/prompts.ts`\n\nWhat this epic should establish:\n- explicit planned / active / blocked / completed / abandoned-or-superseded semantics\n- durable preservation of completion state through reflection and task-state updates\n- no regression back to vague summaries that hide whether work is done\n\nUseful references:\n- backlog doc Mastra refs for section 5 (`observer-agent.ts`, `reflector-agent.ts`, `markers.ts`, `markers.test.ts`)\n- local tests under `packages/pi-om-extension/src/__tests__`\n\nKeep this scoped to the single-session pi OM model; do not turn it into a broader provenance/threading project.",
   "id": "sbdpi-f51.1",
   "labels": [],
-  "parent": "sbdpi-f51",
+  "parent": "sbdpi-f51.10",
   "priority": 1,
   "status": "open",
   "title": "Add completion markers and completed-observation tracking",
   "type": "epic",
-  "updated_at": "2026-04-17T01:41:10Z"
+  "updated_at": "2026-04-18T07:04:56Z"
 }
