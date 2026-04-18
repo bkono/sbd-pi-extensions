@@ -2,14 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T05:18:02Z",
   "created": "2026-04-18T05:08:38Z",
   "description": "The configured concurrent worker cap is currently being ignored during runs. A configuration of `2` still allowed roughly `6` workers to spin up and run simultaneously.\n\nScope:\n- trace how configured concurrency is loaded and enforced in `packages/pi-beadwork-extension/src/config.ts`, `src/orchestrator.ts`, and any worker-launch path\n- ensure the runtime honors the configured limit consistently\n- add regression coverage that proves the orchestrator will not exceed the configured worker count\n- verify the fix against the real execution path, not only a config parser unit test\n\nDefinition of done:\n- tests added/updated under `packages/pi-beadwork-extension/src/__tests__`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
   "id": "sbdpi-ik2.3",
   "labels": [],
   "parent": "sbdpi-ik2",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Respect configured concurrent worker limits during beadwork runs",
   "type": "task",
-  "updated_at": "2026-04-18T05:11:15Z"
+  "updated_at": "2026-04-18T05:18:02Z"
 }
