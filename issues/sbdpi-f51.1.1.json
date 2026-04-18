@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.2.1"
+  ],
   "blocks": [
     "sbdpi-f51.1",
     "sbdpi-f51.1.2"
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Add explicit lifecycle markers for planned, active, blocked, completed, and abandoned work",
   "type": "task",
-  "updated_at": "2026-04-17T01:42:36Z"
+  "updated_at": "2026-04-18T06:38:26Z"
 }

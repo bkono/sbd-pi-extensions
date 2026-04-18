@@ -4,6 +4,7 @@
     "sbdpi-f51.4.1"
   ],
   "blocks": [
+    "sbdpi-f51.1.1",
     "sbdpi-f51.2",
     "sbdpi-f51.2.2"
   ],
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Add TemporalAnchor metadata and durable rendering for OM observations",
   "type": "task",
-  "updated_at": "2026-04-18T06:38:24Z"
+  "updated_at": "2026-04-18T06:38:26Z"
 }
