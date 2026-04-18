@@ -6,9 +6,15 @@
   "description": "Record the assessment of `coctostan/pi-hashline-readmap` against the desired local workflow: `fd` when available, grep/search defaults leaning on `ast-grep` and ripgrep, safer editing/replacement, understanding what bash compression actually does, and fit for Obsidian-style PKM/docs/non-code use. Include practical downsides and likely edge-case mismatches for using it as-is for a trial period.",
   "id": "sbdpi-pbl",
   "labels": [],
+  "comments": [
+    {
+      "text": "Recorded the assessment in `docs/pi-hashline-readmap-assessment.md` and committed it as `docs: add pi-hashline-readmap assessment` (`48accc1`). Validation: `npm run test` and `npm run typecheck` passed. `npm run lint` completed but reported a pre-existing Biome schema version mismatch in `biome.json` (`$schema` points to 2.4.12 while installed CLI is 2.4.10); no file-specific lint problems were reported.",
+      "timestamp": "2026-04-18T19:06:07Z"
+    }
+  ],
   "priority": 3,
   "status": "in_progress",
   "title": "Document pi-hashline-readmap fit assessment for local search/edit + PKM workflows",
   "type": "task",
-  "updated_at": "2026-04-18T19:04:46Z"
+  "updated_at": "2026-04-18T19:06:07Z"
 }
