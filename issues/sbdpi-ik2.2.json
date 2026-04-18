@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T05:08:33Z",
+  "description": "`land` currently falls over when a rebase fails mechanically. Instead of aborting outright, the landing flow should preserve enough context to resubmit the worker through an LLM-assisted conflict resolution/retry path.\n\nScope:\n- inspect the current land/rebase failure handling in `packages/pi-beadwork-extension/src/orchestrator.ts` and related worker/worktree helpers\n- trigger the intended retry/resubmission flow when the failure is mechanical and recoverable\n- make the retry path observable in logs/status so the operator can tell what happened\n- add regression coverage for a mechanical rebase failure followed by a successful retry path\n\nNotes:\n- this overlaps with the other landing-flow tickets; prefer landing-lane work to happen in the same branch/worker sequence\n- do not silently swallow unrecoverable failures; preserve actionable diagnostics\n\nDefinition of done:\n- tests added/updated under `packages/pi-beadwork-extension/src/__tests__`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+  "id": "sbdpi-ik2.2",
+  "labels": [],
+  "parent": "sbdpi-ik2",
+  "priority": 1,
+  "status": "open",
+  "title": "Auto-recover `land` from mechanical rebase failures with an LLM-assisted retry",
+  "type": "task",
+  "updated_at": "2026-04-18T05:08:33Z"
+}
