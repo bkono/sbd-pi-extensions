@@ -10,14 +10,15 @@
     "sbdpi-f51.8.1",
     "sbdpi-f51.9.1"
   ],
+  "closed_at": "2026-04-18T22:45:33Z",
   "created": "2026-04-17T01:27:51Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 6. Stable, cache-friendly observation block layout**.\n\nGoal: add tests/snapshots showing semantically unchanged OM content remains stable and the single-string fallback preserves the same logical segmentation as a future multi-message layout.\n\nRelevant test surfaces:\n- `packages/pi-om-extension/src/__tests__/unit/engine-build-context.test.ts`\n- `packages/pi-om-extension/src/__tests__/extension/lifecycle-before-agent-start.test.ts`\n- `packages/pi-om-extension/src/__tests__/extension/lifecycle-session-before-compact.test.ts`\n\nWorker notes:\n- assert stability for unchanged durable sections and localized diffs for volatile sections\n- snapshots are fine if they stay readable and intentional\n- this ticket should make later Tier 2 work safer by locking down layout behavior",
   "id": "sbdpi-f51.6.3",
   "labels": [],
   "parent": "sbdpi-f51.6",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add cache-stability regression coverage for OM rendering and segmented fallback layout",
   "type": "task",
-  "updated_at": "2026-04-18T22:39:58Z"
+  "updated_at": "2026-04-18T22:45:33Z"
 }
