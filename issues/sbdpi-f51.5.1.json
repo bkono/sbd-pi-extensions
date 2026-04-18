@@ -8,14 +8,15 @@
     "sbdpi-f51.5.2",
     "sbdpi-f51.6.1"
   ],
+  "closed_at": "2026-04-18T20:31:13Z",
   "created": "2026-04-17T01:27:19Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 4. Prompt and output-structure upgrades for specificity preservation**.\n\nGoal: strengthen observer instructions so extracted observations keep exact numbers, counts, list structure, distinguishing attributes, constraints, paths, commands, and rejected alternatives when they matter.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- prompt-parse tests under `packages/pi-om-extension/src/__tests__/unit`\n\nWorker notes:\n- this is a prompt-quality ticket, but it should still be validated by behavior tests rather than prompt diff alone\n- preserve the existing user-assertion vs question framing\n- improve specificity without making the prompt so long/noisy that it becomes brittle",
   "id": "sbdpi-f51.5.1",
   "labels": [],
   "parent": "sbdpi-f51.5",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Strengthen observer prompts to preserve exact structure, numbers, constraints, and distinctions",
   "type": "task",
-  "updated_at": "2026-04-18T20:26:40Z"
+  "updated_at": "2026-04-18T20:31:13Z"
 }
