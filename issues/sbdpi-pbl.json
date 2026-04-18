@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-18T19:04:44Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-pbl",
   "labels": [],
   "priority": 3,
-  "status": "open",
+  "status": "in_progress",
   "title": "Document pi-hashline-readmap fit assessment for local search/edit + PKM workflows",
   "type": "task",
-  "updated_at": "2026-04-18T19:04:44Z"
+  "updated_at": "2026-04-18T19:04:46Z"
 }
