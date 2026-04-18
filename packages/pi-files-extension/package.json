@@ -1,7 +1,7 @@
 {
   "name": "@solvedbydev/pi-files-extension",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi extension: file browser with git status, session references, and quick actions",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
