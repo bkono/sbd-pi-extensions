@@ -180,7 +180,6 @@ describe("buildObservationContext", () => {
     expect(instructionsIdx).toBeGreaterThan(guidanceIdx);
     expect(reminderIdx).toBeGreaterThan(instructionsIdx);
   });
-
   it("preserves anchored multi-day chronology in the published observation context", () => {
     const result = buildObservationContext(
       state({
@@ -247,7 +246,6 @@ describe("buildObservationContext", () => {
         ],
       }),
     );
-
     expect(result).toContain("Date: Apr 18, 2026");
     expect(result).toContain("Date: Apr 21, 2026");
     expect(result).toContain("Date: Apr 25, 2026");
@@ -256,13 +254,79 @@ describe("buildObservationContext", () => {
     expect(result).toContain("next Friday (target: 2026-04-24)");
     expect(result).toContain("yesterday (date: 2026-04-24)");
     expect(result).not.toContain("staged only");
-
     const apr18 = result.indexOf("Date: Apr 18, 2026");
     const apr21 = result.indexOf("Date: Apr 21, 2026");
     const apr25 = result.indexOf("Date: Apr 25, 2026");
     expect(apr18).toBeGreaterThanOrEqual(0);
     expect(apr21).toBeGreaterThan(apr18);
     expect(apr25).toBeGreaterThan(apr21);
+  });
+  it("prefers published completion-state snapshots over draft reactivation", () => {
+    const result = buildObservationContext(
+      state({
+        observations: "",
+        observationEntries: [
+          {
+            date: "2026-04-18",
+            line: "* 🔴 (09:10) ✅ Finished the completion-marker parser and saved regression fixtures.",
+          },
+          {
+            date: "2026-04-18",
+            line: "* 🟢 (09:11) Resolved blocker: sbdpi-f51.2.3 temporal regressions landed.",
+          },
+          {
+            date: "2026-04-18",
+            line: "* ⚪ (09:12) Superseded the manual blocker reminder path with durable lifecycle rendering.",
+          },
+          {
+            date: "2026-04-18",
+            line: "* ⚪ (09:13) Abandoned the active-summary rewrite experiment after it revived completed work.",
+          },
+        ],
+        currentTask: `Primary:
+- Active: Land sbdpi-f51.1.3 by running targeted validation and committing the regression coverage.
+- ✅ Completed: Completion-marker parser and durable rendering already landed.
+Secondary:
+- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.
+- Superseded: manual blocker reminder path replaced by durable lifecycle rendering.
+- Abandoned: active-summary rewrite experiment after it revived completed work.`,
+        suggestedResponse: "Summarize the remaining active step without reopening completed work.",
+        draftObservations:
+          "Date: Apr 18, 2026\n* 🔴 (09:20) Active again: redo the completion-marker parser from scratch.",
+        draftObservationEntries: [
+          {
+            date: "2026-04-18",
+            line: "* 🔴 (09:20) Active again: redo the completion-marker parser from scratch.",
+          },
+        ],
+        draftObservationTokens: 999,
+        draftCurrentTask: `Primary:
+- Active: Redo the completion-marker parser from scratch.`,
+        draftSuggestedResponse: "Tell the user the already-finished parser work is active again.",
+      }),
+    )!;
+
+    expect(result).toContain(
+      "✅ Finished the completion-marker parser and saved regression fixtures.",
+    );
+    expect(result).toContain("Resolved blocker: sbdpi-f51.2.3 temporal regressions landed.");
+    expect(result).toContain(
+      "Superseded the manual blocker reminder path with durable lifecycle rendering.",
+    );
+    expect(result).toContain(
+      "Abandoned the active-summary rewrite experiment after it revived completed work.",
+    );
+    expect(result).toContain(
+      "- ✅ Completed: Completion-marker parser and durable rendering already landed.",
+    );
+    expect(result).toContain(
+      "- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.",
+    );
+    expect(result).toContain(
+      "Summarize the remaining active step without reopening completed work.",
+    );
+    expect(result).not.toContain("Active again: redo the completion-marker parser from scratch.");
+    expect(result).not.toContain("Tell the user the already-finished parser work is active again.");
   });
 });
 

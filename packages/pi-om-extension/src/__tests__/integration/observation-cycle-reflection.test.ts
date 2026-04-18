@@ -238,4 +238,138 @@ Secondary:
     );
     expect(state.suggestedResponse).toContain("- Confirm tests passed before closing the ticket.");
   });
+
+  it("keeps completed, resolved, superseded, and abandoned state through later reflection passes", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      observationTokens: 50,
+      reflectionTokens: 5,
+    });
+    const initialReflectedObservations = `Date: Apr 18, 2026
+* 🔴 (09:10) ✅ Finished the completion-marker parser and saved regression fixtures.
+* 🟢 (09:11) Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so lifecycle coverage could proceed.
+* ⚪ (09:12) Superseded the manual blocker reminder path with durable lifecycle rendering.
+* ⚪ (09:13) Abandoned the active-summary rewrite experiment after it revived completed work.`;
+    const initialTask = `Primary:
+- Active: Add regression coverage for lifecycle durability through later consolidation.
+- ✅ Completed: Completion-marker parser and durable rendering already landed.
+Secondary:
+- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.
+- Superseded: manual blocker reminder path replaced by durable lifecycle rendering.
+- Abandoned: active-summary rewrite experiment after it revived completed work.`;
+    const finalReflectedObservations = `Date: Apr 18, 2026
+* 🔴 (09:10) ✅ Finished the completion-marker parser and saved regression fixtures.
+* 🔴 (09:15) ✅ Added regression coverage proving completion state survives reflection and later consolidation.
+* 🟢 (09:16) Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so lifecycle coverage ran without reopening the wait state.
+* ⚪ (09:17) Superseded the manual blocker reminder path with durable lifecycle rendering.
+* ⚪ (09:18) Abandoned the active-summary rewrite experiment after it revived completed work.`;
+    const finalTask = `Primary:
+- Active: Land sbdpi-f51.1.3 by running targeted validation and committing the regression coverage.
+- ✅ Completed: Completion-marker parser and durable rendering already landed.
+- ✅ Completed: Regression coverage now proves completion state survives reflection and later consolidation.
+Secondary:
+- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.
+- Superseded: manual blocker reminder path replaced by durable lifecycle rendering.
+- Abandoned: active-summary rewrite experiment after it revived completed work.`;
+    const finalResponse = `- Tell the user the completed, resolved, superseded, and abandoned states stayed durable through consolidation.
+- Mention that only the remaining ticket-close step is still active.`;
+    const mock = new MockObservationAgents({
+      observeResponses: [
+        { observations: `* 🔴 ${"x".repeat(500)}`, raw: "" },
+        { observations: `* 🟡 ${"y".repeat(500)}`, raw: "" },
+      ],
+      reflectResponses: [
+        {
+          observations: initialReflectedObservations,
+          raw: initialReflectedObservations,
+          currentTask: initialTask,
+        },
+        {
+          observations: finalReflectedObservations,
+          raw: finalReflectedObservations,
+          currentTask: finalTask,
+          suggestedResponse: finalResponse,
+        },
+      ],
+    });
+    const msgs = conversation(8, { baseTs: 1_700_000_000_000, contentSize: 200 });
+    const inflight = new Map<string, Promise<void>>();
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs.slice(0, 4),
+      inflight,
+      {
+        reason: "turn_end",
+      },
+    );
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      inflight,
+      {
+        reason: "turn_end",
+      },
+    );
+
+    expect(mock.observeCalls).toHaveLength(2);
+    expect(mock.reflectCalls).toHaveLength(2);
+    expect(mock.observeCalls[1]!.existingObservations).toContain(
+      "✅ Finished the completion-marker parser and saved regression fixtures.",
+    );
+    expect(mock.observeCalls[1]!.existingObservations).toContain(
+      "Resolved blocker: sbdpi-f51.2.3 temporal regressions landed",
+    );
+    expect(mock.observeCalls[1]!.existingObservations).toContain(
+      "Superseded the manual blocker reminder path with durable lifecycle rendering.",
+    );
+    expect(mock.observeCalls[1]!.existingObservations).toContain(
+      "Abandoned the active-summary rewrite experiment after it revived completed work.",
+    );
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.reflectTriggered).toBe(true);
+    expect(state.observations).toContain(
+      "✅ Added regression coverage proving completion state survives reflection and later consolidation.",
+    );
+    expect(state.observations).toContain(
+      "Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so lifecycle coverage ran without reopening the wait state.",
+    );
+    expect(state.observations).toContain(
+      "Superseded the manual blocker reminder path with durable lifecycle rendering.",
+    );
+    expect(state.observations).toContain(
+      "Abandoned the active-summary rewrite experiment after it revived completed work.",
+    );
+    expect(state.currentTask).toContain(
+      "- Active: Land sbdpi-f51.1.3 by running targeted validation and committing the regression coverage.",
+    );
+    expect(state.currentTask).toContain(
+      "- ✅ Completed: Completion-marker parser and durable rendering already landed.",
+    );
+    expect(state.currentTask).toContain(
+      "- ✅ Completed: Regression coverage now proves completion state survives reflection and later consolidation.",
+    );
+    expect(state.currentTask).toContain(
+      "- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.",
+    );
+    expect(state.currentTask).toContain(
+      "- Superseded: manual blocker reminder path replaced by durable lifecycle rendering.",
+    );
+    expect(state.currentTask).toContain(
+      "- Abandoned: active-summary rewrite experiment after it revived completed work.",
+    );
+    expect(state.currentTask).not.toContain("- Blocked:");
+    expect(state.suggestedResponse).toContain(
+      "completed, resolved, superseded, and abandoned states stayed durable through consolidation",
+    );
+    expect(state.suggestedResponse).toContain(
+      "only the remaining ticket-close step is still active",
+    );
+  });
 });

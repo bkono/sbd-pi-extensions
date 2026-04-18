@@ -147,6 +147,69 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result.systemPrompt).toContain("Continue from where we left off");
   });
 
+  it("injects published completion-state markers without reviving them from draft state", async () => {
+    preloadState({
+      observations: `Date: Apr 18, 2026
+* 🔴 (09:10) ✅ Finished the completion-marker parser and saved regression fixtures.
+* 🟢 (09:11) Resolved blocker: sbdpi-f51.2.3 temporal regressions landed.
+* ⚪ (09:12) Superseded the manual blocker reminder path with durable lifecycle rendering.
+* ⚪ (09:13) Abandoned the active-summary rewrite experiment after it revived completed work.`,
+      currentTask: `Primary:
+- Active: Land sbdpi-f51.1.3 by running targeted validation and committing the regression coverage.
+- ✅ Completed: Completion-marker parser and durable rendering already landed.
+Secondary:
+- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.
+- Superseded: manual blocker reminder path replaced by durable lifecycle rendering.
+- Abandoned: active-summary rewrite experiment after it revived completed work.`,
+      suggestedResponse: "Summarize the remaining active step without reopening completed work.",
+      observationTokens: 80,
+      draftObservations:
+        "Date: Apr 18, 2026\n* 🔴 (09:20) Active again: redo the completion-marker parser from scratch.",
+      draftObservationTokens: 120,
+      draftCurrentTask: `Primary:
+- Active: Redo the completion-marker parser from scratch.`,
+      draftSuggestedResponse: "Tell the user the already-finished parser work is active again.",
+    });
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = (await harness.dispatch(
+      "before_agent_start",
+      { type: "before_agent_start", prompt: "continue", systemPrompt: "Base prompt" },
+      ctx,
+    )) as { systemPrompt: string };
+
+    expect(result.systemPrompt).toContain("<om-durable>");
+    expect(result.systemPrompt).toContain("<om-current-task>");
+    expect(result.systemPrompt).toContain(
+      "✅ Finished the completion-marker parser and saved regression fixtures.",
+    );
+    expect(result.systemPrompt).toContain(
+      "Resolved blocker: sbdpi-f51.2.3 temporal regressions landed.",
+    );
+    expect(result.systemPrompt).toContain(
+      "Superseded the manual blocker reminder path with durable lifecycle rendering.",
+    );
+    expect(result.systemPrompt).toContain(
+      "Abandoned the active-summary rewrite experiment after it revived completed work.",
+    );
+    expect(result.systemPrompt).toContain(
+      "- ✅ Completed: Completion-marker parser and durable rendering already landed.",
+    );
+    expect(result.systemPrompt).toContain(
+      "- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.",
+    );
+    expect(result.systemPrompt).toContain(
+      "Summarize the remaining active step without reopening completed work.",
+    );
+    expect(result.systemPrompt).not.toContain(
+      "Active again: redo the completion-marker parser from scratch.",
+    );
+    expect(result.systemPrompt).not.toContain(
+      "Tell the user the already-finished parser work is active again.",
+    );
+  });
+
   it("preserves original system prompt as prefix", async () => {
     preloadState({ observations: "* 🔴 obs", observationTokens: 20 });
     const harness = await createExtensionTestHarness(piObservationalMemory);
