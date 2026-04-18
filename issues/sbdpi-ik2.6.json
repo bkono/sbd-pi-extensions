@@ -12,11 +12,15 @@
     {
       "text": "Observed in the first real delegated landing after the runtime-cleanup change: landing verified at `70b4db5`, but post-land cleanup still failed before removing the worker worktree/runtime state. Investigation shows the failure is in tmux teardown, not merge-back: `packages/pi-beadwork-extension/src/tmux.ts` still calls `tmux kill-window -t \u003csession\u003e:\u003cwindow\u003e` and treats a missing target as fatal. In this run the worker window was already gone by cleanup time, so tmux returned `can't find pane`, `cleanupLandedWorker()` aborted, and manual cleanup of the stale worktree/runtime/registry entry was required. This likely affects other delegated tickets using `cleanup-after-landing` (including the active `sbdpi-ik2.5` worker).",
       "timestamp": "2026-04-18T06:15:28Z"
+    },
+    {
+      "text": "Post-land follow-up completed after the first two cleanup-failure runs. Manually removed stale landed worker state for `sbdpi-ik2.5-mo3xnk63-j4duim` and `sbdpi-ik2.6-mo3y1pz3-awebov` (worktrees, runtime dirs, and registry entries). Verified the landed fix in `52a4283` (`fix(pi-beadwork-extension): tolerate missing tmux cleanup targets`) is present on `fix/feedback` and re-ran validation:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run test -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run lint` ✅ (existing Biome schema-version info notice only)\n- `npm run test` ✅\n- `npm run typecheck` ✅\n\n`beadwork_worker_check` is now empty again.",
+      "timestamp": "2026-04-18T06:22:38Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Clean up `.pi/beadwork/workers/runtime` artifacts when workers/worktrees are removed",
   "type": "task",
-  "updated_at": "2026-04-18T06:19:35Z"
+  "updated_at": "2026-04-18T06:22:38Z"
 }
