@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T23:32:49Z",
+  "close_reason": "Fixed on feat/more-om with regression coverage and package lint/test/typecheck passing.",
   "created": "2026-04-18T23:30:16Z",
   "description": "Extension crash to fix:\n\n```\nExtension \"/Users/bkonowitz/.pi/agent/git/github.com/bkono/sbd-pi-extensions/packages/pi-om-extension/src/index.ts\" error: The text contains a special token that is not allowed: \u003c|endoftext|\u003e\n```\n\nLikely scope:\n- `packages/pi-om-extension/src/tokens.ts`\n- `packages/pi-om-extension/src/index.ts`\n- tests under `packages/pi-om-extension/src/__tests__`\n\nGoal:\n- make token counting robust when message/content includes tiktoken sentinel text like `\u003c|endoftext|\u003e`\n- avoid crashing OM extension hooks during context emission\n- add regression coverage proving the special-token text is handled safely\n\nLikely implementation direction:\n- sanitize/escape or otherwise safely count special-token literals before calling js-tiktoken encode\n- keep behavior conservative and deterministic\n- cover both direct token counting and the extension path that currently throws\n\nDone when:\n- failing case no longer throws\n- regression test added\n- lint, test, and typecheck pass clean",
   "id": "sbdpi-eor",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Handle special tiktoken sentinel tokens in pi-om token counting",
   "type": "task",
-  "updated_at": "2026-04-18T23:31:08Z"
+  "updated_at": "2026-04-18T23:32:49Z"
 }
