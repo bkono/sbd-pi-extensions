@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T05:00:20Z",
+  "close_reason": "done",
   "created": "2026-04-18T04:58:20Z",
   "description": "Update tests that currently flap/fail when run outside a tmux session so they first detect whether tmux is available/active for the environment and skip cleanly instead of failing. Validate with lint, test, and typecheck, then commit the fix.",
   "id": "sbdpi-rnn",
@@ -13,8 +15,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Skip tmux-dependent tests gracefully when no tmux session is available",
   "type": "task",
-  "updated_at": "2026-04-18T05:00:15Z"
+  "updated_at": "2026-04-18T05:00:20Z"
 }
