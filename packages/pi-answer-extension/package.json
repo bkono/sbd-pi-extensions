@@ -1,7 +1,7 @@
 {
   "name": "@solvedbydev/pi-answer-extension",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pi extension: extract questions from assistant responses and answer them interactively",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
