@@ -6,9 +6,15 @@
   "description": "Update repo version references from the just-cut `v0.1.0` baseline to `v0.2.0` so upcoming branches and commits clearly target the next round of work. Adjust package metadata and any obvious version references, then validate and commit the change.",
   "id": "sbdpi-e07",
   "labels": [],
+  "comments": [
+    {
+      "text": "Bumped all published workspace packages from `0.1.0` to `0.2.0` in preparation for the next development cycle. Validation run results:\n- `npm run lint` ✅ (Biome completed with an existing schema-version info notice only)\n- `npm run test` ✅ after ensuring a tmux server was available for the beadwork orchestrator tests\n- `npm run typecheck` ✅",
+      "timestamp": "2026-04-18T04:57:39Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Bump workspace packages to v0.2.0 for upcoming development cycle",
   "type": "task",
-  "updated_at": "2026-04-18T04:55:48Z"
+  "updated_at": "2026-04-18T04:57:39Z"
 }
