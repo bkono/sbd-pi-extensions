@@ -7,7 +7,13 @@ export interface OMStatusReport {
   observationTokens: number;
   draftObservationTokens: number;
   stagingThreshold: number;
+  stagingMessageCountThreshold: number;
+  stagingToolResultTokenThreshold: number;
   publishThreshold: number;
+  publishMessageCountThreshold: number;
+  publishToolResultTokenThreshold: number;
+  chunkMessageTokenLimit: number;
+  chunkMessageLimit: number;
   observationModel: string;
   reflectionThreshold: number;
   reflectionModel: string;
@@ -21,8 +27,18 @@ export interface OMStatusReport {
   unpublishedCursorModeForCurrentWindow: string;
   unobservedMessages: number;
   unobservedMessageTokens: number;
+  unobservedToolResultCount: number;
+  unobservedToolResultTokens: number;
   unpublishedMessages: number;
   unpublishedMessageTokens: number;
+  unpublishedToolResultCount: number;
+  unpublishedToolResultTokens: number;
+  nextChunkMessages: number;
+  nextChunkMessageTokens: number;
+  nextChunkToolResultCount: number;
+  nextChunkToolResultTokens: number;
+  stagingReasons: string[];
+  publishReasons: string[];
   lastCycleAt: string | null;
   lastCycleReason: string | null;
   lastCursorMode: string | null;
@@ -75,6 +91,33 @@ function formatOptionalBoolean(value: boolean | null): string {
 
 function formatOptionalCount(value: number | null): string {
   return value === null ? "n/a" : formatCount(value);
+}
+
+function formatThreshold(value: number): string {
+  return Number.isFinite(value) ? formatCount(value) : "disabled";
+}
+
+function formatTriggerReasons(reasons: string[]): string {
+  if (reasons.length === 0) {
+    return "none";
+  }
+
+  return reasons
+    .map((reason) => {
+      switch (reason) {
+        case "messageTokens":
+          return "message tokens";
+        case "messageCount":
+          return "message count";
+        case "toolResultTokens":
+          return "tool-result tokens";
+        case "force":
+          return "forced";
+        default:
+          return reason;
+      }
+    })
+    .join(", ");
 }
 
 function formatObservationDate(value: string): string {
@@ -195,11 +238,12 @@ export function formatStatusReport(status: OMStatusReport): string {
     `Observational memory status · ${status.sessionId}`,
     `Published observations: ${status.observationsPresent ? "yes" : "no"} · ${formatCount(status.observationTokens)} tokens`,
     `Staged draft: ${status.draftObservationsPresent ? "yes" : "no"} · ${formatCount(status.draftObservationTokens)} tokens`,
-    `Staging trigger: ${formatCount(status.stagingThreshold)} unobserved message tokens · model ${status.observationModel}`,
-    `Publish trigger: ${formatCount(status.publishThreshold)} staged-but-unpublished message tokens`,
+    `Staging trigger: ${formatThreshold(status.stagingThreshold)} tokens / ${formatThreshold(status.stagingMessageCountThreshold)} messages / ${formatThreshold(status.stagingToolResultTokenThreshold)} tool-result tokens · chunk ≤ ${formatThreshold(status.chunkMessageTokenLimit)} tokens / ${formatThreshold(status.chunkMessageLimit)} messages · model ${status.observationModel}`,
+    `Publish trigger: ${formatThreshold(status.publishThreshold)} tokens / ${formatThreshold(status.publishMessageCountThreshold)} messages / ${formatThreshold(status.publishToolResultTokenThreshold)} tool-result tokens`,
     `Reflection trigger: ${formatCount(status.reflectionThreshold)} staged observation tokens · model ${status.reflectionModel}`,
-    `Unobserved window: ${formatCount(status.unobservedMessages)} messages · ${formatCount(status.unobservedMessageTokens)} tokens · cursor ${status.cursorModeForCurrentWindow}`,
-    `Unpublished draft: ${formatCount(status.unpublishedMessages)} messages · ${formatCount(status.unpublishedMessageTokens)} tokens · cursor ${status.unpublishedCursorModeForCurrentWindow}`,
+    `Unobserved window: ${formatCount(status.unobservedMessages)} messages · ${formatCount(status.unobservedMessageTokens)} tokens · ${formatCount(status.unobservedToolResultCount)} tool results / ${formatCount(status.unobservedToolResultTokens)} tokens · cursor ${status.cursorModeForCurrentWindow} · triggers ${formatTriggerReasons(status.stagingReasons)}`,
+    `Next chunk: ${formatCount(status.nextChunkMessages)} messages · ${formatCount(status.nextChunkMessageTokens)} tokens · ${formatCount(status.nextChunkToolResultCount)} tool results / ${formatCount(status.nextChunkToolResultTokens)} tokens`,
+    `Unpublished draft: ${formatCount(status.unpublishedMessages)} messages · ${formatCount(status.unpublishedMessageTokens)} tokens · ${formatCount(status.unpublishedToolResultCount)} tool results / ${formatCount(status.unpublishedToolResultTokens)} tokens · cursor ${status.unpublishedCursorModeForCurrentWindow} · triggers ${formatTriggerReasons(status.publishReasons)}`,
     `Last cycle: ${status.lastCycleReason ?? "none"} · ${formatTimestamp(status.lastCycleAt)}`,
     `Published through: entry ${status.lastObservedEntryId ?? "none"} · ${formatTimestamp(status.lastObservedTimestamp)}`,
     `Staged through: entry ${status.draftLastObservedEntryId ?? "none"} · ${formatTimestamp(status.draftLastObservedTimestamp)}`,
@@ -217,21 +261,17 @@ export function formatStatusReport(status: OMStatusReport): string {
   } else {
     lines.push("Last prune: n/a");
   }
-
   if (status.lastCursorMode) {
     lines.push(`Last prune cursor mode: ${status.lastCursorMode}`);
   }
 
   lines.push(`Updated: ${formatTimestamp(status.updatedAt)}`);
-
   if (status.currentTask) {
     lines.push("", "Current task:", status.currentTask);
   }
-
   if (status.suggestedResponse) {
     lines.push("", "Suggested response:", status.suggestedResponse);
   }
-
   return lines.join("\n");
 }
 

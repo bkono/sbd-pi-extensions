@@ -7,7 +7,10 @@ import { loadConfig, sessionStatePath } from "./config.js";
 import {
   buildObservationContext,
   buildStoredObservationBlock,
+  evaluateObservationTrigger,
   getMessagesBetweenCursors,
+  getObservationChunk,
+  getObservationTriggerThresholds,
   getUnobservedMessages,
   runObservationCycle,
 } from "./engine.js";
@@ -18,7 +21,7 @@ import {
   type OMStatusReport,
 } from "./format.js";
 import { loadSessionState, saveSessionState } from "./state.js";
-import { countMessageTokens } from "./tokens.js";
+import { countMessageTokens, summarizeMessageWindow } from "./tokens.js";
 import type { OMConfig } from "./types.js";
 
 /**
@@ -291,6 +294,8 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const statePath = sessionStatePath(cfg.storage.stateDir, sessionId);
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
     const messages = getBranchMessages(ctx);
+    const stageThresholds = getObservationTriggerThresholds(cfg, "stage");
+    const publishThresholds = getObservationTriggerThresholds(cfg, "publish");
     const unobservedWindow = getUnobservedMessages(
       messages,
       state.draftLastObservedEntryId,
@@ -303,6 +308,12 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       state.draftLastObservedEntryId,
       state.draftLastObservedTimestamp,
     );
+    const unobservedStats = summarizeMessageWindow(unobservedWindow.messages);
+    const unpublishedStats = summarizeMessageWindow(unpublishedWindow.messages);
+    const nextChunkMessages = getObservationChunk(cfg, unobservedWindow.messages);
+    const nextChunkStats = summarizeMessageWindow(nextChunkMessages);
+    const stageDecision = evaluateObservationTrigger(unobservedStats, stageThresholds);
+    const publishDecision = evaluateObservationTrigger(unpublishedStats, publishThresholds);
     return {
       sessionId,
       stateDir: cfg.storage.stateDir,
@@ -310,7 +321,13 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       observationTokens: state.observationTokens,
       draftObservationTokens: state.draftObservationTokens,
       stagingThreshold: cfg.observation.stageMessageTokens,
+      stagingMessageCountThreshold: cfg.observation.stageMessageCount,
+      stagingToolResultTokenThreshold: cfg.observation.stageToolResultTokens,
       publishThreshold: cfg.observation.publishMessageTokens,
+      publishMessageCountThreshold: cfg.observation.publishMessageCount,
+      publishToolResultTokenThreshold: cfg.observation.publishToolResultTokens,
+      chunkMessageTokenLimit: cfg.observation.maxChunkMessageTokens,
+      chunkMessageLimit: cfg.observation.maxChunkMessages,
       observationModel: `${cfg.observation.provider}/${cfg.observation.modelId}`,
       reflectionThreshold: cfg.reflection.observationTokens,
       reflectionModel: `${cfg.reflection.provider}/${cfg.reflection.modelId}`,
@@ -326,10 +343,20 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
         : null,
       cursorModeForCurrentWindow: unobservedWindow.mode,
       unpublishedCursorModeForCurrentWindow: unpublishedWindow.mode,
-      unobservedMessages: unobservedWindow.messages.length,
-      unobservedMessageTokens: countMessageTokens(unobservedWindow.messages),
-      unpublishedMessages: unpublishedWindow.messages.length,
-      unpublishedMessageTokens: countMessageTokens(unpublishedWindow.messages),
+      unobservedMessages: unobservedStats.messageCount,
+      unobservedMessageTokens: unobservedStats.messageTokens,
+      unobservedToolResultCount: unobservedStats.toolResultCount,
+      unobservedToolResultTokens: unobservedStats.toolResultTokens,
+      unpublishedMessages: unpublishedStats.messageCount,
+      unpublishedMessageTokens: unpublishedStats.messageTokens,
+      unpublishedToolResultCount: unpublishedStats.toolResultCount,
+      unpublishedToolResultTokens: unpublishedStats.toolResultTokens,
+      nextChunkMessages: nextChunkStats.messageCount,
+      nextChunkMessageTokens: nextChunkStats.messageTokens,
+      nextChunkToolResultCount: nextChunkStats.toolResultCount,
+      nextChunkToolResultTokens: nextChunkStats.toolResultTokens,
+      stagingReasons: [...stageDecision.reasons],
+      publishReasons: [...publishDecision.reasons],
       lastCycleAt: state.lastCycleAt ? new Date(state.lastCycleAt).toISOString() : null,
       lastCycleReason: state.lastCycleReason ?? null,
       lastCursorMode: state.lastCursorMode ?? null,

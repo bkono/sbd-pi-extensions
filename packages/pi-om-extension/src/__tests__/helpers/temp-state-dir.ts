@@ -32,16 +32,27 @@ export function createTestConfig(opts: {
   observationTokens?: number;
   stagingTokens?: number;
   publishTokens?: number;
+  stagingMessageCount?: number;
+  publishMessageCount?: number;
+  stagingToolResultTokens?: number;
+  publishToolResultTokens?: number;
+  maxChunkMessageTokens?: number;
+  maxChunkMessages?: number;
   reflectionTokens?: number;
   debug?: boolean;
 }) {
   const stagingTokens = opts.stagingTokens ?? opts.observationTokens ?? 1000;
   const publishTokens = opts.publishTokens ?? opts.observationTokens ?? 1000;
-
   return {
     observation: {
       stageMessageTokens: stagingTokens,
       publishMessageTokens: publishTokens,
+      stageMessageCount: opts.stagingMessageCount ?? Number.POSITIVE_INFINITY,
+      publishMessageCount: opts.publishMessageCount ?? Number.POSITIVE_INFINITY,
+      stageToolResultTokens: opts.stagingToolResultTokens ?? Number.POSITIVE_INFINITY,
+      publishToolResultTokens: opts.publishToolResultTokens ?? Number.POSITIVE_INFINITY,
+      maxChunkMessageTokens: opts.maxChunkMessageTokens ?? Number.POSITIVE_INFINITY,
+      maxChunkMessages: opts.maxChunkMessages ?? Number.POSITIVE_INFINITY,
       provider: "google" as const,
       modelId: "gemini-2.5-flash",
     },

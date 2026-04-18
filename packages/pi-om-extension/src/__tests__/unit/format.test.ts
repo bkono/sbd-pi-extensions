@@ -10,7 +10,13 @@ describe("formatters", () => {
       observationTokens: 1234,
       draftObservationTokens: 1500,
       stagingThreshold: 70000,
+      stagingMessageCountThreshold: 24,
+      stagingToolResultTokenThreshold: 12000,
       publishThreshold: 90000,
+      publishMessageCountThreshold: 36,
+      publishToolResultTokenThreshold: 18000,
+      chunkMessageTokenLimit: 12000,
+      chunkMessageLimit: 16,
       observationModel: "google/gemini-2.5-flash",
       reflectionThreshold: 50000,
       reflectionModel: "google/gemini-2.5-flash",
@@ -24,8 +30,18 @@ describe("formatters", () => {
       unpublishedCursorModeForCurrentWindow: "id",
       unobservedMessages: 2,
       unobservedMessageTokens: 99,
+      unobservedToolResultCount: 1,
+      unobservedToolResultTokens: 88,
       unpublishedMessages: 4,
       unpublishedMessageTokens: 333,
+      unpublishedToolResultCount: 2,
+      unpublishedToolResultTokens: 222,
+      nextChunkMessages: 2,
+      nextChunkMessageTokens: 99,
+      nextChunkToolResultCount: 1,
+      nextChunkToolResultTokens: 88,
+      stagingReasons: ["messageCount"],
+      publishReasons: ["toolResultTokens"],
       lastCycleAt: "2023-11-14T22:13:20.000Z",
       lastCycleReason: "turn_end",
       lastCursorMode: "id",
@@ -47,7 +63,16 @@ describe("formatters", () => {
     expect(text).toContain("Observational memory status · session-123");
     expect(text).toContain("Published observations: yes · 1,234 tokens");
     expect(text).toContain("Staged draft: yes · 1,500 tokens");
-    expect(text).toContain("Publish trigger: 90,000 staged-but-unpublished message tokens");
+    expect(text).toContain(
+      "Staging trigger: 70,000 tokens / 24 messages / 12,000 tool-result tokens",
+    );
+    expect(text).toContain(
+      "Publish trigger: 90,000 tokens / 36 messages / 18,000 tool-result tokens",
+    );
+    expect(text).toContain(
+      "Unobserved window: 2 messages · 99 tokens · 1 tool results / 88 tokens · cursor id · triggers message count",
+    );
+    expect(text).toContain("Next chunk: 2 messages · 99 tokens · 1 tool results / 88 tokens");
     expect(text).toContain("Staged through: entry entry-12 · 2023-11-14 22:16:20 UTC");
     expect(text).toContain("Cycle decisions: stage yes · publish no · reflect no");
     expect(text).toContain("Last cycle: turn_end · 2023-11-14 22:13:20 UTC");

@@ -1,7 +1,22 @@
 import type { Message } from "@mariozechner/pi-ai";
 import { getEncoding } from "js-tiktoken";
 
+import type { ObservationWindowStats } from "./types.js";
+
 const encoder = getEncoding("o200k_base");
+
+interface CountedMessage {
+  message: Message;
+  tokens: number;
+  isToolResult: boolean;
+}
+
+const EMPTY_WINDOW_STATS: ObservationWindowStats = {
+  messageCount: 0,
+  messageTokens: 0,
+  toolResultCount: 0,
+  toolResultTokens: 0,
+};
 
 export function countTokens(text: string): number {
   return encoder.encode(text).length;
@@ -81,9 +96,81 @@ export function serializeMessage(message: Message): string {
 }
 
 export function countMessageTokens(messages: Message[]): number {
-  let total = 0;
-  for (const msg of messages) {
-    total += countTokens(serializeMessage(msg));
+  return summarizeMessageWindow(messages).messageTokens;
+}
+
+export function summarizeMessageWindow(messages: Message[]): ObservationWindowStats {
+  if (messages.length === 0) {
+    return { ...EMPTY_WINDOW_STATS };
   }
-  return total;
+
+  const counted = messages.map(countMessage);
+  return summarizeCountedMessages(counted);
+}
+
+export function selectMessageChunk(
+  messages: Message[],
+  limits: { maxMessages: number; maxTokens: number },
+): Message[] {
+  if (messages.length === 0) {
+    return [];
+  }
+
+  const maxMessages = normalizePositiveLimit(limits.maxMessages);
+  const maxTokens = normalizePositiveLimit(limits.maxTokens);
+  const counted = messages.map(countMessage);
+  const selected: CountedMessage[] = [];
+  let totalTokens = 0;
+
+  for (const entry of counted) {
+    const exceedsMessageLimit = selected.length >= maxMessages;
+    const exceedsTokenLimit = selected.length > 0 && totalTokens + entry.tokens > maxTokens;
+    if (exceedsMessageLimit || exceedsTokenLimit) {
+      break;
+    }
+
+    selected.push(entry);
+    totalTokens += entry.tokens;
+  }
+
+  if (selected.length === 0) {
+    return [counted[0]!.message];
+  }
+
+  return selected.map((entry) => entry.message);
+}
+
+function summarizeCountedMessages(messages: CountedMessage[]): ObservationWindowStats {
+  return messages.reduce<ObservationWindowStats>(
+    (stats, entry) => {
+      stats.messageCount += 1;
+      stats.messageTokens += entry.tokens;
+      if (entry.isToolResult) {
+        stats.toolResultCount += 1;
+        stats.toolResultTokens += entry.tokens;
+      }
+      return stats;
+    },
+    { ...EMPTY_WINDOW_STATS },
+  );
+}
+
+function countMessage(message: Message): CountedMessage {
+  const serialized = serializeMessage(message);
+  return {
+    message,
+    tokens: countTokens(serialized),
+    isToolResult: getMessageRole(message) === "toolResult",
+  };
+}
+
+function getMessageRole(message: Message): string | undefined {
+  return (message as { role?: unknown }).role as string | undefined;
+}
+
+function normalizePositiveLimit(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return value;
 }

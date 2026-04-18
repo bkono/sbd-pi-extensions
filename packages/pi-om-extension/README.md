@@ -111,6 +111,12 @@ Configuration merges from multiple sources (highest precedence first):
   "observation": {
     "stageMessageTokens": 70000,
     "publishMessageTokens": 70000,
+    "stageMessageCount": 24,
+    "publishMessageCount": 24,
+    "stageToolResultTokens": 12000,
+    "publishToolResultTokens": 12000,
+    "maxChunkMessageTokens": 12000,
+    "maxChunkMessages": 16,
     "provider": "google",
     "modelId": "gemini-2.5-flash",
     "temperature": 0.2,
@@ -135,7 +141,13 @@ Configuration merges from multiple sources (highest precedence first):
 |-----|---------|--------------|-------------|
 | `observation.stageMessageTokens` | `70000` | `OM_OBSERVATION_STAGE_MESSAGE_TOKENS` | Unobserved-message-token threshold that triggers staged observation work |
 | `observation.publishMessageTokens` | `70000` | `OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS` | Staged-but-unpublished message-token threshold that promotes the draft into published memory |
-| `observation.messageTokens` | legacy alias | `OM_OBSERVATION_MESSAGE_TOKENS` | Backwards-compatible alias that sets both observation thresholds together |
+| `observation.stageMessageCount` | `24` | `OM_OBSERVATION_STAGE_MESSAGE_COUNT` | Earlier staging heuristic based on unobserved message count |
+| `observation.publishMessageCount` | `24` | `OM_OBSERVATION_PUBLISH_MESSAGE_COUNT` | Earlier publish heuristic based on staged-but-unpublished message count |
+| `observation.stageToolResultTokens` | `12000` | `OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS` | Earlier staging heuristic based on accumulated tool-result weight |
+| `observation.publishToolResultTokens` | `12000` | `OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS` | Earlier publish heuristic based on staged-but-unpublished tool-result weight |
+| `observation.maxChunkMessageTokens` | `12000` | `OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS` | Maximum unobserved message tokens sent in a single observe pass once staging begins |
+| `observation.maxChunkMessages` | `16` | `OM_OBSERVATION_MAX_CHUNK_MESSAGES` | Maximum messages sent in a single observe pass once staging begins |
+| `observation.messageTokens` | legacy alias | `OM_OBSERVATION_MESSAGE_TOKENS` | Backwards-compatible alias that sets both observation token thresholds together |
 | `observation.provider` | `google` | `OM_OBSERVATION_PROVIDER` | pi-ai provider for the observer agent |
 | `observation.modelId` | `gemini-2.5-flash` | `OM_OBSERVATION_MODEL` | Model ID for the observer agent |
 | `observation.temperature` | unset | `OM_OBSERVATION_TEMPERATURE` | Temperature for observer calls. Leave unset for reasoning models that reject the parameter (GPT-5.x, etc.). |
@@ -162,12 +174,11 @@ The extension registers a user-facing slash command so OM data is visible withou
 
 ### `/om`
 
-- `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, thresholds, unobserved/unpublished windows, and any tracked current task / suggested response.
+- `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, message-count/tool-output heuristics, chunk limits, unobserved/unpublished windows, and any tracked current task / suggested response.
 - `/om observations` — show the published observations for the current session in a human-friendly layout.
-
 ### `om_status`
 
-Returns current session memory metrics as JSON: published and staged observation token counts, staging/publish/reflection thresholds, cursor/window details, cycle history, current task, and suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
+Returns current session memory metrics as JSON: published and staged observation token counts, token/message/tool-result thresholds, next-chunk limits, cursor/window details, cycle history, current task, and suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
 
 ### `om_observations`
 

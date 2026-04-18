@@ -8,8 +8,22 @@ import {
   OBSERVATION_CONTINUATION_HINT,
 } from "./prompts.js";
 import { loadSessionState, saveSessionState } from "./state.js";
-import { countMessageTokens, countTokens, serializeMessage } from "./tokens.js";
-import type { CursorMode, CycleReason, ObservationEntry, OMConfig, SessionState } from "./types.js";
+import {
+  countTokens,
+  selectMessageChunk,
+  serializeMessage,
+  summarizeMessageWindow,
+} from "./tokens.js";
+import type {
+  CursorMode,
+  CycleReason,
+  ObservationEntry,
+  ObservationTriggerDecision,
+  ObservationTriggerThresholds,
+  ObservationWindowStats,
+  OMConfig,
+  SessionState,
+} from "./types.js";
 
 export interface UnobservedWindow {
   messages: Message[];
@@ -220,6 +234,60 @@ function hasPendingDraft(state: SessionState): boolean {
   );
 }
 
+export function getObservationTriggerThresholds(
+  config: OMConfig,
+  phase: "stage" | "publish",
+): ObservationTriggerThresholds {
+  if (phase === "stage") {
+    return {
+      messageTokens: config.observation.stageMessageTokens,
+      messageCount: config.observation.stageMessageCount,
+      toolResultTokens: config.observation.stageToolResultTokens,
+    };
+  }
+
+  return {
+    messageTokens: config.observation.publishMessageTokens,
+    messageCount: config.observation.publishMessageCount,
+    toolResultTokens: config.observation.publishToolResultTokens,
+  };
+}
+
+export function evaluateObservationTrigger(
+  stats: ObservationWindowStats,
+  thresholds: ObservationTriggerThresholds,
+  forceObserve: boolean = false,
+): ObservationTriggerDecision {
+  const reasons: ObservationTriggerDecision["reasons"] = [];
+
+  if (forceObserve) {
+    reasons.push("force");
+  }
+  if (stats.messageTokens >= thresholds.messageTokens) {
+    reasons.push("messageTokens");
+  }
+  if (stats.messageCount >= thresholds.messageCount) {
+    reasons.push("messageCount");
+  }
+  if (stats.toolResultTokens >= thresholds.toolResultTokens) {
+    reasons.push("toolResultTokens");
+  }
+
+  return {
+    shouldTrigger: reasons.length > 0,
+    reasons,
+    stats,
+    thresholds,
+  };
+}
+
+export function getObservationChunk(config: OMConfig, messages: Message[]): Message[] {
+  return selectMessageChunk(messages, {
+    maxMessages: config.observation.maxChunkMessages,
+    maxTokens: config.observation.maxChunkMessageTokens,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Observation cycle
 // ---------------------------------------------------------------------------
@@ -261,120 +329,142 @@ export async function runObservationCycle(
         lastCursorMode: unobservedWindow.mode,
       };
 
+      const stageThresholds = getObservationTriggerThresholds(config, "stage");
+      const publishThresholds = getObservationTriggerThresholds(config, "publish");
+      const forceObserve = options?.forceObserve ?? false;
       const messagesToObserve = options?.excludeLatestMessage
         ? unobservedWindow.messages.slice(0, -1)
         : unobservedWindow.messages;
-
-      const unobservedTokens = countMessageTokens(messagesToObserve);
-      const shouldObserve =
-        options?.forceObserve || unobservedTokens >= config.observation.stageMessageTokens;
-
+      const stageDecision = evaluateObservationTrigger(
+        summarizeMessageWindow(messagesToObserve),
+        stageThresholds,
+        forceObserve,
+      );
       debugLog(config, "stage check", {
         sessionId,
         reason: cycleReason,
-        unobservedMessages: messagesToObserve.length,
-        unobservedTokens,
-        threshold: config.observation.stageMessageTokens,
-        shouldObserve,
+        ...stageDecision.stats,
+        thresholds: stageDecision.thresholds,
+        reasons: stageDecision.reasons,
+        shouldObserve: stageDecision.shouldTrigger,
       });
-
       let nextDraft = draftState;
       let observeTriggered = false;
       let reflectTriggered = false;
+      let remainingMessages = messagesToObserve;
+      let chunkIndex = 0;
 
-      if (messagesToObserve.length > 0 && shouldObserve) {
-        // Serialize messages for the observer
-        const serializedMessages = messagesToObserve.map(serializeMessage).join("\n\n");
+      while (remainingMessages.length > 0) {
+        const remainingDecision = evaluateObservationTrigger(
+          summarizeMessageWindow(remainingMessages),
+          stageThresholds,
+          forceObserve,
+        );
 
-        // Create a timeout signal so a slow/hung LLM call cannot block forever
+        if (!remainingDecision.shouldTrigger && !observeTriggered) {
+          break;
+        }
+
+        const chunkMessages = getObservationChunk(config, remainingMessages);
+        if (chunkMessages.length === 0) {
+          break;
+        }
+
+        const chunkStats = summarizeMessageWindow(chunkMessages);
+        chunkIndex += 1;
+        debugLog(config, "observe chunk", {
+          sessionId,
+          reason: cycleReason,
+          chunkIndex,
+          remainingMessages: remainingDecision.stats.messageCount,
+          remainingMessageTokens: remainingDecision.stats.messageTokens,
+          chunkMessages: chunkStats.messageCount,
+          chunkMessageTokens: chunkStats.messageTokens,
+          chunkToolResultCount: chunkStats.toolResultCount,
+          chunkToolResultTokens: chunkStats.toolResultTokens,
+        });
+
+        const serializedMessages = chunkMessages.map(serializeMessage).join("\n\n");
         const observeSignal = config.observation.timeout
           ? AbortSignal.timeout(config.observation.timeout)
           : undefined;
-
         const observed = await agents.observe(
           {
-            existingObservations: draftState.observations,
+            existingObservations: nextDraft.observations,
             serializedMessages,
             customInstruction: config.observation.customInstruction,
           },
           { signal: observeSignal },
         );
-
         observeTriggered = true;
-
         const observedEntries = normalizeObservationEntries(observed.observationEntries);
-
-        if (observed.observations.trim() || observedEntries?.length) {
-          let observationEntries = observedEntries
-            ? appendObservationEntries(draftState.observationEntries, observedEntries)
-            : undefined;
-          let observations = observedEntries
-            ? renderObservationEntries(observationEntries)
-            : appendObservations(draftState.observations, observed.observations);
-          let observationTokens = countTokens(observations);
-          let currentTask = observed.currentTask ?? draftState.currentTask;
-          let suggestedResponse = observed.suggestedResponse ?? draftState.suggestedResponse;
-
-          // Trigger reflection if observation block is too large
-          if (observationTokens >= config.reflection.observationTokens) {
-            reflectTriggered = true;
-            debugLog(config, "reflection triggered", {
-              sessionId,
-              observationTokens,
-              threshold: config.reflection.observationTokens,
-            });
-
-            const reflectSignal = config.reflection.timeout
-              ? AbortSignal.timeout(config.reflection.timeout)
-              : undefined;
-
-            const reflected = await agents.reflect(
-              {
-                observations,
-                customInstruction: config.reflection.customInstruction,
-              },
-              { signal: reflectSignal },
-            );
-
-            const reflectedEntries = normalizeObservationEntries(reflected.observationEntries);
-
-            if (reflectedEntries) {
-              observationEntries = reflectedEntries;
-              observations = renderObservationEntries(observationEntries);
-              observationTokens = countTokens(observations);
-            } else if (reflected.observations.trim()) {
-              observationEntries = undefined;
-              observations = reflected.observations;
-              observationTokens = countTokens(observations);
-            }
-
-            if (reflected.currentTask) {
-              currentTask = reflected.currentTask;
-            }
-            if (reflected.suggestedResponse) {
-              suggestedResponse = reflected.suggestedResponse;
-            }
-          }
-
-          // Update cursor to the last observed message
-          const boundary = messagesToObserve.at(-1);
-          nextDraft = {
-            observations,
-            observationEntries,
-            observationTokens,
-            lastObservedEntryId: getMessageId(boundary) ?? draftState.lastObservedEntryId,
-            lastObservedTimestamp:
-              getMessageTimestamp(boundary) ?? draftState.lastObservedTimestamp,
-            currentTask,
-            suggestedResponse,
-          };
+        if (!observed.observations.trim() && !observedEntries?.length) {
+          debugLog(config, "observe chunk returned empty", {
+            sessionId,
+            reason: cycleReason,
+            chunkIndex,
+          });
+          break;
         }
-      }
+        let observationEntries = observedEntries
+          ? appendObservationEntries(nextDraft.observationEntries, observedEntries)
+          : undefined;
+        let observations = observedEntries
+          ? renderObservationEntries(observationEntries)
+          : appendObservations(nextDraft.observations, observed.observations);
+        let observationTokens = countTokens(observations);
+        let currentTask = observed.currentTask ?? nextDraft.currentTask;
+        let suggestedResponse = observed.suggestedResponse ?? nextDraft.suggestedResponse;
+        if (observationTokens >= config.reflection.observationTokens) {
+          reflectTriggered = true;
+          debugLog(config, "reflection triggered", {
+            sessionId,
+            observationTokens,
+            threshold: config.reflection.observationTokens,
+          });
+          const reflectSignal = config.reflection.timeout
+            ? AbortSignal.timeout(config.reflection.timeout)
+            : undefined;
+          const reflected = await agents.reflect(
+            {
+              observations,
+              customInstruction: config.reflection.customInstruction,
+            },
+            { signal: reflectSignal },
+          );
+          const reflectedEntries = normalizeObservationEntries(reflected.observationEntries);
+          if (reflectedEntries) {
+            observationEntries = reflectedEntries;
+            observations = renderObservationEntries(observationEntries);
+            observationTokens = countTokens(observations);
+          } else if (reflected.observations.trim()) {
+            observationEntries = undefined;
+            observations = reflected.observations;
+            observationTokens = countTokens(observations);
+          }
+          if (reflected.currentTask) {
+            currentTask = reflected.currentTask;
+          }
+          if (reflected.suggestedResponse) {
+            suggestedResponse = reflected.suggestedResponse;
+          }
+        }
 
+        const boundary = chunkMessages.at(-1);
+        nextDraft = {
+          observations,
+          observationEntries,
+          observationTokens,
+          lastObservedEntryId: getMessageId(boundary) ?? nextDraft.lastObservedEntryId,
+          lastObservedTimestamp: getMessageTimestamp(boundary) ?? nextDraft.lastObservedTimestamp,
+          currentTask,
+          suggestedResponse,
+        };
+        remainingMessages = remainingMessages.slice(chunkMessages.length);
+      }
       if (cycleReason === "context" && !observeTriggered) {
         return;
       }
-
       let nextState = applyDraftObservationState(
         {
           ...state,
@@ -385,7 +475,6 @@ export async function runObservationCycle(
         },
         nextDraft,
       );
-
       const unpublishedWindow = getMessagesBetweenCursors(
         allMessages,
         state.lastObservedEntryId,
@@ -393,26 +482,26 @@ export async function runObservationCycle(
         nextDraft.lastObservedEntryId,
         nextDraft.lastObservedTimestamp,
       );
-      const unpublishedTokens = countMessageTokens(unpublishedWindow.messages);
+      const publishDecision = evaluateObservationTrigger(
+        summarizeMessageWindow(unpublishedWindow.messages),
+        publishThresholds,
+        forceObserve,
+      );
       const shouldPublish =
-        publishDraft &&
-        hasPendingDraft(nextState) &&
-        (options?.forceObserve || unpublishedTokens >= config.observation.publishMessageTokens);
-
+        publishDraft && hasPendingDraft(nextState) && publishDecision.shouldTrigger;
       debugLog(config, "publish check", {
         sessionId,
         reason: cycleReason,
-        unpublishedMessages: unpublishedWindow.messages.length,
-        unpublishedTokens,
-        threshold: config.observation.publishMessageTokens,
+        ...publishDecision.stats,
+        thresholds: publishDecision.thresholds,
+        reasons: publishDecision.reasons,
+        publishDraft,
         shouldPublish,
       });
-
       nextState = {
         ...nextState,
         publishTriggered: shouldPublish,
       };
-
       await saveSessionState(
         config.storage.stateDir,
         shouldPublish ? publishDraftState(nextState) : nextState,

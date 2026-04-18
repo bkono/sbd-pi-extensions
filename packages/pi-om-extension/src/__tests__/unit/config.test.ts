@@ -25,6 +25,12 @@ describe("loadConfig", () => {
     "OM_OBSERVATION_MESSAGE_TOKENS",
     "OM_OBSERVATION_STAGE_MESSAGE_TOKENS",
     "OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS",
+    "OM_OBSERVATION_STAGE_MESSAGE_COUNT",
+    "OM_OBSERVATION_PUBLISH_MESSAGE_COUNT",
+    "OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS",
+    "OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS",
+    "OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS",
+    "OM_OBSERVATION_MAX_CHUNK_MESSAGES",
     "OM_REFLECTION_OBSERVATION_TOKENS",
     "OM_OBSERVATION_PROVIDER",
     "OM_OBSERVATION_MODEL",
@@ -67,6 +73,12 @@ describe("loadConfig", () => {
     const config = loadConfig(fakeCwd);
     expect(config.observation.stageMessageTokens).toBe(70_000);
     expect(config.observation.publishMessageTokens).toBe(70_000);
+    expect(config.observation.stageMessageCount).toBe(24);
+    expect(config.observation.publishMessageCount).toBe(24);
+    expect(config.observation.stageToolResultTokens).toBe(12_000);
+    expect(config.observation.publishToolResultTokens).toBe(12_000);
+    expect(config.observation.maxChunkMessageTokens).toBe(12_000);
+    expect(config.observation.maxChunkMessages).toBe(16);
     expect(config.reflection.observationTokens).toBe(50_000);
     expect(config.observation.provider).toBe("google");
     expect(config.observation.modelId).toBe("gemini-2.5-flash");
@@ -139,6 +151,24 @@ describe("loadConfig", () => {
     const config = loadConfig(fakeCwd);
     expect(config.observation.stageMessageTokens).toBe(200);
     expect(config.observation.publishMessageTokens).toBe(900);
+  });
+
+  it("supports heuristic and chunk env overrides", () => {
+    process.env.OM_OBSERVATION_STAGE_MESSAGE_COUNT = "12";
+    process.env.OM_OBSERVATION_PUBLISH_MESSAGE_COUNT = "18";
+    process.env.OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS = "4000";
+    process.env.OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS = "5000";
+    process.env.OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS = "3000";
+    process.env.OM_OBSERVATION_MAX_CHUNK_MESSAGES = "6";
+
+    const config = loadConfig(fakeCwd);
+
+    expect(config.observation.stageMessageCount).toBe(12);
+    expect(config.observation.publishMessageCount).toBe(18);
+    expect(config.observation.stageToolResultTokens).toBe(4000);
+    expect(config.observation.publishToolResultTokens).toBe(5000);
+    expect(config.observation.maxChunkMessageTokens).toBe(3000);
+    expect(config.observation.maxChunkMessages).toBe(6);
   });
 
   it("env OM_DEBUG=1 enables debug", () => {

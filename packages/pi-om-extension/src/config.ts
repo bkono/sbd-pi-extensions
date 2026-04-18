@@ -18,6 +18,13 @@ function projectConfigPath(cwd: string): string {
 /** Default timeout for observer/reflector LLM calls (ms). */
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+const DEFAULT_STAGE_MESSAGE_COUNT = 24;
+const DEFAULT_PUBLISH_MESSAGE_COUNT = 24;
+const DEFAULT_STAGE_TOOL_RESULT_TOKENS = 12_000;
+const DEFAULT_PUBLISH_TOOL_RESULT_TOKENS = 12_000;
+const DEFAULT_MAX_CHUNK_MESSAGE_TOKENS = 12_000;
+const DEFAULT_MAX_CHUNK_MESSAGES = 16;
+
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
@@ -33,6 +40,12 @@ function defaults(cwd: string): OMConfig {
     observation: {
       stageMessageTokens: 70_000,
       publishMessageTokens: 70_000,
+      stageMessageCount: DEFAULT_STAGE_MESSAGE_COUNT,
+      publishMessageCount: DEFAULT_PUBLISH_MESSAGE_COUNT,
+      stageToolResultTokens: DEFAULT_STAGE_TOOL_RESULT_TOKENS,
+      publishToolResultTokens: DEFAULT_PUBLISH_TOOL_RESULT_TOKENS,
+      maxChunkMessageTokens: DEFAULT_MAX_CHUNK_MESSAGE_TOKENS,
+      maxChunkMessages: DEFAULT_MAX_CHUNK_MESSAGES,
       provider: "google",
       modelId: "gemini-2.5-flash",
       timeout: DEFAULT_TIMEOUT_MS,
@@ -108,72 +121,104 @@ function mergeConfig(base: OMConfig, partial: DeepPartial<OMConfig>): OMConfig {
   };
 }
 
+function applyNumberOverride(value: string | undefined, apply: (parsed: number) => void): void {
+  if (value === undefined) {
+    return;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isNaN(parsed)) {
+    apply(parsed);
+  }
+}
+
+function applyPositiveNumberOverride(
+  value: string | undefined,
+  apply: (parsed: number) => void,
+): void {
+  if (value === undefined) {
+    return;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isNaN(parsed) && parsed > 0) {
+    apply(parsed);
+  }
+}
+
 function applyEnvOverrides(config: OMConfig): OMConfig {
   const env = process.env;
+  applyNumberOverride(env.OM_OBSERVATION_MESSAGE_TOKENS, (value) => {
+    config.observation.stageMessageTokens = value;
+    config.observation.publishMessageTokens = value;
+  });
 
-  const legacyObservationThreshold = env.OM_OBSERVATION_MESSAGE_TOKENS
-    ? Number.parseInt(env.OM_OBSERVATION_MESSAGE_TOKENS, 10)
-    : Number.NaN;
-  if (!Number.isNaN(legacyObservationThreshold)) {
-    config.observation.stageMessageTokens = legacyObservationThreshold;
-    config.observation.publishMessageTokens = legacyObservationThreshold;
-  }
+  applyNumberOverride(env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS, (value) => {
+    config.observation.stageMessageTokens = value;
+  });
 
-  if (env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS) {
-    const v = Number.parseInt(env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS, 10);
-    if (!Number.isNaN(v)) config.observation.stageMessageTokens = v;
-  }
+  applyNumberOverride(env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS, (value) => {
+    config.observation.publishMessageTokens = value;
+  });
 
-  if (env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS) {
-    const v = Number.parseInt(env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS, 10);
-    if (!Number.isNaN(v)) config.observation.publishMessageTokens = v;
-  }
+  applyNumberOverride(env.OM_OBSERVATION_STAGE_MESSAGE_COUNT, (value) => {
+    config.observation.stageMessageCount = value;
+  });
 
-  if (env.OM_REFLECTION_OBSERVATION_TOKENS) {
-    const v = Number.parseInt(env.OM_REFLECTION_OBSERVATION_TOKENS, 10);
-    if (!Number.isNaN(v)) config.reflection.observationTokens = v;
-  }
+  applyNumberOverride(env.OM_OBSERVATION_PUBLISH_MESSAGE_COUNT, (value) => {
+    config.observation.publishMessageCount = value;
+  });
 
+  applyNumberOverride(env.OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS, (value) => {
+    config.observation.stageToolResultTokens = value;
+  });
+
+  applyNumberOverride(env.OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS, (value) => {
+    config.observation.publishToolResultTokens = value;
+  });
+
+  applyNumberOverride(env.OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS, (value) => {
+    config.observation.maxChunkMessageTokens = value;
+  });
+
+  applyNumberOverride(env.OM_OBSERVATION_MAX_CHUNK_MESSAGES, (value) => {
+    config.observation.maxChunkMessages = value;
+  });
+
+  applyNumberOverride(env.OM_REFLECTION_OBSERVATION_TOKENS, (value) => {
+    config.reflection.observationTokens = value;
+  });
   if (env.OM_OBSERVATION_PROVIDER) {
     config.observation.provider = env.OM_OBSERVATION_PROVIDER as KnownProvider;
   }
-
   if (env.OM_OBSERVATION_MODEL) {
     config.observation.modelId = env.OM_OBSERVATION_MODEL;
   }
-
   if (env.OM_REFLECTION_PROVIDER) {
     config.reflection.provider = env.OM_REFLECTION_PROVIDER as KnownProvider;
   }
-
   if (env.OM_REFLECTION_MODEL) {
     config.reflection.modelId = env.OM_REFLECTION_MODEL;
   }
-
   if (env.OM_OBSERVATION_TEMPERATURE !== undefined) {
     const v = Number.parseFloat(env.OM_OBSERVATION_TEMPERATURE);
     if (Number.isFinite(v)) config.observation.temperature = v;
   }
-
   if (env.OM_REFLECTION_TEMPERATURE !== undefined) {
     const v = Number.parseFloat(env.OM_REFLECTION_TEMPERATURE);
     if (Number.isFinite(v)) config.reflection.temperature = v;
   }
 
-  if (env.OM_OBSERVATION_TIMEOUT !== undefined) {
-    const v = Number.parseInt(env.OM_OBSERVATION_TIMEOUT, 10);
-    if (!Number.isNaN(v) && v > 0) config.observation.timeout = v;
-  }
+  applyPositiveNumberOverride(env.OM_OBSERVATION_TIMEOUT, (value) => {
+    config.observation.timeout = value;
+  });
 
-  if (env.OM_REFLECTION_TIMEOUT !== undefined) {
-    const v = Number.parseInt(env.OM_REFLECTION_TIMEOUT, 10);
-    if (!Number.isNaN(v) && v > 0) config.reflection.timeout = v;
-  }
-
+  applyPositiveNumberOverride(env.OM_REFLECTION_TIMEOUT, (value) => {
+    config.reflection.timeout = value;
+  });
   if (env.OM_DEBUG !== undefined) {
     config.debug = env.OM_DEBUG === "1";
   }
-
   return config;
 }
 

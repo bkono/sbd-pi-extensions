@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ObservationAgents } from "../../agents.js";
 import { runObservationCycle } from "../../engine.js";
 import { loadSessionState } from "../../state.js";
-import { conversation, resetMessageCounter } from "../helpers/fixtures.js";
+import { conversation, resetMessageCounter, toolResultMsg, userMsg } from "../helpers/fixtures.js";
 import { MockObservationAgents } from "../helpers/mock-agents.js";
 import {
   createTempStateDir,
@@ -69,6 +69,100 @@ describe("runObservationCycle — threshold behavior", () => {
     expect(state.observationTokens).toBeGreaterThan(0);
     expect(state.observeTriggered).toBe(true);
     expect(state.lastObservedTimestamp).toBeDefined();
+  });
+
+  it("observes when message-count heuristic trips before token threshold", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      observationTokens: 1_000_000,
+      stagingMessageCount: 4,
+      publishMessageCount: 4,
+    });
+    const mock = new MockObservationAgents({
+      observeResponses: [{ observations: "* 🟡 count heuristic", raw: "* 🟡 count heuristic" }],
+    });
+    const msgs = conversation(4, { baseTs: 1_700_000_000_000, contentSize: 5 });
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      new Map<string, Promise<void>>(),
+      { reason: "turn_end" },
+    );
+
+    expect(mock.observeCalls).toHaveLength(1);
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("count heuristic");
+  });
+
+  it("observes when tool-result weight trips before total token threshold", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      observationTokens: 1_000_000,
+      stagingToolResultTokens: 50,
+      publishToolResultTokens: 50,
+    });
+    const mock = new MockObservationAgents({
+      observeResponses: [{ observations: "* 🔴 tool-heavy", raw: "* 🔴 tool-heavy" }],
+    });
+    const msgs = [
+      userMsg("run a check", 1_700_000_000_000),
+      toolResultMsg("read", "x".repeat(400), 1_700_000_001_000),
+    ];
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      new Map<string, Promise<void>>(),
+      { reason: "turn_end" },
+    );
+
+    expect(mock.observeCalls).toHaveLength(1);
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("tool-heavy");
+  });
+
+  it("splits long observation work into smaller chunks", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      observationTokens: 1_000_000,
+      stagingMessageCount: 3,
+      publishMessageCount: 3,
+      maxChunkMessages: 2,
+    });
+    const mock = new MockObservationAgents({
+      observeResponses: [
+        { observations: "* first chunk", raw: "* first chunk" },
+        { observations: "* second chunk", raw: "* second chunk" },
+        { observations: "* third chunk", raw: "* third chunk" },
+      ],
+    });
+    const msgs = conversation(5, { baseTs: 1_700_000_000_000, contentSize: 20 });
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      new Map<string, Promise<void>>(),
+      { reason: "turn_end" },
+    );
+
+    expect(mock.observeCalls).toHaveLength(3);
+    expect(mock.observeCalls[0]!.serializedMessages).toContain("user-0:");
+    expect(mock.observeCalls[0]!.serializedMessages).not.toContain("user-2:");
+    expect(mock.observeCalls[1]!.serializedMessages).toContain("user-2:");
+    expect(mock.observeCalls[2]!.serializedMessages).toContain("user-4:");
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("first chunk");
+    expect(state.observations).toContain("second chunk");
+    expect(state.observations).toContain("third chunk");
+    expect(state.lastObservedTimestamp).toBe(1_700_000_000_000 + 4 * 1000);
   });
 
   it("renders structured observation entries into durable published observations", async () => {

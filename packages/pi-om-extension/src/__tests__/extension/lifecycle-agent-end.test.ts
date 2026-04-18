@@ -147,12 +147,11 @@ describe("extension: agent_end lifecycle (observation cycle)", () => {
 
       await harness.dispatch("agent_end", { type: "agent_end", messages: turnDelta }, ctx);
 
-      expect(mock.observeCalls).toHaveLength(1);
-      // The observer agent receives messages as a serialized string. Prove
-      // the handler used the FULL history by checking that the serialized
-      // payload contains content from the first messages (which are NOT
-      // in the turn delta). If the handler read event.messages instead,
-      // these early messages would be absent.
+      expect(mock.observeCalls.length).toBeGreaterThan(0);
+      // Observation work may now be chunked across multiple observer passes, but
+      // the first chunk still proves the handler used the FULL branch history.
+      // If the handler read event.messages instead, these early messages would be
+      // absent from every observer call.
       const serialized = mock.observeCalls[0]?.serializedMessages ?? "";
       expect(serialized).toContain("user-0:");
       expect(serialized).toContain("assistant-1:");

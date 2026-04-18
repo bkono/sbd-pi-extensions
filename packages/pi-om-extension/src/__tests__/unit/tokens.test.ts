@@ -1,6 +1,12 @@
 import type { Message } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
-import { countMessageTokens, countTokens, serializeMessage } from "../../tokens.js";
+import {
+  countMessageTokens,
+  countTokens,
+  selectMessageChunk,
+  serializeMessage,
+  summarizeMessageWindow,
+} from "../../tokens.js";
 import {
   assistantMsg,
   conversation,
@@ -122,5 +128,34 @@ describe("countMessageTokens", () => {
     const count2 = countMessageTokens(conv2);
     expect(count1).toBe(count2);
     expect(count1).toBeGreaterThan(0);
+  });
+});
+
+describe("message window helpers", () => {
+  it("summarizes message and tool-result weight separately", () => {
+    resetMessageCounter();
+    const msgs = [
+      userMsg("question"),
+      toolResultMsg("read", "x".repeat(200)),
+      assistantMsg("answer"),
+      toolResultMsg("bash", "y".repeat(100)),
+    ];
+
+    const stats = summarizeMessageWindow(msgs);
+
+    expect(stats.messageCount).toBe(4);
+    expect(stats.toolResultCount).toBe(2);
+    expect(stats.toolResultTokens).toBeGreaterThan(0);
+    expect(stats.messageTokens).toBeGreaterThan(stats.toolResultTokens);
+  });
+
+  it("selects bounded chunks while keeping the first message when it alone exceeds the token limit", () => {
+    resetMessageCounter();
+    const msgs = [toolResultMsg("read", "x".repeat(6000)), toolResultMsg("read", "y".repeat(100))];
+
+    const chunk = selectMessageChunk(msgs, { maxMessages: 1, maxTokens: 10 });
+
+    expect(chunk).toHaveLength(1);
+    expect(serializeMessage(chunk[0]!)).toContain("role=toolResult");
   });
 });

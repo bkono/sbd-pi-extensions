@@ -4,6 +4,12 @@ export interface OMConfig {
   observation: {
     stageMessageTokens: number;
     publishMessageTokens: number;
+    stageMessageCount: number;
+    publishMessageCount: number;
+    stageToolResultTokens: number;
+    publishToolResultTokens: number;
+    maxChunkMessageTokens: number;
+    maxChunkMessages: number;
     provider: KnownProvider;
     modelId: string;
     /**
@@ -41,6 +47,32 @@ export interface OMConfig {
 }
 
 export type CursorMode = "none" | "id" | "timestamp" | "fallback-latest";
+
+export interface ObservationWindowStats {
+  messageCount: number;
+  messageTokens: number;
+  toolResultCount: number;
+  toolResultTokens: number;
+}
+
+export type ObservationTriggerReason =
+  | "messageTokens"
+  | "messageCount"
+  | "toolResultTokens"
+  | "force";
+
+export interface ObservationTriggerThresholds {
+  messageTokens: number;
+  messageCount: number;
+  toolResultTokens: number;
+}
+
+export interface ObservationTriggerDecision {
+  shouldTrigger: boolean;
+  reasons: ObservationTriggerReason[];
+  stats: ObservationWindowStats;
+  thresholds: ObservationTriggerThresholds;
+}
 
 export type TemporalAnchorPrecision = "exact" | "day" | "week" | "month" | "approximate";
 

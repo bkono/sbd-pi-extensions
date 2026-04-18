@@ -29,6 +29,12 @@ const OM_ENV_KEYS = [
   "OM_OBSERVATION_MESSAGE_TOKENS",
   "OM_OBSERVATION_STAGE_MESSAGE_TOKENS",
   "OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS",
+  "OM_OBSERVATION_STAGE_MESSAGE_COUNT",
+  "OM_OBSERVATION_PUBLISH_MESSAGE_COUNT",
+  "OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS",
+  "OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS",
+  "OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS",
+  "OM_OBSERVATION_MAX_CHUNK_MESSAGES",
   "OM_REFLECTION_OBSERVATION_TOKENS",
   "OM_OBSERVATION_PROVIDER",
   "OM_OBSERVATION_MODEL",
@@ -124,6 +130,10 @@ describe("extension: /om command", () => {
     expect(message).toContain(`Observational memory status · ${sessionId}`);
     expect(message).toContain("Published observations: yes · 42 tokens");
     expect(message).toContain("Staged draft: yes · 64 tokens");
+    expect(message).toContain(
+      "Staging trigger: 70,000 tokens / 24 messages / 12,000 tool-result tokens",
+    );
+    expect(message).toContain("Next chunk: 0 messages · 0 tokens · 0 tool results / 0 tokens");
     expect(message).toContain("Cycle decisions: stage yes · publish no · reflect no");
     expect(message).toContain("Staged through: entry entry-125 · 2023-11-14 22:13:30 UTC");
     expect(message).toContain("Last cycle: turn_end · 2023-11-14 22:13:20 UTC");
