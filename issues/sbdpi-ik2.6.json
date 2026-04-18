@@ -8,9 +8,15 @@
   "id": "sbdpi-ik2.6",
   "labels": [],
   "parent": "sbdpi-ik2",
+  "comments": [
+    {
+      "text": "Observed in the first real delegated landing after the runtime-cleanup change: landing verified at `70b4db5`, but post-land cleanup still failed before removing the worker worktree/runtime state. Investigation shows the failure is in tmux teardown, not merge-back: `packages/pi-beadwork-extension/src/tmux.ts` still calls `tmux kill-window -t \u003csession\u003e:\u003cwindow\u003e` and treats a missing target as fatal. In this run the worker window was already gone by cleanup time, so tmux returned `can't find pane`, `cleanupLandedWorker()` aborted, and manual cleanup of the stale worktree/runtime/registry entry was required. This likely affects other delegated tickets using `cleanup-after-landing` (including the active `sbdpi-ik2.5` worker).",
+      "timestamp": "2026-04-18T06:15:28Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "Clean up `.pi/beadwork/workers/runtime` artifacts when workers/worktrees are removed",
   "type": "task",
-  "updated_at": "2026-04-18T06:10:55Z"
+  "updated_at": "2026-04-18T06:15:28Z"
 }
