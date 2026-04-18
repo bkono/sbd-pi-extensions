@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T07:06:06Z",
+  "close_reason": "Completed",
   "created": "2026-04-18T07:01:55Z",
   "description": "Add a unit regression test in packages/pi-beadwork-extension covering the delegated landing path when landing.review.enabled=true and worktrees.cleanup=cleanup-after-landing, asserting reviewer approval is required before merge and cleanup only happens after successful landing.",
   "id": "sbdpi-5e2",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add combined regression test for reviewer gating with cleanup-after-landing in delegated landing flow",
   "type": "task",
-  "updated_at": "2026-04-18T07:01:58Z"
+  "updated_at": "2026-04-18T07:06:06Z"
 }
