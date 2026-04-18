@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T19:04:44Z",
+  "description": "Record the assessment of `coctostan/pi-hashline-readmap` against the desired local workflow: `fd` when available, grep/search defaults leaning on `ast-grep` and ripgrep, safer editing/replacement, understanding what bash compression actually does, and fit for Obsidian-style PKM/docs/non-code use. Include practical downsides and likely edge-case mismatches for using it as-is for a trial period.",
+  "id": "sbdpi-pbl",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "Document pi-hashline-readmap fit assessment for local search/edit + PKM workflows",
+  "type": "task",
+  "updated_at": "2026-04-18T19:04:44Z"
+}
