@@ -7,9 +7,15 @@
   "id": "sbdpi-ik2.1",
   "labels": [],
   "parent": "sbdpi-ik2",
+  "comments": [
+    {
+      "text": "Implemented in commit `575254c` (`fix(pi-beadwork-extension): harden landing retries`). Approved reviewer results are now preserved and reused on explicit land retries when the worker HEAD has not changed, with regression coverage for retrying merge-back without re-review.",
+      "timestamp": "2026-04-18T05:26:38Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Do not re-queue review after review passed and `land` only failed at final rebase/merge",
   "type": "task",
-  "updated_at": "2026-04-18T05:11:47Z"
+  "updated_at": "2026-04-18T05:26:38Z"
 }
