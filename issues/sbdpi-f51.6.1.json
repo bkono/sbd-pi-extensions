@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.5.1"
+  ],
   "blocks": [
     "sbdpi-f51.6",
     "sbdpi-f51.6.2"
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Redesign OM injection into deterministic durable, active, and guidance segments",
   "type": "task",
-  "updated_at": "2026-04-17T01:44:15Z"
+  "updated_at": "2026-04-18T06:38:31Z"
 }
