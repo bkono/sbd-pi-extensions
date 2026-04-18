@@ -5,6 +5,7 @@
     "sbdpi-f51.6.1"
   ],
   "blocks": [
+    "sbdpi-f51.3.3",
     "sbdpi-f51.6",
     "sbdpi-f51.6.3"
   ],
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Minimize churn in unchanged OM sections and keep durable observations formatting stable",
   "type": "task",
-  "updated_at": "2026-04-18T06:38:46Z"
+  "updated_at": "2026-04-18T06:38:48Z"
 }
