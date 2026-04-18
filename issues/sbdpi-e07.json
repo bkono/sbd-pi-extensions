@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-18T04:55:46Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-e07",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Bump workspace packages to v0.2.0 for upcoming development cycle",
   "type": "task",
-  "updated_at": "2026-04-18T04:55:46Z"
+  "updated_at": "2026-04-18T04:55:48Z"
 }
