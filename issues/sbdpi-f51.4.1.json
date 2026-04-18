@@ -8,14 +8,15 @@
     "sbdpi-f51.4",
     "sbdpi-f51.4.2"
   ],
+  "closed_at": "2026-04-18T19:25:09Z",
   "created": "2026-04-17T01:27:06Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 3. Lower / earlier observation thresholds and smaller observation chunks**.\n\nGoal: split the current threshold policy into clearer knobs for staged observation work, published updates, and reflection so the system can start earlier without hard-coding one monolithic trigger.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/config.ts`\n- `packages/pi-om-extension/src/types.ts`\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/format.ts`\n\nWorker notes:\n- keep the config surface understandable; avoid exposing a maze of tuning flags\n- `/om status` and related reporting should remain intelligible after the split\n- defaults can stay conservative here; tuning comes in the follow-up ticket",
   "id": "sbdpi-f51.4.1",
   "labels": [],
   "parent": "sbdpi-f51.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add separate configurable thresholds for staging, publishing, and reflection",
   "type": "task",
-  "updated_at": "2026-04-18T19:13:20Z"
+  "updated_at": "2026-04-18T19:25:09Z"
 }
