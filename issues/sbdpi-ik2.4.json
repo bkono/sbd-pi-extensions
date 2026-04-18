@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T05:27:07Z",
+  "close_reason": "Implemented in commit 575254c.",
   "created": "2026-04-18T05:08:45Z",
   "description": "Landing is failing because the worktree contains uncommitted changes, while the build/review flow is also asking for `context.md` in ways that are not meant to be committed. The sequencing around scratch handoff files vs. final land needs to be corrected.\n\nScope:\n- identify where `context.md` or similar transient handoff artifacts are created/updated during delegate/review/land\n- ensure transient files do not poison the final land step with uncommitted-change failures\n- either relocate, clean, ignore, or explicitly manage those artifacts as part of the landing sequence\n- add regression coverage for a successful land when transient context files are present in the expected flow\n\nNotes:\n- this overlaps with the other landing-flow tickets; prefer landing-lane work to happen in the same branch/worker sequence\n- do not weaken genuine dirty-tree protection for real source changes\n\nDefinition of done:\n- tests added/updated under `packages/pi-beadwork-extension/src/__tests__`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
   "id": "sbdpi-ik2.4",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix `land` dirty-worktree failures caused by generated `context.md` handoff files",
   "type": "task",
-  "updated_at": "2026-04-18T05:26:42Z"
+  "updated_at": "2026-04-18T05:27:07Z"
 }
