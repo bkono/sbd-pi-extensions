@@ -9,14 +9,15 @@
     "sbdpi-f51.1.3",
     "sbdpi-f51.5.2"
   ],
+  "closed_at": "2026-04-18T21:50:11Z",
   "created": "2026-04-17T01:27:35Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 5. Completion markers and completed-observation lifecycle**.\n\nGoal: once explicit lifecycle semantics exist, make sure `currentTask` and reflected observations move completed work out of the active block while still preserving completed outcomes and distinguishing abandoned/superseded work.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- `packages/pi-om-extension/src/format.ts`\n- `packages/pi-om-extension/src/types.ts`\n\nWorker notes:\n- this is primarily about update semantics, not just phrasing\n- keep `buildObservationContext()` and `/om` reporting coherent with the new lifecycle behavior\n- avoid leaving stale completed items in the active task block\n\nValidation should cover observe → reflect → inject flow, not just isolated prompt text.",
   "id": "sbdpi-f51.1.2",
   "labels": [],
   "parent": "sbdpi-f51.1",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Keep current-task and reflection state in sync with completion transitions",
   "type": "task",
-  "updated_at": "2026-04-18T21:35:11Z"
+  "updated_at": "2026-04-18T21:50:11Z"
 }
