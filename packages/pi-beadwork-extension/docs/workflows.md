@@ -143,13 +143,13 @@ That means:
 
 If `landing.review.enabled` is true, the orchestrator runs a reviewer-agent pass before merge-back or before declaring a deferred worker ready to land.
 
-Explicit reviewer verdicts are:
+Reviewer runs are exploratory by default: they can inspect the worktree, follow downstream code paths, and run the mandatory validation commands before handing back a result. The expected final handoff is a parseable `<review_report>` block with one of these verdicts:
 
-- `approve`
-- `approve-with-nits`
-- `request-changes`
+- `APPROVE`
+- `APPROVE WITH NITS`
+- `REQUEST CHANGES`
 
-The orchestrator does **not** blindly obey the reviewer. It filters feedback against the bead intent and ticket goals.
+The orchestrator normalizes those verdicts to its internal states (`approve`, `approve-with-nits`, `request-changes`). It does **not** blindly obey the reviewer: it still filters feedback against the bead intent and ticket goals.
 
 Operator-visible review states include:
 

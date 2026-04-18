@@ -173,11 +173,13 @@ Important behavior:
 | `remediation-in-progress` | Reviewer-driven remediation is running. |
 | `review-blocked` | Review could not reach a mergeable state without operator help. |
 
-Reviewer verdicts are normalized to:
+Reviewer verdicts are normalized from the reviewer handoff report:
 
-- `approve`
-- `approve-with-nits`
-- `request-changes`
+- `APPROVE` → `approve`
+- `APPROVE WITH NITS` → `approve-with-nits`
+- `REQUEST CHANGES` → `request-changes`
+
+The orchestrator parses the reviewer’s final `<review_report>` block, then filters findings against ticket intent before deciding whether anything should actually block landing.
 
 ### Landing states from worker inspection
 

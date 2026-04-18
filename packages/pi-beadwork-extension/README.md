@@ -189,6 +189,8 @@ Notes:
 
 - reviewer provider/model are independent from worker provider/model
 - reviewer timeout now defaults to **30 minutes** (`1800000` ms)
+- reviewer runs now behave like normal exploratory agents by default; pi reviewers keep their usual tools/extensions/skills unless your base command disables them
+- reviewer handoff ends with a parseable `<review_report>` block using `APPROVE`, `APPROVE WITH NITS`, or `REQUEST CHANGES`; the orchestrator then normalizes and filters findings against ticket intent
 - `maxArtifactChars` caps the diff/commit artifacts sent to the reviewer; it does **not** cap the entire review prompt
 - legacy `maxContextChars` / `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS` are still accepted for compatibility
 

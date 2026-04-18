@@ -199,6 +199,8 @@ How many times the orchestrator will try to refresh a drifted worker through reb
 
 Turns on reviewer-agent gating before merge-back or before declaring a deferred worker ready to land.
 
+Reviewer runs are exploratory by default. When the base command is `pi`, the orchestrator keeps the normal tool/extension/skill surface instead of forcing reviewer isolation flags.
+
 #### `provider` / `model`
 
 Reviewer-specific provider/model overrides.
@@ -226,6 +228,8 @@ How many orchestrator remediation passes are allowed after valid reviewer-reques
 #### `maxArtifactChars`
 
 Caps the review artifacts bundled into the reviewer prompt, especially:
+
+The reviewer prompt still includes ticket/epic context, the mandatory validation commands, and instructions to finish with a machine-readable `<review_report>` handoff.
 
 - commit summaries
 - diff stats

@@ -159,17 +159,11 @@ export function buildReviewerAgentCommand(
   worker?: WorkerAgentSettings,
 ): string {
   const reviewer = resolveReviewerAgentSettings(config, worker);
-  const command = buildModelScopedAgentCommand({
+  return buildModelScopedAgentCommand({
     command: reviewer.workerCommand,
     provider: reviewer.workerProvider,
     model: reviewer.workerModel,
   });
-
-  if (!shouldNormalizePiWorkerCommand(reviewer.workerCommand)) {
-    return command;
-  }
-
-  return `${command} --no-tools --no-extensions --no-skills`;
 }
 
 function buildWorkerScript(input: {
@@ -241,10 +235,18 @@ const REVIEWER_ALLOWED_VERDICTS: WorkerReviewVerdict[] = [
   "request-changes",
 ];
 
-function isReviewVerdict(value: unknown): value is WorkerReviewVerdict {
-  return (
-    typeof value === "string" && REVIEWER_ALLOWED_VERDICTS.includes(value as WorkerReviewVerdict)
-  );
+function normalizeReviewVerdict(value: unknown): WorkerReviewVerdict | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+  return REVIEWER_ALLOWED_VERDICTS.includes(normalized as WorkerReviewVerdict)
+    ? (normalized as WorkerReviewVerdict)
+    : undefined;
 }
 
 type ReviewFeedbackItem = {
@@ -306,9 +308,8 @@ function extractAssistantTextParts(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function extractPiJsonAssistantText(raw: string): string | undefined {
-  let latestAssistantText: string | undefined;
-  let sawAssistantToolCall = false;
+function extractPiJsonAssistantTexts(raw: string): string[] {
+  const assistantTexts: string[] = [];
 
   for (const line of raw.split(/\r?\n/)) {
     const trimmedLine = line.trim();
@@ -346,42 +347,29 @@ function extractPiJsonAssistantText(raw: string): string | undefined {
 
     for (const message of assistantMessages) {
       const content = Array.isArray(message.content) ? message.content : [];
-      if (
-        content.some(
-          (entry) =>
-            Boolean(entry) &&
-            typeof entry === "object" &&
-            ((entry as { type?: unknown }).type === "toolCall" ||
-              (entry as { type?: unknown }).type === "toolResult"),
-        )
-      ) {
-        sawAssistantToolCall = true;
-      }
-
       const text = extractAssistantTextParts(content).join("\n").trim();
       if (text.length > 0) {
-        latestAssistantText = text;
+        assistantTexts.push(text);
       }
     }
   }
 
-  if (latestAssistantText) {
-    return latestAssistantText;
-  }
-
-  if (sawAssistantToolCall) {
-    throw new Error(
-      "Reviewer agent attempted tool use instead of returning strict JSON. Re-run with reviewer tools/extensions disabled.",
-    );
-  }
-
-  return undefined;
+  return assistantTexts;
 }
 
 function extractJsonPayload(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed) {
     throw new Error("Reviewer output was empty.");
+  }
+
+  const taggedReport = trimmed.match(/<review_report>\s*([\s\S]*?)\s*<\/review_report>/i);
+  if (taggedReport?.[1]) {
+    try {
+      return extractJsonPayload(taggedReport[1]);
+    } catch {
+      // fall through so event-stream extraction can inspect decoded assistant text
+    }
   }
 
   try {
@@ -395,21 +383,29 @@ function extractJsonPayload(raw: string): unknown {
     try {
       return JSON.parse(fenced[1]) as unknown;
     } catch {
-      // fall through to broad object extraction
+      // fall through to additional extraction strategies
     }
   }
 
-  const piAssistantText = extractPiJsonAssistantText(trimmed);
-  if (piAssistantText) {
-    return extractJsonPayload(piAssistantText);
+  const assistantTexts = extractPiJsonAssistantTexts(trimmed);
+  for (let index = assistantTexts.length - 1; index >= 0; index -= 1) {
+    try {
+      return extractJsonPayload(assistantTexts[index] ?? "");
+    } catch {
+      // try older assistant messages before failing
+    }
   }
 
   const objectMatch = trimmed.match(/\{[\s\S]*\}/);
   if (objectMatch?.[0]) {
-    return JSON.parse(objectMatch[0]) as unknown;
+    try {
+      return JSON.parse(objectMatch[0]) as unknown;
+    } catch {
+      // fall through to the final error
+    }
   }
 
-  throw new Error("Reviewer output did not contain a JSON object.");
+  throw new Error("Reviewer output did not contain a structured review report.");
 }
 
 function normalizeReviewFeedbackItem(value: unknown): ReviewFeedbackItem | undefined {
@@ -457,29 +453,34 @@ function normalizeReviewFeedbackItem(value: unknown): ReviewFeedbackItem | undef
 function normalizeReviewerDecision(raw: string): ReviewerDecision {
   const payload = extractJsonPayload(raw);
   if (!payload || typeof payload !== "object") {
-    throw new Error("Reviewer output was not a JSON object.");
+    throw new Error("Reviewer output was not a structured report object.");
   }
 
   const value = payload as {
     verdict?: unknown;
     summary?: unknown;
     feedback?: unknown;
+    findings?: unknown;
   };
 
-  if (!isReviewVerdict(value.verdict)) {
+  const verdict = normalizeReviewVerdict(value.verdict);
+  if (!verdict) {
     throw new Error(
-      `Reviewer verdict must be one of: ${REVIEWER_ALLOWED_VERDICTS.join(", ")}. Received: ${String(value.verdict)}.`,
+      `Reviewer verdict must be one of: APPROVE, APPROVE WITH NITS, REQUEST CHANGES. Received: ${String(value.verdict)}.`,
     );
   }
 
-  const feedback = Array.isArray(value.feedback)
-    ? value.feedback
-        .map((entry) => normalizeReviewFeedbackItem(entry))
-        .filter((entry): entry is ReviewFeedbackItem => entry !== undefined)
-    : [];
+  const feedbackEntries = Array.isArray(value.findings)
+    ? value.findings
+    : Array.isArray(value.feedback)
+      ? value.feedback
+      : [];
+  const feedback = feedbackEntries
+    .map((entry) => normalizeReviewFeedbackItem(entry))
+    .filter((entry): entry is ReviewFeedbackItem => entry !== undefined);
 
   return {
-    verdict: value.verdict,
+    verdict,
     summary:
       typeof value.summary === "string" && value.summary.trim().length > 0
         ? value.summary.trim()
@@ -666,6 +667,7 @@ function buildReviewRemediationPrompt(input: {
   worker: WorkerRuntime;
   reviewSummary: string;
   validFeedback: ReviewFeedbackItem[];
+  validationCommands: string[];
 }): string {
   const lines = [
     "You are continuing delegated work in an existing beadwork ticket worktree.",
@@ -685,14 +687,22 @@ function buildReviewRemediationPrompt(input: {
     }
   }
 
+  if (input.validationCommands.length > 0) {
+    lines.push("", "Mandatory validation commands to satisfy before handing back:");
+    for (const command of input.validationCommands) {
+      lines.push(`- ${command}`);
+    }
+  }
+
   lines.push(
     "",
     "Rules:",
     "- Stay scoped to the ticket intent and the listed valid review feedback.",
     "- Ignore reviewer comments that are not in the valid-feedback list.",
     "- Keep commits focused; commit follow-up fixes on the current branch.",
-    "- Re-run any needed quality checks before exiting.",
+    "- Re-run the required validation commands until they pass.",
     "- Do not reopen the ticket unless absolutely necessary.",
+    "- If you create any commits, run `bw sync` before exiting.",
     "- If blocked, explain the blocker clearly and exit.",
   );
 
@@ -739,19 +749,23 @@ function buildReviewerPrompt(input: {
   ticket: BeadworkIssueDetail;
   epic?: BeadworkIssueDetail;
   artifacts: { commitSummary: string; diffStat: string; diff: string };
+  validationCommands: string[];
 }): string {
   const lines = [
     "You are a reviewer agent performing a merge-back gate for delegated beadwork work.",
-    "Assess the change against the ticket intent and task goals. Do not invent unrelated scope.",
+    "Review like a normal exploratory coding agent: inspect code, compare the diff to ticket intent, check downstream usage, and run commands in the worktree as needed.",
+    "Do not edit files, but normal tools/extensions/skills are available and expected when they help you verify the change.",
     "",
-    "Return STRICT JSON only with this schema:",
+    "Finish with a machine-readable handoff enclosed in <review_report> tags:",
+    "<review_report>",
     "{",
-    '  "verdict": "approve" | "approve-with-nits" | "request-changes",',
+    '  "verdict": "APPROVE" | "APPROVE WITH NITS" | "REQUEST CHANGES",',
     '  "summary": "short summary",',
-    '  "feedback": [',
+    '  "findings": [',
     '    { "comment": "text", "intentAlignment": "aligned" | "unclear" | "misaligned", "requiresChanges": true | false }',
     "  ]",
     "}",
+    "</review_report>",
     "",
     `Ticket: ${input.ticket.id} ${input.ticket.title}`,
     `Branch: ${input.worker.branchName}`,
@@ -770,6 +784,13 @@ function buildReviewerPrompt(input: {
     lines.push("", "Epic context:", truncateForPrompt(input.epic.description, 2_500));
   }
 
+  if (input.validationCommands.length > 0) {
+    lines.push("", "Mandatory validation commands for this review:");
+    for (const command of input.validationCommands) {
+      lines.push(`- ${command}`);
+    }
+  }
+
   lines.push(
     "",
     "Worker commits (repo HEAD..worker HEAD):",
@@ -782,9 +803,11 @@ function buildReviewerPrompt(input: {
     input.artifacts.diff || "[none]",
     "",
     "Review rules:",
-    "- Only request changes when the issue is truly relevant to this ticket's intent/constraints.",
-    "- Use intentAlignment=misaligned for comments that are not truly in scope.",
-    "- For minor polish that should not block landing, use verdict=approve-with-nits and requiresChanges=false.",
+    "- Validation is mandatory: run or otherwise verify the listed commands before you finalize the report, and call out blockers clearly in the summary if validation cannot complete.",
+    "- The coordinator will independently filter your findings against ticket intent, so mark out-of-scope comments with intentAlignment=misaligned instead of inflating the verdict.",
+    "- Only use REQUEST CHANGES for real blockers that are relevant to this ticket's intent or required validation.",
+    "- For minor polish that should not block landing, use verdict=APPROVE WITH NITS and requiresChanges=false.",
+    "- Always end with exactly one <review_report> block so the coordinator can parse your handoff.",
   );
 
   return lines.join("\n");
@@ -819,6 +842,7 @@ async function runReviewerPass(input: {
     ticket,
     epic,
     artifacts,
+    validationCommands: input.config.landing.validateCommands,
   });
   const promptFile = path.join(input.worker.runtimeDir, "review-handoff.txt");
   const reviewLogFile = resolveReviewerLogFile(input.worker);
@@ -1066,6 +1090,7 @@ async function relaunchWorkerForReviewFeedback(input: {
     worker: input.worker,
     reviewSummary: input.reviewSummary,
     validFeedback: input.validFeedback,
+    validationCommands: input.config.landing.validateCommands,
   });
   const workerAgentCommand = buildWorkerAgentCommand(input.config, input.worker);
   const reviewerAgent = resolveReviewerAgentSettings(input.config, input.worker);

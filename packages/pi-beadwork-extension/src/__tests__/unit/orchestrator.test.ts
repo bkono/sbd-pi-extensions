@@ -120,9 +120,7 @@ describe("orchestrator helpers", () => {
   });
 
   it("builds reviewer commands with independently configurable provider/model", () => {
-    expect(buildReviewerAgentCommand(DEFAULT_CONFIG)).toBe(
-      "pi --mode json --no-tools --no-extensions --no-skills",
-    );
+    expect(buildReviewerAgentCommand(DEFAULT_CONFIG)).toBe("pi --mode json");
 
     expect(
       buildReviewerAgentCommand({
@@ -142,9 +140,7 @@ describe("orchestrator helpers", () => {
           },
         },
       }),
-    ).toBe(
-      "pi --mode json --provider 'openai' --model 'gpt-5.4-reviewer' --no-tools --no-extensions --no-skills",
-    );
+    ).toBe("pi --mode json --provider 'openai' --model 'gpt-5.4-reviewer'");
   });
 
   it("builds worker commands with a one-off provider/model override without mutating defaults", () => {
@@ -983,6 +979,14 @@ describe("worker inspection", () => {
       expect.objectContaining({ type: "remediation-started", ticketId: "BW-101" }),
     );
 
+    const remediationPrompt = await readFile(initialWorker.promptFile, "utf8");
+    expect(remediationPrompt).toContain(
+      "Mandatory validation commands to satisfy before handing back:",
+    );
+    expect(remediationPrompt).toContain("- npm run lint");
+    expect(remediationPrompt).toContain("- npm run test");
+    expect(remediationPrompt).toContain("- npm run typecheck");
+
     const rerunInput = {
       ...remediationStarted,
       status: "exited" as const,
@@ -1017,7 +1021,7 @@ describe("worker inspection", () => {
     expect(reviewRuns).toBe(2);
   });
 
-  it("parses reviewer decisions from pi json-mode event streams", async () => {
+  it("parses structured reviewer handoffs from pi json-mode event streams after tool use", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-stream-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");
     const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
@@ -1044,7 +1048,7 @@ describe("worker inspection", () => {
           type: "task",
           status: "closed",
           title: "Task",
-          description: "Return strict JSON from the reviewer stream.",
+          description: "Return a structured review handoff from the reviewer stream.",
           children: [],
         }),
       ),
@@ -1086,9 +1090,63 @@ describe("worker inspection", () => {
       if (command === "bash" && args[1]?.includes("review-model")) {
         return {
           stdout: [
-            '{"type":"session"}',
-            '{"type":"message_start","message":{"role":"assistant","content":[]}}',
-            '{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"{\\"verdict\\":\\"approve-with-nits\\",\\"summary\\":\\"Looks good overall.\\",\\"feedback\\":[{\\"comment\\":\\"README examples could mention /om observations explicitly.\\",\\"intentAlignment\\":\\"aligned\\",\\"requiresChanges\\":false}]}"}]}}',
+            JSON.stringify({ type: "session" }),
+            JSON.stringify({
+              type: "message_start",
+              message: { role: "assistant", content: [] },
+            }),
+            JSON.stringify({
+              type: "message_update",
+              message: {
+                role: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text: "I inspected the diff, checked downstream callsites, and reran the required commands.",
+                  },
+                ],
+              },
+            }),
+            JSON.stringify({
+              type: "message_update",
+              message: {
+                role: "assistant",
+                content: [
+                  {
+                    type: "toolCall",
+                    toolCallId: "call-1",
+                    toolName: "read",
+                    arguments: { path: "README.md" },
+                  },
+                ],
+              },
+            }),
+            JSON.stringify({
+              type: "message_update",
+              message: {
+                role: "assistant",
+                content: [
+                  {
+                    type: "toolResult",
+                    toolCallId: "call-1",
+                    toolName: "read",
+                    result: "README excerpt",
+                  },
+                ],
+              },
+            }),
+            JSON.stringify({
+              type: "message_update",
+              message: {
+                role: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text: 'Final handoff:\n<review_report>\n{\n  "verdict": "APPROVE WITH NITS",\n  "summary": "Looks good overall.",\n  "findings": [\n    {\n      "comment": "README examples could mention /om observations explicitly.",\n      "intentAlignment": "aligned",\n      "requiresChanges": false\n    }\n  ]\n}\n</review_report>',
+                  },
+                ],
+              },
+            }),
           ].join("\n"),
           stderr: "",
           code: 0,
