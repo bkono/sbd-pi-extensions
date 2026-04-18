@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-18T17:56:07Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-m06",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Document pi-caffeinate fit for beadwork lifecycle",
   "type": "task",
-  "updated_at": "2026-04-18T17:56:07Z"
+  "updated_at": "2026-04-18T17:56:12Z"
 }
