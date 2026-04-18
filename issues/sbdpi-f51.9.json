@@ -18,10 +18,10 @@
   "description": "Practical backlog summary anchor: **Tier 2 → Reflection robustness and retry ladder**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 2 / section 7. Reflection robustness and retry ladder**.\n\nImplementation context:\n- reflection is currently triggered in `packages/pi-om-extension/src/engine.ts`\n- reflector prompting/parsing lives in `src/prompts.ts` and `src/agents.ts`\n- state persistence and fallback behavior live in `src/state.ts` and the observation-cycle save path in `src/engine.ts`\n- today the reflector result is mostly trusted if it returns non-empty observations\n\nWhat this epic should establish:\n- detection of degenerate or obviously lossy reflector output\n- bounded retry/fallback behavior before useful observations are replaced\n- explicit preservation of pre-reflection state when the retry path still fails\n\nUseful references:\n- backlog doc section 7\n- local reflection-cycle tests in `src/__tests__/integration`\n- this epic is intentionally gated on Tier 1 so it builds on stronger completion, temporal, specificity, and layout semantics\n\nKeep the implementation pragmatic; the goal is to avoid silent memory damage, not to build a full validation framework.",
   "id": "sbdpi-f51.9",
   "labels": [],
-  "parent": "sbdpi-f51",
+  "parent": "sbdpi-f51.11",
   "priority": 2,
   "status": "open",
   "title": "Harden reflection robustness with retry and fallback behavior",
   "type": "epic",
-  "updated_at": "2026-04-17T01:42:13Z"
+  "updated_at": "2026-04-18T07:05:17Z"
 }
