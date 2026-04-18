@@ -6,9 +6,15 @@
   "description": "Update tests that currently flap/fail when run outside a tmux session so they first detect whether tmux is available/active for the environment and skip cleanly instead of failing. Validate with lint, test, and typecheck, then commit the fix.",
   "id": "sbdpi-rnn",
   "labels": [],
+  "comments": [
+    {
+      "text": "Updated the tmux-sensitive beadwork orchestrator unit test to gate on `process.env.TMUX` and skip cleanly when not running inside a tmux session. Validation:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run test -w @solvedbydev/pi-beadwork-extension` ✅ (`1 skipped` outside tmux)\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run lint` ✅ (existing Biome schema-version info notice only)\n- `npm run test` ✅\n- `npm run typecheck` ✅",
+      "timestamp": "2026-04-18T05:00:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Skip tmux-dependent tests gracefully when no tmux session is available",
   "type": "task",
-  "updated_at": "2026-04-18T04:58:22Z"
+  "updated_at": "2026-04-18T05:00:15Z"
 }
