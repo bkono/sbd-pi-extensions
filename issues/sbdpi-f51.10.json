@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T07:04:47Z",
+  "description": "Umbrella epic for the Tier 1 work from `packages/pi-om-extension/docs/mastra-parity-backlog.md` practical backlog summary.\n\nUse this epic when targeting only the highest-value foundational work for `@solvedbydev/pi-om-extension`:\n- staged/public observation split\n- earlier threshold/chunking policy\n- temporal anchors and normalization\n- lifecycle/completion markers\n- specificity-preserving prompt/output upgrades\n- stable/cache-friendly injected layout\n\nThis subtree is intentionally serialized for delegation safety because the work shares a small set of highly coupled files (`src/engine.ts`, `src/types.ts`, `src/state.ts`, `src/prompts.ts`, `src/format.ts`). If something is `ready` under this epic, it should be safe to delegate without creating avoidable multi-worker rebase churn.",
+  "id": "sbdpi-f51.10",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 1,
+  "status": "open",
+  "title": "Tier 1 foundation stream for practical Mastra-parity OM improvements",
+  "type": "epic",
+  "updated_at": "2026-04-18T07:04:47Z"
+}
