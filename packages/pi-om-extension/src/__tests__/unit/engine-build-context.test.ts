@@ -10,8 +10,10 @@ function state(partial: Partial<SessionState>): SessionState {
   return {
     sessionId: "s",
     observations,
+    observationEntries: partial.observationEntries,
     observationTokens,
     draftObservations: partial.draftObservations ?? observations,
+    draftObservationEntries: partial.draftObservationEntries ?? partial.observationEntries,
     draftObservationTokens: partial.draftObservationTokens ?? observationTokens,
     updatedAt: Date.now(),
     ...partial,
@@ -37,6 +39,39 @@ describe("buildObservationContext", () => {
         }),
       ),
     ).toBeUndefined();
+  });
+
+  it("renders published observation entries when the stored string is empty", () => {
+    const result = buildObservationContext(
+      state({
+        observations: "",
+        observationEntries: [
+          {
+            date: "2026-04-18",
+            line: "* 🔴 (21:13) User plans to revisit reflection robustness tomorrow.",
+            temporalAnchors: [
+              {
+                recordedAt: "2026-04-18T21:13:00.000Z",
+                originalPhrase: "tomorrow",
+                referencedStart: "2026-04-19",
+                precision: "day",
+                relation: "future",
+              },
+            ],
+          },
+        ],
+        draftObservationEntries: [
+          {
+            date: "2026-04-19",
+            line: "* 🟡 staged only",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toContain("Date: Apr 18, 2026");
+    expect(result).toContain("tomorrow (target: 2026-04-19)");
+    expect(result).not.toContain("staged only");
   });
 
   it("includes observations block wrapped in XML tags", () => {

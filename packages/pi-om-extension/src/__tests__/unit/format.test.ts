@@ -74,4 +74,50 @@ describe("formatters", () => {
     expect(text).toContain("🔴 user wants OM status");
     expect(text).not.toContain("<observations>");
   });
+
+  it("renders structured observation entries with durable temporal anchors", () => {
+    const entries = [
+      {
+        date: "2026-04-18",
+        line: "* 🔴 (21:13) User plans to revisit reflection robustness tomorrow.",
+        temporalAnchors: [
+          {
+            recordedAt: "2026-04-18T21:13:00.000Z",
+            originalPhrase: "tomorrow",
+            referencedStart: "2026-04-19",
+            precision: "day" as const,
+            relation: "future" as const,
+          },
+        ],
+      },
+      {
+        date: "2026-04-18",
+        line: "* 🟡 (09:42) Error pattern appears to have started last week.",
+        temporalAnchors: [
+          {
+            recordedAt: "2026-04-18T09:42:00.000Z",
+            originalPhrase: "last week",
+            referencedStart: "2026-04-06",
+            precision: "week" as const,
+            relation: "past" as const,
+          },
+        ],
+      },
+    ];
+
+    const text = formatObservationsReport({
+      sessionId: "session-structured",
+      observations: "",
+      observationEntries: entries,
+      observationTokens: 88,
+      draftObservations: "",
+      draftObservationEntries: entries,
+      draftObservationTokens: 88,
+      updatedAt: 1_700_000_100_000,
+    });
+
+    expect(text).toContain("Date: Apr 18, 2026");
+    expect(text).toContain("tomorrow (target: 2026-04-19)");
+    expect(text).toContain("last week (week of 2026-04-06)");
+  });
 });

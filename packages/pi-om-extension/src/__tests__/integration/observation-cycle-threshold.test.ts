@@ -71,6 +71,65 @@ describe("runObservationCycle — threshold behavior", () => {
     expect(state.lastObservedTimestamp).toBeDefined();
   });
 
+  it("renders structured observation entries into durable published observations", async () => {
+    const config = createTestConfig({ stateDir: temp.stateDir, observationTokens: 50 });
+    const mock = new MockObservationAgents({
+      observeResponses: [
+        {
+          observations: "",
+          raw: "",
+          observationEntries: [
+            {
+              date: "2026-04-18",
+              line: "* 🔴 (21:13) User plans to revisit reflection robustness tomorrow.",
+              temporalAnchors: [
+                {
+                  recordedAt: "2026-04-18T21:13:00.000Z",
+                  originalPhrase: "tomorrow",
+                  referencedStart: "2026-04-19",
+                  precision: "day",
+                  relation: "future",
+                },
+              ],
+            },
+            {
+              date: "2026-04-18",
+              line: "* 🟡 (09:42) Error pattern appears to have started last week.",
+              temporalAnchors: [
+                {
+                  recordedAt: "2026-04-18T09:42:00.000Z",
+                  originalPhrase: "last week",
+                  referencedStart: "2026-04-06",
+                  precision: "week",
+                  relation: "past",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const msgs = conversation(6, { baseTs: 1_700_000_000_000, contentSize: 200 });
+
+    const inflight = new Map<string, Promise<void>>();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      inflight,
+      {
+        reason: "turn_end",
+      },
+    );
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("Date: Apr 18, 2026");
+    expect(state.observations).toContain("tomorrow (target: 2026-04-19)");
+    expect(state.observations).toContain("last week (week of 2026-04-06)");
+    expect(state.observationEntries).toHaveLength(2);
+  });
+
   it("can stage observations without publishing when the publish threshold is higher", async () => {
     const config = createTestConfig({
       stateDir: temp.stateDir,

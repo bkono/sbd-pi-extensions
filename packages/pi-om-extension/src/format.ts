@@ -1,4 +1,4 @@
-import type { SessionState } from "./types.js";
+import type { ObservationEntry, SessionState, TemporalAnchor } from "./types.js";
 
 export interface OMStatusReport {
   sessionId: string;
@@ -46,6 +46,12 @@ export const OM_COMMAND_USAGE = [
 ].join("\n");
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
+const OBSERVATION_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 function formatCount(value: number): string {
   return NUMBER_FORMATTER.format(value);
@@ -69,6 +75,119 @@ function formatOptionalBoolean(value: boolean | null): string {
 
 function formatOptionalCount(value: number | null): string {
   return value === null ? "n/a" : formatCount(value);
+}
+
+function formatObservationDate(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return value;
+  }
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? new Date(`${normalized}T00:00:00.000Z`)
+    : new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? value : OBSERVATION_DATE_FORMATTER.format(date);
+}
+
+function describeTemporalAnchor(anchor: TemporalAnchor): string | undefined {
+  const start = anchor.referencedStart?.trim();
+  const end = anchor.referencedEnd?.trim();
+
+  if (anchor.precision === "week" && start) {
+    return `week of ${start}`;
+  }
+
+  if (anchor.precision === "month" && start) {
+    return `month of ${start.slice(0, 7)}`;
+  }
+
+  if (start && end && start !== end) {
+    return `${anchor.precision === "approximate" ? "approx" : "range"}: ${start}..${end}`;
+  }
+
+  const point = start || end;
+  if (!point) {
+    return undefined;
+  }
+
+  return anchor.relation === "future" ? `target: ${point}` : `date: ${point}`;
+}
+
+export function renderTemporalAnchor(anchor: TemporalAnchor): string {
+  const phrase = anchor.originalPhrase.trim();
+  const summary = describeTemporalAnchor(anchor);
+
+  if (!summary) {
+    return phrase;
+  }
+
+  return `${phrase} (${summary})`;
+}
+
+function injectTemporalAnchor(line: string, anchor: TemporalAnchor): string {
+  const renderedAnchor = renderTemporalAnchor(anchor);
+  if (!renderedAnchor) {
+    return line;
+  }
+
+  const phrase = anchor.originalPhrase.trim();
+  if (!phrase) {
+    return line;
+  }
+
+  if (line.includes(renderedAnchor)) {
+    return line;
+  }
+
+  const phraseIndex = line.indexOf(phrase);
+  if (phraseIndex >= 0) {
+    return `${line.slice(0, phraseIndex)}${renderedAnchor}${line.slice(phraseIndex + phrase.length)}`;
+  }
+
+  return `${line} [time: ${renderedAnchor}]`;
+}
+
+function renderObservationEntry(entry: ObservationEntry): string {
+  return (entry.temporalAnchors ?? []).reduce(
+    (line, anchor) => injectTemporalAnchor(line, anchor),
+    entry.line.trim(),
+  );
+}
+
+export function renderObservationEntries(entries?: ObservationEntry[]): string {
+  if (!entries?.length) {
+    return "";
+  }
+
+  const grouped = new Map<string, string[]>();
+
+  for (const entry of entries) {
+    const date = entry.date.trim();
+    const line = renderObservationEntry(entry);
+    if (!date || !line) {
+      continue;
+    }
+
+    const lines = grouped.get(date) ?? [];
+    lines.push(line);
+    grouped.set(date, lines);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([date, lines]) => [`Date: ${formatObservationDate(date)}`, ...lines].join("\n"))
+    .join("\n\n");
+}
+
+export function renderStoredObservations(
+  state: Pick<SessionState, "observations" | "observationEntries">,
+): string {
+  const renderedEntries = renderObservationEntries(state.observationEntries);
+  if (renderedEntries) {
+    return renderedEntries;
+  }
+
+  return state.observations.trim();
 }
 
 export function formatStatusReport(status: OMStatusReport): string {
@@ -118,8 +237,9 @@ export function formatStatusReport(status: OMStatusReport): string {
 
 export function formatObservationsReport(state: SessionState): string {
   const lines = [`Observational memory observations · ${state.sessionId}`];
+  const observations = renderStoredObservations(state);
 
-  if (!state.observations.trim()) {
+  if (!observations) {
     lines.push("No observations stored yet.");
     return lines.join("\n");
   }
@@ -137,7 +257,7 @@ export function formatObservationsReport(state: SessionState): string {
     lines.push("", "Suggested response:", state.suggestedResponse);
   }
 
-  lines.push("", "Observations:", state.observations.trim());
+  lines.push("", "Observations:", observations);
 
   return lines.join("\n");
 }

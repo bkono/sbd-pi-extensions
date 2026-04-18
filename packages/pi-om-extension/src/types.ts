@@ -42,15 +42,36 @@ export interface OMConfig {
 
 export type CursorMode = "none" | "id" | "timestamp" | "fallback-latest";
 
+export type TemporalAnchorPrecision = "exact" | "day" | "week" | "month" | "approximate";
+
+export type TemporalAnchorRelation = "past" | "current" | "future" | "ongoing";
+
+export interface TemporalAnchor {
+  recordedAt: string;
+  originalPhrase: string;
+  referencedStart?: string;
+  referencedEnd?: string;
+  precision: TemporalAnchorPrecision;
+  relation: TemporalAnchorRelation;
+}
+
+export interface ObservationEntry {
+  date: string;
+  line: string;
+  temporalAnchors?: TemporalAnchor[];
+}
+
 export interface SessionState {
   sessionId: string;
   observations: string;
+  observationEntries?: ObservationEntry[];
   observationTokens: number;
   lastObservedEntryId?: string;
   lastObservedTimestamp?: number;
   currentTask?: string;
   suggestedResponse?: string;
   draftObservations: string;
+  draftObservationEntries?: ObservationEntry[];
   draftObservationTokens: number;
   draftLastObservedEntryId?: string;
   draftLastObservedTimestamp?: number;
@@ -72,6 +93,7 @@ export interface SessionState {
 
 export interface ObserverResult {
   observations: string;
+  observationEntries?: ObservationEntry[];
   currentTask?: string;
   suggestedResponse?: string;
   raw: string;

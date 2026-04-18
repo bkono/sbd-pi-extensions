@@ -1,6 +1,7 @@
 import type { Message } from "@mariozechner/pi-ai";
 
 import type { ObservationAgents } from "./agents.js";
+import { renderObservationEntries, renderStoredObservations } from "./format.js";
 import {
   OBSERVATION_CONTEXT_INSTRUCTIONS,
   OBSERVATION_CONTEXT_PROMPT,
@@ -8,7 +9,7 @@ import {
 } from "./prompts.js";
 import { loadSessionState, saveSessionState } from "./state.js";
 import { countMessageTokens, countTokens, serializeMessage } from "./tokens.js";
-import type { CursorMode, CycleReason, OMConfig, SessionState } from "./types.js";
+import type { CursorMode, CycleReason, ObservationEntry, OMConfig, SessionState } from "./types.js";
 
 export interface UnobservedWindow {
   messages: Message[];
@@ -17,6 +18,7 @@ export interface UnobservedWindow {
 
 interface DraftObservationState {
   observations: string;
+  observationEntries?: ObservationEntry[];
   observationTokens: number;
   lastObservedEntryId?: string;
   lastObservedTimestamp?: number;
@@ -28,6 +30,64 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
   if (!config.debug) return;
   const payload = details ? ` ${JSON.stringify(details)}` : "";
   console.error(`[om:engine] ${message}${payload}`);
+}
+
+function cloneObservationEntries(entries?: ObservationEntry[]): ObservationEntry[] | undefined {
+  return entries?.map((entry) => ({
+    ...entry,
+    temporalAnchors: entry.temporalAnchors?.map((anchor) => ({ ...anchor })),
+  }));
+}
+
+function normalizeObservationEntries(entries?: ObservationEntry[]): ObservationEntry[] | undefined {
+  const normalized = cloneObservationEntries(entries)
+    ?.map((entry) => ({
+      ...entry,
+      date: entry.date.trim(),
+      line: entry.line.replace(/\r\n/g, "\n").trim(),
+      temporalAnchors: entry.temporalAnchors
+        ?.map((anchor) => ({
+          ...anchor,
+          recordedAt: anchor.recordedAt.trim(),
+          originalPhrase: anchor.originalPhrase.trim(),
+          referencedStart: anchor.referencedStart?.trim() || undefined,
+          referencedEnd: anchor.referencedEnd?.trim() || undefined,
+        }))
+        .filter((anchor) => anchor.recordedAt && anchor.originalPhrase),
+    }))
+    .filter((entry) => entry.date && entry.line);
+
+  return normalized?.length ? normalized : undefined;
+}
+
+function appendObservationEntries(
+  existing?: ObservationEntry[],
+  incoming?: ObservationEntry[],
+): ObservationEntry[] | undefined {
+  const current = normalizeObservationEntries(existing);
+  const next = normalizeObservationEntries(incoming);
+
+  if (!next?.length) return current;
+  if (!current?.length) return next;
+
+  const merged = cloneObservationEntries(current) ?? [];
+  const seen = new Set(current.map((entry) => JSON.stringify(entry)));
+
+  for (const entry of next) {
+    const signature = JSON.stringify(entry);
+    if (seen.has(signature)) {
+      continue;
+    }
+
+    seen.add(signature);
+    merged.push(entry);
+  }
+
+  return merged;
+}
+
+function serializeObservationEntries(entries?: ObservationEntry[]): string {
+  return JSON.stringify(normalizeObservationEntries(entries) ?? []);
 }
 
 /**
@@ -107,6 +167,9 @@ export function getMessagesBetweenCursors(
 function getDraftObservationState(state: SessionState): DraftObservationState {
   return {
     observations: state.draftObservations,
+    observationEntries: cloneObservationEntries(
+      state.draftObservationEntries ?? state.observationEntries,
+    ),
     observationTokens: state.draftObservationTokens,
     lastObservedEntryId: state.draftLastObservedEntryId,
     lastObservedTimestamp: state.draftLastObservedTimestamp,
@@ -122,6 +185,7 @@ function applyDraftObservationState(
   return {
     ...state,
     draftObservations: draft.observations,
+    draftObservationEntries: cloneObservationEntries(draft.observationEntries),
     draftObservationTokens: draft.observationTokens,
     draftLastObservedEntryId: draft.lastObservedEntryId,
     draftLastObservedTimestamp: draft.lastObservedTimestamp,
@@ -134,6 +198,7 @@ export function publishDraftState(state: SessionState): SessionState {
   return {
     ...state,
     observations: state.draftObservations,
+    observationEntries: cloneObservationEntries(state.draftObservationEntries),
     observationTokens: state.draftObservationTokens,
     lastObservedEntryId: state.draftLastObservedEntryId,
     lastObservedTimestamp: state.draftLastObservedTimestamp,
@@ -145,6 +210,8 @@ export function publishDraftState(state: SessionState): SessionState {
 function hasPendingDraft(state: SessionState): boolean {
   return (
     state.draftObservations !== state.observations ||
+    serializeObservationEntries(state.draftObservationEntries) !==
+      serializeObservationEntries(state.observationEntries) ||
     state.draftObservationTokens !== state.observationTokens ||
     state.draftLastObservedEntryId !== state.lastObservedEntryId ||
     state.draftLastObservedTimestamp !== state.lastObservedTimestamp ||
@@ -235,8 +302,15 @@ export async function runObservationCycle(
 
         observeTriggered = true;
 
-        if (observed.observations.trim()) {
-          let observations = appendObservations(draftState.observations, observed.observations);
+        const observedEntries = normalizeObservationEntries(observed.observationEntries);
+
+        if (observed.observations.trim() || observedEntries?.length) {
+          let observationEntries = observedEntries
+            ? appendObservationEntries(draftState.observationEntries, observedEntries)
+            : undefined;
+          let observations = observedEntries
+            ? renderObservationEntries(observationEntries)
+            : appendObservations(draftState.observations, observed.observations);
           let observationTokens = countTokens(observations);
           let currentTask = observed.currentTask ?? draftState.currentTask;
           let suggestedResponse = observed.suggestedResponse ?? draftState.suggestedResponse;
@@ -262,7 +336,14 @@ export async function runObservationCycle(
               { signal: reflectSignal },
             );
 
-            if (reflected.observations.trim()) {
+            const reflectedEntries = normalizeObservationEntries(reflected.observationEntries);
+
+            if (reflectedEntries) {
+              observationEntries = reflectedEntries;
+              observations = renderObservationEntries(observationEntries);
+              observationTokens = countTokens(observations);
+            } else if (reflected.observations.trim()) {
+              observationEntries = undefined;
               observations = reflected.observations;
               observationTokens = countTokens(observations);
             }
@@ -279,6 +360,7 @@ export async function runObservationCycle(
           const boundary = messagesToObserve.at(-1);
           nextDraft = {
             observations,
+            observationEntries,
             observationTokens,
             lastObservedEntryId: getMessageId(boundary) ?? draftState.lastObservedEntryId,
             lastObservedTimestamp:
@@ -355,7 +437,8 @@ export async function runObservationCycle(
 // ---------------------------------------------------------------------------
 
 export function buildObservationContext(state: SessionState): string | undefined {
-  if (!state.observations.trim()) {
+  const observations = renderStoredObservations(state);
+  if (!observations) {
     return undefined;
   }
 
@@ -363,7 +446,7 @@ export function buildObservationContext(state: SessionState): string | undefined
     OBSERVATION_CONTEXT_PROMPT,
     "",
     "<observations>",
-    state.observations,
+    observations,
     "</observations>",
   ];
 

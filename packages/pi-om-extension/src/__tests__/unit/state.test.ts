@@ -41,12 +41,42 @@ describe("loadSessionState / saveSessionState", () => {
     const original: SessionState = {
       sessionId: "rt-1",
       observations: "* 🔴 some observation",
+      observationEntries: [
+        {
+          date: "2026-04-18",
+          line: "* 🔴 some observation tomorrow",
+          temporalAnchors: [
+            {
+              recordedAt: "2026-04-18T14:30:00.000Z",
+              originalPhrase: "tomorrow",
+              referencedStart: "2026-04-19",
+              precision: "day",
+              relation: "future",
+            },
+          ],
+        },
+      ],
       observationTokens: 42,
       lastObservedEntryId: "entry-5",
       lastObservedTimestamp: 1_700_000_000_000,
       currentTask: "building tests",
       suggestedResponse: "continue",
       draftObservations: "* 🔴 staged observation",
+      draftObservationEntries: [
+        {
+          date: "2026-04-18",
+          line: "* 🔴 staged observation last week",
+          temporalAnchors: [
+            {
+              recordedAt: "2026-04-18T15:00:00.000Z",
+              originalPhrase: "last week",
+              referencedStart: "2026-04-06",
+              precision: "week",
+              relation: "past",
+            },
+          ],
+        },
+      ],
       draftObservationTokens: 84,
       draftLastObservedEntryId: "entry-7",
       draftLastObservedTimestamp: 1_700_000_002_000,
@@ -62,10 +92,14 @@ describe("loadSessionState / saveSessionState", () => {
     expect(loaded.sessionId).toBe("rt-1");
     expect(loaded.observations).toBe("* 🔴 some observation");
     expect(loaded.observationTokens).toBe(42);
+    expect(loaded.observationEntries?.[0]?.temporalAnchors?.[0]?.originalPhrase).toBe("tomorrow");
     expect(loaded.lastObservedEntryId).toBe("entry-5");
     expect(loaded.currentTask).toBe("building tests");
     expect(loaded.draftObservations).toBe("* 🔴 staged observation");
     expect(loaded.draftObservationTokens).toBe(84);
+    expect(loaded.draftObservationEntries?.[0]?.temporalAnchors?.[0]?.originalPhrase).toBe(
+      "last week",
+    );
     expect(loaded.draftLastObservedEntryId).toBe("entry-7");
     expect(loaded.draftCurrentTask).toBe("staging tests");
     expect(loaded.draftSuggestedResponse).toBe("publish later");
@@ -166,6 +200,21 @@ describe("loadSessionState / saveSessionState", () => {
       JSON.stringify({
         sessionId: "legacy",
         observations: "* published",
+        observationEntries: [
+          {
+            date: "2026-04-18",
+            line: "* published tomorrow",
+            temporalAnchors: [
+              {
+                recordedAt: "2026-04-18T10:00:00.000Z",
+                originalPhrase: "tomorrow",
+                referencedStart: "2026-04-19",
+                precision: "day",
+                relation: "future",
+              },
+            ],
+          },
+        ],
         observationTokens: 12,
         lastObservedEntryId: "entry-2",
         lastObservedTimestamp: 1_700_000_000_000,
@@ -178,6 +227,9 @@ describe("loadSessionState / saveSessionState", () => {
     const state = await loadSessionState(stateDir, "legacy");
 
     expect(state.draftObservations).toBe("* published");
+    expect(state.draftObservationEntries?.[0]?.temporalAnchors?.[0]?.originalPhrase).toBe(
+      "tomorrow",
+    );
     expect(state.draftObservationTokens).toBe(12);
     expect(state.draftLastObservedEntryId).toBe("entry-2");
     expect(state.draftLastObservedTimestamp).toBe(1_700_000_000_000);

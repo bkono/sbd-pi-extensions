@@ -1,7 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 import { ensureParentDirectory, sessionStatePath } from "./config.js";
-import type { CursorMode, SessionState } from "./types.js";
+import type {
+  CursorMode,
+  ObservationEntry,
+  SessionState,
+  TemporalAnchor,
+  TemporalAnchorPrecision,
+  TemporalAnchorRelation,
+} from "./types.js";
 
 function debugLog(message: string, details?: Record<string, unknown>): void {
   if (process.env.OM_DEBUG !== "1") return;
@@ -16,6 +23,21 @@ const VALID_CURSOR_MODES: ReadonlySet<CursorMode> = new Set([
   "fallback-latest",
 ]);
 
+const VALID_TEMPORAL_PRECISIONS: ReadonlySet<TemporalAnchorPrecision> = new Set([
+  "exact",
+  "day",
+  "week",
+  "month",
+  "approximate",
+]);
+
+const VALID_TEMPORAL_RELATIONS: ReadonlySet<TemporalAnchorRelation> = new Set([
+  "past",
+  "current",
+  "future",
+  "ongoing",
+]);
+
 export function createDefaultState(sessionId: string): SessionState {
   return {
     sessionId,
@@ -25,6 +47,89 @@ export function createDefaultState(sessionId: string): SessionState {
     draftObservationTokens: 0,
     updatedAt: Date.now(),
   };
+}
+
+function cloneTemporalAnchor(anchor: TemporalAnchor): TemporalAnchor {
+  return { ...anchor };
+}
+
+function cloneObservationEntry(entry: ObservationEntry): ObservationEntry {
+  return {
+    ...entry,
+    temporalAnchors: entry.temporalAnchors?.map(cloneTemporalAnchor),
+  };
+}
+
+function parseTemporalAnchor(raw: unknown): TemporalAnchor | undefined {
+  if (raw === null || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const obj = raw as Record<string, unknown>;
+  const recordedAt = typeof obj.recordedAt === "string" ? obj.recordedAt.trim() : "";
+  const originalPhrase = typeof obj.originalPhrase === "string" ? obj.originalPhrase.trim() : "";
+  const referencedStart =
+    typeof obj.referencedStart === "string" ? obj.referencedStart.trim() : undefined;
+  const referencedEnd =
+    typeof obj.referencedEnd === "string" ? obj.referencedEnd.trim() : undefined;
+  const precision =
+    typeof obj.precision === "string" &&
+    VALID_TEMPORAL_PRECISIONS.has(obj.precision as TemporalAnchorPrecision)
+      ? (obj.precision as TemporalAnchorPrecision)
+      : undefined;
+  const relation =
+    typeof obj.relation === "string" &&
+    VALID_TEMPORAL_RELATIONS.has(obj.relation as TemporalAnchorRelation)
+      ? (obj.relation as TemporalAnchorRelation)
+      : undefined;
+
+  if (!recordedAt || !originalPhrase || !precision || !relation) {
+    return undefined;
+  }
+
+  return {
+    recordedAt,
+    originalPhrase,
+    referencedStart: referencedStart || undefined,
+    referencedEnd: referencedEnd || undefined,
+    precision,
+    relation,
+  };
+}
+
+function parseObservationEntries(raw: unknown): ObservationEntry[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+
+  const entries = raw
+    .map((entry): ObservationEntry | undefined => {
+      if (entry === null || typeof entry !== "object") {
+        return undefined;
+      }
+
+      const obj = entry as Record<string, unknown>;
+      const date = typeof obj.date === "string" ? obj.date.trim() : "";
+      const line = typeof obj.line === "string" ? obj.line.replace(/\r\n/g, "\n").trim() : "";
+      const temporalAnchors = Array.isArray(obj.temporalAnchors)
+        ? obj.temporalAnchors
+            .map(parseTemporalAnchor)
+            .filter((anchor): anchor is TemporalAnchor => !!anchor)
+        : undefined;
+
+      if (!date || !line) {
+        return undefined;
+      }
+
+      return {
+        date,
+        line,
+        temporalAnchors: temporalAnchors?.length ? temporalAnchors : undefined,
+      };
+    })
+    .filter((entry): entry is ObservationEntry => !!entry);
+
+  return entries.map(cloneObservationEntry);
 }
 
 function validateState(raw: unknown, sessionId: string): SessionState {
@@ -41,6 +146,11 @@ function validateState(raw: unknown, sessionId: string): SessionState {
 
   if (typeof obj.observations === "string") {
     state.observations = obj.observations;
+  }
+
+  const observationEntries = parseObservationEntries(obj.observationEntries);
+  if (observationEntries) {
+    state.observationEntries = observationEntries;
   }
 
   if (typeof obj.observationTokens === "number" && Number.isFinite(obj.observationTokens)) {
@@ -67,6 +177,13 @@ function validateState(raw: unknown, sessionId: string): SessionState {
     state.draftObservations = obj.draftObservations;
   } else {
     state.draftObservations = state.observations;
+  }
+
+  const draftObservationEntries = parseObservationEntries(obj.draftObservationEntries);
+  if (draftObservationEntries) {
+    state.draftObservationEntries = draftObservationEntries;
+  } else if (state.observationEntries) {
+    state.draftObservationEntries = state.observationEntries.map(cloneObservationEntry);
   }
 
   if (
