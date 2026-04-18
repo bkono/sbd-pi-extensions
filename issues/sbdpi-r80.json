@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T18:36:44Z",
+  "close_reason": "Implemented exploratory reviewer defaults with structured handoff parsing, updated docs/tests, and committed as f39eee4",
   "created": "2026-04-18T18:28:47Z",
   "description": "Implement the minimal redesign for `packages/pi-beadwork-extension` so reviewer runs behave like normal exploratory coding agents by default instead of a locked-down strict-JSON-only sandbox.\n\nUser-approved scope:\n- remove default reviewer isolation flags so pi reviewers keep normal tools/extensions/skills access\n- keep validation mandatory before review and preserve coordinator skepticism about reviewer findings\n- replace strict-JSON-only prompting with a structured handoff report the coordinator can parse after the review run\n- keep verdicts aligned with the requested model (`APPROVE`, `APPROVE WITH NITS`, `REQUEST CHANGES`) while consuming the structured report in the landing flow\n- apply the minimal pass plan in `packages/pi-beadwork-extension`: reviewer command, prompt/parser, remediation handling, docs, and tests\n\nDefinition of done:\n- update reviewer command/prompt/parser flow in `packages/pi-beadwork-extension`\n- add/adjust tests covering report parsing and orchestration behavior\n- update docs for the new reviewer defaults and handoff format\n- run lint, tests, and typecheck successfully for the touched workspace and repo as needed\n- commit with an atomic conventional commit before closing the issue",
   "id": "sbdpi-r80",
@@ -17,8 +19,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Revise pi-beadwork reviewer to use exploratory agent reviews with structured handoff",
   "type": "task",
-  "updated_at": "2026-04-18T18:36:31Z"
+  "updated_at": "2026-04-18T18:36:44Z"
 }
