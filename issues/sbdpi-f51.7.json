@@ -18,10 +18,10 @@
   "description": "Practical backlog summary anchor: **Tier 2 → Better current-task / suggested-response lifecycle management**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 2 / section 11. Better current-task / suggested-response lifecycle management**.\n\nImplementation context:\n- current task-state fields are in `packages/pi-om-extension/src/types.ts`\n- observer/reflector extraction and parsing live in `src/prompts.ts` and `src/agents.ts`\n- persistence/update flow is in `src/engine.ts` and `src/state.ts`\n- injected display/reporting is built in `src/engine.ts` and `src/format.ts`\n\nWhat this epic should establish:\n- clear replace / merge / clear rules for `currentTask` and `suggestedResponse`\n- separation between primary goal, secondary pending items, waiting-for-user state, and next-action guidance\n- better continuity without keeping completed or superseded work in the active block\n\nUseful references:\n- backlog doc section 11\n- local tests under `src/__tests__`\n- upstream gating from Tier 1 foundations is intentional; this epic assumes completion state, temporal reasoning, prompt fidelity, and stable layout are already improved\n\nKeep this focused on in-session task continuity, not project-level memory design.",
   "id": "sbdpi-f51.7",
   "labels": [],
-  "parent": "sbdpi-f51",
+  "parent": "sbdpi-f51.11",
   "priority": 2,
   "status": "open",
   "title": "Improve current-task and suggested-response lifecycle management",
   "type": "epic",
-  "updated_at": "2026-04-17T01:41:57Z"
+  "updated_at": "2026-04-18T07:05:09Z"
 }
