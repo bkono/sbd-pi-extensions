@@ -6,6 +6,7 @@
   ],
   "blocks": [
     "sbdpi-f51.1",
+    "sbdpi-f51.5.3",
     "sbdpi-f51.7.1",
     "sbdpi-f51.8.1",
     "sbdpi-f51.9.1"
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "Add regression coverage so completion state survives reflection and consolidation",
   "type": "task",
-  "updated_at": "2026-04-18T06:38:59Z"
+  "updated_at": "2026-04-18T06:39:03Z"
 }
