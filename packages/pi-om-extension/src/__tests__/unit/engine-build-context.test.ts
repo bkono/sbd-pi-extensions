@@ -328,6 +328,67 @@ Secondary:
     expect(result).not.toContain("Active again: redo the completion-marker parser from scratch.");
     expect(result).not.toContain("Tell the user the already-finished parser work is active again.");
   });
+  it("keeps item distinctions, exact numbers, and constraints recoverable in the injected OM block", () => {
+    const result = buildObservationContext(
+      state({
+        observations: "",
+        observationEntries: [
+          {
+            date: "2026-04-18",
+            line: "* 🔴 (09:10) Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170.",
+          },
+          {
+            date: "2026-04-18",
+            line: "* 🟡 (09:11) Kept Option B because it preserved 2 constraints separately: packages/pi-om-extension/src/agents.ts stays distinct from packages/pi-om-extension/src/engine.ts, and the exact count 3 remains attached to the checklist.",
+          },
+          {
+            date: "2026-04-18",
+            line: "* 🟡 (09:12) Rejected Option A and deferred `bw close sbdpi-f51.5.3` until `npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts` passes.",
+          },
+        ],
+        currentTask: [
+          "Primary:",
+          "- Active: keep the 3 regression examples separate",
+          "- Constraint: preserve line range 161-170 and both file paths verbatim",
+          "Secondary:",
+          "- Rejected: do not flatten Option A and Option B into one generic fix",
+        ].join("\n"),
+        suggestedResponse: [
+          "1. Confirm Option B remains selected.",
+          "2. Mention the 2 preserved constraints and exact count of 3.",
+          "3. Say that `bw close sbdpi-f51.5.3` waits for the targeted test command.",
+        ].join("\n"),
+      }),
+    )!;
+    expect(result).toContain("Date: Apr 18, 2026");
+    expect(result).toContain(
+      "Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170.",
+    );
+    expect(result).toContain(
+      "Kept Option B because it preserved 2 constraints separately: packages/pi-om-extension/src/agents.ts stays distinct from packages/pi-om-extension/src/engine.ts, and the exact count 3 remains attached to the checklist.",
+    );
+    expect(result).toContain(
+      "Rejected Option A and deferred `bw close sbdpi-f51.5.3` until `npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts` passes.",
+    );
+    expect(result).toContain("- Active: keep the 3 regression examples separate");
+    expect(result).toContain(
+      "- Constraint: preserve line range 161-170 and both file paths verbatim",
+    );
+    expect(result).toContain(
+      "- Rejected: do not flatten Option A and Option B into one generic fix",
+    );
+    expect(result).toContain("1. Confirm Option B remains selected.");
+    expect(result).toContain("2. Mention the 2 preserved constraints and exact count of 3.");
+    expect(result).toContain(
+      "3. Say that `bw close sbdpi-f51.5.3` waits for the targeted test command.",
+    );
+    const optionBIndex = result.indexOf(
+      "Kept Option B because it preserved 2 constraints separately",
+    );
+    const optionAIndex = result.indexOf("Rejected Option A and deferred `bw close sbdpi-f51.5.3`");
+    expect(optionBIndex).toBeGreaterThanOrEqual(0);
+    expect(optionAIndex).toBeGreaterThan(optionBIndex);
+  });
 });
 
 describe("buildContinuationReminder", () => {

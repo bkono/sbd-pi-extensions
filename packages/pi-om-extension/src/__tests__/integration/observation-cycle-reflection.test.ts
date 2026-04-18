@@ -238,7 +238,6 @@ Secondary:
     );
     expect(state.suggestedResponse).toContain("- Confirm tests passed before closing the ticket.");
   });
-
   it("keeps completed, resolved, superseded, and abandoned state through later reflection passes", async () => {
     const config = createTestConfig({
       stateDir: temp.stateDir,
@@ -316,7 +315,6 @@ Secondary:
         reason: "turn_end",
       },
     );
-
     expect(mock.observeCalls).toHaveLength(2);
     expect(mock.reflectCalls).toHaveLength(2);
     expect(mock.observeCalls[1]!.existingObservations).toContain(
@@ -370,6 +368,90 @@ Secondary:
     );
     expect(state.suggestedResponse).toContain(
       "only the remaining ticket-close step is still active",
+    );
+  });
+  it("passes structured observer detail into reflection and preserves recoverable distinctions", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      observationTokens: 50,
+      reflectionTokens: 5,
+    });
+    const observed = `Date: Apr 18, 2026
+* 🔴 (09:10) Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170.
+* 🟡 (09:11) Option A collapsed 2 constraints into one sentence and blurred packages/pi-om-extension/src/agents.ts with packages/pi-om-extension/src/engine.ts.
+* 🟡 (09:12) Option B kept 2 constraints separate: preserve the exact count 3 and keep each file path attached to its own item.
+* 🟡 (09:13) Rejected running \`bw close sbdpi-f51.5.3\` before \`npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts\` passes.`;
+    const reflected = `Date: Apr 18, 2026
+* 🔴 (09:10) Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170 and kept Option B.
+* 🟡 (09:12) Option B preserved 2 separate constraints: keep packages/pi-om-extension/src/agents.ts distinct from packages/pi-om-extension/src/engine.ts, and keep the exact count 3 attached to the checklist.
+* 🟡 (09:13) Rejected closing \`bw close sbdpi-f51.5.3\` until \`npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts\` passes.`;
+    const mock = new MockObservationAgents({
+      observeResponses: [{ observations: observed, raw: observed }],
+      reflectResponses: [
+        {
+          observations: reflected,
+          raw: reflected,
+          currentTask: [
+            "Primary:",
+            "- Active: keep the 3 regression examples separate",
+            "- Constraint: preserve lines 161-170 and both file paths verbatim",
+            "Secondary:",
+            "- Rejected: do not flatten Option A and Option B into one vague fix",
+          ].join("\n"),
+          suggestedResponse: [
+            "1. Confirm Option B remains selected.",
+            "2. Mention the 2 preserved constraints and exact count of 3.",
+            "3. State that `bw close sbdpi-f51.5.3` waits for the targeted test command.",
+          ].join("\n"),
+        },
+      ],
+    });
+    const msgs = conversation(4, { baseTs: 1_700_000_000_000, contentSize: 200 });
+    const inflight = new Map<string, Promise<void>>();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      inflight,
+      {
+        reason: "turn_end",
+      },
+    );
+    expect(mock.reflectCalls).toHaveLength(1);
+    expect(mock.reflectCalls[0]?.observations).toContain(
+      "Option A collapsed 2 constraints into one sentence and blurred packages/pi-om-extension/src/agents.ts with packages/pi-om-extension/src/engine.ts.",
+    );
+    expect(mock.reflectCalls[0]?.observations).toContain(
+      "Option B kept 2 constraints separate: preserve the exact count 3 and keep each file path attached to its own item.",
+    );
+    expect(mock.reflectCalls[0]?.observations).toContain(
+      "Rejected running `bw close sbdpi-f51.5.3` before `npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts` passes.",
+    );
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain(
+      "Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170 and kept Option B.",
+    );
+    expect(state.observations).toContain(
+      "Option B preserved 2 separate constraints: keep packages/pi-om-extension/src/agents.ts distinct from packages/pi-om-extension/src/engine.ts, and keep the exact count 3 attached to the checklist.",
+    );
+    expect(state.observations).toContain(
+      "Rejected closing `bw close sbdpi-f51.5.3` until `npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts` passes.",
+    );
+    expect(state.currentTask).toContain("- Active: keep the 3 regression examples separate");
+    expect(state.currentTask).toContain(
+      "- Constraint: preserve lines 161-170 and both file paths verbatim",
+    );
+    expect(state.currentTask).toContain(
+      "- Rejected: do not flatten Option A and Option B into one vague fix",
+    );
+    expect(state.suggestedResponse).toContain("1. Confirm Option B remains selected.");
+    expect(state.suggestedResponse).toContain(
+      "2. Mention the 2 preserved constraints and exact count of 3.",
+    );
+    expect(state.suggestedResponse).toContain(
+      "3. State that `bw close sbdpi-f51.5.3` waits for the targeted test command.",
     );
   });
 });

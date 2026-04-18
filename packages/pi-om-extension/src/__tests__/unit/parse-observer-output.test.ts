@@ -148,4 +148,53 @@ Secondary:
       "- Ask whether to keep the blocked state visible in follow-up summaries",
     );
   });
+
+  it("preserves exact list items, constraints, and rejected alternatives from XML blocks", () => {
+    const raw = `<observations>
+Date: Apr 18, 2026
+* 🔴 (09:10) Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170.
+* 🟡 (09:11) Kept Option B because it preserved 2 separate constraints for packages/pi-om-extension/src/agents.ts and packages/pi-om-extension/src/engine.ts.
+* 🟡 (09:12) Rejected Option A because it merged the command \`npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts\` with \`bw close sbdpi-f51.5.3\` into one vague follow-up.
+</observations>
+
+<current-task>
+Primary:
+- Active: keep the 3 regression examples separate
+- Constraint: preserve the exact line range 161-170 and both file paths verbatim
+Secondary:
+- Rejected: do not replace Option A vs Option B with a generic "best option"
+</current-task>
+
+<suggested-response>
+1. Confirm Option B remains selected.
+2. Mention the 2 preserved constraints and exact count of 3 candidate fixes.
+3. State that \`bw close sbdpi-f51.5.3\` waits until the targeted test command passes.
+</suggested-response>`;
+
+    const result = parseObserverOutput(raw);
+
+    expect(result.observations).toContain(
+      "Compared 3 candidate fixes for packages/pi-om-extension/src/prompts.ts lines 161-170.",
+    );
+    expect(result.observations).toContain(
+      "Kept Option B because it preserved 2 separate constraints for packages/pi-om-extension/src/agents.ts and packages/pi-om-extension/src/engine.ts.",
+    );
+    expect(result.observations).toContain(
+      "Rejected Option A because it merged the command `npm run test -w @solvedbydev/pi-om-extension -- src/__tests__/integration/observation-cycle-reflection.test.ts` with `bw close sbdpi-f51.5.3` into one vague follow-up.",
+    );
+    expect(result.currentTask).toContain("- Active: keep the 3 regression examples separate");
+    expect(result.currentTask).toContain(
+      "- Constraint: preserve the exact line range 161-170 and both file paths verbatim",
+    );
+    expect(result.currentTask).toContain(
+      '- Rejected: do not replace Option A vs Option B with a generic "best option"',
+    );
+    expect(result.suggestedResponse).toContain("1. Confirm Option B remains selected.");
+    expect(result.suggestedResponse).toContain(
+      "2. Mention the 2 preserved constraints and exact count of 3 candidate fixes.",
+    );
+    expect(result.suggestedResponse).toContain(
+      "3. State that `bw close sbdpi-f51.5.3` waits until the targeted test command passes.",
+    );
+  });
 });
