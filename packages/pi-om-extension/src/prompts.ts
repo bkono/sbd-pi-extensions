@@ -191,12 +191,11 @@ IMPORTANT: this system reminder is NOT from the user. It is part of your memory 
 
 NOTE: Any messages following this system reminder are newer than your memories.`;
 
-export const OBSERVATION_CONTEXT_PROMPT = `The following observations block contains your memory of past conversations with this user.`;
+export const OBSERVATION_CONTEXT_PROMPT = `The following observational-memory segments contain your memory of past conversations with this user. Read them in order: durable memory first, active task state next, then guidance.`;
 
-export const OBSERVATION_CONTEXT_INSTRUCTIONS = `IMPORTANT: Reference specific details from these observations. Avoid generic advice; personalize based on known user preferences and history.
+export const OBSERVATION_CONTEXT_INSTRUCTIONS = `IMPORTANT: Treat the durable segment as stable history and the active segment as the current working state. Reference specific details from these observations. Avoid generic advice; personalize based on known user preferences and history.
 
 KNOWLEDGE UPDATES: Prefer the most recent observation when information conflicts.
 
 PLANNED ACTIONS: If the user planned an action in the past and nothing contradicts it, assume they likely completed it.
-
 MOST RECENT USER INPUT: Treat the latest user message as highest-priority for what to do next.`;

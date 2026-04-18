@@ -5,8 +5,8 @@ import type { AuthResolver } from "./agents.js";
 import { ObservationAgents } from "./agents.js";
 import { loadConfig, sessionStatePath } from "./config.js";
 import {
-  buildContinuationReminder,
   buildObservationContext,
+  buildStoredObservationBlock,
   getMessagesBetweenCursors,
   getUnobservedMessages,
   runObservationCycle,
@@ -93,18 +93,16 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const observationContext = buildObservationContext(state);
     if (!observationContext) return;
 
-    // Append observation context and continuation reminder to the system prompt.
-    // The chaining in pi's extension runner means we receive the current system
-    // prompt and return the modified version. Subsequent extensions (if any) will
-    // see our modifications.
-    const appendix = [observationContext, "", buildContinuationReminder()].join("\n");
-
+    // Append the segmented observation context to the system prompt. The chaining
+    // in pi's extension runner means we receive the current system prompt and
+    // return the modified version. Subsequent extensions (if any) will see our
+    // modifications.
     debugLog(cfg, "before_agent_start: injecting observations into system prompt", {
       sessionId,
       observationTokens: state.observationTokens,
     });
 
-    return { systemPrompt: `${event.systemPrompt}\n\n${appendix}` };
+    return { systemPrompt: `${event.systemPrompt}\n\n${observationContext}` };
   });
 
   // -------------------------------------------------------------------------
@@ -251,7 +249,6 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       }
 
       summaryParts.push(observationContext);
-      summaryParts.push(buildContinuationReminder());
 
       return {
         compaction: {
@@ -359,27 +356,12 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
-    if (!state.observations.trim()) {
+    const storedBlock = buildStoredObservationBlock(state);
+    if (!storedBlock) {
       return ["(no observations stored)"];
     }
 
-    const sections = [
-      `<session>${sessionId}</session>`,
-      "",
-      "<observations>",
-      state.observations,
-      "</observations>",
-    ];
-
-    if (state.currentTask) {
-      sections.push("", "<current-task>", state.currentTask, "</current-task>");
-    }
-
-    if (state.suggestedResponse) {
-      sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
-    }
-
-    return sections;
+    return [`<session>${sessionId}</session>`, "", storedBlock];
   }
 
   // -------------------------------------------------------------------------

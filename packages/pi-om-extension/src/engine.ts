@@ -436,33 +436,74 @@ export async function runObservationCycle(
 // Context building (injected into system prompt area)
 // ---------------------------------------------------------------------------
 
-export function buildObservationContext(state: SessionState): string | undefined {
+type StoredObservationContextState = Pick<
+  SessionState,
+  "observations" | "observationEntries" | "currentTask" | "suggestedResponse"
+>;
+
+export function buildStoredObservationSegments(
+  state: StoredObservationContextState,
+): string[] | undefined {
   const observations = renderStoredObservations(state);
   if (!observations) {
     return undefined;
   }
 
   const sections = [
-    OBSERVATION_CONTEXT_PROMPT,
-    "",
+    "<om-durable>",
     "<observations>",
     observations,
     "</observations>",
+    "</om-durable>",
   ];
 
+  sections.push("", "<om-active>");
   if (state.currentTask) {
-    sections.push("", "<current-task>", state.currentTask, "</current-task>");
+    sections.push("<current-task>", state.currentTask, "</current-task>");
   }
-
   if (state.suggestedResponse) {
-    sections.push("", "<suggested-response>", state.suggestedResponse, "</suggested-response>");
+    if (state.currentTask) {
+      sections.push("");
+    }
+    sections.push("<suggested-response>", state.suggestedResponse, "</suggested-response>");
   }
 
-  sections.push("", OBSERVATION_CONTEXT_INSTRUCTIONS);
+  sections.push("</om-active>");
 
-  return sections.join("\n");
+  return sections;
 }
 
+export function buildStoredObservationBlock(
+  state: StoredObservationContextState,
+): string | undefined {
+  const segments = buildStoredObservationSegments(state);
+  if (!segments) {
+    return undefined;
+  }
+
+  return ["<observational-memory>", ...segments, "</observational-memory>"].join("\n");
+}
+export function buildObservationContext(state: SessionState): string | undefined {
+  const segments = buildStoredObservationSegments(state);
+  if (!segments) {
+    return undefined;
+  }
+  const sections = [
+    OBSERVATION_CONTEXT_PROMPT,
+    "",
+    "<observational-memory>",
+    ...segments,
+    "",
+    "<om-guidance>",
+    "<memory-instructions>",
+    OBSERVATION_CONTEXT_INSTRUCTIONS,
+    "</memory-instructions>",
+    buildContinuationReminder(),
+    "</om-guidance>",
+    "</observational-memory>",
+  ];
+  return sections.join("\n");
+}
 export function buildContinuationReminder(): string {
   return `<system-reminder>${OBSERVATION_CONTINUATION_HINT}</system-reminder>`;
 }

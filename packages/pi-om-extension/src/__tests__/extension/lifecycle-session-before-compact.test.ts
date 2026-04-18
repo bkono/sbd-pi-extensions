@@ -73,8 +73,11 @@ describe("extension: session_before_compact lifecycle", () => {
 
     expect(result).toBeDefined();
     expect(result?.compaction).toBeDefined();
+    expect(result!.compaction!.summary).toContain("<observational-memory>");
+    expect(result!.compaction!.summary).toContain("<om-durable>");
     expect(result!.compaction!.summary).toContain("<observations>");
     expect(result!.compaction!.summary).toContain("compaction test");
+    expect(result!.compaction!.summary).toContain("<om-guidance>");
     expect(result!.compaction!.summary).toContain("<system-reminder>");
     expect(result!.compaction!.firstKeptEntryId).toBe("entry-3");
     expect(result!.compaction!.tokensBefore).toBe(10_000);

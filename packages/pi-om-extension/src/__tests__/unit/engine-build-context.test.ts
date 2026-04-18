@@ -74,24 +74,26 @@ describe("buildObservationContext", () => {
     expect(result).not.toContain("staged only");
   });
 
-  it("includes observations block wrapped in XML tags", () => {
+  it("wraps observations in deterministic durable, active, and guidance segments", () => {
     const result = buildObservationContext(state({ observations: "* 🔴 content" }));
     expect(result).toBeDefined();
+    expect(result).toContain("<observational-memory>");
+    expect(result).toContain("<om-durable>");
     expect(result).toContain("<observations>");
     expect(result).toContain("* 🔴 content");
     expect(result).toContain("</observations>");
+    expect(result).toContain("<om-active>");
+    expect(result).toContain("<om-guidance>");
+    expect(result).toContain("<system-reminder>");
   });
-
   it("omits current-task section when not present", () => {
     const result = buildObservationContext(state({ observations: "* obs" }))!;
     expect(result).not.toContain("<current-task>");
   });
-
   it("omits suggested-response section when not present", () => {
     const result = buildObservationContext(state({ observations: "* obs" }))!;
     expect(result).not.toContain("<suggested-response>");
   });
-
   it("includes current-task section when set", () => {
     const result = buildObservationContext(
       state({ observations: "* obs", currentTask: "Do the thing" }),
@@ -100,7 +102,6 @@ describe("buildObservationContext", () => {
     expect(result).toContain("Do the thing");
     expect(result).toContain("</current-task>");
   });
-
   it("includes suggested-response section when set", () => {
     const result = buildObservationContext(
       state({ observations: "* obs", suggestedResponse: "Ask about X" }),
@@ -110,7 +111,7 @@ describe("buildObservationContext", () => {
     expect(result).toContain("</suggested-response>");
   });
 
-  it("includes all sections in expected order", () => {
+  it("includes durable, active, and guidance sections in expected order", () => {
     const result = buildObservationContext(
       state({
         observations: "* obs",
@@ -119,16 +120,23 @@ describe("buildObservationContext", () => {
       }),
     )!;
     const contextPromptIdx = result.indexOf(OBSERVATION_CONTEXT_PROMPT);
+    const durableIdx = result.indexOf("<om-durable>");
     const obsIdx = result.indexOf("<observations>");
+    const activeIdx = result.indexOf("<om-active>");
     const taskIdx = result.indexOf("<current-task>");
     const respIdx = result.indexOf("<suggested-response>");
+    const guidanceIdx = result.indexOf("<om-guidance>");
     const instructionsIdx = result.indexOf(OBSERVATION_CONTEXT_INSTRUCTIONS);
-
+    const reminderIdx = result.indexOf("<system-reminder>");
     expect(contextPromptIdx).toBeGreaterThanOrEqual(0);
-    expect(obsIdx).toBeGreaterThan(contextPromptIdx);
-    expect(taskIdx).toBeGreaterThan(obsIdx);
+    expect(durableIdx).toBeGreaterThan(contextPromptIdx);
+    expect(obsIdx).toBeGreaterThan(durableIdx);
+    expect(activeIdx).toBeGreaterThan(obsIdx);
+    expect(taskIdx).toBeGreaterThan(activeIdx);
     expect(respIdx).toBeGreaterThan(taskIdx);
-    expect(instructionsIdx).toBeGreaterThan(respIdx);
+    expect(guidanceIdx).toBeGreaterThan(respIdx);
+    expect(instructionsIdx).toBeGreaterThan(guidanceIdx);
+    expect(reminderIdx).toBeGreaterThan(instructionsIdx);
   });
 });
 

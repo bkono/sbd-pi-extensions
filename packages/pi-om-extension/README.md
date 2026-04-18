@@ -78,8 +78,8 @@ agent_end
 
 next turn: before_agent_start
   |
-  +-- observations appended to system prompt
-  +-- continuation reminder added as system-reminder
+  +-- deterministic OM block appended to system prompt
+  +-- durable / active / guidance segments remain logically separated inside one string
 
 next turn: context
   |
@@ -171,14 +171,14 @@ Returns current session memory metrics as JSON: published and staged observation
 
 ### `om_observations`
 
-Returns the stored observation block for the current session as XML-wrapped text, including `<observations>`, `<current-task>`, and `<suggested-response>` sections.
+Returns the stored observation block for the current session as XML-wrapped text, organized into `<observational-memory>`, `<om-durable>`, and `<om-active>` segments with nested `<observations>`, `<current-task>`, and `<suggested-response>` sections when present.
 
 ## Lifecycle Hooks
 
 | Hook | Trigger | Action |
 |------|---------|--------|
 | `session_start` | Session created (fires on `bindExtensions`) | Initialize/load session state from disk |
-| `before_agent_start` | Before each agent loop | Append observation context + continuation reminder to system prompt |
+| `before_agent_start` | Before each agent loop | Append one segmented observation block (durable / active / guidance) to the system prompt |
 | `context` | Before each LLM call | Prune messages to the unobserved window |
 | `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed |
 | `session_before_compact` | Before context compaction | Force a final observation pass and inject a custom `CompactionResult` that includes the observation block |
