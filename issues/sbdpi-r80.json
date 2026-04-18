@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-18T18:28:47Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-r80",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Revise pi-beadwork reviewer to use exploratory agent reviews with structured handoff",
   "type": "task",
-  "updated_at": "2026-04-18T18:28:47Z"
+  "updated_at": "2026-04-18T18:28:48Z"
 }
