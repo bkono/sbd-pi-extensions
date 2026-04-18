@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T18:41:25Z",
+  "close_reason": "Fixed and validated",
   "created": "2026-04-18T18:40:30Z",
   "description": "The second table in packages/pi-beadwork-extension/docs/commands.md still uses unescaped | characters for OR examples, breaking Markdown table rendering. Update the table formatting and validate docs formatting/rendering assumptions.",
   "id": "sbdpi-we0",
@@ -13,8 +15,8 @@
     }
   ],
   "priority": 3,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix malformed table pipes in pi-beadwork commands docs",
   "type": "task",
-  "updated_at": "2026-04-18T18:41:22Z"
+  "updated_at": "2026-04-18T18:41:25Z"
 }
