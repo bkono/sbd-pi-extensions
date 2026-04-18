@@ -8,9 +8,15 @@
   "description": "Add a unit regression test in packages/pi-beadwork-extension covering the delegated landing path when landing.review.enabled=true and worktrees.cleanup=cleanup-after-landing, asserting reviewer approval is required before merge and cleanup only happens after successful landing.",
   "id": "sbdpi-5e2",
   "labels": [],
+  "comments": [
+    {
+      "text": "Added the combined regression test in `packages/pi-beadwork-extension/src/__tests__/unit/orchestrator.test.ts` and committed it as `d7c8c36` (`test(pi-beadwork-extension): cover reviewer gating before cleanup-after-landing`).\n\nCoverage added:\n- explicit delegated landing request with `landing.review.enabled = true`\n- worker `cleanupPolicy = \"cleanup-after-landing\"`\n- asserts reviewer starts first, merge-back does not happen while review is pending, and cleanup only runs after merge verification\n- verifies final registry state is landed + cleaned and runtime artifacts are removed\n\nValidation run clean:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+      "timestamp": "2026-04-18T07:06:20Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "Add combined regression test for reviewer gating with cleanup-after-landing in delegated landing flow",
   "type": "task",
-  "updated_at": "2026-04-18T07:06:06Z"
+  "updated_at": "2026-04-18T07:06:20Z"
 }
