@@ -180,6 +180,90 @@ describe("buildObservationContext", () => {
     expect(instructionsIdx).toBeGreaterThan(guidanceIdx);
     expect(reminderIdx).toBeGreaterThan(instructionsIdx);
   });
+
+  it("preserves anchored multi-day chronology in the published observation context", () => {
+    const result = buildObservationContext(
+      state({
+        observations: "",
+        observationEntries: [
+          {
+            date: "2026-04-18",
+            line: "* 🔴 (09:00) User plans to resume tomorrow.",
+            temporalAnchors: [
+              {
+                recordedAt: "2026-04-18T09:00:00.000Z",
+                originalPhrase: "tomorrow",
+                referencedStart: "2026-04-19",
+                precision: "day",
+                relation: "future",
+              },
+            ],
+          },
+          {
+            date: "2026-04-21",
+            line: "* 🟡 (10:15) User resumed work yesterday after a multi-day gap.",
+            temporalAnchors: [
+              {
+                recordedAt: "2026-04-21T10:15:00.000Z",
+                originalPhrase: "yesterday",
+                referencedStart: "2026-04-20",
+                precision: "day",
+                relation: "past",
+              },
+            ],
+          },
+          {
+            date: "2026-04-21",
+            line: "* 🟡 (10:16) Rollout now shifts next Friday.",
+            temporalAnchors: [
+              {
+                recordedAt: "2026-04-21T10:16:00.000Z",
+                originalPhrase: "next Friday",
+                referencedStart: "2026-04-24",
+                precision: "day",
+                relation: "future",
+              },
+            ],
+          },
+          {
+            date: "2026-04-25",
+            line: "* 🟢 (08:30) Rollout landed yesterday as planned.",
+            temporalAnchors: [
+              {
+                recordedAt: "2026-04-25T08:30:00.000Z",
+                originalPhrase: "yesterday",
+                referencedStart: "2026-04-24",
+                precision: "day",
+                relation: "past",
+              },
+            ],
+          },
+        ],
+        draftObservationEntries: [
+          {
+            date: "2026-04-26",
+            line: "* 🟡 staged only",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toContain("Date: Apr 18, 2026");
+    expect(result).toContain("Date: Apr 21, 2026");
+    expect(result).toContain("Date: Apr 25, 2026");
+    expect(result).toContain("tomorrow (target: 2026-04-19)");
+    expect(result).toContain("yesterday (date: 2026-04-20)");
+    expect(result).toContain("next Friday (target: 2026-04-24)");
+    expect(result).toContain("yesterday (date: 2026-04-24)");
+    expect(result).not.toContain("staged only");
+
+    const apr18 = result.indexOf("Date: Apr 18, 2026");
+    const apr21 = result.indexOf("Date: Apr 21, 2026");
+    const apr25 = result.indexOf("Date: Apr 25, 2026");
+    expect(apr18).toBeGreaterThanOrEqual(0);
+    expect(apr21).toBeGreaterThan(apr18);
+    expect(apr25).toBeGreaterThan(apr21);
+  });
 });
 
 describe("buildContinuationReminder", () => {

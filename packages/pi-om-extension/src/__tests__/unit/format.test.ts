@@ -145,4 +145,92 @@ describe("formatters", () => {
     expect(text).toContain("tomorrow (target: 2026-04-19)");
     expect(text).toContain("last week (week of 2026-04-06)");
   });
+
+  it("renders multi-day anchors so future plans and later state changes stay chronologically readable", () => {
+    const entries = [
+      {
+        date: "2026-04-18",
+        line: "* 🔴 (09:00) User plans to resume tomorrow.",
+        temporalAnchors: [
+          {
+            recordedAt: "2026-04-18T09:00:00.000Z",
+            originalPhrase: "tomorrow",
+            referencedStart: "2026-04-19",
+            precision: "day" as const,
+            relation: "future" as const,
+          },
+        ],
+      },
+      {
+        date: "2026-04-21",
+        line: "* 🟡 (10:15) User resumed work yesterday after a multi-day gap.",
+        temporalAnchors: [
+          {
+            recordedAt: "2026-04-21T10:15:00.000Z",
+            originalPhrase: "yesterday",
+            referencedStart: "2026-04-20",
+            precision: "day" as const,
+            relation: "past" as const,
+          },
+        ],
+      },
+      {
+        date: "2026-04-21",
+        line: "* 🟡 (10:16) Rollout now shifts next Friday.",
+        temporalAnchors: [
+          {
+            recordedAt: "2026-04-21T10:16:00.000Z",
+            originalPhrase: "next Friday",
+            referencedStart: "2026-04-24",
+            precision: "day" as const,
+            relation: "future" as const,
+          },
+        ],
+      },
+      {
+        date: "2026-04-21",
+        line: "* 🟡 (10:17) They may revisit Friday.",
+      },
+      {
+        date: "2026-04-25",
+        line: "* 🟢 (08:30) Rollout landed yesterday as planned.",
+        temporalAnchors: [
+          {
+            recordedAt: "2026-04-25T08:30:00.000Z",
+            originalPhrase: "yesterday",
+            referencedStart: "2026-04-24",
+            precision: "day" as const,
+            relation: "past" as const,
+          },
+        ],
+      },
+    ];
+
+    const text = formatObservationsReport({
+      sessionId: "session-multi-day",
+      observations: "",
+      observationEntries: entries,
+      observationTokens: 144,
+      draftObservations: "",
+      draftObservationEntries: entries,
+      draftObservationTokens: 144,
+      updatedAt: 1_700_000_100_000,
+    });
+
+    expect(text).toContain("Date: Apr 18, 2026");
+    expect(text).toContain("Date: Apr 21, 2026");
+    expect(text).toContain("Date: Apr 25, 2026");
+    expect(text).toContain("tomorrow (target: 2026-04-19)");
+    expect(text).toContain("yesterday (date: 2026-04-20)");
+    expect(text).toContain("next Friday (target: 2026-04-24)");
+    expect(text).toContain("They may revisit Friday.");
+    expect(text).toContain("yesterday (date: 2026-04-24)");
+
+    const apr18 = text.indexOf("Date: Apr 18, 2026");
+    const apr21 = text.indexOf("Date: Apr 21, 2026");
+    const apr25 = text.indexOf("Date: Apr 25, 2026");
+    expect(apr18).toBeGreaterThanOrEqual(0);
+    expect(apr21).toBeGreaterThan(apr18);
+    expect(apr25).toBeGreaterThan(apr21);
+  });
 });

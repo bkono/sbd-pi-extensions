@@ -116,4 +116,63 @@ Date: Apr 18, 2026
     expect(entries?.[0]?.temporalAnchors?.[0]?.referencedStart).toBe("2026-04-19");
     expect(entries?.[1]?.temporalAnchors).toHaveLength(1);
   });
+
+  it("keeps multi-day anchors chronologically correct across gaps and future state changes", () => {
+    const entries = deriveObservationEntries(
+      `
+Date: Apr 18, 2026
+* 🔴 (09:00) User plans to resume tomorrow.
+Date: Apr 21, 2026
+* 🟡 (10:15) User resumed work yesterday after a multi-day gap.
+* 🟡 (10:16) Rollout now shifts next Friday.
+* 🟡 (10:17) They may revisit Friday.
+Date: Apr 25, 2026
+* 🟢 (08:30) Rollout landed yesterday as planned.
+`.trim(),
+    );
+
+    expect(entries).toHaveLength(5);
+
+    expect(entries?.[0]?.temporalAnchors).toEqual([
+      {
+        recordedAt: "2026-04-18T09:00:00.000Z",
+        originalPhrase: "tomorrow",
+        referencedStart: "2026-04-19",
+        precision: "day",
+        relation: "future",
+      },
+    ]);
+
+    expect(entries?.[1]?.temporalAnchors).toEqual([
+      {
+        recordedAt: "2026-04-21T10:15:00.000Z",
+        originalPhrase: "yesterday",
+        referencedStart: "2026-04-20",
+        precision: "day",
+        relation: "past",
+      },
+    ]);
+
+    expect(entries?.[2]?.temporalAnchors).toEqual([
+      {
+        recordedAt: "2026-04-21T10:16:00.000Z",
+        originalPhrase: "next Friday",
+        referencedStart: "2026-04-24",
+        precision: "day",
+        relation: "future",
+      },
+    ]);
+
+    expect(entries?.[3]?.temporalAnchors).toBeUndefined();
+
+    expect(entries?.[4]?.temporalAnchors).toEqual([
+      {
+        recordedAt: "2026-04-25T08:30:00.000Z",
+        originalPhrase: "yesterday",
+        referencedStart: "2026-04-24",
+        precision: "day",
+        relation: "past",
+      },
+    ]);
+  });
 });
