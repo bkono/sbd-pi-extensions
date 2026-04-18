@@ -6,9 +6,15 @@
   "description": "The second table in packages/pi-beadwork-extension/docs/commands.md still uses unescaped | characters for OR examples, breaking Markdown table rendering. Update the table formatting and validate docs formatting/rendering assumptions.",
   "id": "sbdpi-we0",
   "labels": [],
+  "comments": [
+    {
+      "text": "Fixed the malformed second table in `packages/pi-beadwork-extension/docs/commands.md` by normalizing the table rows and escaping the inline `|` alternatives (`\\|`) inside command examples. Validated with `npm run lint -w @solvedbydev/pi-beadwork-extension`, `npm run test -w @solvedbydev/pi-beadwork-extension`, and `npm run typecheck -w @solvedbydev/pi-beadwork-extension`. Commit: `c97f490` (`docs(pi-beadwork): fix commands table escaping`).",
+      "timestamp": "2026-04-18T18:41:22Z"
+    }
+  ],
   "priority": 3,
   "status": "in_progress",
   "title": "Fix malformed table pipes in pi-beadwork commands docs",
   "type": "task",
-  "updated_at": "2026-04-18T18:40:33Z"
+  "updated_at": "2026-04-18T18:41:22Z"
 }
