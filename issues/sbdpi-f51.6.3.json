@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "sbdpi-f51.5.3",
     "sbdpi-f51.6.2"
   ],
   "blocks": [
@@ -18,5 +19,5 @@
   "status": "open",
   "title": "Add cache-stability regression coverage for OM rendering and segmented fallback layout",
   "type": "task",
-  "updated_at": "2026-04-17T01:44:29Z"
+  "updated_at": "2026-04-18T06:39:05Z"
 }
