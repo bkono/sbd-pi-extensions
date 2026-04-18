@@ -109,7 +109,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   // context — prune messages to unobserved window before each LLM call
   // -------------------------------------------------------------------------
   pi.on("context", async (event, ctx) => {
-    const { config: cfg } = ensureInitialized(ctx);
+    const { config: cfg, agents: agts } = ensureInitialized(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
     const allMessages = [...event.messages] as Message[];
 
@@ -118,11 +118,18 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       messageCount: allMessages.length,
     });
 
-    // Observation cycles are NOT run here — they run in agent_end only.
-    // This prevents a drift where the cursor advances (pruning messages) but
-    // the system prompt still has stale observations from before_agent_start.
-    // By only observing in agent_end, the system prompt and pruning cursor
-    // are always derived from the same state snapshot.
+    // Stage observations incrementally during long runs, but keep the public
+    // injected block and pruning cursor frozen until the turn ends. We observe
+    // against the full branch so resumed sessions and long tool loops can keep
+    // accumulating draft state without mutating the published prompt snapshot.
+    await runObservationCycle(cfg, agts, sessionId, getBranchMessages(ctx), inflight, {
+      reason: "context",
+      publishDraft: false,
+      excludeLatestMessage: true,
+    });
+
+    // Pruning still uses the published cursor only. Draft observations must never
+    // outrun what the model can see in the injected system prompt this turn.
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
     // Compute the unobserved window
@@ -167,7 +174,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   });
 
   // -------------------------------------------------------------------------
-  // agent_end — run observation cycle after the agent loop completes
+  // agent_end — finish the turn with a final observation pass and publish draft state
   // -------------------------------------------------------------------------
   pi.on("agent_end", async (event, ctx) => {
     const { config: cfg, agents: agts } = ensureInitialized(ctx);
@@ -180,18 +187,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     // session with existing history, that list is always small and
     // never crosses the observation threshold on its own, even when
     // the cumulative session is massively over.
-    //
-    // Reconstruct the full message list from sessionManager's branch —
-    // the same pattern session_before_compact and the om_observations
-    // tool use. This gives the observation cycle the complete history
-    // it needs to compute unobserved tokens correctly.
-    const entries = ctx.sessionManager.getBranch();
-    const messages: Message[] = [];
-    for (const entry of entries) {
-      if (entry.type === "message") {
-        messages.push(entry.message as Message);
-      }
-    }
+    const messages = getBranchMessages(ctx);
 
     debugLog(cfg, "agent_end", {
       sessionId,
