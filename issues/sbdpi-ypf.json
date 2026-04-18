@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T04:53:50Z",
+  "description": "Cut a stable release from the current `main` branch so users have a known-good target before wider observational memory work lands. Determine the appropriate next version/tag, verify repo state on main, create the git tag, publish the GitHub release, and capture the resulting release/tag info in beadwork history.",
+  "id": "sbdpi-ypf",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Tag current main and create a GitHub release before observational memory changes",
+  "type": "task",
+  "updated_at": "2026-04-18T04:53:50Z"
+}
