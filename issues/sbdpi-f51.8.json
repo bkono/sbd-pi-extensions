@@ -18,10 +18,10 @@
   "description": "Practical backlog summary anchor: **Tier 2 → Gap markers and session-phase organization**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 2 / section 8. Gap markers and session-phase organization**.\n\nImplementation context:\n- chronology and rendering are currently mostly implicit in the human-readable observation text produced through `packages/pi-om-extension/src/prompts.ts` and persisted via `src/engine.ts`\n- any new markers must still flow cleanly through `src/agents.ts`, `src/engine.ts`, `src/format.ts`, and the existing state model in `src/types.ts`\n- this package is intentionally single-session first\n\nWhat this epic should establish:\n- legible long-gap / resumed-work markers\n- lightweight phase transitions such as research → implementation or blocked → resumed\n- chronology improvements without introducing thread attribution or multi-resource semantics\n\nUseful references:\n- backlog doc section 8\n- temporal/gap context from section 1 of the same backlog doc\n- local tests in `src/__tests__`\n\nUse session phases, not thread management, as the organizing concept.",
   "id": "sbdpi-f51.8",
   "labels": [],
-  "parent": "sbdpi-f51",
+  "parent": "sbdpi-f51.11",
   "priority": 2,
   "status": "open",
   "title": "Add gap markers and session-phase organization",
   "type": "epic",
-  "updated_at": "2026-04-17T01:42:03Z"
+  "updated_at": "2026-04-18T07:05:11Z"
 }
