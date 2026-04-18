@@ -6,7 +6,8 @@
   ],
   "blocks": [
     "sbdpi-f51.5",
-    "sbdpi-f51.5.3"
+    "sbdpi-f51.5.3",
+    "sbdpi-f51.6.2"
   ],
   "created": "2026-04-17T01:27:22Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 4. Prompt and output-structure upgrades for specificity preservation**.\n\nGoal: make reflector consolidation preserve the same structure and exactness improvements from the observer stage instead of flattening them away.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- `packages/pi-om-extension/src/engine.ts`\n- reflection-focused tests in `packages/pi-om-extension/src/__tests__/integration`\n\nWorker notes:\n- preserve dates/times, numbers, list distinctions, completion markers, and constraints through consolidation\n- this ticket should assume stronger observer output exists and make reflection keep it intact\n- prefer explicit instructions that reduce lossy paraphrase, not merely more words",
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Strengthen reflector prompts to preserve structure and outcome state during consolidation",
   "type": "task",
-  "updated_at": "2026-04-18T06:38:43Z"
+  "updated_at": "2026-04-18T06:38:46Z"
 }
