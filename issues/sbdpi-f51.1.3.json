@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-f51.1.2",
     "sbdpi-f51.2.3"
@@ -17,8 +17,8 @@
   "labels": [],
   "parent": "sbdpi-f51.1",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Add regression coverage so completion state survives reflection and consolidation",
   "type": "task",
-  "updated_at": "2026-04-18T06:39:03Z"
+  "updated_at": "2026-04-18T22:28:40Z"
 }
