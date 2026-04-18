@@ -16,9 +16,15 @@
   "description": "Umbrella epic for the work in `packages/pi-om-extension/docs/mastra-parity-backlog.md`, anchored to the **Practical backlog summary** as the grouping source of truth.\n\nUse this epic when scoping any worker on the practical Mastra-parity effort for the single-session pi OM port.\n\nShared implementation context:\n- Main backlog doc: `packages/pi-om-extension/docs/mastra-parity-backlog.md`\n- Timing rationale / key constraint: `packages/pi-om-extension/docs/observation-timing-deviation.md`\n- Package architecture: `packages/pi-om-extension/README.md` (How It Works, Lifecycle Hooks, Source Layout, Testing)\n- Core runtime files: `src/index.ts`, `src/engine.ts`, `src/agents.ts`, `src/prompts.ts`, `src/types.ts`, `src/state.ts`, `src/config.ts`, `src/format.ts`\n- Existing automated coverage: `packages/pi-om-extension/src/__tests__/{unit,integration,extension}`\n\nProject constraints to preserve:\n- single-session first; do not drift into thread/resource scope\n- do not blindly port Mastra internals\n- for continuous observation work, follow the agreed rule: observe continuously, publish discretely\n- avoid mid-turn prompt swaps that would let pruning outrun injected memory\n\nDefinition of done for implementation tickets:\n- update/add package tests in `packages/pi-om-extension/src/__tests__`\n- run `npm run lint -w @solvedbydev/pi-om-extension`\n- run `npm run test -w @solvedbydev/pi-om-extension`\n- run `npm run typecheck -w @solvedbydev/pi-om-extension`\n\nTier 2 epics intentionally remain blocked behind the Tier 1 foundations.",
   "id": "sbdpi-f51",
   "labels": [],
+  "comments": [
+    {
+      "text": "Reworked the dependency graph to make `bw ready --scope sbdpi-f51` reflect actual delegation-safe concurrency instead of conceptual backlog groupings. The OM package has a very small shared core (`src/engine.ts`, `src/types.ts`, `src/state.ts`, `src/prompts.ts`, `src/format.ts`), so I tightened Tier 1 into a single serial implementation stream: staged/published state -\u003e threshold split -\u003e temporal anchors -\u003e lifecycle markers -\u003e observer specificity -\u003e injected layout -\u003e follow-on behavior -\u003e regression lock-in. Tier 2 is also serialized behind Tier 1 completion, then current-task lifecycle -\u003e gap/phase markers -\u003e reflection robustness. Goal: avoid spinning up multiple workers that would mostly fight over the same prompt/state/rendering surfaces and create high-conflict rebases for little value.",
+      "timestamp": "2026-04-18T06:39:25Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Implement the practical Mastra-parity backlog for @packages/pi-om-extension",
   "type": "epic",
-  "updated_at": "2026-04-17T01:40:22Z"
+  "updated_at": "2026-04-18T06:39:25Z"
 }
