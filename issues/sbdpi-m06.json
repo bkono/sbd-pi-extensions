@@ -8,9 +8,15 @@
   "description": "Write a design/research doc explaining whether pi-caffeinate would keep beadwork runs awake, identify the lifecycle phases it covers vs misses, and turn the assessment into implementation guidance for a native beadwork caffeinate feature epic.",
   "id": "sbdpi-m06",
   "labels": [],
+  "comments": [
+    {
+      "text": "Added `docs/pi-caffeinate-with-beadwork.md` with a lifecycle assessment showing that `pi-caffeinate` only covers active delegated `pi` worker runtime, not parent-session polling, validation, landing/merge-back, cleanup, or reviewer gating (`--no-extensions`). The doc also proposes an epic shape and bead breakdown for a native beadwork keep-awake feature. Verification: `npm run test` and `npm run typecheck` passed. `npm run lint` completed successfully but surfaced a pre-existing Biome schema-version info message (`biome.json` schema 2.4.12 vs CLI 2.4.10).",
+      "timestamp": "2026-04-18T17:58:40Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "Document pi-caffeinate fit for beadwork lifecycle",
   "type": "task",
-  "updated_at": "2026-04-18T17:58:29Z"
+  "updated_at": "2026-04-18T17:58:40Z"
 }
