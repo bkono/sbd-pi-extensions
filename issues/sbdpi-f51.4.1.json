@@ -4,6 +4,7 @@
     "sbdpi-f51.3.1"
   ],
   "blocks": [
+    "sbdpi-f51.2.1",
     "sbdpi-f51.4",
     "sbdpi-f51.4.2"
   ],
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Add separate configurable thresholds for staging, publishing, and reflection",
   "type": "task",
-  "updated_at": "2026-04-18T06:38:11Z"
+  "updated_at": "2026-04-18T06:38:24Z"
 }
