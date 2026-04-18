@@ -6,14 +6,15 @@
     "sbdpi-f51.3.2",
     "sbdpi-f51.4.1"
   ],
+  "closed_at": "2026-04-18T07:15:06Z",
   "created": "2026-04-17T01:26:52Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 2. Continuous/background observation, but only next-turn publication**.\n\nGoal: add draft/staged observation state distinct from the published OM state so long-turn work can accumulate without mutating what is injected into the prompt.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/types.ts`\n- `packages/pi-om-extension/src/state.ts`\n- `packages/pi-om-extension/src/engine.ts`\n\nWorker notes:\n- expect separate staged observations/task/response fields and possibly a staged cursor if that proves useful\n- preserve compatibility with the current published-state flow\n- this ticket is about state shape and invariants first, not about changing hook timing yet",
   "id": "sbdpi-f51.3.1",
   "labels": [],
   "parent": "sbdpi-f51.3",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Introduce staged draft observation state separate from published OM state",
   "type": "task",
-  "updated_at": "2026-04-18T07:08:52Z"
+  "updated_at": "2026-04-18T07:15:06Z"
 }
