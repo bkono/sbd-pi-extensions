@@ -50,6 +50,8 @@ describe("formatters", () => {
       observationTokens: 88,
       currentTask: "Inspect OM",
       suggestedResponse: "Summarize the observations.",
+      draftObservations: "* 🔴 user wants OM status\n* 🟡 formatting should be readable",
+      draftObservationTokens: 88,
       updatedAt: 1_700_000_100_000,
     });
 

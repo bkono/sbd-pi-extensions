@@ -11,6 +11,8 @@ describe("createDefaultState", () => {
     expect(state.sessionId).toBe("sess-1");
     expect(state.observations).toBe("");
     expect(state.observationTokens).toBe(0);
+    expect(state.draftObservations).toBe("");
+    expect(state.draftObservationTokens).toBe(0);
     expect(state.updatedAt).toBeGreaterThan(0);
   });
 });
@@ -44,6 +46,12 @@ describe("loadSessionState / saveSessionState", () => {
       lastObservedTimestamp: 1_700_000_000_000,
       currentTask: "building tests",
       suggestedResponse: "continue",
+      draftObservations: "* 🔴 staged observation",
+      draftObservationTokens: 84,
+      draftLastObservedEntryId: "entry-7",
+      draftLastObservedTimestamp: 1_700_000_002_000,
+      draftCurrentTask: "staging tests",
+      draftSuggestedResponse: "publish later",
       lastCycleAt: 1_700_000_500_000,
       lastCycleReason: "turn_end",
       lastCursorMode: "id",
@@ -56,6 +64,11 @@ describe("loadSessionState / saveSessionState", () => {
     expect(loaded.observationTokens).toBe(42);
     expect(loaded.lastObservedEntryId).toBe("entry-5");
     expect(loaded.currentTask).toBe("building tests");
+    expect(loaded.draftObservations).toBe("* 🔴 staged observation");
+    expect(loaded.draftObservationTokens).toBe(84);
+    expect(loaded.draftLastObservedEntryId).toBe("entry-7");
+    expect(loaded.draftCurrentTask).toBe("staging tests");
+    expect(loaded.draftSuggestedResponse).toBe("publish later");
     expect(loaded.lastCursorMode).toBe("id");
     expect(loaded.updatedAt).toBeGreaterThan(0);
   });
@@ -65,6 +78,8 @@ describe("loadSessionState / saveSessionState", () => {
       sessionId: "time-test",
       observations: "",
       observationTokens: 0,
+      draftObservations: "",
+      draftObservationTokens: 0,
       updatedAt: 1, // stale
     };
     await saveSessionState(stateDir, state);
@@ -123,6 +138,8 @@ describe("loadSessionState / saveSessionState", () => {
     const state = await loadSessionState(stateDir, "partial");
     expect(state.observations).toBe("hello");
     expect(state.observationTokens).toBe(0); // defaulted
+    expect(state.draftObservations).toBe("hello");
+    expect(state.draftObservationTokens).toBe(0);
     expect(state.updatedAt).toBeGreaterThan(0); // defaulted to now
   });
 
@@ -139,5 +156,32 @@ describe("loadSessionState / saveSessionState", () => {
     );
     const state = await loadSessionState(stateDir, "bad-tokens");
     expect(state.observationTokens).toBe(0);
+    expect(state.draftObservationTokens).toBe(0);
+  });
+
+  it("defaults staged draft fields from the published state for legacy files", async () => {
+    const path = sessionStatePath(stateDir, "legacy");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        sessionId: "legacy",
+        observations: "* published",
+        observationTokens: 12,
+        lastObservedEntryId: "entry-2",
+        lastObservedTimestamp: 1_700_000_000_000,
+        currentTask: "published task",
+        suggestedResponse: "published response",
+        updatedAt: 1,
+      }),
+    );
+
+    const state = await loadSessionState(stateDir, "legacy");
+
+    expect(state.draftObservations).toBe("* published");
+    expect(state.draftObservationTokens).toBe(12);
+    expect(state.draftLastObservedEntryId).toBe("entry-2");
+    expect(state.draftLastObservedTimestamp).toBe(1_700_000_000_000);
+    expect(state.draftCurrentTask).toBe("published task");
+    expect(state.draftSuggestedResponse).toBe("published response");
   });
 });

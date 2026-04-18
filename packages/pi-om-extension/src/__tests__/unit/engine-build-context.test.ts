@@ -4,10 +4,15 @@ import { OBSERVATION_CONTEXT_INSTRUCTIONS, OBSERVATION_CONTEXT_PROMPT } from "..
 import type { SessionState } from "../../types.js";
 
 function state(partial: Partial<SessionState>): SessionState {
+  const observations = partial.observations ?? "";
+  const observationTokens = partial.observationTokens ?? 0;
+
   return {
     sessionId: "s",
-    observations: "",
-    observationTokens: 0,
+    observations,
+    observationTokens,
+    draftObservations: partial.draftObservations ?? observations,
+    draftObservationTokens: partial.draftObservationTokens ?? observationTokens,
     updatedAt: Date.now(),
     ...partial,
   };
@@ -20,6 +25,18 @@ describe("buildObservationContext", () => {
 
   it("returns undefined when observations is only whitespace", () => {
     expect(buildObservationContext(state({ observations: "   \n\n  " }))).toBeUndefined();
+  });
+
+  it("uses published observations instead of staged draft observations", () => {
+    expect(
+      buildObservationContext(
+        state({
+          observations: "",
+          draftObservations: "* staged-only",
+          draftObservationTokens: 10,
+        }),
+      ),
+    ).toBeUndefined();
   });
 
   it("includes observations block wrapped in XML tags", () => {

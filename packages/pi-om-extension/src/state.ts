@@ -21,6 +21,8 @@ export function createDefaultState(sessionId: string): SessionState {
     sessionId,
     observations: "",
     observationTokens: 0,
+    draftObservations: "",
+    draftObservationTokens: 0,
     updatedAt: Date.now(),
   };
 }
@@ -59,6 +61,48 @@ function validateState(raw: unknown, sessionId: string): SessionState {
 
   if (typeof obj.suggestedResponse === "string") {
     state.suggestedResponse = obj.suggestedResponse;
+  }
+
+  if (typeof obj.draftObservations === "string") {
+    state.draftObservations = obj.draftObservations;
+  } else {
+    state.draftObservations = state.observations;
+  }
+
+  if (
+    typeof obj.draftObservationTokens === "number" &&
+    Number.isFinite(obj.draftObservationTokens)
+  ) {
+    state.draftObservationTokens = obj.draftObservationTokens;
+  } else {
+    state.draftObservationTokens = state.observationTokens;
+  }
+
+  if (typeof obj.draftLastObservedEntryId === "string") {
+    state.draftLastObservedEntryId = obj.draftLastObservedEntryId;
+  } else if (typeof state.lastObservedEntryId === "string") {
+    state.draftLastObservedEntryId = state.lastObservedEntryId;
+  }
+
+  if (
+    typeof obj.draftLastObservedTimestamp === "number" &&
+    Number.isFinite(obj.draftLastObservedTimestamp)
+  ) {
+    state.draftLastObservedTimestamp = obj.draftLastObservedTimestamp;
+  } else if (typeof state.lastObservedTimestamp === "number") {
+    state.draftLastObservedTimestamp = state.lastObservedTimestamp;
+  }
+
+  if (typeof obj.draftCurrentTask === "string") {
+    state.draftCurrentTask = obj.draftCurrentTask;
+  } else if (typeof state.currentTask === "string") {
+    state.draftCurrentTask = state.currentTask;
+  }
+
+  if (typeof obj.draftSuggestedResponse === "string") {
+    state.draftSuggestedResponse = obj.draftSuggestedResponse;
+  } else if (typeof state.suggestedResponse === "string") {
+    state.draftSuggestedResponse = state.suggestedResponse;
   }
 
   if (typeof obj.lastCycleAt === "number" && Number.isFinite(obj.lastCycleAt)) {

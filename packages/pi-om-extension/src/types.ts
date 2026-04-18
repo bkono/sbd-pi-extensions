@@ -49,6 +49,12 @@ export interface SessionState {
   lastObservedTimestamp?: number;
   currentTask?: string;
   suggestedResponse?: string;
+  draftObservations: string;
+  draftObservationTokens: number;
+  draftLastObservedEntryId?: string;
+  draftLastObservedTimestamp?: number;
+  draftCurrentTask?: string;
+  draftSuggestedResponse?: string;
   lastCycleAt?: number;
   lastCycleReason?: string;
   lastCursorMode?: CursorMode;

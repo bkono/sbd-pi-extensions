@@ -15,6 +15,15 @@ export interface UnobservedWindow {
   mode: CursorMode;
 }
 
+interface DraftObservationState {
+  observations: string;
+  observationTokens: number;
+  lastObservedEntryId?: string;
+  lastObservedTimestamp?: number;
+  currentTask?: string;
+  suggestedResponse?: string;
+}
+
 function debugLog(config: OMConfig, message: string, details?: Record<string, unknown>): void {
   if (!config.debug) return;
   const payload = details ? ` ${JSON.stringify(details)}` : "";
@@ -80,6 +89,44 @@ export function getUnobservedMessages(
   };
 }
 
+function getDraftObservationState(state: SessionState): DraftObservationState {
+  return {
+    observations: state.draftObservations,
+    observationTokens: state.draftObservationTokens,
+    lastObservedEntryId: state.draftLastObservedEntryId,
+    lastObservedTimestamp: state.draftLastObservedTimestamp,
+    currentTask: state.draftCurrentTask,
+    suggestedResponse: state.draftSuggestedResponse,
+  };
+}
+
+function applyDraftObservationState(
+  state: SessionState,
+  draft: DraftObservationState,
+): SessionState {
+  return {
+    ...state,
+    draftObservations: draft.observations,
+    draftObservationTokens: draft.observationTokens,
+    draftLastObservedEntryId: draft.lastObservedEntryId,
+    draftLastObservedTimestamp: draft.lastObservedTimestamp,
+    draftCurrentTask: draft.currentTask,
+    draftSuggestedResponse: draft.suggestedResponse,
+  };
+}
+
+export function publishDraftState(state: SessionState): SessionState {
+  return {
+    ...state,
+    observations: state.draftObservations,
+    observationTokens: state.draftObservationTokens,
+    lastObservedEntryId: state.draftLastObservedEntryId,
+    lastObservedTimestamp: state.draftLastObservedTimestamp,
+    currentTask: state.draftCurrentTask,
+    suggestedResponse: state.draftSuggestedResponse,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Observation cycle
 // ---------------------------------------------------------------------------
@@ -93,6 +140,7 @@ export async function runObservationCycle(
   options?: {
     forceObserve?: boolean;
     excludeLatestMessage?: boolean;
+    publishDraft?: boolean;
     reason?: CycleReason;
   },
 ): Promise<void> {
@@ -105,11 +153,13 @@ export async function runObservationCycle(
   const task = (async () => {
     try {
       const cycleReason = options?.reason ?? "turn_end";
+      const publishDraft = options?.publishDraft ?? true;
       const state = await loadSessionState(config.storage.stateDir, sessionId);
+      const draftState = getDraftObservationState(state);
       const unobservedWindow = getUnobservedMessages(
         allMessages,
-        state.lastObservedEntryId,
-        state.lastObservedTimestamp,
+        draftState.lastObservedEntryId,
+        draftState.lastObservedTimestamp,
       );
 
       const cycleBaseState = {
@@ -124,12 +174,16 @@ export async function runObservationCycle(
 
       if (messagesToObserve.length === 0) {
         if (cycleReason !== "context") {
-          await saveSessionState(config.storage.stateDir, {
+          const nextState = {
             ...state,
             ...cycleBaseState,
             observeTriggered: false,
             reflectTriggered: false,
-          });
+          };
+          await saveSessionState(
+            config.storage.stateDir,
+            publishDraft ? publishDraftState(nextState) : nextState,
+          );
         }
         return;
       }
@@ -149,12 +203,16 @@ export async function runObservationCycle(
 
       if (!shouldObserve) {
         if (cycleReason !== "context") {
-          await saveSessionState(config.storage.stateDir, {
+          const nextState = {
             ...state,
             ...cycleBaseState,
             observeTriggered: false,
             reflectTriggered: false,
-          });
+          };
+          await saveSessionState(
+            config.storage.stateDir,
+            publishDraft ? publishDraftState(nextState) : nextState,
+          );
         }
         return;
       }
@@ -169,7 +227,7 @@ export async function runObservationCycle(
 
       const observed = await agents.observe(
         {
-          existingObservations: state.observations,
+          existingObservations: draftState.observations,
           serializedMessages,
           customInstruction: config.observation.customInstruction,
         },
@@ -177,19 +235,23 @@ export async function runObservationCycle(
       );
 
       if (!observed.observations.trim()) {
-        await saveSessionState(config.storage.stateDir, {
+        const nextState = {
           ...state,
           ...cycleBaseState,
           observeTriggered: true,
           reflectTriggered: false,
-        });
+        };
+        await saveSessionState(
+          config.storage.stateDir,
+          publishDraft ? publishDraftState(nextState) : nextState,
+        );
         return;
       }
 
-      let observations = appendObservations(state.observations, observed.observations);
+      let observations = appendObservations(draftState.observations, observed.observations);
       let observationTokens = countTokens(observations);
-      let currentTask = observed.currentTask ?? state.currentTask;
-      let suggestedResponse = observed.suggestedResponse ?? state.suggestedResponse;
+      let currentTask = observed.currentTask ?? draftState.currentTask;
+      let suggestedResponse = observed.suggestedResponse ?? draftState.suggestedResponse;
       let reflectTriggered = false;
 
       // Trigger reflection if observation block is too large
@@ -229,18 +291,27 @@ export async function runObservationCycle(
       // Update cursor to the last observed message
       const boundary = messagesToObserve.at(-1);
 
-      await saveSessionState(config.storage.stateDir, {
-        ...state,
-        ...cycleBaseState,
-        observations,
-        observationTokens,
-        lastObservedEntryId: getMessageId(boundary) ?? state.lastObservedEntryId,
-        lastObservedTimestamp: getMessageTimestamp(boundary) ?? state.lastObservedTimestamp,
-        currentTask,
-        suggestedResponse,
-        observeTriggered: true,
-        reflectTriggered,
-      });
+      const nextState = applyDraftObservationState(
+        {
+          ...state,
+          ...cycleBaseState,
+          observeTriggered: true,
+          reflectTriggered,
+        },
+        {
+          observations,
+          observationTokens,
+          lastObservedEntryId: getMessageId(boundary) ?? draftState.lastObservedEntryId,
+          lastObservedTimestamp: getMessageTimestamp(boundary) ?? draftState.lastObservedTimestamp,
+          currentTask,
+          suggestedResponse,
+        },
+      );
+
+      await saveSessionState(
+        config.storage.stateDir,
+        publishDraft ? publishDraftState(nextState) : nextState,
+      );
     } catch (error) {
       // Always log observation failures — these are operational errors, not debug traces
       console.error(
