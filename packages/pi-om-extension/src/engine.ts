@@ -1,7 +1,11 @@
 import type { Message } from "@mariozechner/pi-ai";
 
 import type { ObservationAgents } from "./agents.js";
-import { renderObservationEntries, renderStoredObservations } from "./format.js";
+import {
+  normalizeRenderedBlock,
+  renderObservationEntries,
+  renderStoredObservations,
+} from "./format.js";
 import {
   OBSERVATION_CONTEXT_INSTRUCTIONS,
   OBSERVATION_CONTEXT_PROMPT,
@@ -521,36 +525,49 @@ type StoredObservationContextState = Pick<
   "observations" | "observationEntries" | "currentTask" | "suggestedResponse"
 >;
 
+function normalizeContextSection(value?: string): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = normalizeRenderedBlock(value);
+  return normalized || undefined;
+}
+
+function buildContextSegment(outerTag: string, innerTag?: string, content?: string): string[] {
+  const normalizedContent = normalizeContextSection(content);
+  const segment = [`<${outerTag}>`];
+
+  if (!innerTag) {
+    segment.push(`</${outerTag}>`);
+    return segment;
+  }
+
+  segment.push(`<${innerTag}>`);
+  if (normalizedContent) {
+    segment.push(normalizedContent);
+  }
+  segment.push(`</${innerTag}>`, `</${outerTag}>`);
+  return segment;
+}
+
 export function buildStoredObservationSegments(
   state: StoredObservationContextState,
 ): string[] | undefined {
-  const observations = renderStoredObservations(state);
+  const observations = normalizeContextSection(renderStoredObservations(state));
   if (!observations) {
     return undefined;
   }
 
-  const sections = [
-    "<om-durable>",
-    "<observations>",
-    observations,
-    "</observations>",
-    "</om-durable>",
+  return [
+    ...buildContextSegment("om-durable", "observations", observations),
+    "",
+    "<om-active>",
+    ...buildContextSegment("om-current-task", "current-task", state.currentTask),
+    "",
+    ...buildContextSegment("om-suggested-response", "suggested-response", state.suggestedResponse),
+    "</om-active>",
   ];
-
-  sections.push("", "<om-active>");
-  if (state.currentTask) {
-    sections.push("<current-task>", state.currentTask, "</current-task>");
-  }
-  if (state.suggestedResponse) {
-    if (state.currentTask) {
-      sections.push("");
-    }
-    sections.push("<suggested-response>", state.suggestedResponse, "</suggested-response>");
-  }
-
-  sections.push("</om-active>");
-
-  return sections;
 }
 
 export function buildStoredObservationBlock(
@@ -578,6 +595,7 @@ export function buildObservationContext(state: SessionState): string | undefined
     "<memory-instructions>",
     OBSERVATION_CONTEXT_INSTRUCTIONS,
     "</memory-instructions>",
+    "",
     buildContinuationReminder(),
     "</om-guidance>",
     "</observational-memory>",

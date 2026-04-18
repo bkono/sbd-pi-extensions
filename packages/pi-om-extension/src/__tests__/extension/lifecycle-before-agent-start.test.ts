@@ -79,6 +79,8 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result!.systemPrompt).toContain("You are a helper.");
     expect(result!.systemPrompt).toContain("<observational-memory>");
     expect(result!.systemPrompt).toContain("<om-durable>");
+    expect(result!.systemPrompt).toContain("<om-current-task>");
+    expect(result!.systemPrompt).toContain("<om-suggested-response>");
     expect(result!.systemPrompt).toContain("🔴 user likes X");
     expect(result!.systemPrompt).toContain("<om-guidance>");
     expect(result!.systemPrompt).toContain("<system-reminder>");
@@ -101,8 +103,10 @@ describe("extension: before_agent_start lifecycle", () => {
     )) as { systemPrompt: string };
 
     expect(result.systemPrompt).toContain("<current-task>");
+    expect(result.systemPrompt).toContain("<om-current-task>");
     expect(result.systemPrompt).toContain("Fix bug X");
     expect(result.systemPrompt).toContain("<suggested-response>");
+    expect(result.systemPrompt).toContain("<om-suggested-response>");
     expect(result.systemPrompt).toContain("<om-active>");
     expect(result.systemPrompt).toContain("Continue from where we left off");
   });

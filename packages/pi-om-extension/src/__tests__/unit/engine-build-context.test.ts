@@ -83,21 +83,26 @@ describe("buildObservationContext", () => {
     expect(result).toContain("* 🔴 content");
     expect(result).toContain("</observations>");
     expect(result).toContain("<om-active>");
+    expect(result).toContain("<om-current-task>");
+    expect(result).toContain("<om-suggested-response>");
     expect(result).toContain("<om-guidance>");
     expect(result).toContain("<system-reminder>");
   });
-  it("omits current-task section when not present", () => {
+
+  it("keeps empty active subsegments even when no task state is stored", () => {
     const result = buildObservationContext(state({ observations: "* obs" }))!;
-    expect(result).not.toContain("<current-task>");
-  });
-  it("omits suggested-response section when not present", () => {
-    const result = buildObservationContext(state({ observations: "* obs" }))!;
-    expect(result).not.toContain("<suggested-response>");
+    expect(result).toContain(
+      "<om-current-task>\n<current-task>\n</current-task>\n</om-current-task>",
+    );
+    expect(result).toContain(
+      "<om-suggested-response>\n<suggested-response>\n</suggested-response>\n</om-suggested-response>",
+    );
   });
   it("includes current-task section when set", () => {
     const result = buildObservationContext(
       state({ observations: "* obs", currentTask: "Do the thing" }),
     )!;
+    expect(result).toContain("<om-current-task>");
     expect(result).toContain("<current-task>");
     expect(result).toContain("Do the thing");
     expect(result).toContain("</current-task>");
@@ -106,11 +111,44 @@ describe("buildObservationContext", () => {
     const result = buildObservationContext(
       state({ observations: "* obs", suggestedResponse: "Ask about X" }),
     )!;
+    expect(result).toContain("<om-suggested-response>");
     expect(result).toContain("<suggested-response>");
     expect(result).toContain("Ask about X");
     expect(result).toContain("</suggested-response>");
   });
 
+  it("normalizes legacy line endings and trailing whitespace inside sections", () => {
+    const result = buildObservationContext(
+      state({
+        observations: "Date: Apr 18, 2026\r\n* 🔴 content   \r\n",
+        currentTask: "  Keep working\r\n- step 1   \r\n",
+        suggestedResponse: "  Mention the next step.   ",
+      }),
+    )!;
+
+    expect(result).not.toContain("\r");
+    expect(result).toContain("Date: Apr 18, 2026\n* 🔴 content");
+    expect(result).toContain("<current-task>\nKeep working\n- step 1\n</current-task>");
+    expect(result).toContain("<suggested-response>\nMention the next step.\n</suggested-response>");
+  });
+
+  it("keeps the durable segment byte-stable when only active task state changes", () => {
+    const first = buildObservationContext(
+      state({ observations: "* obs", currentTask: "First task" }),
+    )!;
+    const second = buildObservationContext(
+      state({ observations: "* obs", currentTask: "Second task" }),
+    )!;
+
+    const durableStart = first.indexOf("<om-durable>");
+    const durableEnd = first.indexOf("</om-durable>") + "</om-durable>".length;
+    const secondDurableStart = second.indexOf("<om-durable>");
+    const secondDurableEnd = second.indexOf("</om-durable>") + "</om-durable>".length;
+
+    expect(first.slice(durableStart, durableEnd)).toBe(
+      second.slice(secondDurableStart, secondDurableEnd),
+    );
+  });
   it("includes durable, active, and guidance sections in expected order", () => {
     const result = buildObservationContext(
       state({
@@ -123,7 +161,9 @@ describe("buildObservationContext", () => {
     const durableIdx = result.indexOf("<om-durable>");
     const obsIdx = result.indexOf("<observations>");
     const activeIdx = result.indexOf("<om-active>");
+    const currentSegmentIdx = result.indexOf("<om-current-task>");
     const taskIdx = result.indexOf("<current-task>");
+    const suggestedSegmentIdx = result.indexOf("<om-suggested-response>");
     const respIdx = result.indexOf("<suggested-response>");
     const guidanceIdx = result.indexOf("<om-guidance>");
     const instructionsIdx = result.indexOf(OBSERVATION_CONTEXT_INSTRUCTIONS);
@@ -132,8 +172,10 @@ describe("buildObservationContext", () => {
     expect(durableIdx).toBeGreaterThan(contextPromptIdx);
     expect(obsIdx).toBeGreaterThan(durableIdx);
     expect(activeIdx).toBeGreaterThan(obsIdx);
-    expect(taskIdx).toBeGreaterThan(activeIdx);
-    expect(respIdx).toBeGreaterThan(taskIdx);
+    expect(currentSegmentIdx).toBeGreaterThan(activeIdx);
+    expect(taskIdx).toBeGreaterThan(currentSegmentIdx);
+    expect(suggestedSegmentIdx).toBeGreaterThan(taskIdx);
+    expect(respIdx).toBeGreaterThan(suggestedSegmentIdx);
     expect(guidanceIdx).toBeGreaterThan(respIdx);
     expect(instructionsIdx).toBeGreaterThan(guidanceIdx);
     expect(reminderIdx).toBeGreaterThan(instructionsIdx);

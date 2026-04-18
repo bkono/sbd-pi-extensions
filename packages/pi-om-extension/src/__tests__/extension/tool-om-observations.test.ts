@@ -73,6 +73,8 @@ describe("extension: om_observations tool", () => {
     expect(text).toContain("🟡 working on Y");
     expect(text).toContain("</observations>");
     expect(text).toContain("<om-active>");
+    expect(text).toContain("<om-current-task>");
+    expect(text).toContain("<om-suggested-response>");
   });
 
   it("includes current-task and suggested-response sections when set", async () => {
@@ -92,6 +94,8 @@ describe("extension: om_observations tool", () => {
     expect(text).toContain("Finish the feature");
     expect(text).toContain("<suggested-response>");
     expect(text).toContain("<om-active>");
+    expect(text).toContain("<om-current-task>");
+    expect(text).toContain("<om-suggested-response>");
     expect(text).toContain("Ask about tests");
   });
 });

@@ -69,6 +69,15 @@ const OBSERVATION_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+export function normalizeRenderedBlock(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
 function formatCount(value: number): string {
   return NUMBER_FORMATTER.format(value);
 }
@@ -194,7 +203,7 @@ function injectTemporalAnchor(line: string, anchor: TemporalAnchor): string {
 function renderObservationEntry(entry: ObservationEntry): string {
   return (entry.temporalAnchors ?? []).reduce(
     (line, anchor) => injectTemporalAnchor(line, anchor),
-    entry.line.trim(),
+    normalizeRenderedBlock(entry.line),
   );
 }
 
@@ -227,10 +236,10 @@ export function renderStoredObservations(
 ): string {
   const renderedEntries = renderObservationEntries(state.observationEntries);
   if (renderedEntries) {
-    return renderedEntries;
+    return normalizeRenderedBlock(renderedEntries);
   }
 
-  return state.observations.trim();
+  return normalizeRenderedBlock(state.observations);
 }
 
 export function formatStatusReport(status: OMStatusReport): string {
