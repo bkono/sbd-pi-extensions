@@ -9,14 +9,15 @@
     "sbdpi-f51.2",
     "sbdpi-f51.2.3"
   ],
+  "closed_at": "2026-04-18T21:34:30Z",
   "created": "2026-04-17T01:26:44Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 1. Temporal reasoning overhaul**.\n\nGoal: teach the observation/rendering flow to normalize phrases like `tomorrow`, `next Friday`, and `last week` into absolute dates or ranges when confidence is high, while preserving ambiguity when it is not.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/prompts.ts`\n- `packages/pi-om-extension/src/agents.ts`\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/format.ts`\n- any helper module introduced for temporal normalization\n\nWorker notes:\n- preserve the original phrase plus the anchor; do not replace nuance with only a normalized date\n- do not invent fake precision for ambiguous references\n- future planned changes must remain future-oriented instead of collapsing into present fact\n\nUseful references: backlog doc section 1 plus its linked Mastra `observer-agent.ts` and `date-utils.ts` examples.",
   "id": "sbdpi-f51.2.2",
   "labels": [],
   "parent": "sbdpi-f51.2",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Normalize relative time phrases into absolute or ranged anchors without fake precision",
   "type": "task",
-  "updated_at": "2026-04-18T21:21:11Z"
+  "updated_at": "2026-04-18T21:34:30Z"
 }
