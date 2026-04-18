@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-f51.1.1"
+  ],
   "blocks": [
     "sbdpi-f51.5",
     "sbdpi-f51.5.2"
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Strengthen observer prompts to preserve exact structure, numbers, constraints, and distinctions",
   "type": "task",
-  "updated_at": "2026-04-17T01:43:56Z"
+  "updated_at": "2026-04-18T06:38:29Z"
 }
