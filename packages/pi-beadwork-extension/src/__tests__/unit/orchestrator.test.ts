@@ -184,11 +184,22 @@ describe("worker inspection", () => {
   it("auto-validates, lands, and cleans up a completed worker", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeRoot = path.join(repoRoot, ".pi", "beadwork", "workers", "runtime");
+    const runtimeDir = path.join(runtimeRoot, "bw-101-worker");
     await mkdir(worktreePath, { recursive: true });
-    await mkdtemp(path.join(os.tmpdir(), "pi-bw-runtime-"));
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
 
     const worker = createWorker({
       worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      launchCommand: `bash ${path.join(runtimeDir, "launch.sh")}`,
       ticketStatus: "closed",
       cleanupPolicy: "cleanup-after-landing",
       cleanupStatus: "pending",
@@ -277,6 +288,7 @@ describe("worker inspection", () => {
     expect(inspected.landingVerifiedAt).toBeTruthy();
     expect(inspected.lastError).toBeUndefined();
     expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
+    expect(existsSync(runtimeDir)).toBe(false);
   });
 
   it("holds a validated worker in deferred mode instead of auto-merging", async () => {

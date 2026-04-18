@@ -553,23 +553,61 @@ export async function verifyWorktreeLanding(input: {
   };
 }
 
-export async function cleanupTicketWorktree(input: {
-  repoRoot: string;
-  worktreePath: string;
-  runner?: ProcessRunner;
+export async function cleanupWorkerRuntimeDir(input: {
+  runtimeDir: string;
+  runtimeRoot?: string;
 }): Promise<{ removed: boolean }> {
-  const runner = input.runner ?? defaultProcessRunner;
+  const runtimeDir = path.resolve(input.runtimeDir);
 
-  if (!(await pathExists(input.worktreePath))) {
+  if (input.runtimeRoot) {
+    const runtimeRoot = path.resolve(input.runtimeRoot);
+    const relative = path.relative(runtimeRoot, runtimeDir);
+    if (
+      relative.length === 0 ||
+      relative === "." ||
+      relative.startsWith("..") ||
+      path.isAbsolute(relative)
+    ) {
+      throw new Error(`Refusing to remove runtime artifacts outside ${runtimeRoot}: ${runtimeDir}`);
+    }
+  }
+
+  if (!(await pathExists(runtimeDir))) {
     return { removed: false };
   }
 
-  await runner("git", ["worktree", "remove", "--force", input.worktreePath], {
-    cwd: input.repoRoot,
-    timeout: 30_000,
-  });
-
+  await rm(runtimeDir, { recursive: true, force: true });
   return { removed: true };
+}
+
+export async function cleanupTicketWorktree(input: {
+  repoRoot: string;
+  worktreePath: string;
+  runtimeDir?: string;
+  runtimeRoot?: string;
+  runner?: ProcessRunner;
+}): Promise<{ removed: boolean; runtimeRemoved: boolean }> {
+  const runner = input.runner ?? defaultProcessRunner;
+  let removed = false;
+
+  if (await pathExists(input.worktreePath)) {
+    await runner("git", ["worktree", "remove", "--force", input.worktreePath], {
+      cwd: input.repoRoot,
+      timeout: 30_000,
+    });
+    removed = true;
+  }
+
+  const runtimeRemoved = input.runtimeDir
+    ? (
+        await cleanupWorkerRuntimeDir({
+          runtimeDir: input.runtimeDir,
+          runtimeRoot: input.runtimeRoot,
+        })
+      ).removed
+    : false;
+
+  return { removed, runtimeRemoved };
 }
 
 export async function prepareTicketWorktree(input: {

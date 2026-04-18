@@ -1108,6 +1108,7 @@ async function relaunchWorkerForReviewFeedback(input: {
 async function cleanupLandedWorker(input: {
   repoRoot: string;
   worker: WorkerRuntime;
+  runtimeRoot: string;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
 }): Promise<Pick<WorkerRuntime, "cleanupStatus" | "cleanupAt" | "lastError">> {
@@ -1120,6 +1121,8 @@ async function cleanupLandedWorker(input: {
     await cleanupTicketWorktree({
       repoRoot: input.repoRoot,
       worktreePath: input.worker.worktreePath,
+      runtimeDir: input.worker.runtimeDir,
+      runtimeRoot: input.runtimeRoot,
       runner: input.runner,
     });
     return {
@@ -1340,6 +1343,7 @@ function buildQueuedLandingRequestState(
 async function finalizeLandedWorker(input: {
   repoRoot: string;
   worker: WorkerRuntime;
+  runtimeRoot: string;
   verifiedAt: string;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
@@ -1365,6 +1369,7 @@ async function finalizeLandedWorker(input: {
     const cleanup = await cleanupLandedWorker({
       repoRoot: input.repoRoot,
       worker: landedWorker,
+      runtimeRoot: input.runtimeRoot,
       tmuxBackend: input.tmuxBackend,
       runner: input.runner,
     });
@@ -1383,6 +1388,7 @@ async function finalizeLandedWorker(input: {
 async function refreshDeferredHoldState(input: {
   repoRoot: string;
   worker: WorkerRuntime;
+  runtimeRoot: string;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
 }): Promise<WorkerRuntime> {
@@ -1425,6 +1431,7 @@ async function refreshDeferredHoldState(input: {
     return finalizeLandedWorker({
       repoRoot: input.repoRoot,
       worker,
+      runtimeRoot: input.runtimeRoot,
       verifiedAt: landing.checkedAt,
       tmuxBackend: input.tmuxBackend,
       runner: input.runner,
@@ -1480,6 +1487,7 @@ async function autoLandCompletedWorker(input: {
         ...input.worker,
         landingPolicy,
       },
+      runtimeRoot: resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir),
       tmuxBackend: input.tmuxBackend,
       runner: input.runner,
     });
@@ -1757,6 +1765,7 @@ async function autoLandCompletedWorker(input: {
       return finalizeLandedWorker({
         repoRoot: input.repoRoot,
         worker,
+        runtimeRoot: resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir),
         verifiedAt: postValidationLanding.checkedAt,
         tmuxBackend: input.tmuxBackend,
         runner: input.runner,
@@ -2015,6 +2024,7 @@ async function autoLandCompletedWorker(input: {
       return finalizeLandedWorker({
         repoRoot: input.repoRoot,
         worker,
+        runtimeRoot: resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir),
         verifiedAt: verifiedAfterLanding.checkedAt,
         tmuxBackend: input.tmuxBackend,
         runner: input.runner,

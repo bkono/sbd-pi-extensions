@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildTicketBranchName,
   cleanupTicketWorktree,
+  cleanupWorkerRuntimeDir,
   landWorktreeBranch,
   prepareTicketWorktree,
   rebaseWorktreeOntoRepoHead,
@@ -366,24 +367,68 @@ describe("worktree helpers", () => {
     expect(result.repoHead).toBe("worker-head");
   });
 
-  it("removes a landed worktree when cleanup is requested", async () => {
+  it("removes a landed worktree and its runtime artifacts when cleanup is requested", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-cleanup-"));
     const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeRoot = path.join(repoRoot, ".pi", "beadwork", "workers", "runtime");
+    const runtimeDir = path.join(runtimeRoot, "bw-123-worker");
     await mkdir(worktreePath, { recursive: true });
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
 
     const runner = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
 
     const result = await cleanupTicketWorktree({
       repoRoot,
       worktreePath,
+      runtimeDir,
+      runtimeRoot,
       runner,
     });
 
-    expect(result).toEqual({ removed: true });
+    expect(result).toEqual({ removed: true, runtimeRemoved: true });
     expect(runner).toHaveBeenCalledWith(
       "git",
       ["worktree", "remove", "--force", worktreePath],
       expect.objectContaining({ cwd: repoRoot }),
     );
+    expect(existsSync(runtimeDir)).toBe(false);
+  });
+
+  it("can clean up runtime artifacts even when the worktree is already gone", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-cleanup-"));
+    const runtimeRoot = path.join(repoRoot, ".pi", "beadwork", "workers", "runtime");
+    const runtimeDir = path.join(runtimeRoot, "bw-123-worker");
+    await mkdir(runtimeDir, { recursive: true });
+
+    const runner = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
+
+    const result = await cleanupTicketWorktree({
+      repoRoot,
+      worktreePath: path.join(repoRoot, "missing-worktree"),
+      runtimeDir,
+      runtimeRoot,
+      runner,
+    });
+
+    expect(result).toEqual({ removed: false, runtimeRemoved: true });
+    expect(runner).not.toHaveBeenCalled();
+    expect(existsSync(runtimeDir)).toBe(false);
+  });
+
+  it("refuses to remove the runtime root itself", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-cleanup-"));
+    const runtimeRoot = path.join(repoRoot, ".pi", "beadwork", "workers", "runtime");
+    await mkdir(runtimeRoot, { recursive: true });
+
+    await expect(
+      cleanupWorkerRuntimeDir({
+        runtimeDir: runtimeRoot,
+        runtimeRoot,
+      }),
+    ).rejects.toThrow(
+      `Refusing to remove runtime artifacts outside ${runtimeRoot}: ${runtimeRoot}`,
+    );
+    expect(existsSync(runtimeRoot)).toBe(true);
   });
 });
