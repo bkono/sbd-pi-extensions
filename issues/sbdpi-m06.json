@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-18T17:58:29Z",
+  "close_reason": "documented",
   "created": "2026-04-18T17:56:07Z",
   "description": "Write a design/research doc explaining whether pi-caffeinate would keep beadwork runs awake, identify the lifecycle phases it covers vs misses, and turn the assessment into implementation guidance for a native beadwork caffeinate feature epic.",
   "id": "sbdpi-m06",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Document pi-caffeinate fit for beadwork lifecycle",
   "type": "task",
-  "updated_at": "2026-04-18T17:56:12Z"
+  "updated_at": "2026-04-18T17:58:29Z"
 }
