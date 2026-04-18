@@ -1929,6 +1929,203 @@ describe("worker inspection", () => {
     expect(reviewLog).toContain("[beadwork reviewer]");
   });
 
+  it("waits for reviewer approval before merge-back cleanup when cleanup-after-landing is enabled", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-review-cleanup-worker-"));
+    const worktreePath = path.join(repoRoot, "worktree");
+    const runtimeRoot = path.join(repoRoot, ".pi", "beadwork", "workers", "runtime");
+    const runtimeDir = path.join(runtimeRoot, "bw-101-worker");
+    await mkdir(worktreePath, { recursive: true });
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const worker = createWorker({
+      worktreePath,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      launchCommand: `bash ${path.join(runtimeDir, "launch.sh")}`,
+      ticketStatus: "closed",
+      status: "attention",
+      cleanupPolicy: "cleanup-after-landing",
+      cleanupStatus: "pending",
+      reviewStatus: "review-blocked",
+      reviewSummary: "Previous reviewer run timed out.",
+      lastError: "Previous reviewer run timed out.",
+    });
+    await saveWorkerRegistry(registryPath, [worker]);
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          id: "BW-101",
+          type: "task",
+          status: "closed",
+          title: "Task",
+          description: "Require reviewer approval before merge-back cleanup.",
+          children: [],
+        }),
+      ),
+    });
+
+    let merged = false;
+    let allowReviewToFinish!: () => void;
+    const reviewCanFinish = new Promise<void>((resolve) => {
+      allowReviewToFinish = resolve;
+    });
+    const timeline: string[] = [];
+
+    const runner = vi.fn(
+      async (
+        command: string,
+        args: string[],
+        options?: {
+          cwd?: string;
+          onStdoutChunk?: (chunk: string) => void;
+          onStderrChunk?: (chunk: string) => void;
+        },
+      ) => {
+        if (command === "git" && args[0] === "status") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === repoRoot) {
+          return { stdout: `${merged ? "worker-head" : "repo-head"}\n`, stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-parse" && options?.cwd === worktreePath) {
+          return { stdout: "worker-head\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "rev-list") {
+          return { stdout: `${merged ? "0 0" : "0 2"}\n`, stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "log") {
+          return { stdout: "abc123 feat: reviewer gate\n", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "diff") {
+          return {
+            stdout: "diff --git a/orchestrator.ts b/orchestrator.ts\n",
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "bash" && args[1] === "npm run lint") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run test") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1] === "npm run typecheck") {
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "bash" && args[1]?.includes("review-model")) {
+          timeline.push("review-start");
+          options?.onStdoutChunk?.('{"verdict":"approve"');
+          await reviewCanFinish;
+          timeline.push("review-finish");
+          options?.onStdoutChunk?.(',"summary":"Looks good.","feedback":[]}');
+          return {
+            stdout: JSON.stringify({ verdict: "approve", summary: "Looks good.", feedback: [] }),
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (command === "git" && args[0] === "merge") {
+          timeline.push("merge");
+          merged = true;
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        if (command === "git" && args[0] === "worktree" && args[1] === "remove") {
+          timeline.push("worktree-remove");
+          return { stdout: "", stderr: "", code: 0 };
+        }
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    );
+
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockImplementation(async () => {
+        timeline.push("cleanup-worker");
+      }),
+    };
+
+    const queued = await requestWorkerLanding({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: {
+            ...DEFAULT_CONFIG.landing.review,
+            enabled: true,
+            model: "review-model",
+          },
+        },
+        worktrees: {
+          ...DEFAULT_CONFIG.worktrees,
+          cleanup: "cleanup-after-landing",
+        },
+      },
+      adapter,
+      ticketId: "BW-101",
+      tmuxBackend,
+      runner,
+    });
+
+    expect(queued.status).toBe("exited");
+    expect(queued.landingRequestedAt).toBeTruthy();
+    expect(queued.reviewStatus).toBe("pending");
+    expect(queued.cleanupStatus).toBe("pending");
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (timeline.includes("review-start")) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(timeline).toContain("review-start");
+    expect(timeline).not.toContain("merge");
+    expect(timeline).not.toContain("cleanup-worker");
+    expect(timeline).not.toContain("worktree-remove");
+
+    const pendingRegistry = await readFile(registryPath, "utf8");
+    expect(pendingRegistry).not.toContain('"status": "landed"');
+    expect(pendingRegistry).not.toContain('"cleanupStatus": "cleaned"');
+
+    allowReviewToFinish();
+
+    let finalRegistry = "";
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      finalRegistry = await readFile(registryPath, "utf8");
+      if (
+        finalRegistry.includes('"status": "landed"') &&
+        finalRegistry.includes('"cleanupStatus": "cleaned"')
+      ) {
+        break;
+      }
+    }
+
+    expect(finalRegistry).toContain('"status": "landed"');
+    expect(finalRegistry).toContain('"cleanupStatus": "cleaned"');
+    expect(existsSync(runtimeDir)).toBe(false);
+    expect(tmuxBackend.cleanupWorker).toHaveBeenCalledTimes(1);
+    expect(timeline.indexOf("review-start")).toBeLessThan(timeline.indexOf("review-finish"));
+    expect(timeline.indexOf("review-finish")).toBeLessThan(timeline.indexOf("merge"));
+    expect(timeline.indexOf("merge")).toBeLessThan(timeline.indexOf("cleanup-worker"));
+    expect(timeline.indexOf("cleanup-worker")).toBeLessThan(timeline.indexOf("worktree-remove"));
+  });
+
   it("lands a previously held worker when explicitly requested", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-held-land-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");
