@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-18T07:01:55Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-5e2",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Add combined regression test for reviewer gating with cleanup-after-landing in delegated landing flow",
   "type": "task",
-  "updated_at": "2026-04-18T07:01:55Z"
+  "updated_at": "2026-04-18T07:01:58Z"
 }
