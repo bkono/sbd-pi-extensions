@@ -118,4 +118,34 @@ Suggested response: Wait for confirmation`;
     expect(result.suggestedResponse).toBe("Wait for confirmation");
     expect(result.currentTask).toBeUndefined();
   });
+
+  it("preserves multiline task and response structure from XML tags", () => {
+    const raw = `<observations>
+Date: Apr 18, 2026
+* 🔴 (09:12) ✅ Preserved 3 exact list items through reflection.
+</observations>
+
+<current-task>
+Primary:
+- Active: keep the 3-item checklist intact
+- Blocked: wait for review before closing the ticket
+Secondary:
+- ✅ Observer-stage specificity upgrade already landed
+</current-task>
+
+<suggested-response>
+- Confirm the 3 preserved list items
+- Ask whether to keep the blocked state visible in follow-up summaries
+</suggested-response>`;
+
+    const result = parseObserverOutput(raw);
+
+    expect(result.currentTask).toContain("- Active: keep the 3-item checklist intact");
+    expect(result.currentTask).toContain("- Blocked: wait for review before closing the ticket");
+    expect(result.currentTask).toContain("- ✅ Observer-stage specificity upgrade already landed");
+    expect(result.suggestedResponse).toContain("- Confirm the 3 preserved list items");
+    expect(result.suggestedResponse).toContain(
+      "- Ask whether to keep the blocked state visible in follow-up summaries",
+    );
+  });
 });

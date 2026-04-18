@@ -176,7 +176,14 @@ export class ObservationAgents {
       input.customInstruction ?? this.config.reflection.customInstruction,
     );
 
-    const userPrompt = `Current observations:\n\n${input.observations}`;
+    const userPrompt = [
+      "Consolidate the observations below without losing structure, exact values, or outcome state.",
+      "Return only the XML blocks from your instructions.",
+      "",
+      "<current-observations>",
+      input.observations,
+      "</current-observations>",
+    ].join("\n");
 
     debugLog(
       this.config,
