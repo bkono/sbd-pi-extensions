@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T05:08:57Z",
+  "description": "Worker runtime logs/state under `.pi/beadwork/workers/runtime` grow large and should be cleaned up as part of worker teardown, especially when the associated worktree is removed.\n\nScope:\n- trace where worker runtime directories/logs are created and retained\n- remove runtime artifacts when a worker/worktree is intentionally cleaned up\n- avoid deleting state that is still needed for an active worker or for debugging an in-flight failure\n- add regression coverage for cleanup behavior and any guardrails\n\nDefinition of done:\n- tests added/updated under `packages/pi-beadwork-extension/src/__tests__`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+  "id": "sbdpi-ik2.6",
+  "labels": [],
+  "parent": "sbdpi-ik2",
+  "priority": 2,
+  "status": "open",
+  "title": "Clean up `.pi/beadwork/workers/runtime` artifacts when workers/worktrees are removed",
+  "type": "task",
+  "updated_at": "2026-04-18T05:08:57Z"
+}
