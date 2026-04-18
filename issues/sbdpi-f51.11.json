@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-18T07:04:51Z",
+  "description": "Umbrella epic for the Tier 2 work from `packages/pi-om-extension/docs/mastra-parity-backlog.md` practical backlog summary.\n\nUse this epic when targeting the follow-on OM improvements that build on the Tier 1 foundation:\n- current-task / suggested-response lifecycle refinement\n- gap markers and session-phase organization\n- reflection robustness and retry/fallback behavior\n\nThis subtree remains blocked behind Tier 1 completion and is also intentionally serialized to keep delegation practical and low-conflict.",
+  "id": "sbdpi-f51.11",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 2,
+  "status": "open",
+  "title": "Tier 2 follow-on stream for practical Mastra-parity OM improvements",
+  "type": "epic",
+  "updated_at": "2026-04-18T07:04:51Z"
+}
