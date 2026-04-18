@@ -11,14 +11,16 @@
     "sbdpi-f51.8",
     "sbdpi-f51.9"
   ],
+  "closed_at": "2026-04-18T23:29:47Z",
+  "close_reason": "All child tasks are closed and landed on feat/more-om.",
   "created": "2026-04-17T01:25:47Z",
   "description": "Practical backlog summary anchor: **Tier 1 → Temporal reasoning overhaul: preserve the original phrase, but normalize stale relative references to absolute/ranged anchors**.\n\nBacklog detail: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 1. Temporal reasoning overhaul**.\n\nImplementation context:\n- current state has only coarse timestamps/cursors in `packages/pi-om-extension/src/types.ts`\n- persistence/validation lives in `src/state.ts`\n- observation assembly and durable rendering flow through `src/engine.ts`, `src/format.ts`, and `src/prompts.ts`\n- this package currently stores date-grouped human-readable observations, so any richer temporal model must still render cleanly in that format\n\nWhat this epic should establish:\n- preserved original time phrasing plus normalized absolute/ranged anchors where confidence is high\n- ambiguity handling without fake precision\n- better chronology over multi-day sessions, pauses, resumed work, and future planned changes\n\nUseful references:\n- backlog doc section 1 plus linked Mastra refs (`observer-agent.ts`, `date-utils.ts`, `observational-memory.mdx`)\n- existing local tests in `src/__tests__`, especially state/engine/format coverage\n\nHonor the previously-agreed preference for concrete temporal anchors like `tomorrow (target: YYYY-MM-DD)` and `last week (week of YYYY-MM-DD)` when appropriate.",
   "id": "sbdpi-f51.2",
   "labels": [],
   "parent": "sbdpi-f51.10",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Temporal reasoning overhaul for observational memory",
   "type": "epic",
-  "updated_at": "2026-04-18T07:04:58Z"
+  "updated_at": "2026-04-18T23:29:47Z"
 }
