@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-18T05:08:57Z",
@@ -14,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Clean up `.pi/beadwork/workers/runtime` artifacts when workers/worktrees are removed",
   "type": "task",
-  "updated_at": "2026-04-18T06:15:37Z"
+  "updated_at": "2026-04-18T06:16:17Z"
 }
