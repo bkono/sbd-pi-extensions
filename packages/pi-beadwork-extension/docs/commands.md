@@ -6,30 +6,30 @@ All commands are exposed under `/bw`.
 
 ## Session + workflow commands
 
-| Command | Purpose |
-| --- | --- |
-| `/bw status` | Show activation, mode, scope, counts, and worker summary. |
-| `/bw engage [scope]` | Enter beadwork interactive mode, optionally scoped to a ticket or epic. |
-| `/bw off [--stop-workers] [--all-workers] [--leave-workers]` | Return to neutral mode and optionally stop active workers. |
-| `/bw prime [--refresh]` | Show cached or refreshed `bw prime` guidance. |
-| `/bw ready [scope]` | Show ready work, optionally scoped. |
-| `/bw blocked` | List currently blocked work. |
-| `/bw workers [epic-id]` | Show delegated worker diagnostics and next actions. |
-| `/bw delegate <ticket-id> [--model provider/model]` | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
-| `/bw land <ticket-id|worker-id>` | Resume merge-back for a deferred worker. |
-| `/bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]` | Run bounded orchestration over an epic. |
-| `/bw adopt [markdown] [--file path] [--title ...] [--land quick|branch|multi] [--apply]` | Turn an explicit markdown plan into a beadwork-aware preview or graph-materialization flow. |
+| Command                                                                                              | Purpose                                                                                                 |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `/bw status`                                                                                         | Show activation, mode, scope, counts, and worker summary.                                               |
+| `/bw engage [scope]`                                                                                 | Enter beadwork interactive mode, optionally scoped to a ticket or epic.                                 |
+| `/bw off [--stop-workers] [--all-workers] [--leave-workers]`                                         | Return to neutral mode and optionally stop active workers.                                              |
+| `/bw prime [--refresh]`                                                                              | Show cached or refreshed `bw prime` guidance.                                                           |
+| `/bw ready [scope]`                                                                                  | Show ready work, optionally scoped.                                                                     |
+| `/bw blocked`                                                                                        | List currently blocked work.                                                                            |
+| `/bw workers [epic-id]`                                                                              | Show delegated worker diagnostics and next actions.                                                     |
+| `/bw delegate <ticket-id> [--model provider/model]`                                                  | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
+| `/bw land <ticket-id\|worker-id>`                                                                    | Resume merge-back for a deferred worker.                                                                |
+| `/bw run <epic-id> [--workers n] [--until blocked\|empty] [--max-cycles n] [--dry-run] [--no-spawn]` | Run bounded orchestration over an epic.                                                                 |
+| `/bw adopt [markdown] [--file path] [--title ...] [--land quick\|branch\|multi] [--apply]`           | Turn an explicit markdown plan into a beadwork-aware preview or graph-materialization flow.             |
 
 ## Issue-management commands
 
 | Command | Purpose |
-| --- | --- |
+| ------- | ------- |
 | `/bw list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]` | Filtered issue listing. |
 | `/bw history <id> [--limit n]` | Show git-backed issue history. |
 | `/bw show <id>` | Show one issue and its children. |
 | `/bw create <title> [--type ... --description ... --priority n --parent id]` | Create a task or epic. |
 | `/bw update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id \| --clear-parent --defer when --due when \| --clear-due]` | Update mutable issue fields. |
-| `/bw dep <add|remove> <blocker-id> [blocks] <blocked-id>` | Add or remove dependency edges. |
+| `/bw dep <add \| remove> <blocker-id> [blocks] <blocked-id>` | Add or remove dependency edges. |
 | `/bw comment <id> <text> [--author name]` | Add a comment. |
 | `/bw label <id> +label [-label]...` | Apply label mutations. |
 | `/bw start <id> [--assignee name]` | Run `bw start` for one issue. |
@@ -142,36 +142,36 @@ Important behavior:
 
 ### Runtime `status`
 
-| Status | Meaning |
-| --- | --- |
-| `launching` | Worker process is being created. |
-| `running` | Worker process is still alive. |
-| `exited` | Worker finished, but landing is not complete yet. |
-| `held` | Deferred landing intentionally stopped before merge-back. |
-| `landed` | Parent branch contains the worker head and post-worker checks passed. |
-| `failed` | Worker process failed outright. |
-| `attention` | Operator action is required before the worker can finish landing. |
+| Status      | Meaning                                                               |
+| ----------- | --------------------------------------------------------------------- |
+| `launching` | Worker process is being created.                                      |
+| `running`   | Worker process is still alive.                                        |
+| `exited`    | Worker finished, but landing is not complete yet.                     |
+| `held`      | Deferred landing intentionally stopped before merge-back.             |
+| `landed`    | Parent branch contains the worker head and post-worker checks passed. |
+| `failed`    | Worker process failed outright.                                       |
+| `attention` | Operator action is required before the worker can finish landing.     |
 
 ### Validation states
 
-| State | Meaning |
-| --- | --- |
-| `not-run` | Validation has not started yet. |
+| State     | Meaning                                        |
+| --------- | ---------------------------------------------- |
+| `not-run` | Validation has not started yet.                |
 | `pending` | Validation is in progress or still unresolved. |
-| `passed` | Validation succeeded. |
-| `failed` | Validation failed. |
+| `passed`  | Validation succeeded.                          |
+| `failed`  | Validation failed.                             |
 
 ### Review states
 
-| State | Meaning |
-| --- | --- |
-| `not-run` | Reviewer gating is disabled or has not started yet. |
-| `pending` | Review is still pending. |
-| `approved` | Reviewer approved. |
-| `nits-only` | Reviewer approved with non-blocking nits. |
-| `changes-requested` | Reviewer requested valid in-scope changes. |
-| `remediation-in-progress` | Reviewer-driven remediation is running. |
-| `review-blocked` | Review could not reach a mergeable state without operator help. |
+| State                     | Meaning                                                         |
+| ------------------------- | --------------------------------------------------------------- |
+| `not-run`                 | Reviewer gating is disabled or has not started yet.             |
+| `pending`                 | Review is still pending.                                        |
+| `approved`                | Reviewer approved.                                              |
+| `nits-only`               | Reviewer approved with non-blocking nits.                       |
+| `changes-requested`       | Reviewer requested valid in-scope changes.                      |
+| `remediation-in-progress` | Reviewer-driven remediation is running.                         |
+| `review-blocked`          | Review could not reach a mergeable state without operator help. |
 
 Reviewer verdicts are normalized from the reviewer handoff report:
 
@@ -183,45 +183,45 @@ The orchestrator parses the reviewer’s final `<review_report>` block, then fil
 
 ### Landing states from worker inspection
 
-| State | Meaning |
-| --- | --- |
-| `waiting-ticket-close` | Ticket is not closed yet, so landing work cannot start. |
-| `verified` | Landing has been verified against the parent branch. |
-| `validated-and-held` | Deferred mode validated the work and intentionally held it. |
-| `ready-to-land` | Deferred mode held the work and it is currently merge-ready. |
-| `needs-refresh` | Deferred work drifted and must be refreshed before merge-back. |
-| `pending-review` | Ticket is closed, but landing/review details are still pending. |
-| `verification-failed` | Landing verification failed. |
-| `needs-attention` | Operator attention is required. |
+| State                  | Meaning                                                         |
+| ---------------------- | --------------------------------------------------------------- |
+| `waiting-ticket-close` | Ticket is not closed yet, so landing work cannot start.         |
+| `verified`             | Landing has been verified against the parent branch.            |
+| `validated-and-held`   | Deferred mode validated the work and intentionally held it.     |
+| `ready-to-land`        | Deferred mode held the work and it is currently merge-ready.    |
+| `needs-refresh`        | Deferred work drifted and must be refreshed before merge-back.  |
+| `pending-review`       | Ticket is closed, but landing/review details are still pending. |
+| `verification-failed`  | Landing verification failed.                                    |
+| `needs-attention`      | Operator attention is required.                                 |
 
 ## Tool reference
 
 The extension also exposes beadwork-aware tools to the model.
 
-| Tool | Purpose |
-| --- | --- |
-| `beadwork_status` | Activation, mode, counts, scope, and worker summary. |
-| `beadwork_prime` | Cached or refreshed `bw prime` guidance. |
-| `beadwork_ready` | Ready issue listing, optionally scoped. |
-| `beadwork_blocked` | Blocked issue listing. |
-| `beadwork_list_issues` | Filtered issue listing. |
-| `beadwork_issue_history` | Git-backed issue history for one issue. |
-| `beadwork_show` | Show one issue and its children. |
-| `beadwork_create_issue` | Create a task or epic. |
-| `beadwork_update_issue` | Update mutable issue fields. |
-| `beadwork_add_dependency` | Add a dependency edge. |
-| `beadwork_remove_dependency` | Remove a dependency edge. |
-| `beadwork_start_issue` | Start one issue. |
-| `beadwork_close_issue` | Close one issue. |
-| `beadwork_reopen_issue` | Reopen one issue. |
-| `beadwork_comment_issue` | Add a comment. |
-| `beadwork_label_issue` | Apply label mutations. |
-| `beadwork_defer_issue` | Defer one issue. |
-| `beadwork_undefer_issue` | Undefer one issue. |
-| `beadwork_delegate` | Launch a delegated worker for a ticket, optionally with a one-off model override. |
-| `beadwork_land_worker` | Explicitly request merge-back for a held worker. |
-| `beadwork_worker_check` | Inspect worker runtime/diagnostic state. |
-| `beadwork_sync` | Run `bw sync`. |
+| Tool                         | Purpose                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| `beadwork_status`            | Activation, mode, counts, scope, and worker summary.                              |
+| `beadwork_prime`             | Cached or refreshed `bw prime` guidance.                                          |
+| `beadwork_ready`             | Ready issue listing, optionally scoped.                                           |
+| `beadwork_blocked`           | Blocked issue listing.                                                            |
+| `beadwork_list_issues`       | Filtered issue listing.                                                           |
+| `beadwork_issue_history`     | Git-backed issue history for one issue.                                           |
+| `beadwork_show`              | Show one issue and its children.                                                  |
+| `beadwork_create_issue`      | Create a task or epic.                                                            |
+| `beadwork_update_issue`      | Update mutable issue fields.                                                      |
+| `beadwork_add_dependency`    | Add a dependency edge.                                                            |
+| `beadwork_remove_dependency` | Remove a dependency edge.                                                         |
+| `beadwork_start_issue`       | Start one issue.                                                                  |
+| `beadwork_close_issue`       | Close one issue.                                                                  |
+| `beadwork_reopen_issue`      | Reopen one issue.                                                                 |
+| `beadwork_comment_issue`     | Add a comment.                                                                    |
+| `beadwork_label_issue`       | Apply label mutations.                                                            |
+| `beadwork_defer_issue`       | Defer one issue.                                                                  |
+| `beadwork_undefer_issue`     | Undefer one issue.                                                                |
+| `beadwork_delegate`          | Launch a delegated worker for a ticket, optionally with a one-off model override. |
+| `beadwork_land_worker`       | Explicitly request merge-back for a held worker.                                  |
+| `beadwork_worker_check`      | Inspect worker runtime/diagnostic state.                                          |
+| `beadwork_sync`              | Run `bw sync`.                                                                    |
 
 ## Operator-facing truths
 
