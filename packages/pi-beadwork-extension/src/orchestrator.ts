@@ -15,6 +15,7 @@ import {
 import { createTmuxBackend, type TmuxBackend, type TmuxPaneInspection } from "./tmux.js";
 import type {
   BeadworkConfig,
+  BeadworkIssue,
   BeadworkIssueDetail,
   RunOptions,
   RunSummary,
@@ -186,7 +187,14 @@ type WorkerOrchestrationLock = {
   promise: Promise<WorkerRuntime>;
 };
 
+type RunLaunchLockResult = {
+  workers: WorkerRuntime[];
+  launchable: BeadworkIssue[];
+  launchedThisCycle: string[];
+};
+
 const workerOrchestrationLocks = new Map<string, WorkerOrchestrationLock>();
+const epicRunLaunchLocks = new Map<string, Promise<void>>();
 
 const MAX_VALIDATION_REMEDIATION_ATTEMPTS = 1;
 const MAX_LANDING_REMEDIATION_ATTEMPTS = 1;
@@ -1142,6 +1150,81 @@ function buildAttentionState(
     lastError: detail,
     updatedAt: new Date().toISOString(),
   };
+}
+
+async function withEpicRunLaunchLock<T>(lockKey: string, task: () => Promise<T>): Promise<T> {
+  const previous = (epicRunLaunchLocks.get(lockKey) ?? Promise.resolve()).catch(() => undefined);
+  let release: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  epicRunLaunchLocks.set(lockKey, queued);
+
+  await previous;
+
+  try {
+    return await task();
+  } finally {
+    release?.();
+    if (epicRunLaunchLocks.get(lockKey) === queued) {
+      epicRunLaunchLocks.delete(lockKey);
+    }
+  }
+}
+
+async function launchReadyWorkersWithinConcurrencyLimit(input: {
+  cwd: string;
+  repoRoot: string;
+  registryPath: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  epicId: string;
+  ready: BeadworkIssue[];
+  maxWorkers: number;
+  prime?: string;
+  tmuxBackend: TmuxBackend;
+}): Promise<RunLaunchLockResult> {
+  const lockKey = `${input.registryPath}::${input.epicId}`;
+
+  return withEpicRunLaunchLock(lockKey, async () => {
+    const launchedThisCycle: string[] = [];
+    let workers = (await loadWorkerRegistry(input.registryPath)).filter(
+      (worker) => worker.epicId === input.epicId,
+    );
+    const attemptedTicketIds = new Set(workers.map((worker) => worker.ticketId));
+    const activeWorkers = workers.filter(
+      (worker) => worker.status === "launching" || worker.status === "running",
+    );
+    const launchable = input.ready.filter(
+      (issue) => !attemptedTicketIds.has(issue.id) && issue.type !== "epic",
+    );
+    const availableSlots = Math.max(0, input.maxWorkers - activeWorkers.length);
+
+    for (const issue of launchable.slice(0, availableSlots)) {
+      const worker = await launchTicketWorker({
+        cwd: input.cwd,
+        repoRoot: input.repoRoot,
+        config: input.config,
+        adapter: input.adapter,
+        ticketId: issue.id,
+        epicId: input.epicId,
+        prime: input.prime,
+        tmuxBackend: input.tmuxBackend,
+      });
+      launchedThisCycle.push(worker.ticketId);
+    }
+
+    workers = (await loadWorkerRegistry(input.registryPath)).filter(
+      (worker) => worker.epicId === input.epicId,
+    );
+
+    return {
+      workers,
+      launchable,
+      launchedThisCycle,
+    };
+  });
 }
 
 function resolveLandingPolicy(config: BeadworkConfig, worker: WorkerRuntime): "auto" | "deferred" {
@@ -2497,39 +2580,41 @@ export async function runBoundedEpicLoop(input: {
     workers = workers.filter((worker) => worker.epicId === input.epicId);
 
     const ready = await input.adapter.ready(input.cwd, input.epicId);
-    const attemptedTicketIds = new Set(workers.map((worker) => worker.ticketId));
-    const activeWorkers = workers.filter(
-      (worker) => worker.status === "launching" || worker.status === "running",
-    );
-    const launchable = ready.filter(
-      (issue) => !attemptedTicketIds.has(issue.id) && issue.type !== "epic",
-    );
-    const launchedThisCycle: string[] = [];
+    let launchable = ready.filter((issue) => issue.type !== "epic");
+    let launchedThisCycle: string[] = [];
 
     if (!input.options.dryRun && !input.options.noSpawn) {
-      const availableSlots = Math.max(0, input.options.workers - activeWorkers.length);
-      for (const issue of launchable.slice(0, availableSlots)) {
-        const worker = await launchTicketWorker({
-          cwd: input.cwd,
-          repoRoot: input.repoRoot,
-          config: input.config,
-          adapter: input.adapter,
-          ticketId: issue.id,
-          epicId: input.epicId,
-          prime: input.prime,
-          tmuxBackend,
-        });
-        launched.add(worker.ticketId);
-        launchedThisCycle.push(worker.ticketId);
-        workers.push(worker);
+      const launchResult = await launchReadyWorkersWithinConcurrencyLimit({
+        cwd: input.cwd,
+        repoRoot: input.repoRoot,
+        registryPath,
+        config: input.config,
+        adapter: input.adapter,
+        epicId: input.epicId,
+        ready,
+        maxWorkers: input.options.workers,
+        prime: input.prime,
+        tmuxBackend,
+      });
+      workers = launchResult.workers;
+      launchable = launchResult.launchable;
+      launchedThisCycle = launchResult.launchedThisCycle;
+      for (const ticketId of launchedThisCycle) {
+        launched.add(ticketId);
       }
-    } else if (launchable.length > 0) {
-      notes.push(
-        `Cycle ${cycle}: ${launchable
-          .slice(0, input.options.workers)
-          .map((issue) => issue.id)
-          .join(", ")} would be launched.`,
+    } else {
+      const attemptedTicketIds = new Set(workers.map((worker) => worker.ticketId));
+      launchable = ready.filter(
+        (issue) => !attemptedTicketIds.has(issue.id) && issue.type !== "epic",
       );
+      if (launchable.length > 0) {
+        notes.push(
+          `Cycle ${cycle}: ${launchable
+            .slice(0, input.options.workers)
+            .map((issue) => issue.id)
+            .join(", ")} would be launched.`,
+        );
+      }
     }
 
     const summary = summarizeWorkers(workers);
