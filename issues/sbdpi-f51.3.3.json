@@ -11,14 +11,15 @@
     "sbdpi-f51.8.1",
     "sbdpi-f51.9.1"
   ],
+  "closed_at": "2026-04-18T22:13:17Z",
   "created": "2026-04-17T01:27:02Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 2. Continuous/background observation, but only next-turn publication**.\n\nGoal: wire publication so staged observations become durable only at turn boundaries and only the published state is injected/pruned against on the next turn.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/index.ts` (`before_agent_start`, `context`, `agent_end`, `session_before_compact`)\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/state.ts`\n- extension lifecycle tests in `packages/pi-om-extension/src/__tests__/extension`\n\nWorker notes:\n- make the published-state contract obvious in code and tests\n- keep compaction behavior coherent with the new staged/public split\n- assertions should prove that mid-turn raw context stays untouched while next-turn injection uses the published result",
   "id": "sbdpi-f51.3.3",
   "labels": [],
   "parent": "sbdpi-f51.3",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Publish staged observations only at turn boundaries and inject only published state next turn",
   "type": "task",
-  "updated_at": "2026-04-18T22:07:33Z"
+  "updated_at": "2026-04-18T22:13:17Z"
 }
