@@ -16,6 +16,8 @@ import { ProcessCommandError } from "../../process.js";
 import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
 import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
+const itInTmuxSession = process.env.TMUX?.trim() ? it : it.skip;
+
 function createIssue(overrides: Partial<BeadworkIssueDetail> = {}): BeadworkIssueDetail {
   return {
     id: "BW-100",
@@ -1947,7 +1949,7 @@ describe("run loop", () => {
     expect(summary.cycles).toBe(1);
   });
 
-  it("stops for attention when ready work was already attempted", async () => {
+  itInTmuxSession("stops for attention when ready work was already attempted", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-"));
     const registryPath = resolveWorkerRegistryPath(
       repoRoot,
