@@ -9,14 +9,15 @@
     "sbdpi-f51.3.3",
     "sbdpi-f51.4.2"
   ],
+  "closed_at": "2026-04-18T21:05:22Z",
   "created": "2026-04-17T01:26:59Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 2. Continuous/background observation, but only next-turn publication**.\n\nGoal: implement incremental observation during long runs while keeping the public injected block and pruning cursor frozen until the run finishes.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/index.ts`\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/state.ts`\n- `packages/pi-om-extension/docs/observation-timing-deviation.md`\n\nWorker notes:\n- this is the ticket that must respect the agreed design constraint most carefully\n- raw context should remain available mid-turn; do not mutate the public system prompt or let pruning outrun published observations\n- if new lifecycle hooks/helpers are introduced, keep the published-vs-draft boundary explicit",
   "id": "sbdpi-f51.3.2",
   "labels": [],
   "parent": "sbdpi-f51.3",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Observe incrementally during long runs without changing the public prompt mid-turn",
   "type": "task",
-  "updated_at": "2026-04-18T21:00:09Z"
+  "updated_at": "2026-04-18T21:05:22Z"
 }
