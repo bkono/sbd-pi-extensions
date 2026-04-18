@@ -18,10 +18,21 @@ function projectConfigPath(cwd: string): string {
 /** Default timeout for observer/reflector LLM calls (ms). */
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+
+type LegacyConfigInput = DeepPartial<OMConfig> & {
+  observation?: DeepPartial<OMConfig["observation"]> & {
+    messageTokens?: number;
+  };
+};
+
 function defaults(cwd: string): OMConfig {
   return {
     observation: {
-      messageTokens: 70_000,
+      stageMessageTokens: 70_000,
+      publishMessageTokens: 70_000,
       provider: "google",
       modelId: "gemini-2.5-flash",
       timeout: DEFAULT_TIMEOUT_MS,
@@ -57,9 +68,27 @@ function readJsonFile(path: string): Record<string, unknown> | undefined {
   }
 }
 
-type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
-};
+function normalizeConfigInput(partial: LegacyConfigInput): DeepPartial<OMConfig> {
+  const observation = partial.observation ? { ...partial.observation } : undefined;
+
+  if (
+    observation &&
+    typeof observation.messageTokens === "number" &&
+    Number.isFinite(observation.messageTokens)
+  ) {
+    observation.stageMessageTokens ??= observation.messageTokens;
+    observation.publishMessageTokens ??= observation.messageTokens;
+  }
+
+  if (observation && "messageTokens" in observation) {
+    delete observation.messageTokens;
+  }
+
+  return {
+    ...partial,
+    observation,
+  };
+}
 
 function mergeConfig(base: OMConfig, partial: DeepPartial<OMConfig>): OMConfig {
   return {
@@ -82,9 +111,22 @@ function mergeConfig(base: OMConfig, partial: DeepPartial<OMConfig>): OMConfig {
 function applyEnvOverrides(config: OMConfig): OMConfig {
   const env = process.env;
 
-  if (env.OM_OBSERVATION_MESSAGE_TOKENS) {
-    const v = Number.parseInt(env.OM_OBSERVATION_MESSAGE_TOKENS, 10);
-    if (!Number.isNaN(v)) config.observation.messageTokens = v;
+  const legacyObservationThreshold = env.OM_OBSERVATION_MESSAGE_TOKENS
+    ? Number.parseInt(env.OM_OBSERVATION_MESSAGE_TOKENS, 10)
+    : Number.NaN;
+  if (!Number.isNaN(legacyObservationThreshold)) {
+    config.observation.stageMessageTokens = legacyObservationThreshold;
+    config.observation.publishMessageTokens = legacyObservationThreshold;
+  }
+
+  if (env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS) {
+    const v = Number.parseInt(env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS, 10);
+    if (!Number.isNaN(v)) config.observation.stageMessageTokens = v;
+  }
+
+  if (env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS) {
+    const v = Number.parseInt(env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS, 10);
+    if (!Number.isNaN(v)) config.observation.publishMessageTokens = v;
   }
 
   if (env.OM_REFLECTION_OBSERVATION_TOKENS) {
@@ -140,12 +182,12 @@ export function loadConfig(cwd: string = process.cwd()): OMConfig {
 
   const global = readJsonFile(globalConfigPath());
   if (global) {
-    config = mergeConfig(config, global as DeepPartial<OMConfig>);
+    config = mergeConfig(config, normalizeConfigInput(global as LegacyConfigInput));
   }
 
   const project = readJsonFile(projectConfigPath(cwd));
   if (project) {
-    config = mergeConfig(config, project as DeepPartial<OMConfig>);
+    config = mergeConfig(config, normalizeConfigInput(project as LegacyConfigInput));
   }
 
   config = applyEnvOverrides(config);

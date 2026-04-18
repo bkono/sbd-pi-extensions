@@ -57,18 +57,22 @@ That's it. The extension runs automatically once loaded.
 
 The extension hooks into pi's lifecycle to maintain a persistent memory layer:
 
-1. **Observe** — After an agent loop finishes, if unobserved message tokens exceed a threshold (default: 70k), an observer agent extracts key facts, decisions, and context from new messages.
-2. **Reflect** — If accumulated observation tokens exceed a second threshold (default: 50k), a reflector agent consolidates observations, removing redundancy while preserving meaning.
-3. **Inject** — On the next user prompt, observations are appended to the system prompt. Raw message history is pruned to only the unobserved tail, giving the LLM continuity without carrying the full conversation.
+1. **Stage observations** — After an agent loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 70k), an observer agent extracts key facts, decisions, and context into a staged draft.
+2. **Publish observations** — If the staged-but-unpublished raw message window also exceeds the publish threshold (default: 70k), that draft becomes the public observation block injected on the next turn.
+3. **Reflect** — If staged observation tokens exceed a third threshold (default: 50k), a reflector agent consolidates observations, removing redundancy while preserving meaning.
+4. **Inject** — On the next user prompt, only the published observations are appended to the system prompt. Raw message history is pruned to only the unpublished tail, giving the LLM continuity without carrying the full conversation.
 
 ```
 agent_end
   |
-  +-- unobserved tokens >= threshold?
-  |     yes -> Observer extracts observations
+  +-- unobserved tokens since staged cursor >= staging threshold?
+  |     yes -> Observer updates staged draft
   |             |
-  |             +-- observation tokens >= threshold?
-  |                   yes -> Reflector consolidates
+  |             +-- staged observation tokens >= reflection threshold?
+  |             |     yes -> Reflector consolidates staged draft
+  |             |
+  |             +-- staged-but-unpublished tokens >= publish threshold?
+  |                   yes -> Publish staged draft
   |
   +-- state persisted to disk
 
@@ -105,7 +109,8 @@ Configuration merges from multiple sources (highest precedence first):
 ```json
 {
   "observation": {
-    "messageTokens": 70000,
+    "stageMessageTokens": 70000,
+    "publishMessageTokens": 70000,
     "provider": "google",
     "modelId": "gemini-2.5-flash",
     "temperature": 0.2,
@@ -128,12 +133,14 @@ Configuration merges from multiple sources (highest precedence first):
 
 | Key | Default | Env Override | Description |
 |-----|---------|--------------|-------------|
-| `observation.messageTokens` | `70000` | `OM_OBSERVATION_MESSAGE_TOKENS` | Unobserved-token threshold that triggers observation |
+| `observation.stageMessageTokens` | `70000` | `OM_OBSERVATION_STAGE_MESSAGE_TOKENS` | Unobserved-message-token threshold that triggers staged observation work |
+| `observation.publishMessageTokens` | `70000` | `OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS` | Staged-but-unpublished message-token threshold that promotes the draft into published memory |
+| `observation.messageTokens` | legacy alias | `OM_OBSERVATION_MESSAGE_TOKENS` | Backwards-compatible alias that sets both observation thresholds together |
 | `observation.provider` | `google` | `OM_OBSERVATION_PROVIDER` | pi-ai provider for the observer agent |
 | `observation.modelId` | `gemini-2.5-flash` | `OM_OBSERVATION_MODEL` | Model ID for the observer agent |
 | `observation.temperature` | unset | `OM_OBSERVATION_TEMPERATURE` | Temperature for observer calls. Leave unset for reasoning models that reject the parameter (GPT-5.x, etc.). |
 | `observation.customInstruction` | — | — | Additional instruction injected into observer prompt |
-| `reflection.observationTokens` | `50000` | `OM_REFLECTION_OBSERVATION_TOKENS` | Accumulated-observation-token threshold that triggers reflection |
+| `reflection.observationTokens` | `50000` | `OM_REFLECTION_OBSERVATION_TOKENS` | Staged-observation-token threshold that triggers reflection |
 | `reflection.provider` | `google` | `OM_REFLECTION_PROVIDER` | pi-ai provider for the reflector agent |
 | `reflection.modelId` | `gemini-2.5-flash` | `OM_REFLECTION_MODEL` | Model ID for the reflector agent |
 | `reflection.temperature` | unset | `OM_REFLECTION_TEMPERATURE` | Temperature for reflector calls |
@@ -155,18 +162,12 @@ The extension registers a user-facing slash command so OM data is visible withou
 
 ### `/om`
 
-- `/om` or `/om status` — show a human-readable summary of the current session's observational-memory state, including token counts, thresholds, unobserved-window info, and any tracked current task / suggested response.
-- `/om observations` — show the stored observations for the current session in a human-friendly layout.
-
-These commands read the same JSON-backed session state used by the tools below; they do not introduce a separate storage layer or make any LLM calls.
-
-## Tools
-
-The extension registers two tools that the LLM can call during sessions:
+- `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, thresholds, unobserved/unpublished windows, and any tracked current task / suggested response.
+- `/om observations` — show the published observations for the current session in a human-friendly layout.
 
 ### `om_status`
 
-Returns current session memory metrics as JSON: observation token counts, thresholds, cursor mode, unobserved message count, cycle history, current task, and suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
+Returns current session memory metrics as JSON: published and staged observation token counts, staging/publish/reflection thresholds, cursor/window details, cycle history, current task, and suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
 
 ### `om_observations`
 
@@ -179,7 +180,7 @@ Returns the stored observation block for the current session as XML-wrapped text
 | `session_start` | Session created (fires on `bindExtensions`) | Initialize/load session state from disk |
 | `before_agent_start` | Before each agent loop | Append observation context + continuation reminder to system prompt |
 | `context` | Before each LLM call | Prune messages to the unobserved window |
-| `agent_end` | After agent loop finishes | Run observation cycle if thresholds met; trigger reflection if needed |
+| `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed |
 | `session_before_compact` | Before context compaction | Force a final observation pass and inject a custom `CompactionResult` that includes the observation block |
 | `session_shutdown` | Process exit | Persist final state |
 

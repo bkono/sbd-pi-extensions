@@ -71,6 +71,37 @@ describe("runObservationCycle — threshold behavior", () => {
     expect(state.lastObservedTimestamp).toBeDefined();
   });
 
+  it("can stage observations without publishing when the publish threshold is higher", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      stagingTokens: 50,
+      publishTokens: 1_000_000,
+    });
+    const mock = new MockObservationAgents({
+      observeResponses: [{ observations: "* 🔴 staged only", raw: "* 🔴 staged only" }],
+    });
+    const msgs = conversation(6, { baseTs: 1_700_000_000_000, contentSize: 200 });
+
+    const inflight = new Map<string, Promise<void>>();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      inflight,
+      {
+        reason: "turn_end",
+      },
+    );
+
+    expect(mock.observeCalls).toHaveLength(1);
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toBe("");
+    expect(state.draftObservations).toContain("staged only");
+    expect(state.observeTriggered).toBe(true);
+    expect(state.publishTriggered).toBe(false);
+  });
+
   it("forceObserve: true triggers observation even below threshold", async () => {
     const config = createTestConfig({ stateDir: temp.stateDir, observationTokens: 1_000_000 });
     const mock = new MockObservationAgents({

@@ -20,8 +20,9 @@
 
 // Set OM thresholds BEFORE any extension imports so config picks them up.
 // Low thresholds ensure even a short scripted interaction crosses the
-// observation boundary.
-process.env.OM_OBSERVATION_MESSAGE_TOKENS = "200";
+// staging and publish boundaries.
+process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS = "200";
+process.env.OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS = "200";
 process.env.OM_REFLECTION_OBSERVATION_TOKENS = "5000";
 process.env.OM_DEBUG = "1";
 

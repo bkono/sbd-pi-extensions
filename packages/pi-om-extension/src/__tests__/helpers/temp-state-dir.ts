@@ -30,12 +30,18 @@ export function createTempStateDir(): TempStateDir {
 export function createTestConfig(opts: {
   stateDir: string;
   observationTokens?: number;
+  stagingTokens?: number;
+  publishTokens?: number;
   reflectionTokens?: number;
   debug?: boolean;
 }) {
+  const stagingTokens = opts.stagingTokens ?? opts.observationTokens ?? 1000;
+  const publishTokens = opts.publishTokens ?? opts.observationTokens ?? 1000;
+
   return {
     observation: {
-      messageTokens: opts.observationTokens ?? 1000,
+      stageMessageTokens: stagingTokens,
+      publishMessageTokens: publishTokens,
       provider: "google" as const,
       modelId: "gemini-2.5-flash",
     },

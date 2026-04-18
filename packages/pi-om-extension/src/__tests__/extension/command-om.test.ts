@@ -27,6 +27,8 @@ vi.mock("../../agents.js", async () => {
 
 const OM_ENV_KEYS = [
   "OM_OBSERVATION_MESSAGE_TOKENS",
+  "OM_OBSERVATION_STAGE_MESSAGE_TOKENS",
+  "OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS",
   "OM_REFLECTION_OBSERVATION_TOKENS",
   "OM_OBSERVATION_PROVIDER",
   "OM_OBSERVATION_MODEL",
@@ -90,6 +92,11 @@ describe("extension: /om command", () => {
     preloadState({
       observations: "* 🔴 user prefers concise answers",
       observationTokens: 42,
+      draftObservations: "* 🔴 user prefers concise answers\n* 🟡 staged follow-up",
+      draftObservationTokens: 64,
+      draftLastObservedEntryId: "entry-125",
+      draftLastObservedTimestamp: 1_700_000_010_000,
+      publishTriggered: false,
       currentTask: "Finish the slash command",
       suggestedResponse: "Summarize the command output clearly.",
       lastObservedEntryId: "entry-123",
@@ -115,7 +122,10 @@ describe("extension: /om command", () => {
 
     const message = ui.notifications[0]?.message ?? "";
     expect(message).toContain(`Observational memory status · ${sessionId}`);
-    expect(message).toContain("Stored observations: yes · 42 tokens");
+    expect(message).toContain("Published observations: yes · 42 tokens");
+    expect(message).toContain("Staged draft: yes · 64 tokens");
+    expect(message).toContain("Cycle decisions: stage yes · publish no · reflect no");
+    expect(message).toContain("Staged through: entry entry-125 · 2023-11-14 22:13:30 UTC");
     expect(message).toContain("Last cycle: turn_end · 2023-11-14 22:13:20 UTC");
     expect(message).toContain("Current task:");
     expect(message).toContain("Finish the slash command");

@@ -35,6 +35,8 @@ vi.mock("../../agents.js", async () => {
 // src/__tests__/unit/config.test.ts.
 const OM_ENV_KEYS = [
   "OM_OBSERVATION_MESSAGE_TOKENS",
+  "OM_OBSERVATION_STAGE_MESSAGE_TOKENS",
+  "OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS",
   "OM_REFLECTION_OBSERVATION_TOKENS",
   "OM_OBSERVATION_PROVIDER",
   "OM_OBSERVATION_MODEL",
@@ -93,6 +95,11 @@ describe("extension: om_status tool", () => {
     preloadState({
       observations: "* 🔴 test obs",
       observationTokens: 42,
+      draftObservations: "* 🔴 test obs\n* 🟡 staged",
+      draftObservationTokens: 55,
+      draftLastObservedEntryId: "entry-11",
+      draftLastObservedTimestamp: 1_700_000_010_000,
+      publishTriggered: false,
       currentTask: "task-1",
       suggestedResponse: "resp-1",
       lastCycleAt: 1_700_000_000_000,
@@ -108,6 +115,10 @@ describe("extension: om_status tool", () => {
 
     expect(parsed.sessionId).toBe(sessionId);
     expect(parsed.observationTokens).toBe(42);
+    expect(parsed.draftObservationTokens).toBe(55);
+    expect(parsed.publishThreshold).toBe(70000);
+    expect(parsed.stagingThreshold).toBe(70000);
+    expect(parsed.publishTriggered).toBe(false);
     expect(parsed.currentTask).toBe("task-1");
     expect(parsed.suggestedResponse).toBe("resp-1");
     expect(parsed.observationsPresent).toBe(true);

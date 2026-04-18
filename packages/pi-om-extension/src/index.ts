@@ -7,6 +7,7 @@ import { loadConfig, sessionStatePath } from "./config.js";
 import {
   buildContinuationReminder,
   buildObservationContext,
+  getMessagesBetweenCursors,
   getUnobservedMessages,
   runObservationCycle,
 } from "./engine.js";
@@ -299,31 +300,48 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const messages = getBranchMessages(ctx);
     const unobservedWindow = getUnobservedMessages(
       messages,
+      state.draftLastObservedEntryId,
+      state.draftLastObservedTimestamp,
+    );
+    const unpublishedWindow = getMessagesBetweenCursors(
+      messages,
       state.lastObservedEntryId,
       state.lastObservedTimestamp,
+      state.draftLastObservedEntryId,
+      state.draftLastObservedTimestamp,
     );
-
     return {
       sessionId,
       stateDir: cfg.storage.stateDir,
       statePath,
       observationTokens: state.observationTokens,
-      observationThreshold: cfg.observation.messageTokens,
+      draftObservationTokens: state.draftObservationTokens,
+      stagingThreshold: cfg.observation.stageMessageTokens,
+      publishThreshold: cfg.observation.publishMessageTokens,
       observationModel: `${cfg.observation.provider}/${cfg.observation.modelId}`,
       reflectionThreshold: cfg.reflection.observationTokens,
       reflectionModel: `${cfg.reflection.provider}/${cfg.reflection.modelId}`,
       observationsPresent: Boolean(state.observations.trim()),
+      draftObservationsPresent: Boolean(state.draftObservations.trim()),
       lastObservedEntryId: state.lastObservedEntryId ?? null,
       lastObservedTimestamp: state.lastObservedTimestamp
         ? new Date(state.lastObservedTimestamp).toISOString()
         : null,
+      draftLastObservedEntryId: state.draftLastObservedEntryId ?? null,
+      draftLastObservedTimestamp: state.draftLastObservedTimestamp
+        ? new Date(state.draftLastObservedTimestamp).toISOString()
+        : null,
       cursorModeForCurrentWindow: unobservedWindow.mode,
+      unpublishedCursorModeForCurrentWindow: unpublishedWindow.mode,
       unobservedMessages: unobservedWindow.messages.length,
       unobservedMessageTokens: countMessageTokens(unobservedWindow.messages),
+      unpublishedMessages: unpublishedWindow.messages.length,
+      unpublishedMessageTokens: countMessageTokens(unpublishedWindow.messages),
       lastCycleAt: state.lastCycleAt ? new Date(state.lastCycleAt).toISOString() : null,
       lastCycleReason: state.lastCycleReason ?? null,
       lastCursorMode: state.lastCursorMode ?? null,
       observeTriggered: state.observeTriggered ?? null,
+      publishTriggered: state.publishTriggered ?? null,
       reflectTriggered: state.reflectTriggered ?? null,
       tailEntriesBeforePrune: state.tailEntriesBeforePrune ?? null,
       tailTokensBeforePrune: state.tailTokensBeforePrune ?? null,
@@ -406,7 +424,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     name: "om_status",
     label: "OM Status",
     description:
-      "Show observational memory status for a session, including token counts, thresholds, and cycle history.",
+      "Show observational memory status for a session, including published vs staged state, thresholds, and cycle history.",
     parameters: Type.Object({
       session_id: Type.Optional(
         Type.String({ description: "Session ID to query. Defaults to current session." }),

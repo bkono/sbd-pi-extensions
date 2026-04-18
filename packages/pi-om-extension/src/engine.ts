@@ -89,6 +89,21 @@ export function getUnobservedMessages(
   };
 }
 
+export function getMessagesBetweenCursors(
+  messages: Message[],
+  startEntryId?: string,
+  startTimestamp?: number,
+  endEntryId?: string,
+  endTimestamp?: number,
+): UnobservedWindow {
+  const afterStart = getUnobservedMessages(messages, startEntryId, startTimestamp);
+
+  return {
+    messages: takeMessagesThroughCursor(afterStart.messages, endEntryId, endTimestamp),
+    mode: afterStart.mode,
+  };
+}
+
 function getDraftObservationState(state: SessionState): DraftObservationState {
   return {
     observations: state.draftObservations,
@@ -125,6 +140,17 @@ export function publishDraftState(state: SessionState): SessionState {
     currentTask: state.draftCurrentTask,
     suggestedResponse: state.draftSuggestedResponse,
   };
+}
+
+function hasPendingDraft(state: SessionState): boolean {
+  return (
+    state.draftObservations !== state.observations ||
+    state.draftObservationTokens !== state.observationTokens ||
+    state.draftLastObservedEntryId !== state.lastObservedEntryId ||
+    state.draftLastObservedTimestamp !== state.lastObservedTimestamp ||
+    state.draftCurrentTask !== state.currentTask ||
+    state.draftSuggestedResponse !== state.suggestedResponse
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -172,145 +198,142 @@ export async function runObservationCycle(
         ? unobservedWindow.messages.slice(0, -1)
         : unobservedWindow.messages;
 
-      if (messagesToObserve.length === 0) {
-        if (cycleReason !== "context") {
-          const nextState = {
-            ...state,
-            ...cycleBaseState,
-            observeTriggered: false,
-            reflectTriggered: false,
-          };
-          await saveSessionState(
-            config.storage.stateDir,
-            publishDraft ? publishDraftState(nextState) : nextState,
-          );
-        }
-        return;
-      }
-
       const unobservedTokens = countMessageTokens(messagesToObserve);
       const shouldObserve =
-        options?.forceObserve || unobservedTokens >= config.observation.messageTokens;
+        options?.forceObserve || unobservedTokens >= config.observation.stageMessageTokens;
 
-      debugLog(config, "cycle check", {
+      debugLog(config, "stage check", {
         sessionId,
         reason: cycleReason,
         unobservedMessages: messagesToObserve.length,
         unobservedTokens,
-        threshold: config.observation.messageTokens,
+        threshold: config.observation.stageMessageTokens,
         shouldObserve,
       });
 
-      if (!shouldObserve) {
-        if (cycleReason !== "context") {
-          const nextState = {
-            ...state,
-            ...cycleBaseState,
-            observeTriggered: false,
-            reflectTriggered: false,
-          };
-          await saveSessionState(
-            config.storage.stateDir,
-            publishDraft ? publishDraftState(nextState) : nextState,
-          );
-        }
-        return;
-      }
-
-      // Serialize messages for the observer
-      const serializedMessages = messagesToObserve.map(serializeMessage).join("\n\n");
-
-      // Create a timeout signal so a slow/hung LLM call cannot block forever
-      const observeSignal = config.observation.timeout
-        ? AbortSignal.timeout(config.observation.timeout)
-        : undefined;
-
-      const observed = await agents.observe(
-        {
-          existingObservations: draftState.observations,
-          serializedMessages,
-          customInstruction: config.observation.customInstruction,
-        },
-        { signal: observeSignal },
-      );
-
-      if (!observed.observations.trim()) {
-        const nextState = {
-          ...state,
-          ...cycleBaseState,
-          observeTriggered: true,
-          reflectTriggered: false,
-        };
-        await saveSessionState(
-          config.storage.stateDir,
-          publishDraft ? publishDraftState(nextState) : nextState,
-        );
-        return;
-      }
-
-      let observations = appendObservations(draftState.observations, observed.observations);
-      let observationTokens = countTokens(observations);
-      let currentTask = observed.currentTask ?? draftState.currentTask;
-      let suggestedResponse = observed.suggestedResponse ?? draftState.suggestedResponse;
+      let nextDraft = draftState;
+      let observeTriggered = false;
       let reflectTriggered = false;
 
-      // Trigger reflection if observation block is too large
-      if (observationTokens >= config.reflection.observationTokens) {
-        reflectTriggered = true;
-        debugLog(config, "reflection triggered", {
-          sessionId,
-          observationTokens,
-          threshold: config.reflection.observationTokens,
-        });
+      if (messagesToObserve.length > 0 && shouldObserve) {
+        // Serialize messages for the observer
+        const serializedMessages = messagesToObserve.map(serializeMessage).join("\n\n");
 
-        const reflectSignal = config.reflection.timeout
-          ? AbortSignal.timeout(config.reflection.timeout)
+        // Create a timeout signal so a slow/hung LLM call cannot block forever
+        const observeSignal = config.observation.timeout
+          ? AbortSignal.timeout(config.observation.timeout)
           : undefined;
 
-        const reflected = await agents.reflect(
+        const observed = await agents.observe(
           {
-            observations,
-            customInstruction: config.reflection.customInstruction,
+            existingObservations: draftState.observations,
+            serializedMessages,
+            customInstruction: config.observation.customInstruction,
           },
-          { signal: reflectSignal },
+          { signal: observeSignal },
         );
 
-        if (reflected.observations.trim()) {
-          observations = reflected.observations;
-          observationTokens = countTokens(observations);
-        }
+        observeTriggered = true;
 
-        if (reflected.currentTask) {
-          currentTask = reflected.currentTask;
-        }
-        if (reflected.suggestedResponse) {
-          suggestedResponse = reflected.suggestedResponse;
+        if (observed.observations.trim()) {
+          let observations = appendObservations(draftState.observations, observed.observations);
+          let observationTokens = countTokens(observations);
+          let currentTask = observed.currentTask ?? draftState.currentTask;
+          let suggestedResponse = observed.suggestedResponse ?? draftState.suggestedResponse;
+
+          // Trigger reflection if observation block is too large
+          if (observationTokens >= config.reflection.observationTokens) {
+            reflectTriggered = true;
+            debugLog(config, "reflection triggered", {
+              sessionId,
+              observationTokens,
+              threshold: config.reflection.observationTokens,
+            });
+
+            const reflectSignal = config.reflection.timeout
+              ? AbortSignal.timeout(config.reflection.timeout)
+              : undefined;
+
+            const reflected = await agents.reflect(
+              {
+                observations,
+                customInstruction: config.reflection.customInstruction,
+              },
+              { signal: reflectSignal },
+            );
+
+            if (reflected.observations.trim()) {
+              observations = reflected.observations;
+              observationTokens = countTokens(observations);
+            }
+
+            if (reflected.currentTask) {
+              currentTask = reflected.currentTask;
+            }
+            if (reflected.suggestedResponse) {
+              suggestedResponse = reflected.suggestedResponse;
+            }
+          }
+
+          // Update cursor to the last observed message
+          const boundary = messagesToObserve.at(-1);
+          nextDraft = {
+            observations,
+            observationTokens,
+            lastObservedEntryId: getMessageId(boundary) ?? draftState.lastObservedEntryId,
+            lastObservedTimestamp:
+              getMessageTimestamp(boundary) ?? draftState.lastObservedTimestamp,
+            currentTask,
+            suggestedResponse,
+          };
         }
       }
 
-      // Update cursor to the last observed message
-      const boundary = messagesToObserve.at(-1);
+      if (cycleReason === "context" && !observeTriggered) {
+        return;
+      }
 
-      const nextState = applyDraftObservationState(
+      let nextState = applyDraftObservationState(
         {
           ...state,
           ...cycleBaseState,
-          observeTriggered: true,
+          observeTriggered,
+          publishTriggered: false,
           reflectTriggered,
         },
-        {
-          observations,
-          observationTokens,
-          lastObservedEntryId: getMessageId(boundary) ?? draftState.lastObservedEntryId,
-          lastObservedTimestamp: getMessageTimestamp(boundary) ?? draftState.lastObservedTimestamp,
-          currentTask,
-          suggestedResponse,
-        },
+        nextDraft,
       );
+
+      const unpublishedWindow = getMessagesBetweenCursors(
+        allMessages,
+        state.lastObservedEntryId,
+        state.lastObservedTimestamp,
+        nextDraft.lastObservedEntryId,
+        nextDraft.lastObservedTimestamp,
+      );
+      const unpublishedTokens = countMessageTokens(unpublishedWindow.messages);
+      const shouldPublish =
+        publishDraft &&
+        hasPendingDraft(nextState) &&
+        (options?.forceObserve || unpublishedTokens >= config.observation.publishMessageTokens);
+
+      debugLog(config, "publish check", {
+        sessionId,
+        reason: cycleReason,
+        unpublishedMessages: unpublishedWindow.messages.length,
+        unpublishedTokens,
+        threshold: config.observation.publishMessageTokens,
+        shouldPublish,
+      });
+
+      nextState = {
+        ...nextState,
+        publishTriggered: shouldPublish,
+      };
 
       await saveSessionState(
         config.storage.stateDir,
-        publishDraft ? publishDraftState(nextState) : nextState,
+        shouldPublish ? publishDraftState(nextState) : nextState,
       );
     } catch (error) {
       // Always log observation failures — these are operational errors, not debug traces
@@ -380,6 +403,39 @@ export function appendObservations(existing: string, incoming: string): string {
 
 function normalizeObservations(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
+}
+
+function takeMessagesThroughCursor(
+  messages: Message[],
+  lastObservedEntryId?: string,
+  lastObservedTimestamp?: number,
+): Message[] {
+  if (messages.length === 0) return [];
+  if (!lastObservedEntryId && typeof lastObservedTimestamp !== "number") return [];
+
+  if (lastObservedEntryId) {
+    const index = findMessageIndexById(messages, lastObservedEntryId);
+    if (index >= 0) {
+      return messages.slice(0, index + 1);
+    }
+  }
+
+  if (typeof lastObservedTimestamp === "number" && Number.isFinite(lastObservedTimestamp)) {
+    let lastIndexAtOrBeforeTimestamp = -1;
+
+    for (let i = 0; i < messages.length; i += 1) {
+      const ts = getMessageTimestamp(messages[i]);
+      if (typeof ts === "number" && ts <= lastObservedTimestamp) {
+        lastIndexAtOrBeforeTimestamp = i;
+      }
+    }
+
+    if (lastIndexAtOrBeforeTimestamp >= 0) {
+      return messages.slice(0, lastIndexAtOrBeforeTimestamp + 1);
+    }
+  }
+
+  return [];
 }
 
 function getMessageTimestamp(message?: Message): number | undefined {

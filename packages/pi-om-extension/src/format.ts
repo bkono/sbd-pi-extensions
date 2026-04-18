@@ -5,20 +5,29 @@ export interface OMStatusReport {
   stateDir: string;
   statePath: string;
   observationTokens: number;
-  observationThreshold: number;
+  draftObservationTokens: number;
+  stagingThreshold: number;
+  publishThreshold: number;
   observationModel: string;
   reflectionThreshold: number;
   reflectionModel: string;
   observationsPresent: boolean;
+  draftObservationsPresent: boolean;
   lastObservedEntryId: string | null;
   lastObservedTimestamp: string | null;
+  draftLastObservedEntryId: string | null;
+  draftLastObservedTimestamp: string | null;
   cursorModeForCurrentWindow: string;
+  unpublishedCursorModeForCurrentWindow: string;
   unobservedMessages: number;
   unobservedMessageTokens: number;
+  unpublishedMessages: number;
+  unpublishedMessageTokens: number;
   lastCycleAt: string | null;
   lastCycleReason: string | null;
   lastCursorMode: string | null;
   observeTriggered: boolean | null;
+  publishTriggered: boolean | null;
   reflectTriggered: boolean | null;
   tailEntriesBeforePrune: number | null;
   tailTokensBeforePrune: number | null;
@@ -65,13 +74,17 @@ function formatOptionalCount(value: number | null): string {
 export function formatStatusReport(status: OMStatusReport): string {
   const lines = [
     `Observational memory status · ${status.sessionId}`,
-    `Stored observations: ${status.observationsPresent ? "yes" : "no"} · ${formatCount(status.observationTokens)} tokens`,
-    `Observation trigger: ${formatCount(status.observationThreshold)} tokens · model ${status.observationModel}`,
-    `Reflection trigger: ${formatCount(status.reflectionThreshold)} observation tokens · model ${status.reflectionModel}`,
+    `Published observations: ${status.observationsPresent ? "yes" : "no"} · ${formatCount(status.observationTokens)} tokens`,
+    `Staged draft: ${status.draftObservationsPresent ? "yes" : "no"} · ${formatCount(status.draftObservationTokens)} tokens`,
+    `Staging trigger: ${formatCount(status.stagingThreshold)} unobserved message tokens · model ${status.observationModel}`,
+    `Publish trigger: ${formatCount(status.publishThreshold)} staged-but-unpublished message tokens`,
+    `Reflection trigger: ${formatCount(status.reflectionThreshold)} staged observation tokens · model ${status.reflectionModel}`,
     `Unobserved window: ${formatCount(status.unobservedMessages)} messages · ${formatCount(status.unobservedMessageTokens)} tokens · cursor ${status.cursorModeForCurrentWindow}`,
+    `Unpublished draft: ${formatCount(status.unpublishedMessages)} messages · ${formatCount(status.unpublishedMessageTokens)} tokens · cursor ${status.unpublishedCursorModeForCurrentWindow}`,
     `Last cycle: ${status.lastCycleReason ?? "none"} · ${formatTimestamp(status.lastCycleAt)}`,
-    `Last observed: entry ${status.lastObservedEntryId ?? "none"} · ${formatTimestamp(status.lastObservedTimestamp)}`,
-    `Cycle decisions: observe ${formatOptionalBoolean(status.observeTriggered)} · reflect ${formatOptionalBoolean(status.reflectTriggered)}`,
+    `Published through: entry ${status.lastObservedEntryId ?? "none"} · ${formatTimestamp(status.lastObservedTimestamp)}`,
+    `Staged through: entry ${status.draftLastObservedEntryId ?? "none"} · ${formatTimestamp(status.draftLastObservedTimestamp)}`,
+    `Cycle decisions: stage ${formatOptionalBoolean(status.observeTriggered)} · publish ${formatOptionalBoolean(status.publishTriggered)} · reflect ${formatOptionalBoolean(status.reflectTriggered)}`,
   ];
 
   if (

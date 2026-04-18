@@ -2,7 +2,8 @@ import type { KnownProvider } from "@mariozechner/pi-ai";
 
 export interface OMConfig {
   observation: {
-    messageTokens: number;
+    stageMessageTokens: number;
+    publishMessageTokens: number;
     provider: KnownProvider;
     modelId: string;
     /**
@@ -63,6 +64,7 @@ export interface SessionState {
   tailEntriesAfterPrune?: number;
   tailTokensAfterPrune?: number;
   observeTriggered?: boolean;
+  publishTriggered?: boolean;
   reflectTriggered?: boolean;
   prunedEntriesCount?: number;
   updatedAt: number;

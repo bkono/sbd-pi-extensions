@@ -143,6 +143,10 @@ function validateState(raw: unknown, sessionId: string): SessionState {
     state.observeTriggered = obj.observeTriggered;
   }
 
+  if (typeof obj.publishTriggered === "boolean") {
+    state.publishTriggered = obj.publishTriggered;
+  }
+
   if (typeof obj.reflectTriggered === "boolean") {
     state.reflectTriggered = obj.reflectTriggered;
   }
