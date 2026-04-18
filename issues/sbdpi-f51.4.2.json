@@ -9,14 +9,15 @@
     "sbdpi-f51.4",
     "sbdpi-f51.4.3"
   ],
+  "closed_at": "2026-04-18T21:20:42Z",
   "created": "2026-04-17T01:27:11Z",
   "description": "Backlog anchor: `packages/pi-om-extension/docs/mastra-parity-backlog.md` → **Tier 1 / section 3. Lower / earlier observation thresholds and smaller observation chunks**.\n\nGoal: introduce smaller observation chunks and heuristics beyond raw token totals so long runs do not wait for one giant late extraction pass.\n\nRelevant code paths:\n- `packages/pi-om-extension/src/engine.ts`\n- `packages/pi-om-extension/src/tokens.ts`\n- `packages/pi-om-extension/src/types.ts`\n- `packages/pi-om-extension/src/config.ts`\n\nWorker notes:\n- consider message count and tool-output weight, not only total tokens\n- keep the heuristics inspectable/testable rather than burying them in opaque conditionals\n- align with staged-publication work instead of creating a separate buffering subsystem",
   "id": "sbdpi-f51.4.2",
   "labels": [],
   "parent": "sbdpi-f51.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add smaller observation chunking and heuristics beyond raw token totals",
   "type": "task",
-  "updated_at": "2026-04-18T21:08:17Z"
+  "updated_at": "2026-04-18T21:20:42Z"
 }
