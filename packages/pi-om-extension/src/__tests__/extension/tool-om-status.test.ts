@@ -122,12 +122,12 @@ describe("extension: om_status tool", () => {
     expect(parsed.sessionId).toBe(sessionId);
     expect(parsed.observationTokens).toBe(42);
     expect(parsed.draftObservationTokens).toBe(55);
-    expect(parsed.publishThreshold).toBe(70000);
-    expect(parsed.stagingThreshold).toBe(70000);
-    expect(parsed.stagingMessageCountThreshold).toBe(24);
-    expect(parsed.stagingToolResultTokenThreshold).toBe(12000);
-    expect(parsed.chunkMessageLimit).toBe(16);
-    expect(parsed.chunkMessageTokenLimit).toBe(12000);
+    expect(parsed.publishThreshold).toBe(32000);
+    expect(parsed.stagingThreshold).toBe(32000);
+    expect(parsed.stagingMessageCountThreshold).toBe(12);
+    expect(parsed.stagingToolResultTokenThreshold).toBe(6000);
+    expect(parsed.chunkMessageLimit).toBe(8);
+    expect(parsed.chunkMessageTokenLimit).toBe(8000);
     expect(parsed.publishTriggered).toBe(false);
     expect(parsed.currentTask).toBe("task-1");
     expect(parsed.suggestedResponse).toBe("resp-1");

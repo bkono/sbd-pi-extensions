@@ -57,8 +57,8 @@ That's it. The extension runs automatically once loaded.
 
 The extension hooks into pi's lifecycle to maintain a persistent memory layer:
 
-1. **Stage observations** — After an agent loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 70k), an observer agent extracts key facts, decisions, and context into a staged draft.
-2. **Publish observations** — If the staged-but-unpublished raw message window also exceeds the publish threshold (default: 70k), that draft becomes the public observation block injected on the next turn.
+1. **Stage observations** — After an agent loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 32k), an observer agent extracts key facts, decisions, and context into a staged draft.
+2. **Publish observations** — If the staged-but-unpublished raw message window also exceeds the publish threshold (default: 32k), that draft becomes the public observation block injected on the next turn.
 3. **Reflect** — If staged observation tokens exceed a third threshold (default: 50k), a reflector agent consolidates observations, removing redundancy while preserving meaning.
 4. **Inject** — On the next user prompt, only the published observations are appended to the system prompt. Raw message history is pruned to only the unpublished tail, giving the LLM continuity without carrying the full conversation.
 
@@ -109,14 +109,14 @@ Configuration merges from multiple sources (highest precedence first):
 ```json
 {
   "observation": {
-    "stageMessageTokens": 70000,
-    "publishMessageTokens": 70000,
-    "stageMessageCount": 24,
-    "publishMessageCount": 24,
-    "stageToolResultTokens": 12000,
-    "publishToolResultTokens": 12000,
-    "maxChunkMessageTokens": 12000,
-    "maxChunkMessages": 16,
+    "stageMessageTokens": 32000,
+    "publishMessageTokens": 32000,
+    "stageMessageCount": 12,
+    "publishMessageCount": 12,
+    "stageToolResultTokens": 6000,
+    "publishToolResultTokens": 6000,
+    "maxChunkMessageTokens": 8000,
+    "maxChunkMessages": 8,
     "provider": "google",
     "modelId": "gemini-2.5-flash",
     "temperature": 0.2,
@@ -139,14 +139,14 @@ Configuration merges from multiple sources (highest precedence first):
 
 | Key | Default | Env Override | Description |
 |-----|---------|--------------|-------------|
-| `observation.stageMessageTokens` | `70000` | `OM_OBSERVATION_STAGE_MESSAGE_TOKENS` | Unobserved-message-token threshold that triggers staged observation work |
-| `observation.publishMessageTokens` | `70000` | `OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS` | Staged-but-unpublished message-token threshold that promotes the draft into published memory |
-| `observation.stageMessageCount` | `24` | `OM_OBSERVATION_STAGE_MESSAGE_COUNT` | Earlier staging heuristic based on unobserved message count |
-| `observation.publishMessageCount` | `24` | `OM_OBSERVATION_PUBLISH_MESSAGE_COUNT` | Earlier publish heuristic based on staged-but-unpublished message count |
-| `observation.stageToolResultTokens` | `12000` | `OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS` | Earlier staging heuristic based on accumulated tool-result weight |
-| `observation.publishToolResultTokens` | `12000` | `OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS` | Earlier publish heuristic based on staged-but-unpublished tool-result weight |
-| `observation.maxChunkMessageTokens` | `12000` | `OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS` | Maximum unobserved message tokens sent in a single observe pass once staging begins |
-| `observation.maxChunkMessages` | `16` | `OM_OBSERVATION_MAX_CHUNK_MESSAGES` | Maximum messages sent in a single observe pass once staging begins |
+| `observation.stageMessageTokens` | `32000` | `OM_OBSERVATION_STAGE_MESSAGE_TOKENS` | Unobserved-message-token threshold that triggers staged observation work |
+| `observation.publishMessageTokens` | `32000` | `OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS` | Staged-but-unpublished message-token threshold that promotes the draft into published memory |
+| `observation.stageMessageCount` | `12` | `OM_OBSERVATION_STAGE_MESSAGE_COUNT` | Earlier staging heuristic based on unobserved message count |
+| `observation.publishMessageCount` | `12` | `OM_OBSERVATION_PUBLISH_MESSAGE_COUNT` | Earlier publish heuristic based on staged-but-unpublished message count |
+| `observation.stageToolResultTokens` | `6000` | `OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS` | Earlier staging heuristic based on accumulated tool-result weight |
+| `observation.publishToolResultTokens` | `6000` | `OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS` | Earlier publish heuristic based on staged-but-unpublished tool-result weight |
+| `observation.maxChunkMessageTokens` | `8000` | `OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS` | Maximum unobserved message tokens sent in a single observe pass once staging begins |
+| `observation.maxChunkMessages` | `8` | `OM_OBSERVATION_MAX_CHUNK_MESSAGES` | Maximum messages sent in a single observe pass once staging begins |
 | `observation.messageTokens` | legacy alias | `OM_OBSERVATION_MESSAGE_TOKENS` | Backwards-compatible alias that sets both observation token thresholds together |
 | `observation.provider` | `google` | `OM_OBSERVATION_PROVIDER` | pi-ai provider for the observer agent |
 | `observation.modelId` | `gemini-2.5-flash` | `OM_OBSERVATION_MODEL` | Model ID for the observer agent |

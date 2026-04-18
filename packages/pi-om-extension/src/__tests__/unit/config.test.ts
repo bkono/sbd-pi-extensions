@@ -71,14 +71,14 @@ describe("loadConfig", () => {
 
   it("returns defaults when no config files or env vars exist", () => {
     const config = loadConfig(fakeCwd);
-    expect(config.observation.stageMessageTokens).toBe(70_000);
-    expect(config.observation.publishMessageTokens).toBe(70_000);
-    expect(config.observation.stageMessageCount).toBe(24);
-    expect(config.observation.publishMessageCount).toBe(24);
-    expect(config.observation.stageToolResultTokens).toBe(12_000);
-    expect(config.observation.publishToolResultTokens).toBe(12_000);
-    expect(config.observation.maxChunkMessageTokens).toBe(12_000);
-    expect(config.observation.maxChunkMessages).toBe(16);
+    expect(config.observation.stageMessageTokens).toBe(32_000);
+    expect(config.observation.publishMessageTokens).toBe(32_000);
+    expect(config.observation.stageMessageCount).toBe(12);
+    expect(config.observation.publishMessageCount).toBe(12);
+    expect(config.observation.stageToolResultTokens).toBe(6_000);
+    expect(config.observation.publishToolResultTokens).toBe(6_000);
+    expect(config.observation.maxChunkMessageTokens).toBe(8_000);
+    expect(config.observation.maxChunkMessages).toBe(8);
     expect(config.reflection.observationTokens).toBe(50_000);
     expect(config.observation.provider).toBe("google");
     expect(config.observation.modelId).toBe("gemini-2.5-flash");
@@ -110,7 +110,7 @@ describe("loadConfig", () => {
     });
     const config = loadConfig(fakeCwd);
     expect(config.observation.stageMessageTokens).toBe(12345);
-    expect(config.observation.publishMessageTokens).toBe(70_000);
+    expect(config.observation.publishMessageTokens).toBe(32_000);
     expect(config.reflection.observationTokens).toBe(50_000);
   });
 
@@ -186,7 +186,7 @@ describe("loadConfig", () => {
   it("invalid numeric env var is silently ignored", () => {
     process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS = "not-a-number";
     const config = loadConfig(fakeCwd);
-    expect(config.observation.stageMessageTokens).toBe(70_000);
+    expect(config.observation.stageMessageTokens).toBe(32_000);
   });
 
   it("env provider and model overrides propagate", () => {
@@ -226,7 +226,7 @@ describe("loadConfig", () => {
     const config = loadConfig(fakeCwd);
 
     // Falls back to defaults
-    expect(config.observation.stageMessageTokens).toBe(70_000);
+    expect(config.observation.stageMessageTokens).toBe(32_000);
     // Logged a warning
     expect(spy).toHaveBeenCalledWith(
       expect.stringContaining("[om:config] Failed to parse config file"),

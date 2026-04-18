@@ -9,14 +9,14 @@ describe("formatters", () => {
       statePath: "/tmp/.pi/om-state/session-123.json",
       observationTokens: 1234,
       draftObservationTokens: 1500,
-      stagingThreshold: 70000,
-      stagingMessageCountThreshold: 24,
-      stagingToolResultTokenThreshold: 12000,
+      stagingThreshold: 32000,
+      stagingMessageCountThreshold: 12,
+      stagingToolResultTokenThreshold: 6000,
       publishThreshold: 90000,
       publishMessageCountThreshold: 36,
       publishToolResultTokenThreshold: 18000,
-      chunkMessageTokenLimit: 12000,
-      chunkMessageLimit: 16,
+      chunkMessageTokenLimit: 8000,
+      chunkMessageLimit: 8,
       observationModel: "google/gemini-2.5-flash",
       reflectionThreshold: 50000,
       reflectionModel: "google/gemini-2.5-flash",
@@ -64,7 +64,7 @@ describe("formatters", () => {
     expect(text).toContain("Published observations: yes · 1,234 tokens");
     expect(text).toContain("Staged draft: yes · 1,500 tokens");
     expect(text).toContain(
-      "Staging trigger: 70,000 tokens / 24 messages / 12,000 tool-result tokens",
+      "Staging trigger: 32,000 tokens / 12 messages / 6,000 tool-result tokens",
     );
     expect(text).toContain(
       "Publish trigger: 90,000 tokens / 36 messages / 18,000 tool-result tokens",

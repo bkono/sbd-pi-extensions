@@ -165,6 +165,79 @@ describe("runObservationCycle — threshold behavior", () => {
     expect(state.lastObservedTimestamp).toBe(1_700_000_000_000 + 4 * 1000);
   });
 
+  it("stages long runs before they collapse into a single late extraction pass", async () => {
+    const baseTs = 1_700_000_000_000;
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      observationTokens: 1_000_000,
+      stagingMessageCount: 12,
+      publishMessageCount: 12,
+      maxChunkMessages: 8,
+    });
+    const mock = new MockObservationAgents({
+      observeResponses: [
+        { observations: "* first staged pass", raw: "* first staged pass" },
+        { observations: "* second staged pass", raw: "* second staged pass" },
+        { observations: "* third staged pass", raw: "* third staged pass" },
+        { observations: "* fourth staged pass", raw: "* fourth staged pass" },
+      ],
+    });
+    const msgs = conversation(24, { baseTs, contentSize: 30 });
+    const inflight = new Map<string, Promise<void>>();
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs.slice(0, 6),
+      inflight,
+      { reason: "turn_end" },
+    );
+
+    expect(mock.observeCalls).toHaveLength(0);
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs.slice(0, 12),
+      inflight,
+      { reason: "turn_end" },
+    );
+
+    expect(mock.observeCalls).toHaveLength(2);
+    expect(mock.observeCalls[0]!.serializedMessages).toContain("user-0:");
+    expect(mock.observeCalls[0]!.serializedMessages).not.toContain("user-8:");
+    expect(mock.observeCalls[1]!.serializedMessages).toContain("user-8:");
+    expect(mock.observeCalls[1]!.serializedMessages).not.toContain("user-12:");
+
+    let state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("first staged pass");
+    expect(state.observations).toContain("second staged pass");
+    expect(state.lastObservedTimestamp).toBe(baseTs + 11 * 1000);
+
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      inflight,
+      { reason: "turn_end" },
+    );
+
+    expect(mock.observeCalls).toHaveLength(4);
+    expect(mock.observeCalls[2]!.existingObservations).toContain("second staged pass");
+    expect(mock.observeCalls[2]!.serializedMessages).toContain("user-12:");
+    expect(mock.observeCalls[2]!.serializedMessages).not.toContain("user-0:");
+    expect(mock.observeCalls[2]!.serializedMessages).not.toContain("user-20:");
+    expect(mock.observeCalls[3]!.serializedMessages).toContain("user-20:");
+
+    state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("third staged pass");
+    expect(state.observations).toContain("fourth staged pass");
+    expect(state.lastObservedTimestamp).toBe(baseTs + 23 * 1000);
+  });
+
   it("renders structured observation entries into durable published observations", async () => {
     const config = createTestConfig({ stateDir: temp.stateDir, observationTokens: 50 });
     const mock = new MockObservationAgents({

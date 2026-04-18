@@ -131,7 +131,7 @@ describe("extension: /om command", () => {
     expect(message).toContain("Published observations: yes · 42 tokens");
     expect(message).toContain("Staged draft: yes · 64 tokens");
     expect(message).toContain(
-      "Staging trigger: 70,000 tokens / 24 messages / 12,000 tool-result tokens",
+      "Staging trigger: 32,000 tokens / 12 messages / 6,000 tool-result tokens",
     );
     expect(message).toContain("Next chunk: 0 messages · 0 tokens · 0 tool results / 0 tokens");
     expect(message).toContain("Cycle decisions: stage yes · publish no · reflect no");

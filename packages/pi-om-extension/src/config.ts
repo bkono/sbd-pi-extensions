@@ -17,13 +17,15 @@ function projectConfigPath(cwd: string): string {
 
 /** Default timeout for observer/reflector LLM calls (ms). */
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_STAGE_MESSAGE_TOKENS = 32_000;
+const DEFAULT_PUBLISH_MESSAGE_TOKENS = 32_000;
 
-const DEFAULT_STAGE_MESSAGE_COUNT = 24;
-const DEFAULT_PUBLISH_MESSAGE_COUNT = 24;
-const DEFAULT_STAGE_TOOL_RESULT_TOKENS = 12_000;
-const DEFAULT_PUBLISH_TOOL_RESULT_TOKENS = 12_000;
-const DEFAULT_MAX_CHUNK_MESSAGE_TOKENS = 12_000;
-const DEFAULT_MAX_CHUNK_MESSAGES = 16;
+const DEFAULT_STAGE_MESSAGE_COUNT = 12;
+const DEFAULT_PUBLISH_MESSAGE_COUNT = 12;
+const DEFAULT_STAGE_TOOL_RESULT_TOKENS = 6_000;
+const DEFAULT_PUBLISH_TOOL_RESULT_TOKENS = 6_000;
+const DEFAULT_MAX_CHUNK_MESSAGE_TOKENS = 8_000;
+const DEFAULT_MAX_CHUNK_MESSAGES = 8;
 
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
@@ -38,8 +40,8 @@ type LegacyConfigInput = DeepPartial<OMConfig> & {
 function defaults(cwd: string): OMConfig {
   return {
     observation: {
-      stageMessageTokens: 70_000,
-      publishMessageTokens: 70_000,
+      stageMessageTokens: DEFAULT_STAGE_MESSAGE_TOKENS,
+      publishMessageTokens: DEFAULT_PUBLISH_MESSAGE_TOKENS,
       stageMessageCount: DEFAULT_STAGE_MESSAGE_COUNT,
       publishMessageCount: DEFAULT_PUBLISH_MESSAGE_COUNT,
       stageToolResultTokens: DEFAULT_STAGE_TOOL_RESULT_TOKENS,
