@@ -10,11 +10,15 @@
     {
       "text": "Implementation plan recorded before coding so the redesign survives context loss.\n\nPass 1 — plumbing / minimal behavior shift\n1. Inspect `packages/pi-beadwork-extension/src/orchestrator.ts` and related tests/docs to locate reviewer command construction, prompt text, parsing, and remediation flow.\n2. Remove the default `--no-tools --no-extensions --no-skills` reviewer isolation from pi reviewer command generation so reviewers behave like normal exploratory agents by default.\n3. Replace strict-JSON-only reviewer prompting/parsing with a structured handoff format that still yields machine-readable verdict/findings for the coordinator.\n4. Keep validation as a hard precondition before review; do not weaken existing lint/test/typecheck enforcement.\n\nPass 2 — coordinator/tests/docs\n5. Update coordinator consumption/remediation logic so structured reviewer findings are parsed, scoped, and handled without trusting the reviewer blindly.\n6. Add/update tests for command generation, reviewer report parsing, and verdict/remediation behavior.\n7. Update package docs to describe the new reviewer defaults and handoff expectations.\n8. Run lint/test/typecheck, fix fallout, and commit atomically with a conventional commit.\n\nGoal: minimal code-change redesign, no extra restriction-config surface unless implementation proves it is truly necessary.",
       "timestamp": "2026-04-18T18:28:55Z"
+    },
+    {
+      "text": "Pass 1 + pass 2 implementation complete in `packages/pi-beadwork-extension`.\n\nImplemented:\n- reviewer command no longer injects `--no-tools --no-extensions --no-skills` for pi reviewers\n- reviewer prompt now treats review as exploratory by default, lists mandatory validation commands, and requires a final `\u003creview_report\u003e` handoff with `APPROVE` / `APPROVE WITH NITS` / `REQUEST CHANGES`\n- parser now accepts structured handoffs from normal pi json-mode event streams even after reviewer tool use, while normalizing verdict aliases back to internal lowercase states\n- review remediation prompts now restate mandatory validation commands\n- docs updated across README/configuration/workflows/commands\n- tests updated for new reviewer command defaults, structured handoff parsing after tool use, and remediation prompt validation requirements\n\nValidation run results:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run test -w @solvedbydev/pi-beadwork-extension` ✅\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension` ✅\n- repo-wide `npm run test` / `npm run typecheck` ✅\n- repo-wide `npm run lint` completed with the pre-existing Biome schema-version info on `biome.json` (2.4.12 schema vs installed 2.4.10 CLI), but no package-specific lint errors from this change",
+      "timestamp": "2026-04-18T18:36:31Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Revise pi-beadwork reviewer to use exploratory agent reviews with structured handoff",
   "type": "task",
-  "updated_at": "2026-04-18T18:28:55Z"
+  "updated_at": "2026-04-18T18:36:31Z"
 }
