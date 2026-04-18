@@ -7,9 +7,15 @@
   "id": "sbdpi-ik2.2",
   "labels": [],
   "parent": "sbdpi-ik2",
+  "comments": [
+    {
+      "text": "Implemented in commit `575254c` (`fix(pi-beadwork-extension): harden landing retries`). Landing now relaunches a worker in-place for failed rebases instead of immediately falling over, with regression coverage for the remediation-and-retry path.",
+      "timestamp": "2026-04-18T05:26:31Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Auto-recover `land` from mechanical rebase failures with an LLM-assisted retry",
   "type": "task",
-  "updated_at": "2026-04-18T05:11:53Z"
+  "updated_at": "2026-04-18T05:26:31Z"
 }
