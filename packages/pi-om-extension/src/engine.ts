@@ -9,6 +9,10 @@ import {
 } from "./prompts.js";
 import { loadSessionState, saveSessionState } from "./state.js";
 import {
+  deriveObservationEntries,
+  normalizeObservationEntries as normalizeTemporalObservationEntries,
+} from "./temporal.js";
+import {
   countTokens,
   selectMessageChunk,
   serializeMessage,
@@ -54,24 +58,7 @@ function cloneObservationEntries(entries?: ObservationEntry[]): ObservationEntry
 }
 
 function normalizeObservationEntries(entries?: ObservationEntry[]): ObservationEntry[] | undefined {
-  const normalized = cloneObservationEntries(entries)
-    ?.map((entry) => ({
-      ...entry,
-      date: entry.date.trim(),
-      line: entry.line.replace(/\r\n/g, "\n").trim(),
-      temporalAnchors: entry.temporalAnchors
-        ?.map((anchor) => ({
-          ...anchor,
-          recordedAt: anchor.recordedAt.trim(),
-          originalPhrase: anchor.originalPhrase.trim(),
-          referencedStart: anchor.referencedStart?.trim() || undefined,
-          referencedEnd: anchor.referencedEnd?.trim() || undefined,
-        }))
-        .filter((anchor) => anchor.recordedAt && anchor.originalPhrase),
-    }))
-    .filter((entry) => entry.date && entry.line);
-
-  return normalized?.length ? normalized : undefined;
+  return normalizeTemporalObservationEntries(cloneObservationEntries(entries));
 }
 
 function appendObservationEntries(
@@ -397,7 +384,9 @@ export async function runObservationCycle(
           { signal: observeSignal },
         );
         observeTriggered = true;
-        const observedEntries = normalizeObservationEntries(observed.observationEntries);
+        const observedEntries = normalizeObservationEntries(
+          observed.observationEntries ?? deriveObservationEntries(observed.observations),
+        );
         if (!observed.observations.trim() && !observedEntries?.length) {
           debugLog(config, "observe chunk returned empty", {
             sessionId,
@@ -432,7 +421,9 @@ export async function runObservationCycle(
             },
             { signal: reflectSignal },
           );
-          const reflectedEntries = normalizeObservationEntries(reflected.observationEntries);
+          const reflectedEntries = normalizeObservationEntries(
+            reflected.observationEntries ?? deriveObservationEntries(reflected.observations),
+          );
           if (reflectedEntries) {
             observationEntries = reflectedEntries;
             observations = renderObservationEntries(observationEntries);

@@ -24,6 +24,29 @@ Ask about edge cases
     expect(result.suggestedResponse).toBe("Ask about edge cases");
   });
 
+  it("derives structured observation entries with temporal anchors from date-grouped XML", () => {
+    const raw = `
+<observations>
+Date: Apr 18, 2026
+* 🔴 (21:13) User plans to revisit reflection robustness tomorrow.
+* 🟡 (09:42) Error pattern appears to have started last week.
+* 🟢 (09:45) They might revisit Friday.
+</observations>`;
+    const result = parseObserverOutput(raw);
+    expect(result.observationEntries).toHaveLength(3);
+    expect(result.observationEntries?.[0]?.temporalAnchors?.[0]).toMatchObject({
+      originalPhrase: "tomorrow",
+      referencedStart: "2026-04-19",
+      relation: "future",
+    });
+    expect(result.observationEntries?.[1]?.temporalAnchors?.[0]).toMatchObject({
+      originalPhrase: "last week",
+      referencedStart: "2026-04-06",
+      precision: "week",
+    });
+    expect(result.observationEntries?.[2]?.temporalAnchors).toBeUndefined();
+  });
+
   it("handles only observations tag", () => {
     const raw = `<observations>* 🔴 Single obs</observations>`;
     const result = parseObserverOutput(raw);

@@ -6,6 +6,7 @@ import {
   buildReflectorSystemPrompt,
   OBSERVATION_CONTINUATION_HINT,
 } from "./prompts.js";
+import { deriveObservationEntries } from "./temporal.js";
 import type { ObserverResult, OMConfig } from "./types.js";
 
 /**
@@ -44,33 +45,30 @@ export function parseObserverOutput(raw: string): ObserverResult {
   const observationsTag = extractTag(normalized, "observations");
   const currentTaskTag = extractTag(normalized, "current-task");
   const suggestedTag = extractTag(normalized, "suggested-response");
-
-  // If any XML tag was found, use structured extraction
   if (observationsTag || currentTaskTag || suggestedTag) {
+    const observations = observationsTag ?? normalized;
     return {
-      observations: observationsTag ?? normalized,
+      observations,
+      observationEntries: deriveObservationEntries(observations),
       currentTask: currentTaskTag || undefined,
       suggestedResponse: suggestedTag || undefined,
       raw: normalized,
     };
   }
-
   // Fallback: try plain-text patterns for models that don't use XML
   const currentTaskMatch = normalized.match(/(?:^|\n)Current task:\s*(.+)$/im);
   const suggestedMatch = normalized.match(/(?:^|\n)Suggested response:\s*(.+)$/im);
-
   let observations = normalized;
-
   const cutoffIndices = [currentTaskMatch?.index, suggestedMatch?.index]
     .filter((value): value is number => typeof value === "number")
     .sort((a, b) => a - b);
-
   if (cutoffIndices.length > 0) {
     observations = normalized.slice(0, cutoffIndices[0]).trim();
   }
 
   return {
     observations,
+    observationEntries: deriveObservationEntries(observations),
     currentTask: currentTaskMatch?.[1]?.trim(),
     suggestedResponse: suggestedMatch?.[1]?.trim(),
     raw: normalized,

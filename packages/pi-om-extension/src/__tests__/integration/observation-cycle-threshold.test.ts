@@ -224,6 +224,38 @@ describe("runObservationCycle — threshold behavior", () => {
     expect(state.observationEntries).toHaveLength(2);
   });
 
+  it("derives temporal anchors from text-only observer output before publishing", async () => {
+    const config = createTestConfig({ stateDir: temp.stateDir, observationTokens: 50 });
+    const observations = `
+Date: Apr 18, 2026
+* 🔴 (21:13) User plans to revisit reflection robustness tomorrow.
+* 🟡 (09:44) Rollout moves next week.
+* 🟢 (09:45) They might revisit Friday.
+`.trim();
+    const mock = new MockObservationAgents({
+      observeResponses: [{ observations, raw: observations }],
+    });
+    const msgs = conversation(6, { baseTs: 1_700_000_000_000, contentSize: 200 });
+
+    const inflight = new Map<string, Promise<void>>();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      msgs,
+      inflight,
+      {
+        reason: "turn_end",
+      },
+    );
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observationEntries).toHaveLength(3);
+    expect(state.observations).toContain("tomorrow (target: 2026-04-19)");
+    expect(state.observations).toContain("next week (approx: 2026-04-20..2026-04-26)");
+    expect(state.observations).toContain("They might revisit Friday.");
+  });
+
   it("can stage observations without publishing when the publish threshold is higher", async () => {
     const config = createTestConfig({
       stateDir: temp.stateDir,

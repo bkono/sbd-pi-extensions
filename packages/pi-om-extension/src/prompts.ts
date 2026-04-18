@@ -18,7 +18,17 @@ Each observation has TWO potential timestamps:
 1) BEGINNING: the time statement was made (always include)
 2) END: the referenced time (only if relative time can be converted)
 
-ALWAYS put referenced dates at the END in parentheses when they can be inferred.
+When a relative phrase can be grounded confidently, preserve the ORIGINAL phrase and append the normalized anchor at the END.
+- "tomorrow" → "tomorrow (target: YYYY-MM-DD)"
+- "next Friday" → "next Friday (target: YYYY-MM-DD)"
+- "last week" → "last week (week of YYYY-MM-DD)"
+- "next week" → "next week (approx: YYYY-MM-DD..YYYY-MM-DD)"
+- "earlier today" → "earlier today (date: YYYY-MM-DD)"
+
+Do NOT invent fake precision.
+- If "Friday" could mean multiple dates, keep "Friday" without forcing a target date.
+- Prefer coarse anchors when needed, such as week-of, month-of, or approx ranges.
+- Keep future plans future-oriented. Do NOT rewrite "will switch next week" as if the switch already happened.
 
 PRESERVE SPECIFICS:
 - Keep names, entities, quantities, counts, measurements, and constraints.
@@ -56,10 +66,11 @@ Group related observations by date/time and keep high density.
 Date: Dec 4, 2025
 * 🔴 (14:30) User prefers direct answers
 * 🔴 (14:31) Working on feature X
-* 🟡 (14:32) User might prefer dark mode
+* 🟡 (14:32) User might revisit the migration tomorrow (target: 2025-12-05)
 
 Date: Dec 5, 2025
 * 🔴 (09:15) Continued work on feature X
+* 🟡 (09:16) Error pattern seems to have started last week (week of 2025-11-24)
 </observations>
 
 <current-task>
@@ -131,11 +142,9 @@ The following instructions were given to the observer. Use them to understand ho
 ${OBSERVER_EXTRACTION_INSTRUCTIONS}
 
 === OUTPUT FORMAT ===
-
 ${OBSERVER_OUTPUT_FORMAT_BASE}
 
 === GUIDELINES ===
-
 ${OBSERVER_GUIDELINES}
 </observational-memory-instruction>
 
@@ -197,5 +206,6 @@ export const OBSERVATION_CONTEXT_INSTRUCTIONS = `IMPORTANT: Treat the durable se
 
 KNOWLEDGE UPDATES: Prefer the most recent observation when information conflicts.
 
-PLANNED ACTIONS: If the user planned an action in the past and nothing contradicts it, assume they likely completed it.
+PLANNED ACTIONS: Respect the recorded temporal anchors. Keep future-targeted plans future-oriented until later observations confirm a change actually happened. If an anchored plan's target date is now in the past, treat it as a likely follow-up item rather than an established completed fact unless the observations explicitly confirm completion.
+
 MOST RECENT USER INPUT: Treat the latest user message as highest-priority for what to do next.`;
