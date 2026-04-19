@@ -75,11 +75,11 @@ describe("issue explorer", () => {
     expect(loadLevel).toHaveBeenCalledWith({ filter: "ready", issueId: undefined });
     expect(controller.currentFilter).toBe("ready");
 
-    const rendered = controller.renderLines().join("\n");
-    expect(rendered).toContain("filter=ready");
+    const rendered = controller.renderLines(120).join("\n");
+    expect(rendered).toContain("ready · repo");
     expect(rendered).toContain("Dashboard epic");
-    expect(rendered).toContain("Epic detail");
-    expect(controller.renderFooterHint()).toContain("tab/shift+tab switch tabs");
+    expect(rendered).toContain("Summary");
+    expect(controller.renderFooterHint()).toContain("↑/↓ move");
   });
 
   it("supports filter changes and breadcrumb drill-in/out", async () => {
@@ -196,8 +196,8 @@ describe("issue explorer", () => {
     expect(onScopeSelection).toHaveBeenCalledWith(ticketDetail);
     expect(onClearScope).toHaveBeenCalledTimes(1);
 
-    const rendered = controller.renderLines().join("\n");
-    expect(rendered).toContain("scope=repo-wide");
+    const rendered = controller.renderLines(120).join("\n");
+    expect(rendered).toContain("interactive · repo-wide");
   });
 });
 

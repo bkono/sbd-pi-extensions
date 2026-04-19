@@ -24,6 +24,7 @@ function createIssue(overrides: Partial<BeadworkIssueDetail> = {}): BeadworkIssu
 function createTheme() {
   return {
     fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
     bold: (text: string) => text,
   };
 }
@@ -73,6 +74,8 @@ describe("delegate clarify modal", () => {
 
     expect(done).not.toHaveBeenCalled();
     expect(requestRender).toHaveBeenCalled();
-    expect(component.render(80).join("\n")).toContain("Invalid model override");
+    const rendered = component.render(80).join("\n");
+    expect(rendered).toContain("Validation");
+    expect(rendered).toContain("Invalid model override");
   });
 });

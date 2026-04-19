@@ -167,18 +167,13 @@ describe("worker manager", () => {
     const text = lines.join("\n");
 
     expect(text).toContain("Epic BW-100 (current scope)");
-    expect(text).toContain("Selected: BW-101 · held · Task");
-    expect(text).toContain(
-      "Next: Validated and held. Run /bw land BW-101 when you're ready to merge-back.",
-    );
-    expect(text).toContain("Actions: land:ready");
-    expect(text).toContain("cancel:blocked (only launching/running workers can be cancelled)");
-    expect(text).toContain("cleanup:blocked (landing must be verified or marked landed first)");
-    expect(text).toContain(
-      "Commands: /bw land BW-101 · /bw cancel bw-101-worker · /bw cleanup BW-101",
-    );
-    expect(text).toContain("Tmux: pi-bw:bw-101.%42");
-    expect(text).toContain("log=/tmp/runtime/worker.log");
-    expect(text).toContain("Worktree: /tmp/worktree");
+    expect(text).toContain("Task");
+    expect(text).toContain("held · ticket closed");
+    expect(text).toContain("Next Validated and held. Run /bw land BW-101 when");
+    expect(text).toContain("you're ready to merge-back.");
+    expect(text).not.toContain("Ops");
+    expect(text).toContain("tmux pi-bw:bw-101.%42");
+    expect(text).toContain("log worker.log");
+    expect(text).toContain("worktree worktree");
   });
 });

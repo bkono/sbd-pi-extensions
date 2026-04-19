@@ -2,8 +2,9 @@ import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { IssueExplorerFilter, IssueExplorerLevelData } from "../actions/issues.js";
 import { ISSUE_EXPLORER_FILTERS } from "../actions/issues.js";
 import type { BeadworkIssue, BeadworkIssueDetail, SessionState } from "../types.js";
+import { joinColumns, normalizeSurfaceLines } from "./common.js";
 import type { DashboardStatusSnapshot } from "./dashboard.js";
-import { formatIssueSummary, renderIssueDetail } from "./issue-detail.js";
+import { renderIssueDetail, renderIssueListEntry } from "./issue-detail.js";
 
 export type IssueExplorerBreadcrumb =
   | { kind: "repo" }
@@ -33,17 +34,6 @@ export type IssueExplorerInput = {
   onChange?: () => void;
 } & IssueExplorerHooks;
 
-function formatBreadcrumb(breadcrumb: IssueExplorerBreadcrumb[]): string {
-  return breadcrumb
-    .map((entry) => {
-      if (entry.kind === "repo") {
-        return "repo";
-      }
-      return entry.title ? `${entry.id} (${entry.title})` : entry.id;
-    })
-    .join(" → ");
-}
-
 function describeScope(state: SessionState): string {
   if (state.scope.kind === "none") {
     return "repo-wide";
@@ -66,6 +56,52 @@ function asBreadcrumb(issue: BeadworkIssue | BeadworkIssueDetail): IssueExplorer
     id: issue.id,
     title: issue.title,
   };
+}
+
+function resolveVisibleWindow(
+  total: number,
+  selectedIndex: number,
+  maxVisible: number,
+): {
+  start: number;
+  end: number;
+  hiddenBefore: number;
+  hiddenAfter: number;
+} {
+  if (total <= maxVisible) {
+    return { start: 0, end: total, hiddenBefore: 0, hiddenAfter: 0 };
+  }
+
+  const half = Math.floor(maxVisible / 2);
+  const start = Math.max(0, Math.min(selectedIndex - half, total - maxVisible));
+  const end = Math.min(total, start + maxVisible);
+  return {
+    start,
+    end,
+    hiddenBefore: start,
+    hiddenAfter: total - end,
+  };
+}
+
+function buildSelectionHint(selected?: BeadworkIssueDetail): string {
+  if (!selected) {
+    return "s scope • enter drill • h back • f filter";
+  }
+  return [
+    "enter drill",
+    "h back",
+    "f filter",
+    "s scope",
+    isEpic(selected) ? "r run epic" : "d delegate ticket",
+    "x clear",
+  ].join(" • ");
+}
+function buildCurrentLevelLines(current?: BeadworkIssueDetail): string[] {
+  if (!current) {
+    return ["Browsing", "repo-wide"];
+  }
+
+  return ["Browsing", `${current.id} · ${current.type} · ${current.status}`];
 }
 
 export class IssueExplorerController {
@@ -287,46 +323,84 @@ export class IssueExplorerController {
     this.applySnapshot(snapshot);
   }
 
-  renderLines(): string[] {
-    const selected = this.selectedDetail;
-    const current = this.currentDetail;
-    const lines = [
-      `Issue explorer · filter=${this.filter} · breadcrumb=${formatBreadcrumb(this.breadcrumb)}`,
-      `Session: mode=${this.sessionState.mode} · scope=${describeScope(this.sessionState)}`,
-      this.loading ? "Loading issues…" : `Items: ${this.items.length}`,
+  renderLines(width = 120): string[] {
+    const contentWidth = Math.max(40, width);
+    const singleColumn = contentWidth < 88;
+    const leftWidth = singleColumn ? contentWidth : Math.max(34, Math.floor(contentWidth * 0.44));
+    const rightWidth = singleColumn ? contentWidth : Math.max(28, contentWidth - leftWidth - 2);
+    const breadcrumbLabel = this.breadcrumb
+      .map((entry) => (entry.kind === "repo" ? "repo" : entry.id))
+      .join(" / ");
+    const headerLines = [
+      `${this.filter} · ${breadcrumbLabel}`,
+      `${this.sessionState.mode} · ${describeScope(this.sessionState)}${this.loading ? " · loading" : ""}`,
     ];
-
     if (this.error) {
-      lines.push(`Error: ${this.error}`);
+      headerLines.push(`Error · ${this.error}`);
     }
-
-    lines.push("", "Browse:");
+    const browseLines: string[] = [
+      "Issue list",
+      `${this.items.length} issue${this.items.length === 1 ? "" : "s"} in view`,
+      "",
+    ];
     if (this.items.length === 0) {
-      lines.push("(no issues in this view)");
+      browseLines.push("(no issues in this view)");
     } else {
-      for (const [index, issue] of this.items.entries()) {
-        lines.push(`${index === this.selectedIndex ? ">" : " "} ${formatIssueSummary(issue)}`);
+      const window = resolveVisibleWindow(this.items.length, this.selectedIndex, 6);
+      if (window.hiddenBefore > 0) {
+        browseLines.push(
+          `↑ ${window.hiddenBefore} earlier issue${window.hiddenBefore === 1 ? "" : "s"}`,
+        );
+        browseLines.push("");
+      }
+      for (const [index, issue] of this.items.slice(window.start, window.end).entries()) {
+        const absoluteIndex = window.start + index;
+        browseLines.push(
+          ...renderIssueListEntry(issue, {
+            selected: absoluteIndex === this.selectedIndex,
+            width: leftWidth,
+          }),
+          "",
+        );
+      }
+      if (window.hiddenAfter > 0) {
+        browseLines.push(
+          `↓ ${window.hiddenAfter} later issue${window.hiddenAfter === 1 ? "" : "s"}`,
+        );
       }
     }
-
-    lines.push(
-      "",
+    const selected = this.selectedDetail;
+    const detailLines = [
       ...renderIssueDetail({
-        issue: current,
-        heading: current ? "Current breadcrumb" : "Current breadcrumb",
-        emptyMessage: "Repo-wide browsing.",
+        issue: selected,
+        heading: "Selected",
+        emptyMessage: "Move to an issue to load detail.",
+        width: rightWidth - 2,
       }),
-    );
+      "",
+      ...buildCurrentLevelLines(this.currentDetail),
+    ];
 
-    if (selected && (!current || selected.id !== current.id)) {
-      lines.push("", ...renderIssueDetail({ issue: selected, heading: "Selected issue" }));
+    if (singleColumn) {
+      return normalizeSurfaceLines(
+        [...headerLines, "", ...browseLines, ...detailLines],
+        contentWidth,
+      );
     }
-
-    return lines;
+    return [
+      ...headerLines,
+      "",
+      ...joinColumns({
+        left: browseLines,
+        right: detailLines,
+        leftWidth,
+        rightWidth,
+        gap: 2,
+      }),
+    ];
   }
-
   renderFooterHint(): string {
-    return "↑/↓ or j/k move • enter drill in • backspace/h back out • f filter • g engage repo • s scope • x clear scope • d delegate • r run • tab/shift+tab switch tabs • esc/q closes";
+    return `↑/↓ move • ${buildSelectionHint(this.selectedDetail)}`;
   }
 
   private applySnapshot(snapshot: DashboardStatusSnapshot | undefined): void {

@@ -1,9 +1,11 @@
+import path from "node:path";
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { Component, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { summarizeWorkers } from "../registry.js";
 import type { ActivationState, SessionState, WorkerRuntime } from "../types.js";
 import { inspectWorker, type WorkerInspection } from "../worker-diagnostics.js";
+import { joinColumns, normalizeSurfaceLines, renderSurface } from "./common.js";
 
 export type WorkerActionKind = "land" | "cancel" | "cleanup";
 
@@ -71,11 +73,38 @@ function compareWorkerEntries(left: WorkerManagerEntry, right: WorkerManagerEntr
 }
 
 function formatActionState(action: WorkerActionAvailability): string {
-  return `${action.label}:${action.enabled ? "ready" : `blocked (${action.reason})`}`;
+  return action.enabled ? "ready" : "blocked";
 }
 
+export function buildWorkerFooterHint(entry?: WorkerManagerEntry): string {
+  if (!entry) {
+    return "↑/↓ select • esc close";
+  }
+  return [
+    "↑/↓ select",
+    `l land ${formatActionState(entry.actions.land)}`,
+    `c cancel ${formatActionState(entry.actions.cancel)}`,
+    `u cleanup ${formatActionState(entry.actions.cleanup)}`,
+  ].join(" • ");
+}
 function formatTmuxTarget(worker: WorkerRuntime): string {
   return `${worker.tmuxSession}:${worker.tmuxWindow}.${worker.tmuxPane}`;
+}
+function clamp(text: string, width: number): string {
+  return truncateToWidth(text, Math.max(14, width), "…");
+}
+function formatWorkerListEntry(
+  entry: WorkerManagerEntry,
+  selected: boolean,
+  width: number,
+): string[] {
+  return [
+    `${selected ? "●" : "○"} ${entry.worker.ticketId} · ${entry.worker.status}`,
+    `  ${clamp(entry.worker.ticketTitle, Math.max(18, width - 4))}`,
+  ];
+}
+function formatArtifact(label: string, value: string): string {
+  return `${label} ${path.basename(value) || value}`;
 }
 
 function selectDefaultWorker(
@@ -92,6 +121,31 @@ function selectDefaultWorker(
   }
 
   return groups.flatMap((group) => group.workers)[0];
+}
+
+function resolveVisibleWindow(
+  total: number,
+  selectedIndex: number,
+  maxVisible: number,
+): {
+  start: number;
+  end: number;
+  hiddenBefore: number;
+  hiddenAfter: number;
+} {
+  if (total <= maxVisible) {
+    return { start: 0, end: total, hiddenBefore: 0, hiddenAfter: 0 };
+  }
+
+  const half = Math.floor(maxVisible / 2);
+  const start = Math.max(0, Math.min(selectedIndex - half, total - maxVisible));
+  const end = Math.min(total, start + maxVisible);
+  return {
+    start,
+    end,
+    hiddenBefore: start,
+    hiddenAfter: total - end,
+  };
 }
 
 export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerActionSet {
@@ -261,18 +315,78 @@ export function groupWorkersForManager(input: {
     .map(({ sortRank: _sortRank, newestStartedAt: _newestStartedAt, ...group }) => group);
 }
 
-export function buildWorkerDetailLines(entry: WorkerManagerEntry): string[] {
-  const { worker, inspection, actions } = entry;
+function buildGroupSummaryLines(
+  groups: WorkerManagerGroup[],
+  selected?: WorkerManagerEntry,
+): string[] {
+  const selectedGroupId = selected
+    ? groups.find((group) =>
+        group.workers.some((entry) => entry.worker.workerId === selected.worker.workerId),
+      )?.id
+    : undefined;
   return [
-    `Selected: ${worker.ticketId} · ${worker.status} · ${worker.ticketTitle}`,
-    `Progress: ticket=${worker.ticketStatus ?? "unknown"} · validation=${inspection.validation.summary} · review=${inspection.review.summary} · landing=${inspection.landing.summary} · cleanup=${inspection.cleanup.summary}`,
-    `Next: ${inspection.followUp.action}`,
-    `Actions: ${formatActionState(actions.land)} · ${formatActionState(actions.cancel)} · ${formatActionState(actions.cleanup)}`,
-    `Commands: /bw land ${worker.ticketId} · /bw cancel ${worker.workerId} · /bw cleanup ${worker.ticketId}`,
-    `Tmux: ${formatTmuxTarget(worker)}`,
-    `Paths: log=${worker.logFile} · runtime=${worker.runtimeDir}`,
-    `Files: state=${worker.stateFile} · prompt=${worker.promptFile} · script=${worker.scriptFile}`,
-    `Worktree: ${worker.worktreePath}`,
+    "Groups",
+    ...groups.flatMap((group) => {
+      const marker = group.id === selectedGroupId ? "❯" : " ";
+      return [
+        `${marker} ${group.label}`,
+        `  ${group.summary.total} total · ${group.summary.active} active · ${group.attention} attention`,
+        "",
+      ];
+    }),
+  ];
+}
+function buildSelectedGroupLines(
+  groups: WorkerManagerGroup[],
+  selected: WorkerManagerEntry | undefined,
+  width: number,
+): string[] {
+  const selectedGroup = selected
+    ? groups.find((group) =>
+        group.workers.some((entry) => entry.worker.workerId === selected.worker.workerId),
+      )
+    : groups[0];
+  if (!selectedGroup) {
+    return ["Workers", "No worker selected."];
+  }
+  const selectedIndex = selected
+    ? selectedGroup.workers.findIndex((entry) => entry.worker.workerId === selected.worker.workerId)
+    : 0;
+  const window = resolveVisibleWindow(selectedGroup.workers.length, Math.max(0, selectedIndex), 5);
+  const lines = ["Workers", selectedGroup.label, ""];
+  if (window.hiddenBefore > 0) {
+    lines.push(
+      `↑ ${window.hiddenBefore} earlier worker${window.hiddenBefore === 1 ? "" : "s"}`,
+      "",
+    );
+  }
+  for (const [index, entry] of selectedGroup.workers.slice(window.start, window.end).entries()) {
+    const absoluteIndex = window.start + index;
+    lines.push(...formatWorkerListEntry(entry, absoluteIndex === selectedIndex, width), "");
+  }
+  if (window.hiddenAfter > 0) {
+    lines.push(`↓ ${window.hiddenAfter} later worker${window.hiddenAfter === 1 ? "" : "s"}`);
+  }
+  return lines;
+}
+
+export function buildWorkerDetailLines(entry: WorkerManagerEntry, width = 40): string[] {
+  const { worker, inspection } = entry;
+  return [
+    "Selected worker",
+    `${worker.ticketId} · ${worker.status} · ticket ${worker.ticketStatus ?? "unknown"}`,
+    clamp(worker.ticketTitle, width),
+    "",
+    "Checks",
+    `Validation ${inspection.validation.summary}`,
+    `Review ${inspection.review.summary}`,
+    `Landing ${inspection.landing.summary}`,
+    `Next ${inspection.followUp.action}`,
+    "",
+    "Refs",
+    `tmux ${clamp(formatTmuxTarget(worker), width - 5)}`,
+    formatArtifact("log", worker.logFile),
+    formatArtifact("worktree", worker.worktreePath),
   ];
 }
 
@@ -281,43 +395,39 @@ export function buildWorkerManagerPanelLines(input: {
   state: SessionState;
   selectedWorkerId?: string;
   maxWorkersPerGroup?: number;
+  width?: number;
 }): string[] {
   const groups = groupWorkersForManager({ workers: input.workers, state: input.state });
   if (groups.length === 0) {
     return [
       "No beadwork workers are currently tracked.",
-      "Open /bw and use the Issues tab to delegate, or run /bw run <epic-id> to launch bounded work.",
+      "Use the Issues tab to delegate work or run an epic to launch bounded workers.",
     ];
   }
-
   const selected = selectDefaultWorker(groups, input.selectedWorkerId);
-  const lines: string[] = ["Worker groups:"];
-  const maxWorkersPerGroup = input.maxWorkersPerGroup ?? Number.POSITIVE_INFINITY;
-
-  for (const group of groups) {
-    lines.push(
-      `- ${group.label} · total=${group.summary.total} active=${group.summary.active} held=${group.summary.held} landed=${group.summary.landed} attention=${group.attention}`,
-    );
-    lines.push(`  ${group.description}`);
-
-    const visibleWorkers = group.workers.slice(0, maxWorkersPerGroup);
-    for (const entry of visibleWorkers) {
-      const marker = selected?.worker.workerId === entry.worker.workerId ? "●" : "○";
-      lines.push(
-        `  ${marker} ${entry.worker.ticketId} · ${entry.worker.status} · validation:${entry.inspection.validation.summary} · review:${entry.inspection.review.summary} · landing:${entry.inspection.landing.summary}`,
-      );
-    }
-
-    if (group.workers.length > visibleWorkers.length) {
-      lines.push(`  … ${group.workers.length - visibleWorkers.length} more worker(s)`);
-    }
+  const width = input.width ?? 100;
+  const singleColumn = width < 92;
+  const leftWidth = singleColumn ? width : Math.max(34, Math.floor(width * 0.44));
+  const rightWidth = singleColumn ? width : Math.max(28, width - leftWidth - 2);
+  const groupLines = [
+    ...buildGroupSummaryLines(groups, selected),
+    "",
+    ...buildSelectedGroupLines(groups, selected, leftWidth),
+  ];
+  const detailLines = selected
+    ? buildWorkerDetailLines(selected, rightWidth - 2)
+    : ["Selected worker", "No worker selected."];
+  if (singleColumn) {
+    return normalizeSurfaceLines([...groupLines, "", ...detailLines], width);
   }
 
-  if (selected) {
-    lines.push("", ...buildWorkerDetailLines(selected));
-  }
-
-  return lines;
+  return joinColumns({
+    left: groupLines,
+    right: detailLines,
+    leftWidth,
+    rightWidth,
+    gap: 2,
+  });
 }
 
 class WorkerManagerComponent implements Component {
@@ -371,22 +481,19 @@ class WorkerManagerComponent implements Component {
       workers: this.model.workers,
       state: this.model.state,
       selectedWorkerId,
+      width: Math.max(40, width - 4),
     });
-    const headerLines = [
-      this.theme.fg("accent", this.theme.bold("Beadwork Worker Manager")),
-      `Repo: ${this.model.activation.repoRoot ?? this.model.cwd}`,
-      this.model.epicId ? `Filter: epic ${this.model.epicId}` : "Filter: all workers",
-      `Summary: total=${summary.total} active=${summary.active} held=${summary.held} landed=${summary.landed} failed=${summary.failed} attention=${summary.attention} cleaned=${summary.cleaned}`,
-      "",
-    ];
-    const footer = this.theme.fg(
-      "dim",
-      "↑/↓ or j/k select • use the Commands line for /bw land|cancel|cleanup targets • esc/q closes",
-    );
 
-    const lines = [...headerLines, ...bodyLines, "", footer].flatMap((line) =>
-      wrapTextWithAnsi(line, Math.max(1, width)).map((wrapped) => truncateToWidth(wrapped, width)),
-    );
+    const lines = renderSurface(this.theme, width, {
+      title: "Beadwork Worker Manager",
+      subtitle: [
+        `Repo: ${this.model.activation.repoRoot ?? this.model.cwd}`,
+        this.model.epicId ? `Filter: epic ${this.model.epicId}` : "Filter: all workers",
+        `Summary: total=${summary.total} active=${summary.active} held=${summary.held} landed=${summary.landed} failed=${summary.failed}`,
+      ],
+      sections: [{ lines: bodyLines }],
+      footer: buildWorkerFooterHint(this.entries[this.selectedIndex]),
+    });
 
     this.cachedWidth = width;
     this.cachedLines = lines;

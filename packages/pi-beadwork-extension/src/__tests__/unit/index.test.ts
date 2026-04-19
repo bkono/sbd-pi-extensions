@@ -349,7 +349,7 @@ describe("pi beadwork extension", () => {
       | undefined;
     const rendered = component?.render(100).join("\n") ?? "";
 
-    expect(rendered).toContain("Issue explorer · filter=ready");
+    expect(rendered).toContain("ready · repo");
     expect(rendered).toContain("Scoped epic");
   });
 

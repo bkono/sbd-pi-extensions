@@ -22,6 +22,11 @@ import { createIssueExplorerDataSource } from "./issues.js";
 import { executeRunAction } from "./run.js";
 import { clearInteractiveScope, setInteractiveScope } from "./scope.js";
 
+export type StatusWorkerActionExecutor = (
+  ctx: ExtensionCommandContext,
+  target: string,
+) => Promise<void>;
+
 export type StatusActionDeps = {
   adapter: BeadworkAdapter;
   refreshStatus: (ctx: ExtensionCommandContext) => Promise<DashboardStatusSnapshot>;
@@ -70,6 +75,9 @@ export type StatusActionDeps = {
     state: SessionState,
     workers: WorkerRuntime[],
   ) => Promise<SessionState>;
+  executeLand: StatusWorkerActionExecutor;
+  executeCancel: StatusWorkerActionExecutor;
+  executeCleanup: StatusWorkerActionExecutor;
 };
 
 export async function handleStatusAction(input: {
@@ -85,6 +93,158 @@ export async function handleStatusAction(input: {
   if (subcommand === "status") {
     const status = await deps.refreshStatus(ctx);
     if (isBare && canOpenDashboard(status.activation) && ctx.hasUI) {
+      const issueExplorer =
+        status.activation.kind === "active"
+          ? {
+              dataSource: createIssueExplorerDataSource({
+                adapter: deps.adapter,
+                cwd: ctx.cwd,
+              }),
+              initialFilter: "ready" as const,
+              onNotify: (message: string, level?: "info" | "warning") =>
+                ctx.ui.notify(message, level),
+              onEngageRepoWide: async () => {
+                const active = await deps.requireActive(ctx);
+                if (!active) {
+                  return deps.refreshStatus(ctx);
+                }
+
+                await setInteractiveScope({
+                  ctx,
+                  activation: active.activation,
+                  config: active.config,
+                  state: active.state,
+                  deps,
+                  scope: { kind: "none" },
+                });
+                ctx.ui.notify("Beadwork interactive mode engaged repo-wide.", "info");
+                return deps.refreshStatus(ctx);
+              },
+              onScopeSelection: async (issue: BeadworkIssueDetail) => {
+                const active = await deps.requireActive(ctx);
+                if (!active) {
+                  return deps.refreshStatus(ctx);
+                }
+
+                await setInteractiveScope({
+                  ctx,
+                  activation: active.activation,
+                  config: active.config,
+                  state: active.state,
+                  deps,
+                  scope: {
+                    kind: issue.type === "epic" ? "epic" : "ticket",
+                    id: issue.id,
+                    title: issue.title,
+                  },
+                });
+                ctx.ui.notify(
+                  `Beadwork scope retargeted to ${issue.type === "epic" ? "epic" : "ticket"} ${issue.id}.`,
+                  "info",
+                );
+                return deps.refreshStatus(ctx);
+              },
+              onClearScope: async () => {
+                const active = await deps.requireActive(ctx);
+                if (!active) {
+                  return deps.refreshStatus(ctx);
+                }
+
+                await clearInteractiveScope({
+                  ctx,
+                  activation: active.activation,
+                  config: active.config,
+                  state: active.state,
+                  deps,
+                });
+                ctx.ui.notify("Beadwork scope cleared; repo-wide browsing active.", "info");
+                return deps.refreshStatus(ctx);
+              },
+              onDelegateIntent: async (issue: BeadworkIssueDetail) => {
+                const clarify = await openDelegateClarify(ctx, { issue });
+                if (!clarify) {
+                  return undefined;
+                }
+
+                await executeDelegateAction({
+                  ctx,
+                  deps,
+                  ticketId: clarify.ticketId,
+                  epicId: clarify.epicId,
+                  modelOverride: clarify.modelOverride,
+                });
+                return deps.refreshStatus(ctx);
+              },
+              onRunIntent: async (issue: BeadworkIssueDetail) => {
+                const active = await deps.requireActive(ctx);
+                if (!active) {
+                  return deps.refreshStatus(ctx);
+                }
+
+                const defaults = {
+                  workers:
+                    active.state.runOptions?.workers ??
+                    active.state.lastRunOptions?.workers ??
+                    active.config.run.defaultWorkers,
+                  until:
+                    active.state.runOptions?.until ??
+                    active.state.lastRunOptions?.until ??
+                    active.config.run.defaultUntil,
+                  maxCycles:
+                    active.state.runOptions?.maxCycles ??
+                    active.state.lastRunOptions?.maxCycles ??
+                    active.config.run.defaultMaxCycles,
+                  dryRun:
+                    active.state.runOptions?.dryRun === true ||
+                    active.state.lastRunOptions?.dryRun === true,
+                  noSpawn:
+                    active.state.runOptions?.noSpawn === true ||
+                    active.state.lastRunOptions?.noSpawn === true,
+                };
+                const clarify = await openRunClarify(ctx, {
+                  epic: issue,
+                  defaults,
+                  sessionState: active.state,
+                });
+                if (!clarify) {
+                  return undefined;
+                }
+
+                await executeRunAction({
+                  ctx,
+                  deps,
+                  epicId: clarify.epicId,
+                  workers: clarify.options.workers,
+                  until: clarify.options.until,
+                  dryRun: clarify.options.dryRun,
+                  maxCycles: clarify.options.maxCycles,
+                  noSpawn: clarify.options.noSpawn,
+                });
+                return deps.refreshStatus(ctx);
+              },
+            }
+          : undefined;
+
+      const workerActions =
+        status.activation.kind === "active"
+          ? {
+              onNotify: (message: string, level?: "info" | "warning") =>
+                ctx.ui.notify(message, level),
+              onLand: async (worker: WorkerRuntime) => {
+                await deps.executeLand(ctx, worker.ticketId);
+                return deps.refreshStatus(ctx);
+              },
+              onCancel: async (worker: WorkerRuntime) => {
+                await deps.executeCancel(ctx, worker.workerId);
+                return deps.refreshStatus(ctx);
+              },
+              onCleanup: async (worker: WorkerRuntime) => {
+                await deps.executeCleanup(ctx, worker.ticketId);
+                return deps.refreshStatus(ctx);
+              },
+            }
+          : undefined;
+
       await openBeadworkDashboard(
         ctx,
         {
@@ -93,136 +253,8 @@ export async function handleStatusAction(input: {
           defaultTab: input.defaultTab ?? "issues",
         },
         {
-          issueExplorer:
-            status.activation.kind === "active"
-              ? {
-                  dataSource: createIssueExplorerDataSource({
-                    adapter: deps.adapter,
-                    cwd: ctx.cwd,
-                  }),
-                  initialFilter: "ready",
-                  onNotify: (message, level) => ctx.ui.notify(message, level),
-                  onEngageRepoWide: async () => {
-                    const active = await deps.requireActive(ctx);
-                    if (!active) {
-                      return deps.refreshStatus(ctx);
-                    }
-
-                    await setInteractiveScope({
-                      ctx,
-                      activation: active.activation,
-                      config: active.config,
-                      state: active.state,
-                      deps,
-                      scope: { kind: "none" },
-                    });
-                    ctx.ui.notify("Beadwork interactive mode engaged repo-wide.", "info");
-                    return deps.refreshStatus(ctx);
-                  },
-                  onScopeSelection: async (issue) => {
-                    const active = await deps.requireActive(ctx);
-                    if (!active) {
-                      return deps.refreshStatus(ctx);
-                    }
-
-                    await setInteractiveScope({
-                      ctx,
-                      activation: active.activation,
-                      config: active.config,
-                      state: active.state,
-                      deps,
-                      scope: {
-                        kind: issue.type === "epic" ? "epic" : "ticket",
-                        id: issue.id,
-                        title: issue.title,
-                      },
-                    });
-                    ctx.ui.notify(
-                      `Beadwork scope retargeted to ${issue.type === "epic" ? "epic" : "ticket"} ${issue.id}.`,
-                      "info",
-                    );
-                    return deps.refreshStatus(ctx);
-                  },
-                  onClearScope: async () => {
-                    const active = await deps.requireActive(ctx);
-                    if (!active) {
-                      return deps.refreshStatus(ctx);
-                    }
-
-                    await clearInteractiveScope({
-                      ctx,
-                      activation: active.activation,
-                      config: active.config,
-                      state: active.state,
-                      deps,
-                    });
-                    ctx.ui.notify("Beadwork scope cleared; repo-wide browsing active.", "info");
-                    return deps.refreshStatus(ctx);
-                  },
-                  onDelegateIntent: async (issue) => {
-                    const clarify = await openDelegateClarify(ctx, { issue });
-                    if (!clarify) {
-                      return undefined;
-                    }
-
-                    await executeDelegateAction({
-                      ctx,
-                      deps,
-                      ticketId: clarify.ticketId,
-                      epicId: clarify.epicId,
-                      modelOverride: clarify.modelOverride,
-                    });
-                    return deps.refreshStatus(ctx);
-                  },
-                  onRunIntent: async (issue) => {
-                    const active = await deps.requireActive(ctx);
-                    if (!active) {
-                      return deps.refreshStatus(ctx);
-                    }
-
-                    const defaults = {
-                      workers:
-                        active.state.runOptions?.workers ??
-                        active.state.lastRunOptions?.workers ??
-                        active.config.run.defaultWorkers,
-                      until:
-                        active.state.runOptions?.until ??
-                        active.state.lastRunOptions?.until ??
-                        active.config.run.defaultUntil,
-                      maxCycles:
-                        active.state.runOptions?.maxCycles ??
-                        active.state.lastRunOptions?.maxCycles ??
-                        active.config.run.defaultMaxCycles,
-                      dryRun:
-                        active.state.runOptions?.dryRun === true ||
-                        active.state.lastRunOptions?.dryRun === true,
-                      noSpawn:
-                        active.state.runOptions?.noSpawn === true ||
-                        active.state.lastRunOptions?.noSpawn === true,
-                    };
-                    const clarify = await openRunClarify(ctx, {
-                      epic: issue,
-                      defaults,
-                      sessionState: active.state,
-                    });
-                    if (!clarify) {
-                      return undefined;
-                    }
-
-                    await executeRunAction({
-                      ctx,
-                      deps,
-                      epicId: clarify.epicId,
-                      workers: clarify.options.workers,
-                      until: clarify.options.until,
-                      dryRun: clarify.options.dryRun,
-                      maxCycles: clarify.options.maxCycles,
-                      noSpawn: clarify.options.noSpawn,
-                    });
-                    return deps.refreshStatus(ctx);
-                  },
-                }
-              : undefined,
+          issueExplorer,
+          workerActions,
         },
       );
       return true;

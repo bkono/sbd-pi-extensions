@@ -1,6 +1,7 @@
+import path from "node:path";
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { Component, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { IssueExplorerFilter } from "../actions/issues.js";
 import type {
   ActivationState,
@@ -10,15 +11,22 @@ import type {
   WorkerRuntime,
   WorkerSummary,
 } from "../types.js";
+import { renderSurface, renderTabLine } from "./common.js";
 import {
   IssueExplorerController,
   type IssueExplorerDataSource,
   type IssueExplorerHooks,
 } from "./issue-explorer.js";
 import { formatRunManagerLines } from "./run-manager.js";
-import { buildWorkerManagerPanelLines } from "./worker-manager.js";
+import {
+  buildWorkerFooterHint,
+  buildWorkerManagerPanelLines,
+  groupWorkersForManager,
+  type WorkerActionKind,
+  type WorkerManagerEntry,
+} from "./worker-manager.js";
 
-export type DashboardTabId = "issues" | "workers" | "run" | "scope" | "actions";
+export type DashboardTabId = "issues" | "workers" | "run" | "scope";
 
 export type DashboardStatusSnapshot = {
   activation: ActivationState;
@@ -39,8 +47,16 @@ export type DashboardIssueExplorerDeps = IssueExplorerHooks & {
   initialFilter?: IssueExplorerFilter;
 };
 
+export type DashboardWorkerActionDeps = {
+  onLand?: (worker: WorkerRuntime) => Promise<DashboardStatusSnapshot | undefined>;
+  onCancel?: (worker: WorkerRuntime) => Promise<DashboardStatusSnapshot | undefined>;
+  onCleanup?: (worker: WorkerRuntime) => Promise<DashboardStatusSnapshot | undefined>;
+  onNotify?: (message: string, level?: "info" | "warning") => void;
+};
+
 export type DashboardDeps = {
   issueExplorer?: DashboardIssueExplorerDeps;
+  workerActions?: DashboardWorkerActionDeps;
 };
 
 export const DASHBOARD_TABS: Array<{ id: DashboardTabId; label: string }> = [
@@ -48,7 +64,6 @@ export const DASHBOARD_TABS: Array<{ id: DashboardTabId; label: string }> = [
   { id: "workers", label: "Workers" },
   { id: "run", label: "Run" },
   { id: "scope", label: "Scope" },
-  { id: "actions", label: "Actions" },
 ];
 
 export function canOpenDashboard(activation: ActivationState): boolean {
@@ -64,12 +79,14 @@ function describeActivation(activation: ActivationState): string {
   return `${activation.kind}${reason}`;
 }
 
-function describeScope(state: SessionState): string {
+function describeScope(state: SessionState, maxTitleWidth = 28): string {
   if (state.scope.kind === "none") {
     return "repo-wide";
   }
 
-  const title = state.scope.title ? ` · ${state.scope.title}` : "";
+  const title = state.scope.title
+    ? ` · ${truncateToWidth(state.scope.title, Math.max(12, maxTitleWidth), "…")}`
+    : "";
   return `${state.scope.kind}:${state.scope.id}${title}`;
 }
 
@@ -78,41 +95,60 @@ function describeBackground(state: SessionState): string | undefined {
   const notices = Object.keys(state.workerNotices ?? {}).length;
 
   if (state.mode === "run" && state.scope.kind === "epic") {
-    return `run supervision armed for ${state.scope.id}${tracked > 0 ? ` · tracked=${tracked}` : ""}`;
+    return `run armed for ${state.scope.id}${tracked > 0 ? ` · tracked ${tracked}` : ""}`;
   }
 
   if (tracked > 0 || notices > 0) {
-    const parts = [`tracked=${tracked}`];
+    const parts = [`tracked ${tracked}`];
     if (notices > 0) {
-      parts.push(`notices=${notices}`);
+      parts.push(`notices ${notices}`);
     }
     return parts.join(" · ");
   }
 
   if (state.recentRunSummary) {
-    return `last run ${state.recentRunSummary.epicId} stopped=${state.recentRunSummary.stopReason}`;
+    return `last run ${state.recentRunSummary.epicId} · ${state.recentRunSummary.stopReason}`;
   }
 
   return undefined;
 }
 
-function buildFooterHint(tab: DashboardTabId, issueExplorer?: IssueExplorerController): string {
+function describeCounts(counts?: BeadworkCounts): string | undefined {
+  if (!counts) {
+    return undefined;
+  }
+
+  return `ready ${counts.ready} · blocked ${counts.blocked} · in progress ${counts.inProgress}`;
+}
+
+function describeWorkerSummary(workerSummary?: WorkerSummary): string | undefined {
+  if (!workerSummary || workerSummary.total === 0) {
+    return undefined;
+  }
+
+  return `workers ${workerSummary.total} · active ${workerSummary.active} · held ${workerSummary.held} · landed ${workerSummary.landed}`;
+}
+
+function buildFooterHint(
+  tab: DashboardTabId,
+  issueExplorer?: IssueExplorerController,
+  selectedWorker?: WorkerManagerEntry,
+): string {
   if (tab === "issues" && issueExplorer) {
     return issueExplorer.renderFooterHint();
   }
   switch (tab) {
     case "workers":
-      return "tab/shift+tab or ←/→ switch tabs • /bw:workers opens the dedicated worker console • esc/q closes";
+      return buildWorkerFooterHint(selectedWorker);
     case "run":
-      return "tab/shift+tab or ←/→ switch tabs • pick an epic in Issues and press r to open run clarify • esc/q closes";
+      return "tab switch • r from Issues starts a run";
     case "scope":
-      return "tab/shift+tab or ←/→ switch tabs • use s/x from Issues or /bw:scope to retarget scope • esc/q closes";
-    case "actions":
-      return "tab/shift+tab or ←/→ switch tabs • use the listed /bw:* aliases from any session • esc/q closes";
+      return "scope from Issues with s • clear with x";
     case "issues":
-      return "tab/shift+tab or ←/→ switch tabs • esc/q closes";
+      return "tab switch • esc close";
   }
 }
+
 function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
   switch (tab) {
     case "issues": {
@@ -121,7 +157,7 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
           "This repo looks beadwork-capable, but the beadwork branch is not initialized yet.",
           model.activation.detail ?? "Run the repo's beadwork bootstrap flow to finish setup.",
           "",
-          "Initialize beadwork to unlock the ready-first issue explorer, worker console, and run panel.",
+          "Initialize beadwork to unlock the issue explorer, worker controls, and run panel.",
         ];
       }
 
@@ -137,41 +173,25 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
           model.activation.detail ?? "No worker diagnostics are available yet.",
         ];
       }
-      return buildWorkerManagerPanelLines({
-        workers: model.workers ?? [],
-        state: model.state,
-        maxWorkersPerGroup: 3,
-      });
+
+      return [
+        "Workers tab unavailable.",
+        "The worker manager was not wired for this dashboard invocation.",
+      ];
     }
     case "run":
       return formatRunManagerLines(model);
     case "scope":
       return [
-        "Session scope",
-        `Mode: ${model.state.mode}`,
-        `Scope: ${describeScope(model.state)}`,
+        "Current scope",
+        `${model.state.mode} · ${describeScope(model.state)}`,
         model.scopeDetail
-          ? `Scoped issue: ${model.scopeDetail.id} · ${model.scopeDetail.type} · ${model.scopeDetail.status} · ${model.scopeDetail.title}`
-          : "Scoped issue: none loaded.",
+          ? `${model.scopeDetail.id} · ${model.scopeDetail.type} · ${model.scopeDetail.status}`
+          : "No scoped issue detail loaded.",
+        model.scopeDetail?.title ?? "Scope an issue from the Issues tab.",
         model.state.prime?.loadedAt
-          ? `Prime: cached ${model.state.prime.loadedAt}`
-          : "Prime: loads on the first active workflow action.",
-        "",
-        "Best next steps:",
-        "- use s on the Issues tab to retarget scope to the current selection",
-        "- use x on the Issues tab to clear scope back to repo-wide browsing",
-        "- use /bw:scope <issue-id|clear> when you want the text-command path",
-      ];
-    case "actions":
-      return [
-        "Quick actions",
-        "- Issues tab: s scopes the selected issue • d opens delegate clarify • r opens run clarify",
-        "- /bw:workers opens the dedicated worker console for selection + follow-up",
-        "- /bw:delegate <ticket-id> and /bw:run <epic-id> stay available for text-first launches",
-        "- /bw:land, /bw:cancel, and /bw:cleanup accept either ticket ids or worker ids",
-        "- /bw status, /bw ready, /bw list, and /bw show remain available alongside the dashboard",
-        "",
-        "Aliases: /bw:status • /bw:scope • /bw:workers • /bw:delegate • /bw:land • /bw:cancel • /bw:cleanup • /bw:run",
+          ? `Prime cached ${model.state.prime.loadedAt}`
+          : "Prime loads on the first active workflow action.",
       ];
   }
 }
@@ -181,13 +201,14 @@ class DashboardComponent implements Component {
   private cachedWidth?: number;
   private cachedLines?: string[];
   private readonly issueExplorer?: IssueExplorerController;
+  private selectedWorkerId?: string;
   private readonly model: DashboardModel;
 
   constructor(
     private readonly tui: TUI,
     private readonly theme: Theme,
     model: DashboardModel,
-    deps: DashboardDeps | undefined,
+    private readonly deps: DashboardDeps | undefined,
     private readonly done: (result: undefined) => void,
   ) {
     this.model = { ...model };
@@ -213,6 +234,31 @@ class DashboardComponent implements Component {
 
   private get selectedTab(): DashboardTabId {
     return DASHBOARD_TABS[this.selectedTabIndex]?.id ?? "issues";
+  }
+
+  private get workerEntries(): WorkerManagerEntry[] {
+    return groupWorkersForManager({
+      workers: this.model.workers ?? [],
+      state: this.model.state,
+    }).flatMap((group) => group.workers);
+  }
+
+  private get selectedWorkerEntry(): WorkerManagerEntry | undefined {
+    const entries = this.workerEntries;
+    if (entries.length === 0) {
+      this.selectedWorkerId = undefined;
+      return undefined;
+    }
+
+    const selected = this.selectedWorkerId
+      ? entries.find((entry) => entry.worker.workerId === this.selectedWorkerId)
+      : undefined;
+    if (selected) {
+      return selected;
+    }
+
+    this.selectedWorkerId = entries[0]?.worker.workerId;
+    return entries[0];
   }
 
   private wrapSnapshotHook(
@@ -257,6 +303,14 @@ class DashboardComponent implements Component {
     this.model.workerSummary = snapshot.workerSummary;
     this.model.workers = snapshot.workers;
     this.issueExplorer?.setSessionState(snapshot.state);
+
+    if (
+      this.selectedWorkerId &&
+      !(snapshot.workers ?? []).some((worker) => worker.workerId === this.selectedWorkerId)
+    ) {
+      this.selectedWorkerId = snapshot.workers?.[0]?.workerId;
+    }
+
     this.requestRender();
   }
 
@@ -265,9 +319,80 @@ class DashboardComponent implements Component {
     this.tui.requestRender();
   }
 
+  private moveWorkerSelection(delta: number): void {
+    const entries = this.workerEntries;
+    if (entries.length === 0) {
+      return;
+    }
+
+    const selected = this.selectedWorkerEntry;
+    const currentIndex = selected
+      ? entries.findIndex((entry) => entry.worker.workerId === selected.worker.workerId)
+      : 0;
+    const nextIndex = Math.max(0, Math.min(entries.length - 1, currentIndex + delta));
+    this.selectedWorkerId = entries[nextIndex]?.worker.workerId;
+    this.requestRender();
+  }
+
+  private async requestWorkerAction(kind: WorkerActionKind): Promise<void> {
+    const entry = this.selectedWorkerEntry;
+    if (!entry) {
+      this.deps?.workerActions?.onNotify?.("No worker selected.", "info");
+      return;
+    }
+
+    const action = entry.actions[kind];
+    if (!action.enabled) {
+      this.deps?.workerActions?.onNotify?.(
+        `Cannot ${kind} ${entry.worker.ticketId}: ${action.reason}.`,
+        "warning",
+      );
+      return;
+    }
+
+    let snapshot: DashboardStatusSnapshot | undefined;
+    switch (kind) {
+      case "land":
+        snapshot = await this.deps?.workerActions?.onLand?.(entry.worker);
+        break;
+      case "cancel":
+        snapshot = await this.deps?.workerActions?.onCancel?.(entry.worker);
+        break;
+      case "cleanup":
+        snapshot = await this.deps?.workerActions?.onCleanup?.(entry.worker);
+        break;
+    }
+
+    this.applySnapshot(snapshot);
+    this.requestRender();
+  }
+
   handleInput(data: string): void {
     if (this.selectedTab === "issues" && this.issueExplorer?.handleInput(data)) {
       return;
+    }
+
+    if (this.selectedTab === "workers") {
+      if (matchesKey(data, Key.up) || matchesKey(data, "k")) {
+        this.moveWorkerSelection(-1);
+        return;
+      }
+      if (matchesKey(data, Key.down) || matchesKey(data, "j")) {
+        this.moveWorkerSelection(1);
+        return;
+      }
+      if (matchesKey(data, "l")) {
+        void this.requestWorkerAction("land");
+        return;
+      }
+      if (matchesKey(data, "c")) {
+        void this.requestWorkerAction("cancel");
+        return;
+      }
+      if (matchesKey(data, "u")) {
+        void this.requestWorkerAction("cleanup");
+        return;
+      }
     }
 
     if (matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab"))) {
@@ -293,45 +418,49 @@ class DashboardComponent implements Component {
       return this.cachedLines;
     }
 
-    const headerLines = [
-      this.theme.fg("accent", this.theme.bold("Beadwork Dashboard")),
-      `Repo: ${this.model.activation.repoRoot ?? this.model.cwd}`,
-      `Activation: ${describeActivation(this.model.activation)}`,
-      `Mode: ${this.model.state.mode}`,
-      `Scope: ${describeScope(this.model.state)}`,
-    ];
+    const bodyWidth = Math.max(40, width - 4);
+    const repoLabel =
+      path.basename(this.model.activation.repoRoot ?? this.model.cwd) || this.model.cwd;
+    const statusLine = `${repoLabel} · ${describeActivation(this.model.activation)} · ${this.model.state.mode} · ${describeScope(this.model.state, 22)}`;
+    const secondaryParts = [
+      describeCounts(this.model.counts),
+      describeWorkerSummary(this.model.workerSummary),
+      describeBackground(this.model.state),
+    ].filter((value): value is string => Boolean(value));
 
-    const background = describeBackground(this.model.state);
-    if (background) {
-      headerLines.push(`Background: ${background}`);
-    }
-
-    if (this.model.counts) {
-      headerLines.push(
-        `Counts: ready=${this.model.counts.ready} blocked=${this.model.counts.blocked} in_progress=${this.model.counts.inProgress}`,
-      );
-    }
-
-    if (this.model.workerSummary && this.model.workerSummary.total > 0) {
-      headerLines.push(
-        `Workers: total=${this.model.workerSummary.total} active=${this.model.workerSummary.active} held=${this.model.workerSummary.held} landed=${this.model.workerSummary.landed}`,
-      );
-    }
-
-    const tabsLine = DASHBOARD_TABS.map((tab, index) => {
-      const label = ` ${index === this.selectedTabIndex ? "●" : "○"} ${tab.label} `;
-      return index === this.selectedTabIndex ? this.theme.fg("accent", label) : label;
-    }).join(" ");
+    const tabsLine = renderTabLine(
+      this.theme,
+      DASHBOARD_TABS.map((tab, index) => ({
+        label: tab.label,
+        selected: index === this.selectedTabIndex,
+      })),
+      bodyWidth,
+    );
 
     const bodyLines =
       this.selectedTab === "issues" && this.issueExplorer
-        ? this.issueExplorer.renderLines()
-        : buildPanelLines(this.model, this.selectedTab);
-    const footer = this.theme.fg("dim", buildFooterHint(this.selectedTab, this.issueExplorer));
+        ? this.issueExplorer.renderLines(bodyWidth)
+        : this.selectedTab === "workers" && this.model.activation.kind === "active"
+          ? buildWorkerManagerPanelLines({
+              workers: this.model.workers ?? [],
+              state: this.model.state,
+              selectedWorkerId: this.selectedWorkerEntry?.worker.workerId,
+              width: bodyWidth,
+            })
+          : buildPanelLines(this.model, this.selectedTab);
 
-    const lines = [...headerLines, "", tabsLine, "", ...bodyLines, "", footer].flatMap((line) =>
-      wrapTextWithAnsi(line, Math.max(1, width)).map((wrapped) => truncateToWidth(wrapped, width)),
-    );
+    const lines = renderSurface(this.theme, width, {
+      title: "Beadwork Dashboard",
+      subtitle: [statusLine, ...(secondaryParts.length > 0 ? [secondaryParts.join(" • ")] : [])],
+      sections: [
+        { lines: [tabsLine] },
+        {
+          title: DASHBOARD_TABS[this.selectedTabIndex]?.label ?? "Dashboard",
+          lines: bodyLines,
+        },
+      ],
+      footer: buildFooterHint(this.selectedTab, this.issueExplorer, this.selectedWorkerEntry),
+    });
 
     this.cachedWidth = width;
     this.cachedLines = lines;

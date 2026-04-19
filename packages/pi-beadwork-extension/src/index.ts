@@ -1164,6 +1164,45 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             resolveCounts,
             inspectWorkers,
             syncWorkerTracking,
+            executeLand: async (actionCtx, target) => {
+              await handleLandingAction({
+                subcommand: "land",
+                parsed: { positional: [target], options: new Map() },
+                ctx: actionCtx,
+                deps: {
+                  adapter,
+                  requireActive,
+                  trackWorkerForBackground,
+                },
+              });
+            },
+            executeCancel: async (actionCtx, target) => {
+              await handleWorkersAction({
+                subcommand: "cancel",
+                parsed: { positional: [target], options: new Map() },
+                ctx: actionCtx,
+                deps: {
+                  requireActive,
+                  inspectWorkers,
+                  syncWorkerTracking,
+                },
+              });
+            },
+            executeCleanup: async (actionCtx, target) => {
+              await handleCleanupAction({
+                subcommand: "cleanup",
+                parsed: { positional: [target], options: new Map() },
+                ctx: actionCtx,
+                deps: {
+                  loadConfig,
+                  detectActivation,
+                  readSessionState,
+                  resetState,
+                  inspectWorkers,
+                  requireActive,
+                },
+              });
+            },
           },
         })
       ) {

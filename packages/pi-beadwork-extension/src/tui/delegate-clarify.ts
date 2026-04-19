@@ -1,8 +1,9 @@
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { Component, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { type ParsedModelOverride, parseModelOverride } from "../argv.js";
 import type { BeadworkIssueDetail } from "../types.js";
+import { renderSurface } from "./common.js";
 
 export type DelegateClarifyResult = {
   ticketId: string;
@@ -76,22 +77,32 @@ export class DelegateClarifyComponent implements Component {
   }
 
   render(width: number): string[] {
-    const lines = [
-      this.theme.fg("accent", this.theme.bold("Delegate ticket")),
-      `${this.issue.id} · ${this.issue.title}`,
-      `Parent epic: ${this.issue.parentId ?? "none"}`,
-      "",
-      `Model override: ${this.modelOverrideText || "(default worker model)"}`,
-      "Type provider/model for a one-off worker override, or leave it empty to keep the configured default.",
-      "",
-      this.error
-        ? `Error: ${this.error}`
-        : "type to edit • enter delegates • backspace deletes • esc/q cancels",
-    ];
-
-    return lines.flatMap((line) =>
-      wrapTextWithAnsi(line, Math.max(1, width)).map((wrapped) => truncateToWidth(wrapped, width)),
-    );
+    return renderSurface(this.theme, width, {
+      title: "Delegate ticket",
+      subtitle: [
+        `${this.issue.id} · ${this.issue.title}`,
+        `Parent epic: ${this.issue.parentId ?? "none"}`,
+      ],
+      sections: [
+        {
+          title: "Launch intent",
+          lines: [
+            `Model override: ${this.modelOverrideText || "(default worker model)"}`,
+            "Type provider/model for a one-off worker override, or leave it empty to keep the configured default.",
+          ],
+        },
+        {
+          title: this.error ? "Validation" : "Controls",
+          tone: this.error ? "error" : "muted",
+          lines: [
+            this.error ?? "type to edit • enter delegates • backspace deletes • esc/q cancels",
+          ],
+        },
+      ],
+      bodyHeight: 12,
+      footer:
+        "This modal keeps the launch scoped to the selected ticket and optional model override.",
+    });
   }
 
   invalidate(): void {}

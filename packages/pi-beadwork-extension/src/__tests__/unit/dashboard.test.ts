@@ -172,9 +172,9 @@ describe("dashboard", () => {
       render: (width: number) => string[];
       applySnapshot: (snapshot: DashboardStatusSnapshot) => void;
     };
-
-    expect(renderComponent(dashboard)).toContain("Workers: total=1 active=1 held=0 landed=0");
-    expect(renderComponent(dashboard)).toContain("Selected: BW-101 · running · Delegable ticket");
+    expect(renderComponent(dashboard)).toContain("workers 1 · active 1 · held 0 · landed 0");
+    expect(renderComponent(dashboard)).toContain("Delegable ticket");
+    expect(renderComponent(dashboard)).toContain("running · ticket open");
 
     dashboard.applySnapshot(
       createSnapshot({
@@ -183,14 +183,12 @@ describe("dashboard", () => {
         workers: [heldWorker],
       }),
     );
-
     const rendered = renderComponent(dashboard);
-    expect(rendered).toContain("Workers: total=1 active=0 held=1 landed=0");
-    expect(rendered).toContain("Selected: BW-101 · held · Delegable ticket");
-    expect(rendered).toContain("Background: tracked=1");
-    expect(rendered).not.toContain("Selected: BW-101 · running · Delegable ticket");
+    expect(rendered).toContain("workers 1 · active 0 · held 1 · landed 0");
+    expect(rendered).toContain("held · ticket closed");
+    expect(rendered).toContain("tracked 1");
+    expect(rendered).not.toContain("running · ticket open");
   });
-
   it("applies delegate follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
     const ticket = createIssue({
       id: "BW-101",
@@ -232,25 +230,24 @@ describe("dashboard", () => {
       selectedTabIndex?: number;
       invalidate?: () => void;
     };
-
     dashboard.handleInput("d");
     await flushAsyncWork();
 
     const issuesRendered = renderComponent(dashboard);
     expect(onDelegateIntent).toHaveBeenCalledWith(ticketDetail);
-    expect(issuesRendered).toContain("Counts: ready=0 blocked=0 in_progress=1");
-    expect(issuesRendered).toContain("Workers: total=1 active=1 held=0 landed=0");
+    expect(issuesRendered).toContain("ready 0 · blocked 0 · in progress 1");
+    expect(issuesRendered).toContain("workers 1 · active 1 · held 0 · landed 0");
 
     selectTab(dashboard, "workers");
     const workersRendered = renderComponent(dashboard);
-    expect(workersRendered).toContain("Selected: BW-101 · running · Delegable ticket");
-
+    expect(workersRendered).toContain("Delegable ticket");
+    expect(workersRendered).toContain("running · ticket open");
+    expect(workersRendered).toContain("l land blocked");
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
     expect(runRendered).toContain("Run state: idle");
     expect(runRendered).toContain("Workers: total=1 active=1 held=0 landed=0 attention=0 failed=0");
   });
-
   it("applies run follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
     const epicDetail = createDetail(epic, [createIssue({ id: "BW-101", parentId: "BW-100" })]);
@@ -321,15 +318,13 @@ describe("dashboard", () => {
       selectedTabIndex?: number;
       invalidate?: () => void;
     };
-
     dashboard.handleInput("r");
     await flushAsyncWork();
 
     const issuesRendered = renderComponent(dashboard);
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
-    expect(issuesRendered).toContain("Mode: run");
-    expect(issuesRendered).toContain("Scope: epic:BW-100 · Runnable epic");
-    expect(issuesRendered).toContain("Workers: total=1 active=1 held=0 landed=0");
+    expect(issuesRendered).toContain("repo · active · run · epic:BW-100 · Runnable epic");
+    expect(issuesRendered).toContain("workers 1 · active 1 · held 0 · landed 0");
 
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
@@ -345,13 +340,11 @@ describe("dashboard", () => {
     selectTab(dashboard, "workers");
     const workersRendered = renderComponent(dashboard);
     expect(workersRendered).toContain("Epic BW-100 (current scope)");
-    expect(workersRendered).toContain(
-      "Commands: /bw land BW-101 · /bw cancel bw-101-worker · /bw cleanup BW-101",
-    );
-    expect(workersRendered).toContain("Selected: BW-101 · running · Runnable ticket");
+    expect(workersRendered).toContain("Runnable ticket");
+    expect(workersRendered).toContain("running · ticket open");
+    expect(workersRendered).toContain("c cancel ready");
   });
-
-  it("renders polished scope and actions tabs with dashboard-level hints", async () => {
+  it("renders the scope tab with concise dashboard-level hints", async () => {
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({
       cwd: "/repo",
@@ -375,21 +368,13 @@ describe("dashboard", () => {
       selectedTabIndex?: number;
       invalidate?: () => void;
     };
-
     selectTab(dashboard, "scope");
     const scopeRendered = renderComponent(dashboard);
-    expect(scopeRendered).toContain("Session scope");
-    expect(scopeRendered).toContain("Best next steps:");
-    expect(scopeRendered).toContain("use s on the Issues tab to retarget scope");
-    expect(scopeRendered).toContain("Background: tracked=1");
-    expect(scopeRendered).toContain("use s/x from Issues or /bw:scope to retarget scope");
-
-    selectTab(dashboard, "actions");
-    const actionsRendered = renderComponent(dashboard);
-    expect(actionsRendered).toContain("Quick actions");
-    expect(actionsRendered).toContain("/bw:workers opens the dedicated worker console");
-    expect(actionsRendered).toContain("Aliases: /bw:status");
-    expect(actionsRendered).toContain("use the listed /bw:* aliases from any session");
-    expect(actionsRendered).not.toContain("Later tickets");
+    expect(scopeRendered).toContain("Current scope");
+    expect(scopeRendered).toContain("interactive · epic:BW-100 · Scoped epic");
+    expect(scopeRendered).toContain("tracked 1");
+    expect(scopeRendered).toContain("Scoped epic");
+    expect(scopeRendered).toContain("scope from Issues with s • clear with x");
+    expect(scopeRendered).not.toContain("Quick actions");
   });
 });

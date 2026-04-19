@@ -94,6 +94,7 @@ export type FakeUi = {
   statuses: Map<string, string | undefined>;
   theme: {
     fg: (_color: string, text: string) => string;
+    bg: (_color: string, text: string) => string;
     bold: (text: string) => string;
   };
   notify: (message: string, level?: string) => void;
@@ -122,6 +123,7 @@ export function createFakeUi(): FakeUi {
     statuses,
     theme: {
       fg: (_color, text) => text,
+      bg: (_color, text) => text,
       bold: (text) => text,
     },
     notify: (message, level) => {
@@ -144,6 +146,7 @@ export function createFakeUi(): FakeUi {
               tui as unknown,
               {
                 fg: (_color: string, text: string) => text,
+                bg: (_color: string, text: string) => text,
                 bold: (text: string) => text,
               },
               {},

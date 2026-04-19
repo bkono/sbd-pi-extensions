@@ -1,7 +1,8 @@
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { Component, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { BeadworkIssueDetail, RunUntil, SessionRunOptions, SessionState } from "../types.js";
+import { renderSurface } from "./common.js";
 
 export type RunClarifyResult = {
   epicId: string;
@@ -145,35 +146,42 @@ export class RunClarifyComponent implements Component {
   }
 
   render(width: number): string[] {
-    const lines = [
-      this.theme.fg("accent", this.theme.bold("Run epic")),
-      `${this.epic.id} · ${this.epic.title}`,
-      `Session: mode=${this.sessionState.mode} · scope=${this.sessionState.scope.kind === "none" ? "repo-wide" : `${this.sessionState.scope.kind}:${this.sessionState.scope.id}`}`,
-      "",
-      ...RUN_FIELDS.map((field, index) => {
-        const prefix = index === this.selectedIndex ? ">" : " ";
-        switch (field) {
-          case "workers":
-            return `${prefix} Workers: ${this.workers}`;
-          case "until":
-            return `${prefix} Until: ${this.until}`;
-          case "maxCycles":
-            return `${prefix} Max cycles: ${this.maxCycles}`;
-          case "dryRun":
-            return `${prefix} Dry run: ${this.dryRun ? "yes" : "no"}`;
-          case "noSpawn":
-            return `${prefix} No spawn: ${this.noSpawn ? "yes" : "no"}`;
-          default:
-            return prefix;
-        }
-      }),
-      "",
-      "↑/↓ or j/k choose • ←/→ or h/l or space adjust • enter starts • esc/q cancels",
-    ];
+    const scope =
+      this.sessionState.scope.kind === "none"
+        ? "repo-wide"
+        : `${this.sessionState.scope.kind}:${this.sessionState.scope.id}`;
 
-    return lines.flatMap((line) =>
-      wrapTextWithAnsi(line, Math.max(1, width)).map((wrapped) => truncateToWidth(wrapped, width)),
-    );
+    return renderSurface(this.theme, width, {
+      title: "Run epic",
+      subtitle: [
+        `${this.epic.id} · ${this.epic.title}`,
+        `Session: mode=${this.sessionState.mode} · scope=${scope}`,
+      ],
+      sections: [
+        {
+          title: "Run options",
+          lines: RUN_FIELDS.map((field, index) => {
+            const prefix = index === this.selectedIndex ? ">" : " ";
+            switch (field) {
+              case "workers":
+                return `${prefix} Workers: ${this.workers}`;
+              case "until":
+                return `${prefix} Until: ${this.until}`;
+              case "maxCycles":
+                return `${prefix} Max cycles: ${this.maxCycles}`;
+              case "dryRun":
+                return `${prefix} Dry run: ${this.dryRun ? "yes" : "no"}`;
+              case "noSpawn":
+                return `${prefix} No spawn: ${this.noSpawn ? "yes" : "no"}`;
+              default:
+                return prefix;
+            }
+          }),
+        },
+      ],
+      bodyHeight: 10,
+      footer: "↑/↓ or j/k choose • ←/→ or h/l or space adjust • enter starts • esc/q cancels",
+    });
   }
 
   invalidate(): void {}

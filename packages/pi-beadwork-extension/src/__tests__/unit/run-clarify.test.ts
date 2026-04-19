@@ -39,6 +39,7 @@ function createState(overrides: Partial<SessionState> = {}): SessionState {
 function createTheme() {
   return {
     fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
     bold: (text: string) => text,
   };
 }
@@ -100,8 +101,8 @@ describe("run clarify modal", () => {
     expect(rendered).toContain("Run epic");
     expect(rendered).toContain("Session: mode=interactive · scope=epic:BW-100");
     expect(rendered).toContain("> Workers: 2");
-    expect(rendered).toContain(
-      "↑/↓ or j/k choose • ←/→ or h/l or space adjust • enter starts • esc/q cancels",
-    );
+    expect(rendered).toContain("↑/↓ or j/k choose");
+    expect(rendered).toContain("enter starts");
+    expect(rendered).toContain("esc/q");
   });
 });
