@@ -13,9 +13,15 @@
   "id": "sbdpi-wx1.3",
   "labels": [],
   "parent": "sbdpi-wx1",
+  "comments": [
+    {
+      "text": "Recovering ticket after worker exited but landing/remediation stalled. Taking over manually to land the existing worker commit cleanly onto feat/bw-tui without disturbing the still-running sbdpi-wx1.4 worker.",
+      "timestamp": "2026-04-19T19:04:44Z"
+    }
+  ],
   "priority": 1,
   "status": "closed",
   "title": "Implement the worker manager overlay and shared worker action lane",
   "type": "task",
-  "updated_at": "2026-04-19T18:53:01Z"
+  "updated_at": "2026-04-19T19:04:44Z"
 }
