@@ -23,11 +23,15 @@
     {
       "text": "Manual landing recovery complete. The delegated worker had exited cleanly but was no longer tracked in the worker registry, and its worktree commit had not landed on `feat/bw-tui`. I cherry-picked the recovered worker commit onto `feat/bw-tui`, resolved the dashboard merge conflict against the existing worker-manager wiring, and validated the result.\n\nLanded commit: `bcabc2a` (`feat(pi-beadwork-extension): add clarify modals and run panel for sbdpi-wx1.4`)\n\nValidation run:\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n\nNote: the original worker runtime for `sbdpi-wx1.4` never produced `review.log` / `review-handoff.txt`, so this landing was recovered manually from the surviving worktree commit rather than via the normal reviewer/registry flow.",
       "timestamp": "2026-04-19T19:17:59Z"
+    },
+    {
+      "text": "Post-landing deep review of recovered commit `bcabc2a` found blocking follow-up issues in the dashboard refresh path.\n\nFindings:\n1. `packages/pi-beadwork-extension/src/tui/dashboard.ts` wires `onEngageRepoWide`, `onScopeSelection`, and `onClearScope` through snapshot-applying wrappers, but passes `onDelegateIntent` and `onRunIntent` through directly. The corresponding handlers in `src/actions/status.ts` do return fresh `DashboardStatusSnapshot`s after launching delegate/run flows, but those snapshots are only partially consumed by `IssueExplorerController.applySnapshot(...)`, which currently updates `sessionState` only. Result: after launching delegate/run from the Issues tab, the dashboard header and non-Issues tabs (especially Run/Workers) can remain stale until the overlay is reopened.\n2. `DashboardComponent.applySnapshot(...)` updates `activation`, `state`, `counts`, `scopeDetail`, and `workerSummary`, but not `model.workers`, even though `DashboardStatusSnapshot` includes `workers`. Result: Workers-tab rows can remain stale across refreshes even when summary badges update.\n\nThe second item is already tracked by follow-up bug `sbdpi-wx1.6`. The first item appears distinct and should be tracked separately unless we intentionally fold it into the same fix ticket.",
+      "timestamp": "2026-04-19T19:30:53Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Add delegate/run clarify modals and the single-epic run panel",
   "type": "task",
-  "updated_at": "2026-04-19T19:18:03Z"
+  "updated_at": "2026-04-19T19:30:53Z"
 }
