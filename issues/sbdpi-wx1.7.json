@@ -13,11 +13,15 @@
     {
       "text": "Manual progress update: rebuilt the dashboard, issue explorer, worker manager, and delegate/run clarify overlays around a shared framed-surface renderer with stable modal chrome/background fill. The Issues and Workers views now render as structured list/detail surfaces instead of raw wrapped text blobs, and the clarify modals use the same visual system. Local package gates are green: `npm run lint -w @solvedbydev/pi-beadwork-extension`, `npm run test -w @solvedbydev/pi-beadwork-extension`, and `npm run typecheck -w @solvedbydev/pi-beadwork-extension`. Not landed yet; working tree still contains the implementation + updated regression tests.",
       "timestamp": "2026-04-19T21:57:42Z"
+    },
+    {
+      "text": "User review feedback on current framed-surface pass:\n\n1. `… N more lines` is currently hiding content without an in-panel paging/scroll affordance; this needs to be fixed rather than treated as acceptable overflow.\n2. Workers footer copy like `/bw:workers opens ...` is clutter when already on that page.\n3. Footer verbosity across tabs needs cleanup; keep only high-value contextual controls.\n4. The Actions tab is not useful in its current form because it duplicates footer/command palette material.\n5. Visual hierarchy is still weak: top status blob is too tall, sections have near-identical visual weight, spacing/color do not guide the eye, and nested issue drill-in still reads like a paragraph dump.\n6. Workers tab is still missing direct in-view action shortcuts/selection flow for cancel/land/cleanup.\n\nAgreed next pass for wx1.7:\n- replace fixed-height clipping/`… N more lines` with real navigable list/detail panes or otherwise ensure hidden content is reachable\n- compress dashboard header into a smaller status strip so the main content area gets more space\n- remove or substantially repurpose the Actions tab (default assumption: remove)\n- simplify per-tab footers to concise contextual hints only\n- increase hierarchy in Issues/Workers/detail layouts (stronger section separation, tighter metadata summaries, less paragraph formatting)\n- add direct worker actions from the Workers tab with visible enabled/blocked state and shortcuts",
+      "timestamp": "2026-04-19T22:08:14Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Rebuild beadwork overlays as real pi TUI surfaces instead of transparent text dumps",
   "type": "task",
-  "updated_at": "2026-04-19T21:57:42Z"
+  "updated_at": "2026-04-19T22:08:14Z"
 }
