@@ -9,9 +9,15 @@
     "bug"
   ],
   "parent": "sbdpi-wx1",
+  "comments": [
+    {
+      "text": "Manual progress update: rebuilt the dashboard, issue explorer, worker manager, and delegate/run clarify overlays around a shared framed-surface renderer with stable modal chrome/background fill. The Issues and Workers views now render as structured list/detail surfaces instead of raw wrapped text blobs, and the clarify modals use the same visual system. Local package gates are green: `npm run lint -w @solvedbydev/pi-beadwork-extension`, `npm run test -w @solvedbydev/pi-beadwork-extension`, and `npm run typecheck -w @solvedbydev/pi-beadwork-extension`. Not landed yet; working tree still contains the implementation + updated regression tests.",
+      "timestamp": "2026-04-19T21:57:42Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Rebuild beadwork overlays as real pi TUI surfaces instead of transparent text dumps",
   "type": "task",
-  "updated_at": "2026-04-19T21:42:54Z"
+  "updated_at": "2026-04-19T21:57:42Z"
 }
