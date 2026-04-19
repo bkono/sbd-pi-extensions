@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { type ParsedArgv, parseModelOverride } from "../argv.js";
+import { type ParsedArgv, type ParsedModelOverride, parseModelOverride } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { launchTicketWorker } from "../orchestrator.js";
 import { summarizeWorkers } from "../registry.js";
@@ -35,31 +35,18 @@ export type DelegateActionDeps = {
   ) => Promise<SessionState>;
 };
 
-export async function handleDelegateAction(input: {
-  subcommand: string;
-  parsed: ParsedArgv;
+export async function executeDelegateAction(input: {
   ctx: ExtensionCommandContext;
   deps: DelegateActionDeps;
-}): Promise<boolean> {
-  const { subcommand, parsed, ctx, deps } = input;
-  if (subcommand !== "delegate") {
-    return false;
-  }
-
+  ticketId: string;
+  epicId?: string;
+  modelOverride?: ParsedModelOverride;
+}): Promise<WorkerRuntime | null> {
+  const { ctx, deps, ticketId, epicId, modelOverride } = input;
   const active = await deps.requireActive(ctx);
   if (!active) {
-    return true;
+    return null;
   }
-
-  const ticketId = parsed.positional[0];
-  if (!ticketId) {
-    ctx.ui.notify("Usage: /bw delegate <ticket-id> [--model provider/model]", "info");
-    return true;
-  }
-
-  const modelOverrideValue = parsed.options.get("model");
-  const modelOverride =
-    typeof modelOverrideValue === "string" ? parseModelOverride(modelOverrideValue) : undefined;
 
   const stateWithPrime = await deps.ensurePrime(
     ctx,
@@ -74,7 +61,7 @@ export async function handleDelegateAction(input: {
     config: active.config,
     adapter: deps.adapter,
     ticketId,
-    epicId: active.state.scope.kind === "epic" ? active.state.scope.id : undefined,
+    epicId: epicId ?? (active.state.scope.kind === "epic" ? active.state.scope.id : undefined),
     prime: stateWithPrime.prime?.content,
     workerProviderOverride: modelOverride?.provider,
     workerModelOverride: modelOverride?.model,
@@ -97,5 +84,35 @@ export async function handleDelegateAction(input: {
     workers,
   );
   updateStatusline(ctx, active.activation, trackedState, active.config, summarizeWorkers(workers));
+  return worker;
+}
+
+export async function handleDelegateAction(input: {
+  subcommand: string;
+  parsed: ParsedArgv;
+  ctx: ExtensionCommandContext;
+  deps: DelegateActionDeps;
+}): Promise<boolean> {
+  const { subcommand, parsed, ctx, deps } = input;
+  if (subcommand !== "delegate") {
+    return false;
+  }
+
+  const ticketId = parsed.positional[0];
+  if (!ticketId) {
+    ctx.ui.notify("Usage: /bw delegate <ticket-id> [--model provider/model]", "info");
+    return true;
+  }
+
+  const modelOverrideValue = parsed.options.get("model");
+  const modelOverride =
+    typeof modelOverrideValue === "string" ? parseModelOverride(modelOverrideValue) : undefined;
+
+  await executeDelegateAction({
+    ctx,
+    deps,
+    ticketId,
+    modelOverride,
+  });
   return true;
 }

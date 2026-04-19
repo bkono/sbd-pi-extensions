@@ -43,6 +43,47 @@ describe("session state persistence", () => {
         until: "blocked",
         noSpawn: true,
         dryRun: false,
+        maxCycles: 5,
+      },
+      lastRunOptions: {
+        workers: 2,
+        until: "empty",
+        noSpawn: false,
+        dryRun: true,
+        maxCycles: 1,
+      },
+      recentRunSummary: {
+        epicId: "BW-100",
+        stopReason: "blocked",
+        cycles: 2,
+        launched: ["BW-101"],
+        activeWorkerIds: ["bw-101-worker"],
+        workerSummary: {
+          total: 1,
+          active: 1,
+          launching: 0,
+          running: 1,
+          exited: 0,
+          held: 0,
+          landed: 0,
+          failed: 0,
+          attention: 0,
+          cleaned: 0,
+        },
+        notes: ["waiting for blockers"],
+        cycleSummaries: [
+          {
+            cycle: 1,
+            ready: ["BW-101"],
+            launched: ["BW-101"],
+            running: ["bw-101-worker"],
+            held: [],
+            landed: [],
+            failed: [],
+            attention: [],
+            exited: [],
+          },
+        ],
       },
     });
 
@@ -66,6 +107,47 @@ describe("session state persistence", () => {
         until: "blocked",
         noSpawn: true,
         dryRun: false,
+        maxCycles: 5,
+      },
+      lastRunOptions: {
+        workers: 2,
+        until: "empty",
+        noSpawn: false,
+        dryRun: true,
+        maxCycles: 1,
+      },
+      recentRunSummary: {
+        epicId: "BW-100",
+        stopReason: "blocked",
+        cycles: 2,
+        launched: ["BW-101"],
+        activeWorkerIds: ["bw-101-worker"],
+        workerSummary: {
+          total: 1,
+          active: 1,
+          launching: 0,
+          running: 1,
+          exited: 0,
+          held: 0,
+          landed: 0,
+          failed: 0,
+          attention: 0,
+          cleaned: 0,
+        },
+        notes: ["waiting for blockers"],
+        cycleSummaries: [
+          {
+            cycle: 1,
+            ready: ["BW-101"],
+            launched: ["BW-101"],
+            running: ["bw-101-worker"],
+            held: [],
+            landed: [],
+            failed: [],
+            attention: [],
+            exited: [],
+          },
+        ],
       },
     });
 
@@ -74,6 +156,8 @@ describe("session state persistence", () => {
     expect(raw).toContain("prime guidance");
     expect(raw).toContain("bw-101-worker");
     expect(raw).toContain('"runOptions"');
+    expect(raw).toContain('"lastRunOptions"');
+    expect(raw).toContain('"recentRunSummary"');
   });
 
   it("resets a session back to neutral mode", async () => {

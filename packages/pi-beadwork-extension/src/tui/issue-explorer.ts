@@ -21,8 +21,8 @@ export type IssueExplorerHooks = {
   onEngageRepoWide?: () => Promise<DashboardStatusSnapshot | undefined>;
   onScopeSelection?: (issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>;
   onClearScope?: () => Promise<DashboardStatusSnapshot | undefined>;
-  onDelegateIntent?: (issue: BeadworkIssueDetail) => Promise<void>;
-  onRunIntent?: (issue: BeadworkIssueDetail) => Promise<void>;
+  onDelegateIntent?: (issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>;
+  onRunIntent?: (issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>;
   onNotify?: (message: string, level?: "info" | "warning") => void;
 };
 
@@ -265,7 +265,8 @@ export class IssueExplorerController {
       return;
     }
 
-    await this.hooks.onDelegateIntent?.(detail);
+    const snapshot = await this.hooks.onDelegateIntent?.(detail);
+    this.applySnapshot(snapshot);
   }
 
   async requestRunIntent(): Promise<void> {
@@ -282,7 +283,8 @@ export class IssueExplorerController {
       return;
     }
 
-    await this.hooks.onRunIntent?.(detail);
+    const snapshot = await this.hooks.onRunIntent?.(detail);
+    this.applySnapshot(snapshot);
   }
 
   renderLines(): string[] {

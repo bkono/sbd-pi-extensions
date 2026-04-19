@@ -33,6 +33,7 @@ export type SessionRunOptions = {
   until: RunUntil;
   noSpawn: boolean;
   dryRun: boolean;
+  maxCycles?: number;
 };
 
 export type SessionState = {
@@ -44,6 +45,8 @@ export type SessionState = {
   trackedWorkerIds?: string[];
   workerNotices?: Record<string, string>;
   runOptions?: SessionRunOptions;
+  lastRunOptions?: SessionRunOptions;
+  recentRunSummary?: RunSummary;
 };
 
 export type RunUntil = "blocked" | "empty";

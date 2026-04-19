@@ -276,13 +276,17 @@ function buildRunSupervisorNotice(
 }
 
 function buildSupervisorRunSummary(state: SessionState, config: BeadworkConfig): SessionRunOptions {
-  const persisted = state.runOptions;
+  const persisted = state.runOptions ?? state.lastRunOptions;
   return {
     workers:
       persisted?.workers && persisted.workers > 0 ? persisted.workers : config.run.defaultWorkers,
     until: persisted?.until ?? config.run.defaultUntil,
     noSpawn: persisted?.noSpawn === true,
     dryRun: false,
+    maxCycles:
+      persisted?.maxCycles && persisted.maxCycles > 0
+        ? persisted.maxCycles
+        : config.run.defaultMaxCycles,
   };
 }
 
@@ -654,6 +658,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             ...state,
             mode: "interactive",
             runOptions: undefined,
+            recentRunSummary: summary,
           });
           updateStatusline(
             ctx,
@@ -668,10 +673,14 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           return;
         }
 
+        const continued = await writeSessionState(ctx, activation, config, {
+          ...state,
+          recentRunSummary: summary,
+        });
         updateStatusline(
           ctx,
           activation,
-          state,
+          continued,
           config,
           status.workerSummary ?? summary.workerSummary,
         );
@@ -1151,7 +1160,10 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             requireActive,
             ensurePrime,
             setSessionMode,
+            writeSessionState,
             resolveCounts,
+            inspectWorkers,
+            syncWorkerTracking,
           },
         })
       ) {
@@ -1263,6 +1275,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             requireActive,
             ensurePrime,
             setSessionMode,
+            writeSessionState,
           },
         })
       ) {

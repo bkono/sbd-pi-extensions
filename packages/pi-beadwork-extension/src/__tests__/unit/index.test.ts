@@ -353,6 +353,136 @@ describe("pi beadwork extension", () => {
     expect(rendered).toContain("Scoped epic");
   });
 
+  it("opens the delegate clarify modal from the issue explorer", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-dashboard-delegate-modal",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.ready.mockResolvedValue([
+      {
+        id: "BW-101",
+        title: "Delegable ticket",
+        description: "description",
+        status: "open",
+        type: "task",
+        priority: 2,
+        labels: [],
+        blockedBy: [],
+        blocks: [],
+        assignee: "",
+        parentId: "BW-100",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+    ]);
+    adapterMock.show.mockResolvedValue({
+      id: "BW-101",
+      title: "Delegable ticket",
+      description: "description",
+      status: "open",
+      type: "task",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      parentId: "BW-100",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+      children: [],
+    });
+
+    await harness.invokeCommand("bw", "", ctx);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const dashboard = ui.customCalls[0]?.component as
+      | { handleInput: (data: string) => void }
+      | undefined;
+    dashboard?.handleInput("d");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const modal = ui.customCalls[1]?.component as
+      | { render: (width: number) => string[] }
+      | undefined;
+    const rendered = modal?.render(80).join("\n") ?? "";
+    expect(ui.customCalls).toHaveLength(2);
+    expect(rendered).toContain("Delegate ticket");
+    expect(rendered).toContain("BW-101 · Delegable ticket");
+  });
+
+  it("opens the run clarify modal from the issue explorer", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-dashboard-run-modal",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.ready.mockResolvedValue([
+      {
+        id: "BW-100",
+        title: "Runnable epic",
+        description: "description",
+        status: "open",
+        type: "epic",
+        priority: 2,
+        labels: [],
+        blockedBy: [],
+        blocks: [],
+        assignee: "",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+    ]);
+    adapterMock.show.mockResolvedValue({
+      id: "BW-100",
+      title: "Runnable epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+      children: [],
+    });
+
+    await harness.invokeCommand("bw", "", ctx);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const dashboard = ui.customCalls[0]?.component as
+      | { handleInput: (data: string) => void }
+      | undefined;
+    dashboard?.handleInput("r");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const modal = ui.customCalls[1]?.component as
+      | { render: (width: number) => string[] }
+      | undefined;
+    const rendered = modal?.render(80).join("\n") ?? "";
+    expect(ui.customCalls).toHaveLength(2);
+    expect(rendered).toContain("Run epic");
+    expect(rendered).toContain("BW-100 · Runnable epic");
+  });
+
   it("opens the dashboard from bare /bw when beadwork is available but not initialized", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -1139,6 +1269,79 @@ describe("pi beadwork extension", () => {
     await harness.dispatch("session_shutdown", { reason: "shutdown" }, ctx);
   });
 
+  it("persists recent run state when /bw run pauses immediately", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ctx = createFakeExtensionContext({ cwd: tempDir, sessionId: "session-run-paused" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue({
+      id: "BW-100",
+      title: "Runnable epic",
+      description: "description",
+      status: "open",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+      children: [],
+    });
+    runBoundedEpicLoopMock.mockResolvedValue({
+      epicId: "BW-100",
+      stopReason: "blocked",
+      cycles: 2,
+      launched: ["BW-101"],
+      activeWorkerIds: [],
+      workerSummary: {
+        total: 0,
+        active: 0,
+        launching: 0,
+        running: 0,
+        exited: 0,
+        held: 0,
+        landed: 0,
+        failed: 0,
+        attention: 0,
+        cleaned: 0,
+      },
+      notes: ["waiting for more ready work"],
+      cycleSummaries: [
+        {
+          cycle: 1,
+          ready: ["BW-101"],
+          launched: ["BW-101"],
+          running: [],
+          held: [],
+          landed: [],
+          failed: [],
+          attention: [],
+          exited: [],
+        },
+      ],
+    });
+
+    await harness.invokeCommand("bw", "run BW-100 --workers 3 --max-cycles 4 --no-spawn", ctx);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-run-paused",
+    );
+    expect(persisted.mode).toBe("interactive");
+    expect(persisted.runOptions).toBeUndefined();
+    expect(persisted.lastRunOptions).toEqual({
+      workers: 3,
+      until: "blocked",
+      noSpawn: true,
+      dryRun: false,
+      maxCycles: 4,
+    });
+    expect(persisted.recentRunSummary?.stopReason).toBe("blocked");
+    expect(persisted.recentRunSummary?.cycleSummaries).toHaveLength(1);
+  });
   it("continues /bw run in the background while the session is idle", async () => {
     vi.stubEnv("PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS", "10");
 

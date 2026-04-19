@@ -15,6 +15,7 @@ import {
   type IssueExplorerDataSource,
   type IssueExplorerHooks,
 } from "./issue-explorer.js";
+import { formatRunManagerLines } from "./run-manager.js";
 import { buildWorkerManagerPanelLines } from "./worker-manager.js";
 
 export type DashboardTabId = "issues" | "workers" | "run" | "scope" | "actions";
@@ -104,17 +105,7 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
       });
     }
     case "run":
-      return [
-        "Run manager scaffold.",
-        model.state.mode === "run"
-          ? `Active run scope: ${describeScope(model.state)}`
-          : "No active supervised run in this session.",
-        model.state.runOptions
-          ? `Current options: workers=${model.state.runOptions.workers} until=${model.state.runOptions.until} noSpawn=${model.state.runOptions.noSpawn ? "yes" : "no"}`
-          : "Run options will appear here when a session run is active.",
-        "",
-        "Later tickets will add cycle summaries and launch/pause controls.",
-      ];
+      return formatRunManagerLines(model);
     case "scope":
       return [
         "Scope/session scaffold.",
