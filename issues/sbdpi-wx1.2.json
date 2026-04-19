@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-wx1.1"
+  ],
   "blocks": [
     "sbdpi-wx1.4"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Implement the issue explorer tab with breadcrumb and scope workflows",
   "type": "task",
-  "updated_at": "2026-04-19T17:56:45Z"
+  "updated_at": "2026-04-19T17:57:14Z"
 }
