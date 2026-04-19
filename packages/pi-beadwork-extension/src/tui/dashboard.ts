@@ -1,6 +1,7 @@
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { Component, TUI } from "@mariozechner/pi-tui";
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import type { IssueExplorerFilter } from "../actions/issues.js";
 import type {
   ActivationState,
   BeadworkCounts,
@@ -8,6 +9,11 @@ import type {
   SessionState,
   WorkerSummary,
 } from "../types.js";
+import {
+  IssueExplorerController,
+  type IssueExplorerDataSource,
+  type IssueExplorerHooks,
+} from "./issue-explorer.js";
 
 export type DashboardTabId = "issues" | "workers" | "run" | "scope" | "actions";
 
@@ -22,6 +28,15 @@ export type DashboardStatusSnapshot = {
 export type DashboardModel = DashboardStatusSnapshot & {
   cwd: string;
   defaultTab?: DashboardTabId;
+};
+
+export type DashboardIssueExplorerDeps = IssueExplorerHooks & {
+  dataSource: IssueExplorerDataSource;
+  initialFilter?: IssueExplorerFilter;
+};
+
+export type DashboardDeps = {
+  issueExplorer?: DashboardIssueExplorerDeps;
 };
 
 export const DASHBOARD_TABS: Array<{ id: DashboardTabId; label: string }> = [
@@ -62,20 +77,13 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
           "This repo looks beadwork-capable, but the beadwork branch is not initialized yet.",
           model.activation.detail ?? "Future onboarding/status content will live here.",
           "",
-          "Later tickets will replace this shell with the issue explorer.",
+          "Initialize beadwork to unlock the ready-first issue explorer.",
         ];
       }
 
-      const ready = model.counts?.ready ?? 0;
-      const blocked = model.counts?.blocked ?? 0;
-      const scopedReady = model.counts?.scopedReady;
       return [
-        "Ready-first issue explorer scaffold.",
-        `Ready now: ${ready}`,
-        `Blocked now: ${blocked}`,
-        scopedReady !== undefined ? `Scoped ready: ${scopedReady}` : "Scope: repo-wide browsing",
-        "",
-        "Later tickets will add breadcrumb drill-in, filters, and direct scope/run/delegate actions.",
+        "Issue explorer unavailable.",
+        "The issue explorer data source was not wired for this dashboard invocation.",
       ];
     }
     case "workers": {
@@ -134,19 +142,83 @@ class DashboardComponent implements Component {
   private selectedTabIndex = 0;
   private cachedWidth?: number;
   private cachedLines?: string[];
+  private readonly issueExplorer?: IssueExplorerController;
+  private readonly model: DashboardModel;
 
   constructor(
     private readonly tui: TUI,
     private readonly theme: Theme,
-    private readonly model: DashboardModel,
+    model: DashboardModel,
+    deps: DashboardDeps | undefined,
     private readonly done: (result: undefined) => void,
   ) {
+    this.model = { ...model };
     const initialIndex = DASHBOARD_TABS.findIndex((tab) => tab.id === model.defaultTab);
     this.selectedTabIndex = initialIndex >= 0 ? initialIndex : 0;
+
+    if (model.activation.kind === "active" && deps?.issueExplorer) {
+      this.issueExplorer = new IssueExplorerController({
+        dataSource: deps.issueExplorer.dataSource,
+        initialFilter: deps.issueExplorer.initialFilter ?? "ready",
+        initialState: model.state,
+        onChange: () => this.requestRender(),
+        onNotify: deps.issueExplorer.onNotify,
+        onEngageRepoWide: this.wrapSnapshotHook(deps.issueExplorer.onEngageRepoWide),
+        onScopeSelection: this.wrapIssueSnapshotHook(deps.issueExplorer.onScopeSelection),
+        onClearScope: this.wrapSnapshotHook(deps.issueExplorer.onClearScope),
+        onDelegateIntent: deps.issueExplorer.onDelegateIntent,
+        onRunIntent: deps.issueExplorer.onRunIntent,
+      });
+      void this.issueExplorer.initialize();
+    }
   }
 
   private get selectedTab(): DashboardTabId {
     return DASHBOARD_TABS[this.selectedTabIndex]?.id ?? "issues";
+  }
+
+  private wrapSnapshotHook(
+    hook: (() => Promise<DashboardStatusSnapshot | undefined>) | undefined,
+  ): (() => Promise<DashboardStatusSnapshot | undefined>) | undefined {
+    if (!hook) {
+      return undefined;
+    }
+
+    return async () => {
+      const snapshot = await hook();
+      this.applySnapshot(snapshot);
+      return snapshot;
+    };
+  }
+
+  private wrapIssueSnapshotHook(
+    hook:
+      | ((issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>)
+      | undefined,
+  ): ((issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>) | undefined {
+    if (!hook) {
+      return undefined;
+    }
+
+    return async (issue) => {
+      const snapshot = await hook(issue);
+      this.applySnapshot(snapshot);
+      return snapshot;
+    };
+  }
+
+  private applySnapshot(snapshot: DashboardStatusSnapshot | undefined): void {
+    if (!snapshot) {
+      return;
+    }
+
+    this.model.activation = snapshot.activation;
+    this.model.state = snapshot.state;
+    this.model.counts = snapshot.counts;
+    this.model.scopeDetail = snapshot.scopeDetail;
+    this.model.workerSummary = snapshot.workerSummary;
+    this.issueExplorer?.setSessionState(snapshot.state);
+    this.requestRender();
   }
 
   private requestRender(): void {
@@ -155,6 +227,10 @@ class DashboardComponent implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.selectedTab === "issues" && this.issueExplorer?.handleInput(data)) {
+      return;
+    }
+
     if (matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab"))) {
       this.selectedTabIndex =
         (this.selectedTabIndex + DASHBOARD_TABS.length - 1) % DASHBOARD_TABS.length;
@@ -203,11 +279,15 @@ class DashboardComponent implements Component {
       return index === this.selectedTabIndex ? this.theme.fg("accent", label) : label;
     }).join(" ");
 
-    const bodyLines = buildPanelLines(this.model, this.selectedTab);
-    const footer = this.theme.fg(
-      "dim",
-      "tab/shift+tab or ←/→ switch tabs • esc closes • later tickets fill the panes",
-    );
+    const bodyLines =
+      this.selectedTab === "issues" && this.issueExplorer
+        ? this.issueExplorer.renderLines()
+        : buildPanelLines(this.model, this.selectedTab);
+    const footerText =
+      this.selectedTab === "issues" && this.issueExplorer
+        ? this.issueExplorer.renderFooterHint()
+        : "tab/shift+tab or ←/→ switch tabs • esc closes • later tickets fill the panes";
+    const footer = this.theme.fg("dim", footerText);
 
     const lines = [...headerLines, "", tabsLine, "", ...bodyLines, "", footer].flatMap((line) =>
       wrapTextWithAnsi(line, Math.max(1, width)).map((wrapped) => truncateToWidth(wrapped, width)),
@@ -227,9 +307,10 @@ class DashboardComponent implements Component {
 export async function openBeadworkDashboard(
   ctx: ExtensionCommandContext,
   model: DashboardModel,
+  deps?: DashboardDeps,
 ): Promise<void> {
   await ctx.ui.custom<void>(
-    (tui, theme, _keybindings, done) => new DashboardComponent(tui, theme, model, done),
+    (tui, theme, _keybindings, done) => new DashboardComponent(tui, theme, model, deps, done),
     {
       overlay: true,
       overlayOptions: {

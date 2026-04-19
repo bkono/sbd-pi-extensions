@@ -1138,9 +1138,12 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           isBare: options.isBare === true,
           ctx,
           deps: {
+            adapter,
             refreshStatus,
             requireActive,
             ensurePrime,
+            setSessionMode,
+            resolveCounts,
           },
         })
       ) {

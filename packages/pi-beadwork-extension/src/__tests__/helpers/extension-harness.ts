@@ -94,23 +94,35 @@ export type FakeUi = {
   statuses: Map<string, string | undefined>;
   theme: {
     fg: (_color: string, text: string) => string;
+    bold: (text: string) => string;
   };
   notify: (message: string, level?: string) => void;
   setStatus: (id: string, text: string | undefined) => void;
-  customCalls: Array<{ options?: unknown }>;
+  customCalls: Array<{
+    options?: unknown;
+    factory?: unknown;
+    component?: unknown;
+    tui?: { requestRenderCalls: number };
+  }>;
   custom: <T>(factory: unknown, options?: unknown) => Promise<T>;
 };
 
 export function createFakeUi(): FakeUi {
   const notifications: Array<{ message: string; level?: string }> = [];
   const statuses = new Map<string, string | undefined>();
-  const customCalls: Array<{ options?: unknown }> = [];
+  const customCalls: Array<{
+    options?: unknown;
+    factory?: unknown;
+    component?: unknown;
+    tui?: { requestRenderCalls: number };
+  }> = [];
 
   return {
     notifications,
     statuses,
     theme: {
       fg: (_color, text) => text,
+      bold: (text) => text,
     },
     notify: (message, level) => {
       notifications.push({ message, level });
@@ -119,8 +131,31 @@ export function createFakeUi(): FakeUi {
       statuses.set(id, text);
     },
     customCalls,
-    custom: async <T>(_factory: unknown, options?: unknown) => {
-      customCalls.push({ options });
+    custom: async <T>(factory: unknown, options?: unknown) => {
+      const tui = {
+        requestRenderCalls: 0,
+        requestRender() {
+          this.requestRenderCalls += 1;
+        },
+      };
+      const component =
+        typeof factory === "function"
+          ? factory(
+              tui as unknown,
+              {
+                fg: (_color: string, text: string) => text,
+                bold: (text: string) => text,
+              },
+              {},
+              () => undefined,
+            )
+          : undefined;
+      customCalls.push({
+        options,
+        factory,
+        component,
+        tui: { requestRenderCalls: tui.requestRenderCalls },
+      });
       return undefined as T;
     },
   };

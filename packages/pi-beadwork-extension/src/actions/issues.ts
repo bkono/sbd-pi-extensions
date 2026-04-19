@@ -8,9 +8,12 @@ import {
   showMutationResult,
   showReady,
 } from "../commands.js";
+import type { IssueExplorerDataSource } from "../tui/issue-explorer.js";
 import type {
   ActivationState,
   BeadworkConfig,
+  BeadworkIssue,
+  BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
   SessionState,
@@ -109,6 +112,87 @@ export type IssuesActionDeps = {
     state: SessionState;
   } | null>;
 };
+
+export const ISSUE_EXPLORER_FILTERS = [
+  "ready",
+  "open",
+  "in_progress",
+  "blocked",
+  "closed",
+  "deferred",
+  "all",
+] as const;
+
+export type IssueExplorerFilter = (typeof ISSUE_EXPLORER_FILTERS)[number];
+
+export type IssueExplorerLevelData = {
+  items: BeadworkIssue[];
+  currentDetail?: BeadworkIssueDetail;
+};
+
+function isIssueExplorerFilter(value: string): value is IssueExplorerFilter {
+  return ISSUE_EXPLORER_FILTERS.some((entry) => entry === value);
+}
+
+export function normalizeIssueExplorerFilter(
+  value: string | undefined,
+  fallback: IssueExplorerFilter = "ready",
+): IssueExplorerFilter {
+  return value && isIssueExplorerFilter(value) ? value : fallback;
+}
+
+export async function loadIssueExplorerLevel(input: {
+  adapter: BeadworkAdapter;
+  cwd: string;
+  filter: IssueExplorerFilter;
+  issueId?: string;
+}): Promise<IssueExplorerLevelData> {
+  const { adapter, cwd, filter, issueId } = input;
+  const currentDetail = issueId ? await adapter.show(cwd, issueId) : undefined;
+
+  if (filter === "ready") {
+    return {
+      currentDetail,
+      items: await adapter.ready(cwd, issueId),
+    };
+  }
+
+  if (!issueId && filter === "blocked") {
+    return {
+      currentDetail,
+      items: await adapter.blocked(cwd),
+    };
+  }
+
+  const filters: BeadworkListFilters = { all: true };
+  if (issueId) {
+    filters.parent = issueId;
+  }
+  if (filter !== "all") {
+    filters.status = filter;
+  }
+
+  return {
+    currentDetail,
+    items: await adapter.list(cwd, filters),
+  };
+}
+
+export function createIssueExplorerDataSource(input: {
+  adapter: BeadworkAdapter;
+  cwd: string;
+}): IssueExplorerDataSource {
+  return {
+    loadLevel: ({ filter, issueId }) =>
+      loadIssueExplorerLevel({
+        adapter: input.adapter,
+        cwd: input.cwd,
+        filter,
+        issueId,
+      }),
+    loadDetail: (issueId) => input.adapter.show(input.cwd, issueId),
+  };
+}
 
 export async function handleIssuesAction(input: {
   subcommand: string;

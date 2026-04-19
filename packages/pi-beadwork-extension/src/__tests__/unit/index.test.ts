@@ -312,6 +312,47 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications).toHaveLength(0);
   });
 
+  it("opens the issues tab with the ready-first explorer by default", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-dashboard-issues",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.ready.mockResolvedValue([
+      {
+        id: "BW-100",
+        title: "Scoped epic",
+        description: "description",
+        status: "open",
+        type: "epic",
+        priority: 2,
+        labels: [],
+        blockedBy: [],
+        blocks: [],
+        assignee: "",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+    ]);
+
+    await harness.invokeCommand("bw", "", ctx);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const component = ui.customCalls[0]?.component as
+      | { render: (width: number) => string[] }
+      | undefined;
+    const rendered = component?.render(100).join("\n") ?? "";
+
+    expect(rendered).toContain("Issue explorer · filter=ready");
+    expect(rendered).toContain("Scoped epic");
+  });
+
   it("opens the dashboard from bare /bw when beadwork is available but not initialized", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

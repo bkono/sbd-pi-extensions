@@ -35,8 +35,47 @@ export type ScopeActionDeps = {
   ) => Promise<BeadworkCounts | undefined>;
 };
 
+export type ScopeMutationResult = {
+  state: SessionState;
+  counts?: BeadworkCounts;
+  scopeDetail?: BeadworkIssueDetail;
+};
+
 function isClearScopeToken(value: string | undefined): boolean {
   return value === "clear" || value === "none" || value === "repo" || value === "repo-wide";
+}
+
+export async function setInteractiveScope(input: {
+  ctx: ExtensionCommandContext;
+  activation: ActivationState;
+  config: BeadworkConfig;
+  state: SessionState;
+  deps: Pick<ScopeActionDeps, "setSessionMode" | "resolveCounts">;
+  scope?: SessionScope;
+}): Promise<ScopeMutationResult> {
+  const { state, scopeDetail } = await input.deps.setSessionMode(
+    input.ctx,
+    input.activation,
+    input.config,
+    input.state,
+    "interactive",
+    input.scope,
+  );
+  const counts = await input.deps.resolveCounts(input.ctx, input.activation, state);
+  return { state, counts, scopeDetail };
+}
+
+export async function clearInteractiveScope(input: {
+  ctx: ExtensionCommandContext;
+  activation: ActivationState;
+  config: BeadworkConfig;
+  state: SessionState;
+  deps: Pick<ScopeActionDeps, "setSessionMode" | "resolveCounts">;
+}): Promise<ScopeMutationResult> {
+  return setInteractiveScope({
+    ...input,
+    scope: { kind: "none" },
+  });
 }
 
 export async function handleScopeAction(input: {
@@ -57,15 +96,13 @@ export async function handleScopeAction(input: {
 
   const scopeArg = parsed.positional[0];
   if (subcommand === "scope" && isClearScopeToken(scopeArg)) {
-    const { state, scopeDetail } = await deps.setSessionMode(
+    const { state, counts, scopeDetail } = await clearInteractiveScope({
       ctx,
-      active.activation,
-      active.config,
-      active.state,
-      "interactive",
-      { kind: "none" },
-    );
-    const counts = await deps.resolveCounts(ctx, active.activation, state);
+      activation: active.activation,
+      config: active.config,
+      state: active.state,
+      deps,
+    });
     ctx.ui.notify("Beadwork scope cleared; interactive mode remains engaged.", "info");
     await showStatus(ctx, {
       activation: active.activation,
@@ -82,15 +119,15 @@ export async function handleScopeAction(input: {
         | undefined)
     : undefined;
 
-  const { state, scopeDetail } = await deps.setSessionMode(
+  const { state, counts, scopeDetail } = await setInteractiveScope({
     ctx,
-    active.activation,
-    active.config,
-    active.state,
-    "interactive",
+    activation: active.activation,
+    config: active.config,
+    state: active.state,
+    deps,
     scope,
-  );
-  const counts = await deps.resolveCounts(ctx, active.activation, state);
+  });
+
   ctx.ui.notify(
     scope
       ? `Beadwork interactive mode engaged for ${scope.kind} ${scope.id}.`
