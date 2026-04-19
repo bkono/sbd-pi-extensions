@@ -303,7 +303,9 @@ export function renderTabLine(
 ): string {
   const pieces = tabs.map((tab) => {
     const label = ` ${tab.selected ? "●" : "○"} ${tab.label} `;
-    return tab.selected ? theme.bg("selectedBg", theme.fg("accent", label)) : label;
+    return tab.selected
+      ? theme.bg("selectedBg", theme.fg("accent", label))
+      : theme.fg("muted", label);
   });
   return padAnsi(pieces.join(" "), width);
 }

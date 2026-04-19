@@ -11,7 +11,20 @@ import type {
   WorkerRuntime,
   WorkerSummary,
 } from "../types.js";
-import { renderSurface, renderTabLine } from "./common.js";
+import {
+  renderSurface,
+  renderTabLine,
+  sectionTitle,
+  statusStyle,
+  styledAccent,
+  styledDim,
+  styledError,
+  styledLabel,
+  styledSuccess,
+  styledValue,
+  styledWarning,
+  typeBadge,
+} from "./common.js";
 import {
   IssueExplorerController,
   type IssueExplorerDataSource,
@@ -70,63 +83,80 @@ export function canOpenDashboard(activation: ActivationState): boolean {
   return activation.kind === "active" || activation.kind === "available";
 }
 
-function describeActivation(activation: ActivationState): string {
+function describeActivation(theme: Theme, activation: ActivationState): string {
   if (activation.kind === "active") {
-    return "active";
+    return styledSuccess(theme, "active");
   }
 
-  const reason = activation.reason ? ` · ${activation.reason}` : "";
-  return `${activation.kind}${reason}`;
+  const label =
+    activation.kind === "available"
+      ? styledAccent(theme, activation.kind)
+      : styledWarning(theme, activation.kind);
+  const reason = activation.reason ? ` · ${styledDim(theme, activation.reason)}` : "";
+  return `${label}${reason}`;
 }
 
-function describeScope(state: SessionState, maxTitleWidth = 28): string {
+function describeScope(theme: Theme, state: SessionState, maxTitleWidth = 28): string {
   if (state.scope.kind === "none") {
-    return "repo-wide";
+    return styledDim(theme, "repo-wide");
   }
-
   const title = state.scope.title
-    ? ` · ${truncateToWidth(state.scope.title, Math.max(12, maxTitleWidth), "…")}`
+    ? ` · ${styledDim(theme, truncateToWidth(state.scope.title, Math.max(12, maxTitleWidth), "…"))}`
     : "";
-  return `${state.scope.kind}:${state.scope.id}${title}`;
+  return `${styledAccent(theme, state.scope.kind)}:${styledValue(theme, state.scope.id)}${title}`;
 }
 
-function describeBackground(state: SessionState): string | undefined {
+function describeBackground(theme: Theme, state: SessionState): string | undefined {
   const tracked = state.trackedWorkerIds?.length ?? 0;
   const notices = Object.keys(state.workerNotices ?? {}).length;
-
   if (state.mode === "run" && state.scope.kind === "epic") {
-    return `run armed for ${state.scope.id}${tracked > 0 ? ` · tracked ${tracked}` : ""}`;
+    const trackedPart =
+      tracked > 0
+        ? ` \u00b7 ${styledLabel(theme, "tracked")} ${styledAccent(theme, String(tracked))}`
+        : "";
+    return `${styledAccent(theme, "run armed")} for ${styledValue(theme, state.scope.id)}${trackedPart}`;
   }
-
   if (tracked > 0 || notices > 0) {
-    const parts = [`tracked ${tracked}`];
+    const parts = [`${styledLabel(theme, "tracked")} ${styledAccent(theme, String(tracked))}`];
     if (notices > 0) {
-      parts.push(`notices ${notices}`);
+      parts.push(`${styledLabel(theme, "notices")} ${styledWarning(theme, String(notices))}`);
     }
     return parts.join(" · ");
   }
-
   if (state.recentRunSummary) {
-    return `last run ${state.recentRunSummary.epicId} · ${state.recentRunSummary.stopReason}`;
+    return `${styledLabel(theme, "last run")} ${state.recentRunSummary.epicId} · ${styledDim(theme, state.recentRunSummary.stopReason)}`;
   }
 
   return undefined;
 }
 
-function describeCounts(counts?: BeadworkCounts): string | undefined {
+function describeCounts(theme: Theme, counts?: BeadworkCounts): string | undefined {
   if (!counts) {
     return undefined;
   }
 
-  return `ready ${counts.ready} · blocked ${counts.blocked} · in progress ${counts.inProgress}`;
+  const sc = (n: number, label: string, tone: (t: Theme, s: string) => string) =>
+    `${styledLabel(theme, label)} ${n > 0 ? tone(theme, String(n)) : styledDim(theme, "0")}`;
+  return [
+    sc(counts.ready, "ready", styledSuccess),
+    sc(counts.blocked, "blocked", styledError),
+    sc(counts.inProgress, "in progress", styledAccent),
+  ].join(" · ");
 }
 
-function describeWorkerSummary(workerSummary?: WorkerSummary): string | undefined {
+function describeWorkerSummary(theme: Theme, workerSummary?: WorkerSummary): string | undefined {
   if (!workerSummary || workerSummary.total === 0) {
     return undefined;
   }
 
-  return `workers ${workerSummary.total} · active ${workerSummary.active} · held ${workerSummary.held} · landed ${workerSummary.landed}`;
+  const sw = (n: number, label: string, tone: (t: Theme, s: string) => string) =>
+    `${styledLabel(theme, label)} ${n > 0 ? tone(theme, String(n)) : styledDim(theme, "0")}`;
+  return [
+    sw(workerSummary.total, "workers", styledValue),
+    sw(workerSummary.active, "active", styledAccent),
+    sw(workerSummary.held, "held", styledWarning),
+    sw(workerSummary.landed, "landed", styledSuccess),
+  ].join(" · ");
 }
 
 function buildFooterHint(
@@ -149,49 +179,63 @@ function buildFooterHint(
   }
 }
 
-function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
+function buildPanelLines(theme: Theme, model: DashboardModel, tab: DashboardTabId): string[] {
   switch (tab) {
     case "issues": {
       if (model.activation.kind === "available") {
         return [
-          "This repo looks beadwork-capable, but the beadwork branch is not initialized yet.",
-          model.activation.detail ?? "Run the repo's beadwork bootstrap flow to finish setup.",
+          styledWarning(
+            theme,
+            "This repo looks beadwork-capable, but the beadwork branch is not initialized yet.",
+          ),
+          styledDim(
+            theme,
+            model.activation.detail ?? "Run the repo's beadwork bootstrap flow to finish setup.",
+          ),
           "",
-          "Initialize beadwork to unlock the issue explorer, worker controls, and run panel.",
+          styledDim(
+            theme,
+            "Initialize beadwork to unlock the issue explorer, worker controls, and run panel.",
+          ),
         ];
       }
 
       return [
-        "Issue explorer unavailable.",
-        "The issue explorer data source was not wired for this dashboard invocation.",
+        styledDim(theme, "Issue explorer unavailable."),
+        styledDim(
+          theme,
+          "The issue explorer data source was not wired for this dashboard invocation.",
+        ),
       ];
     }
     case "workers": {
       if (model.activation.kind !== "active") {
         return [
-          "Workers become available after beadwork is active in this repository.",
-          model.activation.detail ?? "No worker diagnostics are available yet.",
+          styledDim(theme, "Workers become available after beadwork is active in this repository."),
+          styledDim(theme, model.activation.detail ?? "No worker diagnostics are available yet."),
         ];
       }
 
       return [
-        "Workers tab unavailable.",
-        "The worker manager was not wired for this dashboard invocation.",
+        styledDim(theme, "Workers tab unavailable."),
+        styledDim(theme, "The worker manager was not wired for this dashboard invocation."),
       ];
     }
     case "run":
       return formatRunManagerLines(model);
     case "scope":
       return [
-        "Current scope",
-        `${model.state.mode} · ${describeScope(model.state)}`,
+        sectionTitle(theme, "Current scope"),
+        `${styledDim(theme, model.state.mode)} \u00b7 ${describeScope(theme, model.state)}`,
         model.scopeDetail
-          ? `${model.scopeDetail.id} · ${model.scopeDetail.type} · ${model.scopeDetail.status}`
-          : "No scoped issue detail loaded.",
-        model.scopeDetail?.title ?? "Scope an issue from the Issues tab.",
+          ? `${styledAccent(theme, model.scopeDetail.id)} \u00b7 ${typeBadge(theme, model.scopeDetail.type)} \u00b7 ${statusStyle(theme, model.scopeDetail.status)}`
+          : styledDim(theme, "No scoped issue detail loaded."),
+        model.scopeDetail?.title
+          ? styledValue(theme, model.scopeDetail.title)
+          : styledDim(theme, "Scope an issue from the Issues tab."),
         model.state.prime?.loadedAt
-          ? `Prime cached ${model.state.prime.loadedAt}`
-          : "Prime loads on the first active workflow action.",
+          ? styledDim(theme, `Prime cached ${model.state.prime.loadedAt}`)
+          : styledDim(theme, "Prime loads on the first active workflow action."),
       ];
   }
 }
@@ -419,15 +463,20 @@ class DashboardComponent implements Component {
     }
 
     const bodyWidth = Math.max(40, width - 4);
-    const repoLabel =
-      path.basename(this.model.activation.repoRoot ?? this.model.cwd) || this.model.cwd;
-    const statusLine = `${repoLabel} · ${describeActivation(this.model.activation)} · ${this.model.state.mode} · ${describeScope(this.model.state, 22)}`;
+    const repoLabel = styledAccent(
+      this.theme,
+      path.basename(this.model.activation.repoRoot ?? this.model.cwd) || this.model.cwd,
+    );
+    const modeLabel =
+      this.model.state.mode === "run"
+        ? styledAccent(this.theme, this.model.state.mode)
+        : styledDim(this.theme, this.model.state.mode);
+    const statusLine = `${repoLabel} \u00b7 ${describeActivation(this.theme, this.model.activation)} \u00b7 ${modeLabel} \u00b7 ${describeScope(this.theme, this.model.state, 22)}`;
     const secondaryParts = [
-      describeCounts(this.model.counts),
-      describeWorkerSummary(this.model.workerSummary),
-      describeBackground(this.model.state),
+      describeCounts(this.theme, this.model.counts),
+      describeWorkerSummary(this.theme, this.model.workerSummary),
+      describeBackground(this.theme, this.model.state),
     ].filter((value): value is string => Boolean(value));
-
     const tabsLine = renderTabLine(
       this.theme,
       DASHBOARD_TABS.map((tab, index) => ({
@@ -436,7 +485,6 @@ class DashboardComponent implements Component {
       })),
       bodyWidth,
     );
-
     const bodyLines =
       this.selectedTab === "issues" && this.issueExplorer
         ? this.issueExplorer.renderLines(bodyWidth)
@@ -447,7 +495,7 @@ class DashboardComponent implements Component {
               selectedWorkerId: this.selectedWorkerEntry?.worker.workerId,
               width: bodyWidth,
             })
-          : buildPanelLines(this.model, this.selectedTab);
+          : buildPanelLines(this.theme, this.model, this.selectedTab);
 
     const lines = renderSurface(this.theme, width, {
       title: "Beadwork Dashboard",
