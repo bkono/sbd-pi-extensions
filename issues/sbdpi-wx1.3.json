@@ -16,11 +16,15 @@
     {
       "text": "Recovering ticket after worker exited but landing/remediation stalled. Taking over manually to land the existing worker commit cleanly onto feat/bw-tui without disturbing the still-running sbdpi-wx1.4 worker.",
       "timestamp": "2026-04-19T19:04:44Z"
+    },
+    {
+      "text": "Manual recovery: cherry-picked the worker-manager commit onto feat/bw-tui as b4e4eb1 after the delegated worker exited and the landing/remediation flow stalled. Package checks passed locally (`lint`, `test`, `typecheck`). Closing so the supervisor can verify landing/cleanup.",
+      "timestamp": "2026-04-19T19:06:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Implement the worker manager overlay and shared worker action lane",
   "type": "task",
-  "updated_at": "2026-04-19T19:05:02Z"
+  "updated_at": "2026-04-19T19:06:22Z"
 }
