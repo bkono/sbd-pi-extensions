@@ -7,6 +7,7 @@ import { loadConfig, sessionStatePath } from "./config.js";
 import {
   buildObservationContext,
   buildStoredObservationBlock,
+  ensureToolCallPairing,
   evaluateObservationTrigger,
   getMessagesBetweenCursors,
   getObservationChunk,
@@ -143,14 +144,12 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       state.lastObservedTimestamp,
     );
 
-    let boundedMessages = unobservedWindow.messages;
+    let boundedMessages = ensureToolCallPairing(allMessages, unobservedWindow.messages);
     let cursorMode = unobservedWindow.mode;
-
-    // Always include at least the latest message
     if (boundedMessages.length === 0) {
       const latest = allMessages.at(-1);
       if (latest) {
-        boundedMessages = [latest];
+        boundedMessages = ensureToolCallPairing(allMessages, [latest]);
         cursorMode = "fallback-latest";
       }
     }

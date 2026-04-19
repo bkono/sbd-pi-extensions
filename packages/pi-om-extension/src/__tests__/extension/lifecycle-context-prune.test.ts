@@ -67,6 +67,54 @@ describe("extension: context lifecycle (message pruning)", () => {
     }));
   }
 
+  function assistantToolCallMessage(
+    toolCallId: string,
+    opts?: { id?: string; timestamp?: number },
+  ): Message {
+    return {
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: toolCallId,
+          toolCallId,
+          name: "read",
+          toolName: "read",
+          arguments: { path: "README.md" },
+          input: '{"path":"README.md"}',
+        },
+      ],
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+      model: "gpt-5.3-codex",
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "tool_use",
+      timestamp: opts?.timestamp ?? 1_700_000_001_000,
+      id: opts?.id ?? "assistant-tool-call",
+    } as unknown as Message;
+  }
+
+  function toolResultMessage(
+    toolCallId: string,
+    opts?: { id?: string; timestamp?: number; text?: string },
+  ): Message {
+    return {
+      role: "toolResult",
+      toolName: "read",
+      toolCallId,
+      content: [{ type: "text", text: opts?.text ?? "README contents" }],
+      timestamp: opts?.timestamp ?? 1_700_000_002_000,
+      id: opts?.id ?? "tool-result",
+    } as unknown as Message;
+  }
+
   it("returns all messages when no cursor is set", async () => {
     const harness = await createExtensionTestHarness(piObservationalMemory);
     const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
@@ -96,6 +144,99 @@ describe("extension: context lifecycle (message pruning)", () => {
     )) as { messages: Message[] };
 
     expect(result.messages).toHaveLength(3); // msgs 2, 3, 4
+  });
+
+  it("prepends the matching assistant tool call when pruning would start at a tool result", async () => {
+    resetMessageCounter();
+    const toolCallId = "call-context-pair";
+    const msgs = [
+      userMsg("read README", 1_700_000_000_000),
+      assistantToolCallMessage(toolCallId, {
+        id: "assistant-tool-call-1",
+        timestamp: 1_700_000_001_000,
+      }),
+      toolResultMessage(toolCallId, {
+        id: "tool-result-1",
+        timestamp: 1_700_000_002_000,
+      }),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "README summarized" }],
+        api: "openai-codex-responses",
+        provider: "openai-codex",
+        model: "gpt-5.3-codex",
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "stop",
+        timestamp: 1_700_000_003_000,
+        id: "assistant-final-1",
+      } as unknown as Message,
+    ];
+    preloadState({
+      lastObservedEntryId: "assistant-tool-call-1",
+      lastObservedTimestamp: 1_700_000_001_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      entries: asBranchEntries(msgs),
+    });
+
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: msgs },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toHaveLength(3);
+    expect((result.messages[0] as { role?: string }).role).toBe("assistant");
+    expect((result.messages[1] as { role?: string }).role).toBe("toolResult");
+    expect((result.messages[0] as { id?: string }).id).toBe("assistant-tool-call-1");
+  });
+
+  it("keeps the latest tool result paired during latest-message fallback", async () => {
+    resetMessageCounter();
+    const toolCallId = "call-context-fallback";
+    const msgs = [
+      userMsg("read README", 1_700_000_000_000),
+      assistantToolCallMessage(toolCallId, {
+        id: "assistant-tool-call-2",
+        timestamp: 1_700_000_001_000,
+      }),
+      toolResultMessage(toolCallId, {
+        id: "tool-result-2",
+        timestamp: 1_700_000_002_000,
+      }),
+    ];
+    preloadState({
+      lastObservedEntryId: "tool-result-2",
+      lastObservedTimestamp: 1_700_000_002_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      entries: asBranchEntries(msgs),
+    });
+
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: msgs },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toHaveLength(2);
+    expect((result.messages[0] as { id?: string }).id).toBe("assistant-tool-call-2");
+    expect((result.messages[1] as { id?: string }).id).toBe("tool-result-2");
   });
 
   it("never returns an empty array — falls back to latest message", async () => {

@@ -154,6 +154,67 @@ export function getUnobservedMessages(
   };
 }
 
+export function ensureToolCallPairing(
+  allMessages: Message[],
+  selectedMessages: Message[],
+): Message[] {
+  if (selectedMessages.length === 0) {
+    return selectedMessages;
+  }
+
+  const startIndex = findMessageIndex(allMessages, selectedMessages[0]!);
+  if (startIndex <= 0) {
+    return selectedMessages;
+  }
+
+  const availableToolCallIds = new Set<string>();
+  for (const message of selectedMessages) {
+    for (const toolCallId of getAssistantToolCallIds(message)) {
+      availableToolCallIds.add(toolCallId);
+    }
+  }
+
+  const unresolvedToolCallIds = new Set<string>();
+  for (const message of selectedMessages) {
+    for (const toolCallId of getToolResultCallIds(message)) {
+      if (!availableToolCallIds.has(toolCallId)) {
+        unresolvedToolCallIds.add(toolCallId);
+      }
+    }
+  }
+
+  if (unresolvedToolCallIds.size === 0) {
+    return selectedMessages;
+  }
+
+  let earliestRequiredIndex: number | undefined;
+  for (let i = startIndex - 1; i >= 0; i -= 1) {
+    const toolCallIds = getAssistantToolCallIds(allMessages[i]!);
+    const matchesPending = [...toolCallIds].some((toolCallId) =>
+      unresolvedToolCallIds.has(toolCallId),
+    );
+    if (!matchesPending) {
+      continue;
+    }
+
+    earliestRequiredIndex = i;
+    for (const toolCallId of toolCallIds) {
+      availableToolCallIds.add(toolCallId);
+      unresolvedToolCallIds.delete(toolCallId);
+    }
+
+    if (unresolvedToolCallIds.size === 0) {
+      break;
+    }
+  }
+
+  if (earliestRequiredIndex === undefined) {
+    return selectedMessages;
+  }
+
+  return [...allMessages.slice(earliestRequiredIndex, startIndex), ...selectedMessages];
+}
+
 export function getMessagesBetweenCursors(
   messages: Message[],
   startEntryId?: string,
@@ -626,6 +687,90 @@ export function buildContinuationReminder(): string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function getAssistantToolCallIds(message: Message): string[] {
+  if (getMessageRole(message) !== "assistant") {
+    return [];
+  }
+
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  const ids = new Set<string>();
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+
+    if ((block as { type?: unknown }).type !== "toolCall") {
+      continue;
+    }
+
+    const rawIds = [(block as { id?: unknown }).id, (block as { toolCallId?: unknown }).toolCallId];
+    for (const rawId of rawIds) {
+      if (typeof rawId === "string" && rawId.length > 0) {
+        ids.add(rawId);
+      }
+    }
+  }
+
+  return [...ids];
+}
+
+function getToolResultCallIds(message: Message): string[] {
+  const role = getMessageRole(message);
+  if (role === "toolResult") {
+    const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
+    return typeof toolCallId === "string" && toolCallId.length > 0 ? [toolCallId] : [];
+  }
+
+  if (role !== "assistant") {
+    return [];
+  }
+
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  const ids = new Set<string>();
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+
+    if ((block as { type?: unknown }).type !== "toolResult") {
+      continue;
+    }
+
+    const toolCallId = (block as { toolCallId?: unknown }).toolCallId;
+    if (typeof toolCallId === "string" && toolCallId.length > 0) {
+      ids.add(toolCallId);
+    }
+  }
+
+  return [...ids];
+}
+
+function findMessageIndex(messages: Message[], target: Message): number {
+  const byReference = messages.indexOf(target);
+  if (byReference >= 0) {
+    return byReference;
+  }
+
+  const targetId = getMessageId(target);
+  if (targetId) {
+    return findMessageIndexById(messages, targetId);
+  }
+
+  return -1;
+}
+
+function getMessageRole(message?: Message): string | undefined {
+  return (message as { role?: unknown }).role as string | undefined;
+}
 
 export function appendObservations(existing: string, incoming: string): string {
   const current = normalizeObservations(existing);
