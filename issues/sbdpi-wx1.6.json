@@ -10,9 +10,15 @@
   "id": "sbdpi-wx1.6",
   "labels": [],
   "parent": "sbdpi-wx1",
+  "comments": [
+    {
+      "text": "Manual takeover to complete landing. The ticket branch `sbdpi-wx1.6/fix-stale-dashboard-refresh-after-issue-actions` contains commit `ac97225`, but `feat/bw-tui` is still at `bcabc2a`, so the fix was closed before it was actually landed on the integration branch. Reopened and started to review the change, rerun package gates, and land it properly.",
+      "timestamp": "2026-04-19T21:05:44Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Fix stale dashboard refresh after issue actions and worker updates",
   "type": "task",
-  "updated_at": "2026-04-19T21:04:24Z"
+  "updated_at": "2026-04-19T21:05:44Z"
 }
