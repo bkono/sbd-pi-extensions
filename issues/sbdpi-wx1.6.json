@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-wx1"
+  ],
   "created": "2026-04-19T19:10:50Z",
   "description": "Follow up the `sbdpi-wx1.3` reviewer nit: `DashboardComponent.applySnapshot()` updates `workerSummary` but does not refresh `model.workers`, so an already-open `/bw` dashboard can keep stale worker rows after refresh.\n\nScope:\n- make dashboard snapshot application refresh the worker row source, not just summary counts\n- ensure Workers tab reflects newly refreshed worker runtime data while the overlay stays open\n- add regression coverage for in-overlay refresh behavior so worker rows and summary stay in sync\n\nPrimary lane:\n- `packages/pi-beadwork-extension/src/tui/dashboard.ts`\n- related dashboard/worker-manager tests\n\nAcceptance criteria:\n- refreshing the dashboard updates both worker summary badges and rendered worker rows\n- landing/cleanup/review state changes appear in the Workers tab without reopening the overlay\n- regression tests cover snapshot refresh with changed worker data\n\nParallel-safety note:\n- keep this ticket tightly scoped to dashboard snapshot/update wiring and tests; avoid unrelated worker-manager feature work.",
   "id": "sbdpi-wx1.6",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Fix stale worker rows after dashboard refresh in the Workers tab",
   "type": "task",
-  "updated_at": "2026-04-19T19:10:50Z"
+  "updated_at": "2026-04-19T19:10:52Z"
 }
