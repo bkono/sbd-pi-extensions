@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "sbdpi-wx1.2"
+    "sbdpi-wx1.2",
+    "sbdpi-wx1.3"
   ],
   "created": "2026-04-19T17:55:16Z",
   "description": "Build the shared foundation that later UI tickets can reuse without duplicating logic.\n\nThis ticket owns the high-conflict files first so later tickets can run in cleaner lanes.\n\nScope:\n- extract reusable action modules from the current monolithic `packages/pi-beadwork-extension/src/index.ts` command handling\n- add `/bw:*` alias commands and `getArgumentCompletions(...)`\n- create the dashboard entry/opening path so `/bw` opens the dashboard in beadwork-capable repos even when the session is still neutral\n- preserve text fallback only for truly unavailable repos (`no-git`, `no-bw`, etc.)\n- scaffold the dashboard/tab plumbing for later issue/worker/run panes\n\nPrimary file lane:\n- `packages/pi-beadwork-extension/src/index.ts`\n- `packages/pi-beadwork-extension/src/command-aliases.ts`\n- `packages/pi-beadwork-extension/src/command-completions.ts`\n- `packages/pi-beadwork-extension/src/actions/{status,scope,issues,delegate,run,landing,workers,cleanup}.ts`\n- `packages/pi-beadwork-extension/src/tui/dashboard.ts`\n\nAcceptance criteria:\n- `/bw` opens the dashboard instead of dumping text status whenever beadwork is available or active\n- `/bw:*` aliases exist for the planned operator surface\n- command and TUI paths can call shared action functions instead of duplicating business logic\n- the dashboard shell can host later tabs without another large refactor\n- tests cover neutral-session dashboard entry and alias/completion behavior\n\nParallel-safety note:\n- finish this ticket before handing out the issue-explorer or worker-manager tickets; it is intentionally serialized to absorb the shared wiring churn.",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Extract shared beadwork action/command scaffolding for the TUI",
   "type": "task",
-  "updated_at": "2026-04-19T17:57:14Z"
+  "updated_at": "2026-04-19T17:57:20Z"
 }
