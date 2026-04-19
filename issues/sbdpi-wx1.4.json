@@ -17,11 +17,15 @@
     {
       "text": "Taking over manual landing recovery. The delegated worker exited cleanly, but the worker was no longer tracked in the registry and its commit (`e4420ab`) was not landed on `feat/bw-tui`. I am reopening the ticket, validating the worktree commit, and landing it manually.",
       "timestamp": "2026-04-19T19:15:51Z"
+    },
+    {
+      "text": "Manual landing recovery complete. The delegated worker had exited cleanly but was no longer tracked in the worker registry, and its worktree commit had not landed on `feat/bw-tui`. I cherry-picked the recovered worker commit onto `feat/bw-tui`, resolved the dashboard merge conflict against the existing worker-manager wiring, and validated the result.\n\nLanded commit: `bcabc2a` (`feat(pi-beadwork-extension): add clarify modals and run panel for sbdpi-wx1.4`)\n\nValidation run:\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n\nNote: the original worker runtime for `sbdpi-wx1.4` never produced `review.log` / `review-handoff.txt`, so this landing was recovered manually from the surviving worktree commit rather than via the normal reviewer/registry flow.",
+      "timestamp": "2026-04-19T19:17:59Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add delegate/run clarify modals and the single-epic run panel",
   "type": "task",
-  "updated_at": "2026-04-19T19:17:32Z"
+  "updated_at": "2026-04-19T19:17:59Z"
 }
