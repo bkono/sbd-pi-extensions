@@ -266,8 +266,9 @@ export function buildWorkerDetailLines(entry: WorkerManagerEntry): string[] {
   return [
     `Selected: ${worker.ticketId} · ${worker.status} · ${worker.ticketTitle}`,
     `Progress: ticket=${worker.ticketStatus ?? "unknown"} · validation=${inspection.validation.summary} · review=${inspection.review.summary} · landing=${inspection.landing.summary} · cleanup=${inspection.cleanup.summary}`,
-    `Follow-up: ${inspection.followUp.action}`,
+    `Next: ${inspection.followUp.action}`,
     `Actions: ${formatActionState(actions.land)} · ${formatActionState(actions.cancel)} · ${formatActionState(actions.cleanup)}`,
+    `Commands: /bw land ${worker.ticketId} · /bw cancel ${worker.workerId} · /bw cleanup ${worker.ticketId}`,
     `Tmux: ${formatTmuxTarget(worker)}`,
     `Paths: log=${worker.logFile} · runtime=${worker.runtimeDir}`,
     `Files: state=${worker.stateFile} · prompt=${worker.promptFile} · script=${worker.scriptFile}`,
@@ -285,7 +286,7 @@ export function buildWorkerManagerPanelLines(input: {
   if (groups.length === 0) {
     return [
       "No beadwork workers are currently tracked.",
-      "Use /bw delegate <ticket-id> or /bw run <epic-id> to launch work.",
+      "Open /bw and use the Issues tab to delegate, or run /bw run <epic-id> to launch bounded work.",
     ];
   }
 
@@ -380,7 +381,7 @@ class WorkerManagerComponent implements Component {
     ];
     const footer = this.theme.fg(
       "dim",
-      "↑/↓ or j/k select worker • esc closes • use /bw land|cancel|cleanup on the selected ticket/worker",
+      "↑/↓ or j/k select • use the Commands line for /bw land|cancel|cleanup targets • esc/q closes",
     );
 
     const lines = [...headerLines, ...bodyLines, "", footer].flatMap((line) =>

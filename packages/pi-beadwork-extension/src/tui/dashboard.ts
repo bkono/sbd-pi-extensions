@@ -73,15 +73,55 @@ function describeScope(state: SessionState): string {
   return `${state.scope.kind}:${state.scope.id}${title}`;
 }
 
+function describeBackground(state: SessionState): string | undefined {
+  const tracked = state.trackedWorkerIds?.length ?? 0;
+  const notices = Object.keys(state.workerNotices ?? {}).length;
+
+  if (state.mode === "run" && state.scope.kind === "epic") {
+    return `run supervision armed for ${state.scope.id}${tracked > 0 ? ` · tracked=${tracked}` : ""}`;
+  }
+
+  if (tracked > 0 || notices > 0) {
+    const parts = [`tracked=${tracked}`];
+    if (notices > 0) {
+      parts.push(`notices=${notices}`);
+    }
+    return parts.join(" · ");
+  }
+
+  if (state.recentRunSummary) {
+    return `last run ${state.recentRunSummary.epicId} stopped=${state.recentRunSummary.stopReason}`;
+  }
+
+  return undefined;
+}
+
+function buildFooterHint(tab: DashboardTabId, issueExplorer?: IssueExplorerController): string {
+  if (tab === "issues" && issueExplorer) {
+    return issueExplorer.renderFooterHint();
+  }
+  switch (tab) {
+    case "workers":
+      return "tab/shift+tab or ←/→ switch tabs • /bw:workers opens the dedicated worker console • esc/q closes";
+    case "run":
+      return "tab/shift+tab or ←/→ switch tabs • pick an epic in Issues and press r to open run clarify • esc/q closes";
+    case "scope":
+      return "tab/shift+tab or ←/→ switch tabs • use s/x from Issues or /bw:scope to retarget scope • esc/q closes";
+    case "actions":
+      return "tab/shift+tab or ←/→ switch tabs • use the listed /bw:* aliases from any session • esc/q closes";
+    case "issues":
+      return "tab/shift+tab or ←/→ switch tabs • esc/q closes";
+  }
+}
 function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
   switch (tab) {
     case "issues": {
       if (model.activation.kind === "available") {
         return [
           "This repo looks beadwork-capable, but the beadwork branch is not initialized yet.",
-          model.activation.detail ?? "Future onboarding/status content will live here.",
+          model.activation.detail ?? "Run the repo's beadwork bootstrap flow to finish setup.",
           "",
-          "Initialize beadwork to unlock the ready-first issue explorer.",
+          "Initialize beadwork to unlock the ready-first issue explorer, worker console, and run panel.",
         ];
       }
 
@@ -97,7 +137,6 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
           model.activation.detail ?? "No worker diagnostics are available yet.",
         ];
       }
-
       return buildWorkerManagerPanelLines({
         workers: model.workers ?? [],
         state: model.state,
@@ -108,29 +147,31 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
       return formatRunManagerLines(model);
     case "scope":
       return [
-        "Scope/session scaffold.",
+        "Session scope",
         `Mode: ${model.state.mode}`,
         `Scope: ${describeScope(model.state)}`,
         model.scopeDetail
-          ? `Scoped issue: ${model.scopeDetail.id} · ${model.scopeDetail.type} · ${model.scopeDetail.status}`
-          : "No scoped issue loaded.",
+          ? `Scoped issue: ${model.scopeDetail.id} · ${model.scopeDetail.type} · ${model.scopeDetail.status} · ${model.scopeDetail.title}`
+          : "Scoped issue: none loaded.",
+        model.state.prime?.loadedAt
+          ? `Prime: cached ${model.state.prime.loadedAt}`
+          : "Prime: loads on the first active workflow action.",
         "",
-        "Later tickets will add retarget/clear flows directly in this tab.",
+        "Best next steps:",
+        "- use s on the Issues tab to retarget scope to the current selection",
+        "- use x on the Issues tab to clear scope back to repo-wide browsing",
+        "- use /bw:scope <issue-id|clear> when you want the text-command path",
       ];
     case "actions":
       return [
-        "Operator actions scaffold.",
-        "Available now:",
-        "- /bw:status",
-        "- /bw:scope",
-        "- /bw:workers",
-        "- /bw:delegate",
-        "- /bw:land",
-        "- /bw:cancel",
-        "- /bw:cleanup",
-        "- /bw:run",
+        "Quick actions",
+        "- Issues tab: s scopes the selected issue • d opens delegate clarify • r opens run clarify",
+        "- /bw:workers opens the dedicated worker console for selection + follow-up",
+        "- /bw:delegate <ticket-id> and /bw:run <epic-id> stay available for text-first launches",
+        "- /bw:land, /bw:cancel, and /bw:cleanup accept either ticket ids or worker ids",
+        "- /bw status, /bw ready, /bw list, and /bw show remain available alongside the dashboard",
         "",
-        "Later tickets will wire these actions directly to issue and worker selections.",
+        "Aliases: /bw:status • /bw:scope • /bw:workers • /bw:delegate • /bw:land • /bw:cancel • /bw:cleanup • /bw:run",
       ];
   }
 }
@@ -260,6 +301,11 @@ class DashboardComponent implements Component {
       `Scope: ${describeScope(this.model.state)}`,
     ];
 
+    const background = describeBackground(this.model.state);
+    if (background) {
+      headerLines.push(`Background: ${background}`);
+    }
+
     if (this.model.counts) {
       headerLines.push(
         `Counts: ready=${this.model.counts.ready} blocked=${this.model.counts.blocked} in_progress=${this.model.counts.inProgress}`,
@@ -281,11 +327,7 @@ class DashboardComponent implements Component {
       this.selectedTab === "issues" && this.issueExplorer
         ? this.issueExplorer.renderLines()
         : buildPanelLines(this.model, this.selectedTab);
-    const footerText =
-      this.selectedTab === "issues" && this.issueExplorer
-        ? this.issueExplorer.renderFooterHint()
-        : "tab/shift+tab or ←/→ switch tabs • esc closes • later tickets fill the panes";
-    const footer = this.theme.fg("dim", footerText);
+    const footer = this.theme.fg("dim", buildFooterHint(this.selectedTab, this.issueExplorer));
 
     const lines = [...headerLines, "", tabsLine, "", ...bodyLines, "", footer].flatMap((line) =>
       wrapTextWithAnsi(line, Math.max(1, width)).map((wrapped) => truncateToWidth(wrapped, width)),

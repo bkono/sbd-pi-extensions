@@ -73,9 +73,12 @@ describe("run manager", () => {
   it("renders single-epic run state, options, and recent cycles", () => {
     const rendered = formatRunManagerLines(createSnapshot()).join("\n");
 
-    expect(rendered).toContain("Single-epic run panel.");
+    expect(rendered).toContain("Run panel · single-epic orchestration.");
     expect(rendered).toContain("Run scope: BW-100 · Scoped epic");
     expect(rendered).toContain("Run state: idle · last stop=blocked");
+    expect(rendered).toContain(
+      "Next: The last run paused because no additional scoped ready work was available.",
+    );
     expect(rendered).toContain(
       "Options: workers=3 until=blocked maxCycles=5 dryRun=no noSpawn=yes",
     );

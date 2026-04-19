@@ -19,11 +19,15 @@ export function renderStatusText(
 ): string | undefined {
   const theme = ctx.ui.theme;
   const scope = renderScope(sessionState.scope);
+  const trackedWorkers = sessionState.trackedWorkerIds?.length ?? 0;
 
   if (activation.kind === "active") {
     const parts = [theme.fg("accent", "bw"), theme.fg("muted", sessionState.mode)];
     if (scope) {
       parts.push(theme.fg("muted", `· ${scope}`));
+    }
+    if (trackedWorkers > 0) {
+      parts.push(theme.fg("muted", `· tracked ${trackedWorkers}`));
     }
     if (workerSummary && workerSummary.active > 0) {
       parts.push(theme.fg("muted", `· workers ${workerSummary.active}`));

@@ -187,6 +187,7 @@ describe("dashboard", () => {
     const rendered = renderComponent(dashboard);
     expect(rendered).toContain("Workers: total=1 active=0 held=1 landed=0");
     expect(rendered).toContain("Selected: BW-101 · held · Delegable ticket");
+    expect(rendered).toContain("Background: tracked=1");
     expect(rendered).not.toContain("Selected: BW-101 · running · Delegable ticket");
   });
 
@@ -333,6 +334,9 @@ describe("dashboard", () => {
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
     expect(runRendered).toContain("Run state: active supervision armed");
+    expect(runRendered).toContain(
+      "Next: Background supervision is armed; use the Workers tab for live follow-up while the session stays open.",
+    );
     expect(runRendered).toContain("Run scope: BW-100 · Runnable epic");
     expect(runRendered).toContain(
       "Options: workers=2 until=blocked maxCycles=4 dryRun=no noSpawn=no",
@@ -341,6 +345,51 @@ describe("dashboard", () => {
     selectTab(dashboard, "workers");
     const workersRendered = renderComponent(dashboard);
     expect(workersRendered).toContain("Epic BW-100 (current scope)");
+    expect(workersRendered).toContain(
+      "Commands: /bw land BW-101 · /bw cancel bw-101-worker · /bw cleanup BW-101",
+    );
     expect(workersRendered).toContain("Selected: BW-101 · running · Runnable ticket");
+  });
+
+  it("renders polished scope and actions tabs with dashboard-level hints", async () => {
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: "/repo",
+      ui,
+      sessionId: "dashboard-scope-actions",
+    });
+
+    await openBeadworkDashboard(
+      ctx,
+      createModel({
+        state: createState({
+          scope: { kind: "epic", id: "BW-100", title: "Scoped epic" },
+          trackedWorkerIds: ["bw-101-worker"],
+        }),
+        scopeDetail: createDetail({ id: "BW-100", type: "epic", title: "Scoped epic" }),
+      }),
+    );
+
+    const dashboard = ui.customCalls[0]?.component as {
+      render: (width: number) => string[];
+      selectedTabIndex?: number;
+      invalidate?: () => void;
+    };
+
+    selectTab(dashboard, "scope");
+    const scopeRendered = renderComponent(dashboard);
+    expect(scopeRendered).toContain("Session scope");
+    expect(scopeRendered).toContain("Best next steps:");
+    expect(scopeRendered).toContain("use s on the Issues tab to retarget scope");
+    expect(scopeRendered).toContain("Background: tracked=1");
+    expect(scopeRendered).toContain("use s/x from Issues or /bw:scope to retarget scope");
+
+    selectTab(dashboard, "actions");
+    const actionsRendered = renderComponent(dashboard);
+    expect(actionsRendered).toContain("Quick actions");
+    expect(actionsRendered).toContain("/bw:workers opens the dedicated worker console");
+    expect(actionsRendered).toContain("Aliases: /bw:status");
+    expect(actionsRendered).toContain("use the listed /bw:* aliases from any session");
+    expect(actionsRendered).not.toContain("Later tickets");
   });
 });

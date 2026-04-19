@@ -168,7 +168,7 @@ export class RunClarifyComponent implements Component {
         }
       }),
       "",
-      "↑/↓ choose • ←/→ or space adjust • enter starts • esc cancels",
+      "↑/↓ or j/k choose • ←/→ or h/l or space adjust • enter starts • esc/q cancels",
     ];
 
     return lines.flatMap((line) =>

@@ -326,7 +326,7 @@ export class IssueExplorerController {
   }
 
   renderFooterHint(): string {
-    return "↑/↓ move • enter drill-in • backspace/h back out • f filter • g engage repo • s scope • x clear scope • d delegate • r run";
+    return "↑/↓ or j/k move • enter drill in • backspace/h back out • f filter • g engage repo • s scope • x clear scope • d delegate • r run • tab/shift+tab switch tabs • esc/q closes";
   }
 
   private applySnapshot(snapshot: DashboardStatusSnapshot | undefined): void {

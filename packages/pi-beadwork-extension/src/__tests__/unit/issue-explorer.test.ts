@@ -79,6 +79,7 @@ describe("issue explorer", () => {
     expect(rendered).toContain("filter=ready");
     expect(rendered).toContain("Dashboard epic");
     expect(rendered).toContain("Epic detail");
+    expect(controller.renderFooterHint()).toContain("tab/shift+tab switch tabs");
   });
 
   it("supports filter changes and breadcrumb drill-in/out", async () => {

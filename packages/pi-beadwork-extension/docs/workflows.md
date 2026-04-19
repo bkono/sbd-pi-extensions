@@ -16,22 +16,27 @@ The persisted session state can be:
 - `interactive` — beadwork-aware human-led mode for a repo, ticket, or epic
 - `run` — bounded `/bw run` mode for an epic, with background continuation while the session stays alive
 
-Typical flow:
-
+Typical dashboard-first flow:
 ```text
+/bw
+/bw:workers
 /bw status
-/bw engage
-/bw engage sbdpi-swx.6
 ```
 
+What that gives you:
+
+- bare `/bw` opens the dashboard even from a neutral session when beadwork is available in the repo
+- the default **Issues** tab starts with the `ready` filter so you can browse work before explicitly scoping anything
+- from the Issues tab, `s` scopes the selected issue, `x` clears scope, `d` opens delegate clarify for a ticket, and `r` opens run clarify for an epic
+- `tab` / `shift+tab` (or `←` / `→`) moves between Issues, Workers, Run, Scope, and Actions
+- `/bw:workers` opens the dedicated worker console when you want the fuller operational view
+
+Use `/bw engage [scope]` or `/bw:scope <issue-id>` when you want to jump straight into a text-command scope.
 Use `/bw off` to return to neutral mode.
-
 If workers are still active, `/bw off` will make you choose:
-
 - `/bw off --stop-workers`
 - `/bw off --leave-workers`
 - `/bw off --stop-workers --all-workers`
-
 ## Planning and `/bw adopt`
 
 `/bw adopt` is now built around an **explicit markdown source**. It no longer depends on scraping prior chat text.
@@ -314,16 +319,16 @@ Cleanup only happens after successful orchestrator-owned landing. Failed or atte
 
 ## Recommended dogfood workflow
 
-For the current feature set, the practical operator flow is:
+For the current feature set, the practical operator loop is:
 
-1. `/bw engage <epic-or-ticket>`
-2. `/bw ready`
-3. `/bw delegate <ticket-id>` for one ticket, or `/bw run <epic-id>` for bounded orchestration
-4. keep working in the parent session
+1. `/bw` to open the ready-first dashboard
+2. browse the Issues tab, then press `s` to scope, `d` to delegate a ticket, or `r` to start a run from an epic
+3. use `/bw ready`, `/bw show`, `/bw list`, or `/bw:scope ...` whenever you want the text-command path instead
+4. keep working in the parent session while background supervision tracks delegated workers
 5. watch `worker.log` if you want live detail
-6. rely on parent notices for stage changes
-7. use `/bw workers` when you want the durable exact status
-8. if using deferred mode, run `/bw land <ticket-id|worker-id>` when ready
+6. rely on parent notices plus the statusline for background state changes
+7. open `/bw:workers` (or run `/bw workers`) when you want the durable exact worker truth
+8. if using deferred mode, run `/bw land <ticket-id|worker-id>` when the held worker is ready to merge back
 
 ## Known boundaries
 

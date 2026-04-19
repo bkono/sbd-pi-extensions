@@ -1076,6 +1076,7 @@ describe("pi beadwork extension", () => {
       "session-land-worker-queued",
     );
     expect(persisted.trackedWorkerIds).toContain("bw-101-worker");
+    expect(ui.statuses.get("beadwork")).toContain("tracked 1");
   });
 
   it("rejects cleanup when the worker is configured for automatic cleanup", async () => {

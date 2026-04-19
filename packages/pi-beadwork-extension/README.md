@@ -56,24 +56,25 @@ Add the extension entrypoint to `settings.json`:
 
 ## Quickstart
 
-### 1. Open the dashboard or jump straight into text commands
+### 1. Start with the dashboard-first workflow
 
 ```text
 /bw
 /bw status
-/bw engage
+/bw:workers
 ```
-
 - bare `/bw` opens the beadwork dashboard when beadwork is active or available in the repo
-- dedicated aliases like `/bw:status`, `/bw:scope`, `/bw:delegate`, `/bw:run`, `/bw:workers`, `/bw:land`, `/bw:cancel`, and `/bw:cleanup` are also registered for faster slash-command discovery
+- the default **Issues** tab is ready-first, so you can browse and choose work before explicitly engaging
+- inside the Issues tab: `s` scopes the current issue, `x` clears scope, `d` opens delegate clarify for a ticket, and `r` opens run clarify for an epic
+- `tab` / `shift+tab` (or `←` / `→`) move between the Issues, Workers, Run, Scope, and Actions tabs
+- dedicated aliases like `/bw:status`, `/bw:scope`, `/bw:delegate`, `/bw:run`, `/bw:workers`, `/bw:land`, `/bw:cancel`, and `/bw:cleanup` stay registered for faster slash-command discovery
 
-Or scope the session immediately:
+Or scope the session immediately from text commands:
 
 ```text
 /bw engage sbdpi-swx.6
 /bw:scope sbdpi-swx.6
 ```
-
 ### 2. Inspect the queue
 
 ```text
@@ -340,10 +341,10 @@ For the full config reference and all environment variables, see [docs/configura
 ## Docs
 
 - [docs/README.md](./docs/README.md) — docs index
-- [docs/workflows.md](./docs/workflows.md) — operator workflows, delegated worker lifecycle, deferred landing, reviewer gating, `/bw run`
+- [docs/workflows.md](./docs/workflows.md) — dashboard-first operator workflow, delegated worker lifecycle, deferred landing, reviewer gating, `/bw run`
 - [docs/configuration.md](./docs/configuration.md) — config keys, environment variables, examples, compatibility aliases
-- [docs/commands.md](./docs/commands.md) — slash command reference, worker states, and tool surface
-- [docs/tui-proposal.md](./docs/tui-proposal.md) — proposed native TUI/dashboard direction, worker UI, ready-browser UI, and `bw:*` command surface
+- [docs/commands.md](./docs/commands.md) — slash command reference, dashboard controls, worker states, and tool surface
+- [docs/tui-proposal.md](./docs/tui-proposal.md) — design notes and follow-on TUI backlog beyond the shipped dashboard/workflow
 
 ## Tool surface
 

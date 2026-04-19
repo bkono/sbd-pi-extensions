@@ -82,11 +82,11 @@ export class DelegateClarifyComponent implements Component {
       `Parent epic: ${this.issue.parentId ?? "none"}`,
       "",
       `Model override: ${this.modelOverrideText || "(default worker model)"}`,
-      "Type provider/model to override, or leave empty to use the configured default.",
+      "Type provider/model for a one-off worker override, or leave it empty to keep the configured default.",
       "",
       this.error
         ? `Error: ${this.error}`
-        : "enter delegates • type to edit • backspace clears • esc cancels",
+        : "type to edit • enter delegates • backspace deletes • esc/q cancels",
     ];
 
     return lines.flatMap((line) =>

@@ -53,6 +53,9 @@ describe("delegate clarify modal", () => {
     const rendered = component.render(80).join("\n");
     expect(rendered).toContain("Delegate ticket");
     expect(rendered).toContain("BW-101 · Delegate this ticket");
+    expect(rendered).toContain(
+      "type to edit • enter delegates • backspace deletes • esc/q cancels",
+    );
   });
 
   it("shows validation feedback for invalid model overrides", () => {

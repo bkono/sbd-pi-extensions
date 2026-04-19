@@ -2,7 +2,7 @@
 
 ## Slash command reference
 
-Bare `/bw` opens the dashboard shell when beadwork is active or available in the repo. All text commands remain exposed under `/bw ...`, and the most common operator flows also have dedicated `/bw:*` aliases.
+Bare `/bw` opens the dashboard when beadwork is active or available in the repo. All text commands remain exposed under `/bw ...`, and the most common operator flows also have dedicated `/bw:*` aliases.
 
 ## Session + workflow commands
 | Command                                                                                              | Purpose                                                                                                 |
@@ -15,7 +15,7 @@ Bare `/bw` opens the dashboard shell when beadwork is active or available in the
 | `/bw prime [--refresh]`                                                                               | Show cached or refreshed `bw prime` guidance.                                                           |
 | `/bw ready [scope]` / `/bw:ready [scope]`                                                             | Show ready work, optionally scoped.                                                                     |
 | `/bw blocked`                                                                                         | List currently blocked work.                                                                            |
-| `/bw workers [epic-id]` / `/bw:workers [epic-id]`                                                     | Show delegated worker diagnostics and next actions.                                                     |
+| `/bw workers [epic-id]` / `/bw:workers [epic-id]`                                                     | Show delegated worker diagnostics and next actions; with no explicit epic id and UI available, open the worker console overlay. |
 | `/bw delegate <ticket-id> [--model provider/model]` / `/bw:delegate ...`                             | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
 | `/bw land <ticket-id\|worker-id>` / `/bw:land ...`                                                   | Resume merge-back for a deferred worker.                                                                |
 | `/bw cancel <ticket-id\|worker-id>` / `/bw:cancel ...`                                               | Stop an active worker by ticket id or worker id.                                                        |
@@ -23,6 +23,22 @@ Bare `/bw` opens the dashboard shell when beadwork is active or available in the
 | `/bw run <epic-id> [--workers n] [--until blocked\|empty] [--max-cycles n] [--dry-run] [--no-spawn]` / `/bw:run ...` | Run bounded orchestration over an epic.                                                                 |
 | `/bw adopt [markdown] [--file path] [--title ...] [--land quick\|branch\|multi] [--apply]` / `/bw:adopt ...` | Turn an explicit markdown plan into a beadwork-aware preview or graph-materialization flow.             |
 
+## Dashboard controls
+
+Bare `/bw` lands on the ready-first **Issues** tab.
+
+Core in-dashboard actions:
+
+- `↑/↓` or `j/k` — move through the current issue or worker list
+- `enter` — drill into the selected issue inside the Issues tab
+- `backspace` or `h` — back out one breadcrumb level in the Issues tab
+- `s` / `x` — scope the selected issue or clear scope from the Issues tab
+- `d` — open delegate clarify for the selected ticket
+- `r` — open run clarify for the selected epic
+- `tab` / `shift+tab` (or `←` / `→`) — switch between Issues, Workers, Run, Scope, and Actions
+- `esc` / `q` — close the current overlay
+
+Use `/bw:workers` when you want the dedicated worker console instead of the compact Workers dashboard tab.
 ## Issue-management commands
 
 | Command | Purpose |
