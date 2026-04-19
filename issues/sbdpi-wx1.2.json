@@ -7,14 +7,15 @@
     "sbdpi-wx1",
     "sbdpi-wx1.4"
   ],
+  "closed_at": "2026-04-19T18:50:59Z",
   "created": "2026-04-19T17:55:36Z",
   "description": "Build the default issue-explorer experience for the beadwork dashboard.\n\nThis ticket should own the issue-browsing lane and stay out of worker-management internals.\n\nScope:\n- implement the Issues/default tab with a ready-first filter\n- support switching status/filter views for broader triage (`ready`, `open`, `in_progress`, `blocked`, `closed`, `deferred`, `all`)\n- support breadcrumb drill-in/out across repo -\u003e epic -\u003e ticket and back out again\n- add scope set / scope clear / engage flows from inside the explorer\n- render enough issue detail to support drill-in decisions without leaving the TUI\n- expose delegate/run launch intents through callbacks/hooks expected by the later clarify-modal ticket\n\nPrimary file lane:\n- `packages/pi-beadwork-extension/src/tui/issue-explorer.ts`\n- `packages/pi-beadwork-extension/src/tui/issue-detail.ts`\n- `packages/pi-beadwork-extension/src/actions/issues.ts`\n- `packages/pi-beadwork-extension/src/actions/scope.ts`\n- issue-explorer-focused tests under `packages/pi-beadwork-extension/src/__tests__`\n\nAcceptance criteria:\n- Issues is the default dashboard tab\n- ready is the default filter, but the explorer is not ready-only\n- breadcrumb navigation and walk-back-out behavior work cleanly\n- scope retargeting and scope clearing work from the TUI\n- tests cover ready-first defaults, filter changes, breadcrumb transitions, and scope behavior\n\nParallel-safety note:\n- after the scaffolding ticket lands, this ticket should be safe to run in parallel with the worker-manager lane because it should avoid worker orchestration files and keep `dashboard.ts` edits minimal.",
   "id": "sbdpi-wx1.2",
   "labels": [],
   "parent": "sbdpi-wx1",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Implement the issue explorer tab with breadcrumb and scope workflows",
   "type": "task",
-  "updated_at": "2026-04-19T18:36:40Z"
+  "updated_at": "2026-04-19T18:50:59Z"
 }
