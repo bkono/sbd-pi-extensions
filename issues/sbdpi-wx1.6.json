@@ -14,11 +14,15 @@
     {
       "text": "Manual takeover to complete landing. The ticket branch `sbdpi-wx1.6/fix-stale-dashboard-refresh-after-issue-actions` contains commit `ac97225`, but `feat/bw-tui` is still at `bcabc2a`, so the fix was closed before it was actually landed on the integration branch. Reopened and started to review the change, rerun package gates, and land it properly.",
       "timestamp": "2026-04-19T21:05:44Z"
+    },
+    {
+      "text": "Review + landing summary:\n- inspected ticket branch commit `ac97225` against `bcabc2a`; the change is tightly scoped to dashboard snapshot wiring plus regression tests\n- verified the two intended fixes are present: delegate/run issue actions now route through dashboard snapshot wrappers, and `DashboardComponent.applySnapshot(...)` now refreshes `model.workers`\n- reran package gates on both the ticket worktree and the landed branch; all passed\n- cherry-picked the fix onto `feat/bw-tui` as `5fb6a6b fix(pi-beadwork-extension): refresh dashboard snapshots for sbdpi-wx1.6`\n\nPackage gates:\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`\n\nNo additional blocking issues found in the scoped fix during this landing review.",
+      "timestamp": "2026-04-19T21:06:29Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Fix stale dashboard refresh after issue actions and worker updates",
   "type": "task",
-  "updated_at": "2026-04-19T21:05:44Z"
+  "updated_at": "2026-04-19T21:06:29Z"
 }
