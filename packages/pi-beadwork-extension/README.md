@@ -336,6 +336,7 @@ For the full config reference and all environment variables, see [docs/configura
 - [docs/workflows.md](./docs/workflows.md) — operator workflows, delegated worker lifecycle, deferred landing, reviewer gating, `/bw run`
 - [docs/configuration.md](./docs/configuration.md) — config keys, environment variables, examples, compatibility aliases
 - [docs/commands.md](./docs/commands.md) — slash command reference, worker states, and tool surface
+- [docs/tui-proposal.md](./docs/tui-proposal.md) — proposed native TUI/dashboard direction, worker UI, ready-browser UI, and `bw:*` command surface
 
 ## Tool surface
 
