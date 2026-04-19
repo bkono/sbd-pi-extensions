@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-wx1.1"
+  ],
   "blocks": [],
   "created": "2026-04-19T17:54:31Z",
   "description": "Implement the near-term beadwork TUI plan from `packages/pi-beadwork-extension/docs/tui-proposal.md`.\n\nOutcome we want:\n- bare `/bw` opens a pi-native dashboard whenever beadwork is available, even in neutral sessions\n- the default surface is an issue explorer with a ready-first filter, breadcrumb drill-in/out, and scope retargeting\n- workers get a real operations console with land/cancel/cleanup actions\n- delegate/run flows get clarify modals\n- the run view stays single-epic-first; multi-epic orchestration remains explicitly deferred\n\nTicket-structure rule for this epic:\n- every ready child ticket should be safe to hand to a different agent in parallel when possible\n- prefer agent-cohesive slices over plan-section purity\n- serialize work when shared files would otherwise create merge-back pain\n- avoid having two ready tickets require heavy concurrent edits to `src/index.ts`, `src/tui/dashboard.ts`, or the same action module at the same time\n\nRecommended execution shape:\n1. lay down the shared action/command/dashboard scaffolding\n2. split into parallel-safe issue-explorer and worker-manager lanes\n3. converge for clarify modals + single-run panel\n4. finish with docs/polish/regression coverage\n\nPackage scope:\n- `packages/pi-beadwork-extension/src/**`\n- `packages/pi-beadwork-extension/README.md`\n- `packages/pi-beadwork-extension/docs/**`\n\nDefinition of done for implementation tickets in this epic:\n- add/update tests under `packages/pi-beadwork-extension/src/__tests__`\n- run `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- run `npm run test -w @solvedbydev/pi-beadwork-extension`\n- run `npm run typecheck -w @solvedbydev/pi-beadwork-extension`\n\nDo not treat deferred multi-epic supervisor/state redesign as part of this epic's required scope.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "Ship an actionable beadwork dashboard and TUI workflow for `packages/pi-beadwork-extension`",
   "type": "epic",
-  "updated_at": "2026-04-19T17:54:31Z"
+  "updated_at": "2026-04-19T17:57:29Z"
 }
