@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-19T21:42:38Z",
+  "description": "This is a blocking UX bug in the `packages/pi-beadwork-extension` dashboard flow, not follow-on polish.\n\nProblem:\n- `/bw` currently opens as a centered text overlay without a real modal surface\n- background transcript content visually bleeds through the overlay\n- Issues/Workers/clarify overlays are rendered as wrapped text blobs rather than guided TUI layouts\n- navigation/redraw churn is visually disruptive and reads as full-screen flicker\n- the result does not meet the goal of the epic, which was an actionable beadwork dashboard with a usable TUI surface\n\nScope:\n- rebuild the dashboard and related beadwork overlays using real pi TUI surface/layout primitives rather than plain wrapped text lines\n- provide explicit modal chrome/surface separation (frame, padding, visual hierarchy, background treatment)\n- turn the Issues tab into a guided navigable surface rather than a text dump\n- make Workers and delegate/run clarify overlays visually consistent with the dashboard\n- reduce visible redraw/flicker during navigation and detail refreshes\n- stay within the existing single-epic dashboard scope; do not expand into deferred multi-epic orchestration work\n\nPrimary file lane:\n- `packages/pi-beadwork-extension/src/tui/dashboard.ts`\n- `packages/pi-beadwork-extension/src/tui/issue-explorer.ts`\n- `packages/pi-beadwork-extension/src/tui/worker-manager.ts`\n- `packages/pi-beadwork-extension/src/tui/delegate-clarify.ts`\n- `packages/pi-beadwork-extension/src/tui/run-clarify.ts`\n- related unit/integration tests under `packages/pi-beadwork-extension/src/__tests__`\n\nAcceptance criteria:\n- `/bw` renders as a clearly distinct modal surface with visible containment from the transcript behind it\n- modal/background content no longer visually blends together during normal use\n- the Issues tab presents a guided navigable list/detail layout instead of a borderless wrapped-text block\n- Workers and both clarify modals use the same visual system and are readable without relying on transcript separation\n- navigation does not produce visually disruptive redraw behavior during normal movement/drill-in/detail refresh\n- regression tests cover the new component structure and key navigation/render behavior\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+  "id": "sbdpi-wx1.7",
+  "labels": [],
+  "parent": "sbdpi-wx1",
+  "priority": 1,
+  "status": "open",
+  "title": "Rebuild beadwork overlays as real pi TUI surfaces instead of transparent text dumps",
+  "type": "task",
+  "updated_at": "2026-04-19T21:42:38Z"
+}
