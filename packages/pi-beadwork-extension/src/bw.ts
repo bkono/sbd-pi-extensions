@@ -77,6 +77,33 @@ export interface BeadworkAdapter {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const MUTATION_MAX_ATTEMPTS = 3;
+const mutationQueues = new Map<string, Promise<void>>();
+
+function isMovedRefConflict(error: unknown): error is BeadworkCommandError {
+  if (!(error instanceof BeadworkCommandError)) {
+    return false;
+  }
+
+  const detail = `${error.stderr}\n${error.stdout}\n${error.message}`;
+  return /ref\s+refs[/\s]heads[/\s]beadwork\s+has\s+moved/i.test(detail);
+}
+
+function enqueueMutation<T>(cwd: string, task: () => Promise<T>): Promise<T> {
+  const key = cwd;
+  const previous = mutationQueues.get(key) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(task);
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  mutationQueues.set(key, tail);
+  return result.finally(() => {
+    if (mutationQueues.get(key) === tail) {
+      mutationQueues.delete(key);
+    }
+  });
+}
 
 type RawIssue = {
   id: string;
@@ -243,6 +270,29 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
     return parseJson<T>(result.stdout, context);
   }
 
+  async function runMutation<T>(cwd: string, task: () => Promise<T>): Promise<T> {
+    return enqueueMutation(cwd, async () => {
+      let lastConflict: BeadworkCommandError | undefined;
+
+      for (let attempt = 0; attempt < MUTATION_MAX_ATTEMPTS; attempt += 1) {
+        if (attempt === MUTATION_MAX_ATTEMPTS - 1 && lastConflict) {
+          await run("bw", ["sync"], cwd);
+        }
+
+        try {
+          return await task();
+        } catch (error) {
+          if (!isMovedRefConflict(error)) {
+            throw error;
+          }
+          lastConflict = error;
+        }
+      }
+
+      throw lastConflict ?? new Error("Beadwork mutation retry loop exited unexpectedly.");
+    });
+  }
+
   return {
     async prime(cwd) {
       const result = await run("bw", ["prime"], cwd);
@@ -298,95 +348,104 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
     },
 
     async createIssue(cwd, input) {
-      const args = ["create", input.title, "--json"];
-      pushOptionalArg(args, "--type", input.type);
-      pushOptionalArg(args, "--description", input.description);
-      pushOptionalArg(args, "--priority", input.priority);
-      pushOptionalArg(args, "--parent", input.parentId);
-      const issue = await runJson<RawIssue>(cwd, args, `create ${input.title}`);
-      return {
-        issue: normalizeIssue(issue),
-      };
+      return runMutation(cwd, async () => {
+        const args = ["create", input.title, "--json"];
+        pushOptionalArg(args, "--type", input.type);
+        pushOptionalArg(args, "--description", input.description);
+        pushOptionalArg(args, "--priority", input.priority);
+        pushOptionalArg(args, "--parent", input.parentId);
+        const issue = await runJson<RawIssue>(cwd, args, `create ${input.title}`);
+        return {
+          issue: normalizeIssue(issue),
+        };
+      });
     },
-
     async updateIssue(cwd, id, input) {
-      const args = ["update", id, "--json"];
-      pushOptionalArg(args, "--title", input.title);
-      pushOptionalArg(args, "--description", input.description);
-      pushOptionalArg(args, "--priority", input.priority);
-      pushOptionalArg(args, "--assignee", input.assignee);
-      pushOptionalArg(args, "--type", input.type);
-      pushOptionalArg(args, "--status", input.status);
-      pushOptionalArg(args, "--defer", input.deferUntil);
-      if (input.parentId !== undefined) {
-        args.push("--parent", input.parentId ?? "");
-      }
-      if (input.dueAt !== undefined) {
-        args.push("--due", input.dueAt ?? "");
-      }
-      const issue = await runJson<RawIssue>(cwd, args, `update ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const args = ["update", id, "--json"];
+        pushOptionalArg(args, "--title", input.title);
+        pushOptionalArg(args, "--description", input.description);
+        pushOptionalArg(args, "--priority", input.priority);
+        pushOptionalArg(args, "--assignee", input.assignee);
+        pushOptionalArg(args, "--type", input.type);
+        pushOptionalArg(args, "--status", input.status);
+        pushOptionalArg(args, "--defer", input.deferUntil);
+        if (input.parentId !== undefined) {
+          args.push("--parent", input.parentId ?? "");
+        }
+        if (input.dueAt !== undefined) {
+          args.push("--due", input.dueAt ?? "");
+        }
+        const issue = await runJson<RawIssue>(cwd, args, `update ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async addDependency(cwd, blockerId, blockedId) {
-      await run("bw", ["dep", "add", blockerId, "blocks", blockedId], cwd);
+      await runMutation(cwd, () => run("bw", ["dep", "add", blockerId, "blocks", blockedId], cwd));
     },
-
     async removeDependency(cwd, blockerId, blockedId) {
-      await run("bw", ["dep", "remove", blockerId, "blocks", blockedId], cwd);
+      await runMutation(cwd, () =>
+        run("bw", ["dep", "remove", blockerId, "blocks", blockedId], cwd),
+      );
     },
-
     async comment(cwd, id, text, author) {
-      const args = ["comment", id, text, "--json"];
-      pushOptionalArg(args, "--author", author);
-      const issue = await runJson<RawIssue>(cwd, args, `comment ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const args = ["comment", id, text, "--json"];
+        pushOptionalArg(args, "--author", author);
+        const issue = await runJson<RawIssue>(cwd, args, `comment ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async label(cwd, id, operations) {
       if (operations.length === 0) {
         throw new Error("At least one label operation is required.");
       }
 
-      const issue = await runJson<RawIssue>(
-        cwd,
-        ["label", id, ...operations, "--json"],
-        `label ${id}`,
-      );
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const issue = await runJson<RawIssue>(
+          cwd,
+          ["label", id, ...operations, "--json"],
+          `label ${id}`,
+        );
+        return normalizeIssue(issue);
+      });
     },
-
     async start(cwd, id, assignee) {
-      const args = ["start", id, "--json"];
-      pushOptionalArg(args, "--assignee", assignee);
-      const issue = await runJson<RawIssue>(cwd, args, `start ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const args = ["start", id, "--json"];
+        pushOptionalArg(args, "--assignee", assignee);
+        const issue = await runJson<RawIssue>(cwd, args, `start ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async close(cwd, id, reason) {
-      const args = ["close", id, "--json"];
-      pushOptionalArg(args, "--reason", reason);
-      const issue = await runJson<RawIssue>(cwd, args, `close ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const args = ["close", id, "--json"];
+        pushOptionalArg(args, "--reason", reason);
+        const issue = await runJson<RawIssue>(cwd, args, `close ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async reopen(cwd, id) {
-      const issue = await runJson<RawIssue>(cwd, ["reopen", id, "--json"], `reopen ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const issue = await runJson<RawIssue>(cwd, ["reopen", id, "--json"], `reopen ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async defer(cwd, id, when) {
-      const issue = await runJson<RawIssue>(cwd, ["defer", id, when, "--json"], `defer ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const issue = await runJson<RawIssue>(cwd, ["defer", id, when, "--json"], `defer ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async undefer(cwd, id) {
-      const issue = await runJson<RawIssue>(cwd, ["undefer", id, "--json"], `undefer ${id}`);
-      return normalizeIssue(issue);
+      return runMutation(cwd, async () => {
+        const issue = await runJson<RawIssue>(cwd, ["undefer", id, "--json"], `undefer ${id}`);
+        return normalizeIssue(issue);
+      });
     },
-
     async sync(cwd) {
-      await run("bw", ["sync"], cwd);
+      await runMutation(cwd, () => run("bw", ["sync"], cwd));
     },
 
     async getCounts(cwd, scopeId) {

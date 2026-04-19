@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBeadworkAdapter } from "../../bw.js";
+import { BeadworkCommandError, createBeadworkAdapter } from "../../bw.js";
+
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
 describe("beadwork adapter", () => {
   it("loads ready issues and normalizes fields", async () => {
@@ -236,5 +241,102 @@ describe("beadwork adapter", () => {
     await expect(adapter.label("/repo", "BW-100", [])).rejects.toThrow(
       "At least one label operation is required.",
     );
+  });
+
+  it("serializes concurrent mutations per cwd", async () => {
+    let resolveFirst:
+      | ((value: { code: number; stdout: string; stderr: string }) => void)
+      | undefined;
+    const firstCall = new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const exec = vi
+      .fn()
+      .mockImplementationOnce(() => firstCall)
+      .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" });
+
+    const adapter = createBeadworkAdapter(exec);
+    const first = adapter.addDependency("/repo-serial", "BW-100", "BW-200");
+    const second = adapter.addDependency("/repo-serial", "BW-200", "BW-300");
+
+    await flushMicrotasks();
+    expect(exec).toHaveBeenCalledTimes(1);
+    resolveFirst?.({ code: 0, stdout: "", stderr: "" });
+    await first;
+    await flushMicrotasks();
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec).toHaveBeenNthCalledWith(1, "bw", ["dep", "add", "BW-100", "blocks", "BW-200"], {
+      cwd: "/repo-serial",
+      timeout: 10_000,
+    });
+    expect(exec).toHaveBeenNthCalledWith(2, "bw", ["dep", "add", "BW-200", "blocks", "BW-300"], {
+      cwd: "/repo-serial",
+      timeout: 10_000,
+    });
+    await second;
+  });
+
+  it("retries moved-ref conflicts once before syncing", async () => {
+    const movedRef = new BeadworkCommandError({
+      command: "bw",
+      args: ["dep", "add", "BW-100", "blocks", "BW-200"],
+      cwd: "/repo",
+      code: 1,
+      stderr:
+        "commit failed: conflict: ref refs/heads/beadwork has moved (expected abc12345, got def67890)",
+    });
+    const exec = vi
+      .fn()
+      .mockRejectedValueOnce(movedRef)
+      .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" });
+
+    const adapter = createBeadworkAdapter(exec);
+    await adapter.addDependency("/repo-retry-once", "BW-100", "BW-200");
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec).toHaveBeenNthCalledWith(1, "bw", ["dep", "add", "BW-100", "blocks", "BW-200"], {
+      cwd: "/repo-retry-once",
+      timeout: 10_000,
+    });
+    expect(exec).toHaveBeenNthCalledWith(2, "bw", ["dep", "add", "BW-100", "blocks", "BW-200"], {
+      cwd: "/repo-retry-once",
+      timeout: 10_000,
+    });
+  });
+
+  it("runs bw sync before a final retry after repeated moved-ref conflicts", async () => {
+    const movedRef = new BeadworkCommandError({
+      command: "bw",
+      args: ["dep", "add", "BW-100", "blocks", "BW-200"],
+      cwd: "/repo",
+      code: 1,
+      stderr:
+        "commit failed: conflict: ref refs/heads/beadwork has moved (expected abc12345, got def67890)",
+    });
+    const exec = vi
+      .fn()
+      .mockRejectedValueOnce(movedRef)
+      .mockRejectedValueOnce(movedRef)
+      .mockResolvedValueOnce({ code: 0, stdout: "up to date", stderr: "" })
+      .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" });
+
+    const adapter = createBeadworkAdapter(exec);
+    await adapter.addDependency("/repo-retry-sync", "BW-100", "BW-200");
+    expect(exec).toHaveBeenCalledTimes(4);
+    expect(exec).toHaveBeenNthCalledWith(1, "bw", ["dep", "add", "BW-100", "blocks", "BW-200"], {
+      cwd: "/repo-retry-sync",
+      timeout: 10_000,
+    });
+    expect(exec).toHaveBeenNthCalledWith(2, "bw", ["dep", "add", "BW-100", "blocks", "BW-200"], {
+      cwd: "/repo-retry-sync",
+      timeout: 10_000,
+    });
+    expect(exec).toHaveBeenNthCalledWith(3, "bw", ["sync"], {
+      cwd: "/repo-retry-sync",
+      timeout: 10_000,
+    });
+    expect(exec).toHaveBeenNthCalledWith(4, "bw", ["dep", "add", "BW-100", "blocks", "BW-200"], {
+      cwd: "/repo-retry-sync",
+      timeout: 10_000,
+    });
   });
 });
