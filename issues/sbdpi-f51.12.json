@@ -7,9 +7,15 @@
   "id": "sbdpi-f51.12",
   "labels": [],
   "parent": "sbdpi-f51",
+  "comments": [
+    {
+      "text": "Diagnosed the likely regression in `context` pruning: the OM extension could return a tool-result message without the matching assistant tool-call message when the published cursor starts at (or falls back to) a tool result boundary. Added `ensureToolCallPairing(...)` to expand pruned windows backward to include the required assistant tool-call ancestor, plus unit and extension regressions covering both normal pruning and latest-message fallback. Verified `npm run lint`, `npm run test`, and `npm run typecheck` at the repo root all pass cleanly.",
+      "timestamp": "2026-04-19T00:33:40Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Fix OM context pruning so tool-result windows keep matching tool calls",
   "type": "task",
-  "updated_at": "2026-04-19T00:28:20Z"
+  "updated_at": "2026-04-19T00:33:40Z"
 }
