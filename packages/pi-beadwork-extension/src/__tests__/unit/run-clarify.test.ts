@@ -100,7 +100,7 @@ describe("run clarify modal", () => {
     const rendered = component.render(80).join("\n");
     expect(rendered).toContain("Run epic");
     expect(rendered).toContain("Session: mode=interactive · scope=epic:BW-100");
-    expect(rendered).toContain("> Workers: 2");
+    expect(rendered).toContain("▸ Workers: 2");
     expect(rendered).toContain("↑/↓ or j/k choose");
     expect(rendered).toContain("enter starts");
     expect(rendered).toContain("esc/q");

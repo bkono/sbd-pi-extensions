@@ -2,7 +2,14 @@ import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-age
 import type { Component, TUI } from "@mariozechner/pi-tui";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { BeadworkIssueDetail, RunUntil, SessionRunOptions, SessionState } from "../types.js";
-import { renderSurface } from "./common.js";
+import {
+  kv,
+  renderSurface,
+  selectionMarker,
+  styledAccent,
+  styledDim,
+  styledLabel,
+} from "./common.js";
 
 export type RunClarifyResult = {
   epicId: string;
@@ -146,35 +153,36 @@ export class RunClarifyComponent implements Component {
   }
 
   render(width: number): string[] {
+    const t = this.theme;
     const scope =
       this.sessionState.scope.kind === "none"
-        ? "repo-wide"
-        : `${this.sessionState.scope.kind}:${this.sessionState.scope.id}`;
+        ? styledDim(t, "repo-wide")
+        : `${styledAccent(t, this.sessionState.scope.kind)}:${this.sessionState.scope.id}`;
 
-    return renderSurface(this.theme, width, {
+    return renderSurface(t, width, {
       title: "Run epic",
       subtitle: [
-        `${this.epic.id} · ${this.epic.title}`,
-        `Session: mode=${this.sessionState.mode} · scope=${scope}`,
+        `${styledLabel(t, this.epic.id)} · ${this.epic.title}`,
+        `${kv(t, "Session", `mode=${this.sessionState.mode}`)} · scope=${scope}`,
       ],
       sections: [
         {
           title: "Run options",
           lines: RUN_FIELDS.map((field, index) => {
-            const prefix = index === this.selectedIndex ? ">" : " ";
+            const marker = selectionMarker(t, index === this.selectedIndex);
             switch (field) {
               case "workers":
-                return `${prefix} Workers: ${this.workers}`;
+                return `${marker} ${kv(t, "Workers", String(this.workers))}`;
               case "until":
-                return `${prefix} Until: ${this.until}`;
+                return `${marker} ${kv(t, "Until", this.until)}`;
               case "maxCycles":
-                return `${prefix} Max cycles: ${this.maxCycles}`;
+                return `${marker} ${kv(t, "Max cycles", String(this.maxCycles))}`;
               case "dryRun":
-                return `${prefix} Dry run: ${this.dryRun ? "yes" : "no"}`;
+                return `${marker} ${kv(t, "Dry run", this.dryRun ? "yes" : "no")}`;
               case "noSpawn":
-                return `${prefix} No spawn: ${this.noSpawn ? "yes" : "no"}`;
+                return `${marker} ${kv(t, "No spawn", this.noSpawn ? "yes" : "no")}`;
               default:
-                return prefix;
+                return marker;
             }
           }),
         },

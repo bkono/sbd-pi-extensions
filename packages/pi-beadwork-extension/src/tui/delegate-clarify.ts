@@ -3,7 +3,7 @@ import type { Component, TUI } from "@mariozechner/pi-tui";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { type ParsedModelOverride, parseModelOverride } from "../argv.js";
 import type { BeadworkIssueDetail } from "../types.js";
-import { renderSurface } from "./common.js";
+import { kv, renderSurface, styledDim, styledLabel } from "./common.js";
 
 export type DelegateClarifyResult = {
   ticketId: string;
@@ -77,18 +77,26 @@ export class DelegateClarifyComponent implements Component {
   }
 
   render(width: number): string[] {
-    return renderSurface(this.theme, width, {
+    const t = this.theme;
+    return renderSurface(t, width, {
       title: "Delegate ticket",
       subtitle: [
-        `${this.issue.id} · ${this.issue.title}`,
-        `Parent epic: ${this.issue.parentId ?? "none"}`,
+        `${styledLabel(t, this.issue.id)} · ${this.issue.title}`,
+        kv(t, "Parent epic", this.issue.parentId ?? styledDim(t, "none")),
       ],
       sections: [
         {
           title: "Launch intent",
           lines: [
-            `Model override: ${this.modelOverrideText || "(default worker model)"}`,
-            "Type provider/model for a one-off worker override, or leave it empty to keep the configured default.",
+            kv(
+              t,
+              "Model override",
+              this.modelOverrideText || styledDim(t, "(default worker model)"),
+            ),
+            styledDim(
+              t,
+              "Type provider/model for a one-off worker override, or leave it empty to keep the configured default.",
+            ),
           ],
         },
         {
