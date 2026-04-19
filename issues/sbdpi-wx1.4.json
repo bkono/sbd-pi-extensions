@@ -4,7 +4,9 @@
     "sbdpi-wx1.2",
     "sbdpi-wx1.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-wx1.5"
+  ],
   "created": "2026-04-19T17:56:21Z",
   "description": "Converge the issue and worker lanes into the first workflow-complete operator loop.\n\nScope:\n- implement the delegate clarify modal\n- implement the run clarify modal\n- implement the current single-epic run panel/tab\n- wire issue-explorer launch points to the clarify modals\n- make `/bw:delegate` and `/bw:run` share the same underlying action handlers as the TUI\n- keep the run model aligned with the current single-epic backend; do not start a multi-epic redesign here\n\nPrimary file lane:\n- `packages/pi-beadwork-extension/src/tui/delegate-clarify.ts`\n- `packages/pi-beadwork-extension/src/tui/run-clarify.ts`\n- `packages/pi-beadwork-extension/src/tui/run-manager.ts`\n- `packages/pi-beadwork-extension/src/actions/delegate.ts`\n- `packages/pi-beadwork-extension/src/actions/run.ts`\n- targeted dashboard integration/tests\n\nAcceptance criteria:\n- selecting a ticket from the issue explorer can open the delegate clarify flow\n- selecting an epic can open the run clarify flow\n- the run panel shows current single-epic run state, options, and recent cycle summary\n- slash-command entry points and TUI entry points use shared handlers\n- tests cover modal launches and current-run rendering/state transitions\n\nParallel-safety note:\n- schedule this after the issue-explorer and worker-manager lanes land; it intentionally converges shared dashboard/run wiring.",
   "id": "sbdpi-wx1.4",
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Add delegate/run clarify modals and the single-epic run panel",
   "type": "task",
-  "updated_at": "2026-04-19T17:57:23Z"
+  "updated_at": "2026-04-19T17:57:26Z"
 }
