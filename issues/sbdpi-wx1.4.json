@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "sbdpi-wx1.2"
+    "sbdpi-wx1.2",
+    "sbdpi-wx1.3"
   ],
   "blocks": [],
   "created": "2026-04-19T17:56:21Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Add delegate/run clarify modals and the single-epic run panel",
   "type": "task",
-  "updated_at": "2026-04-19T17:56:45Z"
+  "updated_at": "2026-04-19T17:57:23Z"
 }
