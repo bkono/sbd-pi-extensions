@@ -4,6 +4,7 @@
     "sbdpi-wx1.1"
   ],
   "blocks": [
+    "sbdpi-wx1",
     "sbdpi-wx1.4"
   ],
   "created": "2026-04-19T17:55:36Z",
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "Implement the issue explorer tab with breadcrumb and scope workflows",
   "type": "task",
-  "updated_at": "2026-04-19T17:57:14Z"
+  "updated_at": "2026-04-19T17:57:41Z"
 }

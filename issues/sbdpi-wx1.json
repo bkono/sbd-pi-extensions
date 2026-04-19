@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "sbdpi-wx1.1"
+    "sbdpi-wx1.1",
+    "sbdpi-wx1.2"
   ],
   "blocks": [],
   "created": "2026-04-19T17:54:31Z",
@@ -12,5 +13,5 @@
   "status": "open",
   "title": "Ship an actionable beadwork dashboard and TUI workflow for `packages/pi-beadwork-extension`",
   "type": "epic",
-  "updated_at": "2026-04-19T17:57:29Z"
+  "updated_at": "2026-04-19T17:57:41Z"
 }
