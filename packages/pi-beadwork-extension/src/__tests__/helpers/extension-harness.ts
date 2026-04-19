@@ -7,6 +7,7 @@ import type {
 type AnyHandler = (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>;
 type CommandRegistration = {
   description?: string;
+  getArgumentCompletions?: (prefix: string) => unknown | Promise<unknown>;
   handler: (args: string, ctx: ExtensionCommandContext) => unknown | Promise<unknown>;
 };
 
@@ -21,6 +22,7 @@ export interface ExtensionTestHarness {
     ctx: ExtensionContext,
   ): Promise<T | undefined>;
   invokeCommand(name: string, args: string, ctx: ExtensionCommandContext): Promise<unknown>;
+  getCommandCompletions(name: string, prefix: string): Promise<unknown>;
 }
 
 export async function createExtensionTestHarness(
@@ -77,6 +79,13 @@ export async function createExtensionTestHarness(
       }
       return command.handler(args, ctx);
     },
+    async getCommandCompletions(name, prefix) {
+      const command = commands.get(name);
+      if (!command) {
+        throw new Error(`Command not registered: ${name}`);
+      }
+      return command.getArgumentCompletions?.(prefix) ?? null;
+    },
   };
 }
 
@@ -88,11 +97,14 @@ export type FakeUi = {
   };
   notify: (message: string, level?: string) => void;
   setStatus: (id: string, text: string | undefined) => void;
+  customCalls: Array<{ options?: unknown }>;
+  custom: <T>(factory: unknown, options?: unknown) => Promise<T>;
 };
 
 export function createFakeUi(): FakeUi {
   const notifications: Array<{ message: string; level?: string }> = [];
   const statuses = new Map<string, string | undefined>();
+  const customCalls: Array<{ options?: unknown }> = [];
 
   return {
     notifications,
@@ -105,6 +117,11 @@ export function createFakeUi(): FakeUi {
     },
     setStatus: (id, text) => {
       statuses.set(id, text);
+    },
+    customCalls,
+    custom: async <T>(_factory: unknown, options?: unknown) => {
+      customCalls.push({ options });
+      return undefined as T;
     },
   };
 }

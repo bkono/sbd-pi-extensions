@@ -280,6 +280,90 @@ describe("pi beadwork extension", () => {
     expect(harness.commands.has("bw")).toBe(true);
   });
 
+  it("registers the planned /bw:* alias commands", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+
+    expect(harness.commands.has("bw:status")).toBe(true);
+    expect(harness.commands.has("bw:ready")).toBe(true);
+    expect(harness.commands.has("bw:list")).toBe(true);
+    expect(harness.commands.has("bw:show")).toBe(true);
+    expect(harness.commands.has("bw:scope")).toBe(true);
+    expect(harness.commands.has("bw:workers")).toBe(true);
+    expect(harness.commands.has("bw:delegate")).toBe(true);
+    expect(harness.commands.has("bw:land")).toBe(true);
+    expect(harness.commands.has("bw:cancel")).toBe(true);
+    expect(harness.commands.has("bw:cleanup")).toBe(true);
+    expect(harness.commands.has("bw:run")).toBe(true);
+    expect(harness.commands.has("bw:off")).toBe(true);
+    expect(harness.commands.has("bw:adopt")).toBe(true);
+  });
+
+  it("opens the dashboard from bare /bw in a neutral active session", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-dashboard" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    await harness.invokeCommand("bw", "", ctx);
+
+    expect(ui.customCalls).toHaveLength(1);
+    expect(ui.notifications).toHaveLength(0);
+  });
+
+  it("opens the dashboard from bare /bw when beadwork is available but not initialized", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-dashboard-available",
+    });
+
+    detectActivationMock.mockResolvedValue({
+      kind: "available",
+      reason: "repo-not-initialized",
+      repoRoot: tempDir,
+      detail: "Local `beadwork` branch was not found in this repository.",
+    });
+
+    await harness.invokeCommand("bw", "", ctx);
+
+    expect(ui.customCalls).toHaveLength(1);
+  });
+
+  it("falls back to text status for bare /bw when beadwork is unavailable", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-dashboard-fallback",
+    });
+
+    detectActivationMock.mockResolvedValue({
+      kind: "inactive",
+      reason: "no-git",
+      detail: "Current working directory is not inside a git repository.",
+    });
+
+    await harness.invokeCommand("bw", "", ctx);
+
+    expect(ui.customCalls).toHaveLength(0);
+    expect(ui.notifications.at(-1)?.message).toContain("Activation: inactive · no-git");
+  });
+
+  it("exposes subcommand completions on /bw", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+
+    const items = (await harness.getCommandCompletions("bw", "de")) as Array<{ value: string }>;
+    expect(items.map((item) => item.value)).toContain("delegate");
+    expect(items.map((item) => item.value)).not.toContain("run");
+  });
+
   it("updates the statusline on session start", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

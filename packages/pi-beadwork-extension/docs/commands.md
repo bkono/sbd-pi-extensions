@@ -2,23 +2,26 @@
 
 ## Slash command reference
 
-All commands are exposed under `/bw`.
+Bare `/bw` opens the dashboard shell when beadwork is active or available in the repo. All text commands remain exposed under `/bw ...`, and the most common operator flows also have dedicated `/bw:*` aliases.
 
 ## Session + workflow commands
-
 | Command                                                                                              | Purpose                                                                                                 |
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `/bw status`                                                                                         | Show activation, mode, scope, counts, and worker summary.                                               |
-| `/bw engage [scope]`                                                                                 | Enter beadwork interactive mode, optionally scoped to a ticket or epic.                                 |
-| `/bw off [--stop-workers] [--all-workers] [--leave-workers]`                                         | Return to neutral mode and optionally stop active workers.                                              |
-| `/bw prime [--refresh]`                                                                              | Show cached or refreshed `bw prime` guidance.                                                           |
-| `/bw ready [scope]`                                                                                  | Show ready work, optionally scoped.                                                                     |
-| `/bw blocked`                                                                                        | List currently blocked work.                                                                            |
-| `/bw workers [epic-id]`                                                                              | Show delegated worker diagnostics and next actions.                                                     |
-| `/bw delegate <ticket-id> [--model provider/model]`                                                  | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
-| `/bw land <ticket-id\|worker-id>`                                                                    | Resume merge-back for a deferred worker.                                                                |
-| `/bw run <epic-id> [--workers n] [--until blocked\|empty] [--max-cycles n] [--dry-run] [--no-spawn]` | Run bounded orchestration over an epic.                                                                 |
-| `/bw adopt [markdown] [--file path] [--title ...] [--land quick\|branch\|multi] [--apply]`           | Turn an explicit markdown plan into a beadwork-aware preview or graph-materialization flow.             |
+| `/bw`                                                                                                 | Open the dashboard shell when beadwork is available; fall back to status text only when beadwork is unavailable. |
+| `/bw status` / `/bw:status`                                                                           | Show activation, mode, scope, counts, and worker summary.                                               |
+| `/bw engage [scope]`                                                                                  | Enter beadwork interactive mode, optionally scoped to a ticket or epic.                                 |
+| `/bw scope <issue-id\|clear>` / `/bw:scope ...`                                                      | Retarget or clear the current interactive scope.                                                        |
+| `/bw off [--stop-workers] [--all-workers] [--leave-workers]` / `/bw:off ...`                         | Return to neutral mode and optionally stop active workers.                                              |
+| `/bw prime [--refresh]`                                                                               | Show cached or refreshed `bw prime` guidance.                                                           |
+| `/bw ready [scope]` / `/bw:ready [scope]`                                                             | Show ready work, optionally scoped.                                                                     |
+| `/bw blocked`                                                                                         | List currently blocked work.                                                                            |
+| `/bw workers [epic-id]` / `/bw:workers [epic-id]`                                                     | Show delegated worker diagnostics and next actions.                                                     |
+| `/bw delegate <ticket-id> [--model provider/model]` / `/bw:delegate ...`                             | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
+| `/bw land <ticket-id\|worker-id>` / `/bw:land ...`                                                   | Resume merge-back for a deferred worker.                                                                |
+| `/bw cancel <ticket-id\|worker-id>` / `/bw:cancel ...`                                               | Stop an active worker by ticket id or worker id.                                                        |
+| `/bw cleanup <ticket-id\|worker-id>` / `/bw:cleanup ...`                                             | Remove landed worker worktree/runtime artifacts when cleanup is safe.                                   |
+| `/bw run <epic-id> [--workers n] [--until blocked\|empty] [--max-cycles n] [--dry-run] [--no-spawn]` / `/bw:run ...` | Run bounded orchestration over an epic.                                                                 |
+| `/bw adopt [markdown] [--file path] [--title ...] [--land quick\|branch\|multi] [--apply]` / `/bw:adopt ...` | Turn an explicit markdown plan into a beadwork-aware preview or graph-materialization flow.             |
 
 ## Issue-management commands
 

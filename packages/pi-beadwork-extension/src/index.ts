@@ -6,32 +6,28 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { handleCleanupAction } from "./actions/cleanup.js";
+import { handleDelegateAction } from "./actions/delegate.js";
+import { handleIssuesAction } from "./actions/issues.js";
+import { handleLandingAction } from "./actions/landing.js";
+import { handleRunAction } from "./actions/run.js";
+import { handleScopeAction } from "./actions/scope.js";
+import { handleStatusAction } from "./actions/status.js";
+import { handleWorkersAction } from "./actions/workers.js";
 import { detectActivation } from "./activation.js";
 import { parseArgv, parseModelOverride } from "./argv.js";
 import { createBeadworkAdapter } from "./bw.js";
-import {
-  showAdoptionPreview,
-  showAdoptionResult,
-  showHistory,
-  showIssue,
-  showIssueList,
-  showMutationResult,
-  showPrime,
-  showReady,
-  showRunSummary,
-  showStatus,
-  showWorkers,
-} from "./commands.js";
+import { registerBeadworkCommandAliases } from "./command-aliases.js";
+import { createBeadworkCommandCompletionFactory } from "./command-completions.js";
+import { showAdoptionPreview, showAdoptionResult, showStatus } from "./commands.js";
 import { loadConfig } from "./config.js";
 import { COMMAND_NAME, DEFAULT_SESSION_STATE } from "./constants.js";
 import {
-  buildRunOptions,
   inspectWorkerRuntime,
   launchTicketWorker,
   listWorkers,
   requestWorkerLanding,
   runBoundedEpicLoop,
-  stopWorkers,
   type WorkerLifecycleEvent,
 } from "./orchestrator.js";
 import {
@@ -138,7 +134,7 @@ function readNumberOption(options: Map<string, string | true>, key: string): num
   return parsed;
 }
 
-function buildListFilters(options: Map<string, string | true>): BeadworkListFilters {
+function _buildListFilters(options: Map<string, string | true>): BeadworkListFilters {
   return {
     status: readStringOption(options, "status"),
     type: readStringOption(options, "type"),
@@ -153,7 +149,7 @@ function buildListFilters(options: Map<string, string | true>): BeadworkListFilt
   };
 }
 
-function buildUpdateInput(options: Map<string, string | true>): BeadworkUpdateIssueInput {
+function _buildUpdateInput(options: Map<string, string | true>): BeadworkUpdateIssueInput {
   const clearParent = options.has("clear-parent");
   const clearDue = options.has("clear-due");
 
@@ -184,7 +180,7 @@ function hasIssueUpdate(input: BeadworkUpdateIssueInput): boolean {
   );
 }
 
-function normalizeDependencyPair(args: string[]): { blockerId: string; blockedId: string } | null {
+function _normalizeDependencyPair(args: string[]): { blockerId: string; blockedId: string } | null {
   if (args.length < 2) {
     return null;
   }
@@ -1108,774 +1104,291 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     };
   });
 
-  pi.registerCommand(COMMAND_NAME, {
-    description: "Beadwork session status, engagement, and ticket helpers",
-    handler: async (args, ctx) => {
-      const trimmed = args.trim();
-      const [subcommand = "status", ...restParts] =
-        trimmed.length > 0 ? parseArgv(trimmed).positional : [];
-      const remainder = trimmed.length > 0 ? trimmed.slice(subcommand.length).trim() : "";
-      const parsed = parseArgv(remainder);
+  const commandCompletions = createBeadworkCommandCompletionFactory({
+    adapter,
+    detectActivation,
+    getCwd: () => process.cwd(),
+    getWorkers: async () => {
+      const cwd = process.cwd();
+      const config = loadConfig(cwd);
+      const activation = await detectActivation(cwd);
+      if (activation.kind !== "active" || !activation.repoRoot) {
+        return [];
+      }
 
-      try {
-        if (subcommand === "status") {
-          const status = await refreshStatus(ctx);
-          await showStatus(ctx, status);
-          return;
-        }
+      return loadWorkerRegistry(
+        resolveWorkerRegistryPath(activation.repoRoot, config.storage.workerRegistryFile),
+      );
+    },
+  });
 
-        if (subcommand === "off") {
-          const config = loadConfig(ctx.cwd);
-          const activation = await detectActivation(ctx.cwd);
-          const currentState = await readSessionState(ctx, activation, config);
-          const stopWorkersRequested = parsed.options.has("stop-workers");
-          const leaveWorkers = parsed.options.has("leave-workers");
-          const stopAllWorkers = parsed.options.has("all-workers");
+  async function dispatchBeadworkCommand(
+    subcommand: string,
+    args: string,
+    ctx: ExtensionCommandContext,
+    options: { isBare?: boolean } = {},
+  ): Promise<void> {
+    const parsed = parseArgv(args);
 
-          const activeWorkers =
-            activation.kind === "active" && activation.repoRoot
-              ? (await inspectWorkers(ctx, activation, config)).filter(
-                  (worker) => worker.status === "launching" || worker.status === "running",
-                )
-              : [];
-          const scopedEpicId =
-            !stopAllWorkers && currentState.scope.kind === "epic"
-              ? currentState.scope.id
-              : undefined;
+    try {
+      if (
+        await handleStatusAction({
+          subcommand,
+          parsed,
+          isBare: options.isBare === true,
+          ctx,
+          deps: {
+            refreshStatus,
+            requireActive,
+            ensurePrime,
+          },
+        })
+      ) {
+        return;
+      }
 
-          if (activeWorkers.length > 0 && !stopWorkersRequested && !leaveWorkers) {
-            const stopHint = scopedEpicId
-              ? `/bw off --stop-workers (current epic ${scopedEpicId})`
-              : "/bw off --stop-workers";
-            ctx.ui.notify(
-              `Active beadwork workers are still running (${activeWorkers.length}). Run ${stopHint} to stop them first, or /bw off --leave-workers to reset this session and leave them running.`,
-              "warning",
-            );
-            return;
-          }
+      if (
+        await handleScopeAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            requireActive,
+            resolveScopeFromArg,
+            setSessionMode,
+            resolveCounts,
+          },
+        })
+      ) {
+        return;
+      }
 
-          if (stopWorkersRequested && activation.kind === "active" && activation.repoRoot) {
-            const stopped = await stopWorkers({
-              repoRoot: activation.repoRoot,
-              config,
-              epicId: scopedEpicId,
-              reason: scopedEpicId
-                ? `Stopped by /bw off for epic ${scopedEpicId}.`
-                : "Stopped by /bw off.",
-            });
-            ctx.ui.notify(
-              stopped.length > 0
-                ? scopedEpicId
-                  ? `Stopped ${stopped.length} beadwork worker(s) for epic ${scopedEpicId}.`
-                  : `Stopped ${stopped.length} beadwork worker(s).`
-                : scopedEpicId
-                  ? `No active workers matched epic ${scopedEpicId}.`
-                  : "No active beadwork workers were running.",
-              "info",
-            );
-          }
+      if (
+        await handleIssuesAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            adapter,
+            requireActive,
+          },
+        })
+      ) {
+        return;
+      }
 
-          const state = await resetState(ctx);
-          ctx.ui.notify(
-            leaveWorkers && activeWorkers.length > 0
-              ? "Beadwork session mode reset to neutral; active workers were left running."
-              : "Beadwork session mode reset to neutral.",
-            "info",
-          );
-          await showStatus(ctx, { activation, state });
-          return;
-        }
+      if (
+        await handleWorkersAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            requireActive,
+            inspectWorkers,
+            syncWorkerTracking,
+          },
+        })
+      ) {
+        return;
+      }
 
-        if (subcommand === "engage") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
+      if (
+        await handleDelegateAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            adapter,
+            requireActive,
+            ensurePrime,
+            inspectWorkers,
+            syncWorkerTracking,
+          },
+        })
+      ) {
+        return;
+      }
 
-          const scopeArg = parsed.positional[0] ?? restParts[0];
-          const scope = scopeArg
-            ? ((await resolveScopeFromArg(ctx, scopeArg)) as
-                | Exclude<SessionScope, { kind: "none" }>
-                | undefined)
+      if (
+        await handleLandingAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            adapter,
+            requireActive,
+            trackWorkerForBackground,
+          },
+        })
+      ) {
+        return;
+      }
+
+      if (
+        await handleCleanupAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            loadConfig,
+            detectActivation,
+            readSessionState,
+            resetState,
+            inspectWorkers,
+            requireActive,
+          },
+        })
+      ) {
+        return;
+      }
+
+      if (
+        await handleRunAction({
+          subcommand,
+          parsed,
+          ctx,
+          deps: {
+            adapter,
+            requireActive,
+            ensurePrime,
+            setSessionMode,
+          },
+        })
+      ) {
+        return;
+      }
+
+      if (subcommand === "adopt") {
+        const landMode = parseLandMode(
+          typeof parsed.options.get("land") === "string"
+            ? String(parsed.options.get("land"))
+            : undefined,
+        );
+        const title =
+          typeof parsed.options.get("title") === "string"
+            ? String(parsed.options.get("title"))
             : undefined;
-          const { state, scopeDetail } = await setSessionMode(
+        const planFile =
+          typeof parsed.options.get("file") === "string"
+            ? path.resolve(ctx.cwd, String(parsed.options.get("file")))
+            : undefined;
+        const apply = parsed.options.has("apply");
+        const editorText = "getEditorText" in ctx.ui ? ctx.ui.getEditorText() : undefined;
+
+        let fileText: string | undefined;
+        if (planFile) {
+          try {
+            fileText = await readFile(planFile, "utf8");
+          } catch (error) {
+            throw new Error(`Failed to read plan file ${planFile}: ${humanizeError(error)}`);
+          }
+        }
+
+        const source = resolvePlanSource({
+          inlineText: parsed.positional.join(" "),
+          editorText,
+          file: planFile ? { path: planFile, markdown: fileText } : undefined,
+        });
+
+        if (!source) {
+          ctx.ui.notify(
+            planFile
+              ? `No markdown content found in ${planFile}.`
+              : "No explicit markdown plan source found. Pass markdown to /bw adopt, provide --file <path>, or keep the plan in the editor.",
+            "warning",
+          );
+          return;
+        }
+
+        const plan = buildAdoptionPlan(source, { title, landMode });
+        const preview = formatAdoptionPreview(plan);
+
+        if (!apply) {
+          await showAdoptionPreview(ctx, plan, preview);
+          return;
+        }
+
+        if (plan.landMode === "quick") {
+          await showAdoptionResult(ctx, [preview, "", "No beadwork mutation performed."]);
+          return;
+        }
+
+        const active = await requireActive(ctx);
+        if (!active) {
+          return;
+        }
+
+        if (plan.landMode === "multi") {
+          const decompositionPrompt = buildAdoptionDecompositionPrompt(plan);
+          pi.sendUserMessage(decompositionPrompt);
+          await showAdoptionResult(ctx, [
+            preview,
+            "",
+            "Queued an LLM-guided decomposition turn.",
+            "The model will materialize the graph via beadwork_create_issue and beadwork_add_dependency.",
+            "Review the resulting epic/task graph, then run /bw status or /bw show <epic-id>.",
+          ]);
+          return;
+        }
+
+        const result = await applyAdoptionPlan(adapter, ctx.cwd, plan);
+        const resultLines = [preview, "", "Created:"];
+        for (const issue of result.created) {
+          resultLines.push(`- ${issue.id} · ${issue.type} · ${issue.title}`);
+        }
+        if (result.root) {
+          resultLines.push("", `Root issue: ${result.root.id}`);
+          const rootScope: Exclude<SessionScope, { kind: "none" }> = {
+            kind: result.root.type === "epic" ? "epic" : "ticket",
+            id: result.root.id,
+            title: result.root.title,
+          };
+          await setSessionMode(
             ctx,
             active.activation,
             active.config,
             active.state,
             "interactive",
-            scope,
+            rootScope,
           );
-          const counts = await resolveCounts(ctx, active.activation, state);
-          ctx.ui.notify(
-            scope
-              ? `Beadwork interactive mode engaged for ${scope.kind} ${scope.id}.`
-              : "Beadwork interactive mode engaged.",
-            "info",
-          );
-          await showStatus(ctx, {
-            activation: active.activation,
-            state,
-            counts,
-            scopeDetail,
-          });
-          return;
+          resultLines.push(`Session scope set to ${rootScope.kind}:${rootScope.id}`);
         }
 
-        if (subcommand === "prime") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const refresh = parsed.options.has("refresh");
-          const state = await ensurePrime(
-            ctx,
-            active.activation,
-            active.config,
-            active.state,
-            refresh,
-          );
-          await showPrime(ctx, state.prime?.content ?? "", state.prime?.loadedAt);
-          return;
-        }
-
-        if (subcommand === "ready") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const scopeId =
-            parsed.positional[0] ??
-            (active.state.scope.kind === "none" ? undefined : active.state.scope.id);
-          const ready = await adapter.ready(ctx.cwd, scopeId);
-          await showReady(ctx, ready, scopeId);
-          return;
-        }
-
-        if (subcommand === "blocked") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const blocked = await adapter.blocked(ctx.cwd);
-          await showIssueList(ctx, blocked, "Blocked work:");
-          return;
-        }
-
-        if (subcommand === "list") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const filters = buildListFilters(parsed.options);
-          const issues = await adapter.list(ctx.cwd, filters);
-          await showIssueList(ctx, issues, "Issue list:");
-          return;
-        }
-
-        if (subcommand === "history") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          if (!issueId) {
-            ctx.ui.notify("Usage: /bw history <issue-id> [--limit n]", "info");
-            return;
-          }
-
-          const entries = await adapter.history(
-            ctx.cwd,
-            issueId,
-            readNumberOption(parsed.options, "limit"),
-          );
-          await showHistory(ctx, issueId, entries);
-          return;
-        }
-
-        if (subcommand === "show") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId =
-            parsed.positional[0] ??
-            (active.state.scope.kind === "none" ? undefined : active.state.scope.id);
-          if (!issueId) {
-            ctx.ui.notify("Usage: /bw show <issue-id>", "info");
-            return;
-          }
-
-          const issue = await adapter.show(ctx.cwd, issueId);
-          await showIssue(ctx, issue);
-          return;
-        }
-
-        if (subcommand === "create") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const title = parsed.positional.join(" ").trim();
-          if (!title) {
-            ctx.ui.notify(
-              "Usage: /bw create <title> [--type task|epic] [--description text] [--priority n] [--parent id]",
-              "info",
-            );
-            return;
-          }
-
-          const created = await adapter.createIssue(ctx.cwd, {
-            title,
-            type: readStringOption(parsed.options, "type"),
-            description: readStringOption(parsed.options, "description"),
-            priority: readNumberOption(parsed.options, "priority"),
-            parentId: readStringOption(parsed.options, "parent"),
-          });
-          await showMutationResult(ctx, "Created", created.issue);
-          return;
-        }
-
-        if (subcommand === "update") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          if (!issueId) {
-            ctx.ui.notify(
-              "Usage: /bw update <issue-id> [--title text] [--description text] [--priority n] [--assignee name] [--status open|in_progress|closed|deferred] [--type task|epic] [--parent id|--clear-parent] [--defer when] [--due when|--clear-due]",
-              "info",
-            );
-            return;
-          }
-
-          const updateInput = buildUpdateInput(parsed.options);
-          if (!hasIssueUpdate(updateInput)) {
-            ctx.ui.notify("No update fields supplied. Pass at least one --flag to mutate.", "info");
-            return;
-          }
-
-          const issue = await adapter.updateIssue(ctx.cwd, issueId, updateInput);
-          await showMutationResult(ctx, "Updated", issue);
-          return;
-        }
-
-        if (subcommand === "dep") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const operation = parsed.positional[0];
-          const pair = normalizeDependencyPair(parsed.positional.slice(1));
-          if (!operation || !pair || (operation !== "add" && operation !== "remove")) {
-            ctx.ui.notify("Usage: /bw dep <add|remove> <blocker-id> [blocks] <blocked-id>", "info");
-            return;
-          }
-
-          if (operation === "add") {
-            await adapter.addDependency(ctx.cwd, pair.blockerId, pair.blockedId);
-            ctx.ui.notify(`Dependency added: ${pair.blockerId} blocks ${pair.blockedId}.`, "info");
-            return;
-          }
-
-          await adapter.removeDependency(ctx.cwd, pair.blockerId, pair.blockedId);
-          ctx.ui.notify(
-            `Dependency removed: ${pair.blockerId} no longer blocks ${pair.blockedId}.`,
-            "info",
-          );
-          return;
-        }
-
-        if (subcommand === "start") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          if (!issueId) {
-            ctx.ui.notify("Usage: /bw start <issue-id> [--assignee name]", "info");
-            return;
-          }
-
-          const assignee = readStringOption(parsed.options, "assignee");
-          const issue = await adapter.start(ctx.cwd, issueId, assignee);
-          await showMutationResult(ctx, "Started", issue);
-          return;
-        }
-
-        if (subcommand === "close") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          if (!issueId) {
-            ctx.ui.notify("Usage: /bw close <issue-id> [--reason text]", "info");
-            return;
-          }
-
-          const reasonOption = parsed.options.get("reason");
-          const reason = typeof reasonOption === "string" ? reasonOption : undefined;
-          const issue = await adapter.close(ctx.cwd, issueId, reason);
-          await showMutationResult(ctx, "Closed", issue);
-          return;
-        }
-
-        if (subcommand === "reopen") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          if (!issueId) {
-            ctx.ui.notify("Usage: /bw reopen <issue-id>", "info");
-            return;
-          }
-
-          const issue = await adapter.reopen(ctx.cwd, issueId);
-          await showMutationResult(ctx, "Reopened", issue);
-          return;
-        }
-
-        if (subcommand === "comment") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          const text = parsed.positional.slice(1).join(" ");
-          if (!issueId || !text) {
-            ctx.ui.notify("Usage: /bw comment <issue-id> <text> [--author name]", "info");
-            return;
-          }
-
-          const issue = await adapter.comment(
-            ctx.cwd,
-            issueId,
-            text,
-            readStringOption(parsed.options, "author"),
-          );
-          await showMutationResult(ctx, "Commented", issue);
-          return;
-        }
-
-        if (subcommand === "label") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          const operations = parsed.positional.slice(1);
-          if (!issueId || operations.length === 0) {
-            ctx.ui.notify("Usage: /bw label <issue-id> +label [-label]...", "info");
-            return;
-          }
-
-          const issue = await adapter.label(ctx.cwd, issueId, operations);
-          await showMutationResult(ctx, "Labeled", issue);
-          return;
-        }
-
-        if (subcommand === "defer") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          const when = parsed.positional.slice(1).join(" ");
-          if (!issueId || !when) {
-            ctx.ui.notify("Usage: /bw defer <issue-id> <when>", "info");
-            return;
-          }
-
-          const issue = await adapter.defer(ctx.cwd, issueId, when);
-          await showMutationResult(ctx, "Deferred", issue);
-          return;
-        }
-
-        if (subcommand === "undefer") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const issueId = parsed.positional[0];
-          if (!issueId) {
-            ctx.ui.notify("Usage: /bw undefer <issue-id>", "info");
-            return;
-          }
-
-          const issue = await adapter.undefer(ctx.cwd, issueId);
-          await showMutationResult(ctx, "Undeferred", issue);
-          return;
-        }
-
-        if (subcommand === "sync") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          await adapter.sync(ctx.cwd);
-          ctx.ui.notify("bw sync completed.", "info");
-          return;
-        }
-
-        if (subcommand === "workers") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const epicId =
-            parsed.positional[0] ??
-            (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
-          const workers = await inspectWorkers(ctx, active.activation, active.config, {
-            epicId,
-          });
-          await showWorkers(ctx, workers, epicId);
-          return;
-        }
-
-        if (subcommand === "delegate") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const ticketId = parsed.positional[0];
-          if (!ticketId) {
-            ctx.ui.notify("Usage: /bw delegate <ticket-id> [--model provider/model]", "info");
-            return;
-          }
-
-          const modelOverrideValue = readStringOption(parsed.options, "model");
-          const modelOverride = modelOverrideValue
-            ? parseModelOverride(modelOverrideValue)
-            : undefined;
-
-          const stateWithPrime = await ensurePrime(
-            ctx,
-            active.activation,
-            active.config,
-            active.state,
-            false,
-          );
-          const worker = await launchTicketWorker({
-            cwd: ctx.cwd,
-            repoRoot: active.activation.repoRoot ?? ctx.cwd,
-            config: active.config,
-            adapter,
-            ticketId,
-            epicId: active.state.scope.kind === "epic" ? active.state.scope.id : undefined,
-            prime: stateWithPrime.prime?.content,
-            workerProviderOverride: modelOverride?.provider,
-            workerModelOverride: modelOverride?.model,
-          });
-          const landingMode = active.config.landing.policy === "deferred" ? "held" : "completed";
-          ctx.ui.notify(
-            `Launched worker ${worker.workerId} for ${worker.ticketId} in the background at ${worker.worktreePath}. ` +
-              `You should stay in the current pane while background supervision keeps checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and notifies when the worker exits and when landing is ${landingMode}. Follow streamed worker activity in ${worker.logFile}.`,
-            "info",
-          );
-          const workers = await inspectWorkers(ctx, active.activation, active.config, {
-            epicId: worker.epicId,
-          });
-          const trackedState = await syncWorkerTracking(
-            ctx,
-            active.activation,
-            active.config,
-            stateWithPrime,
-            workers,
-          );
-          updateStatusline(
-            ctx,
-            active.activation,
-            trackedState,
-            active.config,
-            summarizeWorkers(workers),
-          );
-          return;
-        }
-
-        if (subcommand === "land") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const target = parsed.positional[0];
-          if (!target) {
-            ctx.ui.notify("Usage: /bw land <ticket-id|worker-id>", "info");
-            return;
-          }
-
-          let worker: WorkerRuntime | undefined;
-          let lastError: unknown;
-
-          try {
-            worker = await requestWorkerLanding({
-              cwd: ctx.cwd,
-              repoRoot: active.activation.repoRoot ?? ctx.cwd,
-              config: active.config,
-              adapter,
-              ticketId: target,
-            });
-          } catch (error) {
-            lastError = error;
-          }
-
-          if (!worker) {
-            worker = await requestWorkerLanding({
-              cwd: ctx.cwd,
-              repoRoot: active.activation.repoRoot ?? ctx.cwd,
-              config: active.config,
-              adapter,
-              workerId: target,
-            }).catch((error) => {
-              throw lastError ?? error;
-            });
-          }
-
-          const inspection = inspectWorker(worker);
-          const landed = worker.status === "landed";
-          const level = inspection.followUp.needsAttention ? "warning" : "info";
-          await trackWorkerForBackground(
-            ctx,
-            active.activation,
-            active.config,
-            active.state,
-            worker,
-          );
-          ctx.ui.notify(
-            landed
-              ? `Delegated ticket ${worker.ticketId} landed successfully. ${inspection.followUp.action}`
-              : `Queued landing retry for ${worker.ticketId}. Background supervision will keep validating/reviewing/merging and notify when it finishes. ${inspection.followUp.action}`,
-            level,
-          );
-          return;
-        }
-
-        if (subcommand === "adopt") {
-          const landMode = parseLandMode(
-            typeof parsed.options.get("land") === "string"
-              ? String(parsed.options.get("land"))
-              : undefined,
-          );
-          const title =
-            typeof parsed.options.get("title") === "string"
-              ? String(parsed.options.get("title"))
-              : undefined;
-          const planFile =
-            typeof parsed.options.get("file") === "string"
-              ? path.resolve(ctx.cwd, String(parsed.options.get("file")))
-              : undefined;
-          const apply = parsed.options.has("apply");
-          const editorText = "getEditorText" in ctx.ui ? ctx.ui.getEditorText() : undefined;
-
-          let fileText: string | undefined;
-          if (planFile) {
-            try {
-              fileText = await readFile(planFile, "utf8");
-            } catch (error) {
-              throw new Error(`Failed to read plan file ${planFile}: ${humanizeError(error)}`);
-            }
-          }
-
-          const source = resolvePlanSource({
-            inlineText: parsed.positional.join(" "),
-            editorText,
-            file: planFile ? { path: planFile, markdown: fileText } : undefined,
-          });
-
-          if (!source) {
-            ctx.ui.notify(
-              planFile
-                ? `No markdown content found in ${planFile}.`
-                : "No explicit markdown plan source found. Pass markdown to /bw adopt, provide --file <path>, or keep the plan in the editor.",
-              "warning",
-            );
-            return;
-          }
-
-          const plan = buildAdoptionPlan(source, { title, landMode });
-          const preview = formatAdoptionPreview(plan);
-
-          if (!apply) {
-            await showAdoptionPreview(ctx, plan, preview);
-            return;
-          }
-
-          if (plan.landMode === "quick") {
-            await showAdoptionResult(ctx, [preview, "", "No beadwork mutation performed."]);
-            return;
-          }
-
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          if (plan.landMode === "multi") {
-            const decompositionPrompt = buildAdoptionDecompositionPrompt(plan);
-            pi.sendUserMessage(decompositionPrompt);
-            await showAdoptionResult(ctx, [
-              preview,
-              "",
-              "Queued an LLM-guided decomposition turn.",
-              "The model will materialize the graph via beadwork_create_issue and beadwork_add_dependency.",
-              "Review the resulting epic/task graph, then run /bw status or /bw show <epic-id>.",
-            ]);
-            return;
-          }
-
-          const result = await applyAdoptionPlan(adapter, ctx.cwd, plan);
-          const resultLines = [preview, "", "Created:"];
-          for (const issue of result.created) {
-            resultLines.push(`- ${issue.id} · ${issue.type} · ${issue.title}`);
-          }
-          if (result.root) {
-            resultLines.push("", `Root issue: ${result.root.id}`);
-            const rootScope: Exclude<SessionScope, { kind: "none" }> = {
-              kind: result.root.type === "epic" ? "epic" : "ticket",
-              id: result.root.id,
-              title: result.root.title,
-            };
-            await setSessionMode(
-              ctx,
-              active.activation,
-              active.config,
-              active.state,
-              "interactive",
-              rootScope,
-            );
-            resultLines.push(`Session scope set to ${rootScope.kind}:${rootScope.id}`);
-          }
-
-          await showAdoptionResult(ctx, resultLines);
-          return;
-        }
-
-        if (subcommand === "run") {
-          const active = await requireActive(ctx);
-          if (!active) {
-            return;
-          }
-
-          const epicId =
-            parsed.positional[0] ??
-            (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
-          if (!epicId) {
-            ctx.ui.notify(
-              "Usage: /bw run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]",
-              "info",
-            );
-            return;
-          }
-
-          const epic = await adapter.show(ctx.cwd, epicId);
-          if (epic.type !== "epic") {
-            ctx.ui.notify(`/bw run requires an epic id. ${epicId} is a ${epic.type}.`, "warning");
-            return;
-          }
-
-          const stateWithPrime = await ensurePrime(
-            ctx,
-            active.activation,
-            active.config,
-            active.state,
-            false,
-          );
-          const options = buildRunOptions(active.config, {
-            workers:
-              typeof parsed.options.get("workers") === "string"
-                ? Number.parseInt(String(parsed.options.get("workers")), 10)
-                : undefined,
-            until:
-              typeof parsed.options.get("until") === "string"
-                ? String(parsed.options.get("until"))
-                : undefined,
-            dryRun: parsed.options.has("dry-run"),
-            maxCycles:
-              typeof parsed.options.get("max-cycles") === "string"
-                ? Number.parseInt(String(parsed.options.get("max-cycles")), 10)
-                : undefined,
-            noSpawn: parsed.options.has("no-spawn"),
-          });
-          const scope: Exclude<SessionScope, { kind: "none" }> = {
-            kind: "epic",
-            id: epic.id,
-            title: epic.title,
-          };
-          const { state } = options.dryRun
-            ? await setSessionMode(
-                ctx,
-                active.activation,
-                active.config,
-                stateWithPrime,
-                "interactive",
-                scope,
-              )
-            : await setSessionMode(
-                ctx,
-                active.activation,
-                active.config,
-                stateWithPrime,
-                "run",
-                scope,
-                {
-                  workers: options.workers,
-                  until: options.until,
-                  noSpawn: options.noSpawn,
-                  dryRun: false,
-                },
-              );
-          const summary = await runBoundedEpicLoop({
-            cwd: ctx.cwd,
-            repoRoot: active.activation.repoRoot ?? ctx.cwd,
-            config: active.config,
-            adapter,
-            epicId: epic.id,
-            options,
-            prime: state.prime?.content,
-          });
-          await showRunSummary(ctx, summary);
-          if (!options.dryRun && summary.stopReason === "max-cycles") {
-            ctx.ui.notify(
-              `Background supervision remains armed for ${epic.id}; it will keep polling every ${Math.round(
-                active.config.supervisor.pollIntervalMs / 1000,
-              )}s while work is still active.`,
-              "info",
-            );
-          }
-          updateStatusline(ctx, active.activation, state, active.config, summary.workerSummary);
-          return;
-        }
-
-        ctx.ui.notify(
-          "Usage: /bw [status|engage [scope]|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id> [--model provider/model]|land <ticket-id|worker-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
-          "info",
-        );
-      } catch (error) {
-        ctx.ui.notify(humanizeError(error), "error");
+        await showAdoptionResult(ctx, resultLines);
+        return;
       }
+
+      ctx.ui.notify(
+        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id> [--model provider/model]|land <ticket-id|worker-id>|cancel <ticket-id|worker-id>|cleanup <ticket-id|worker-id>|run <epic-id> [--workers n] [--until blocked|empty] [--max-cycles n] [--dry-run] [--no-spawn]|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+        "info",
+      );
+    } catch (error) {
+      ctx.ui.notify(humanizeError(error), "error");
+    }
+  }
+
+  pi.registerCommand(COMMAND_NAME, {
+    description: "Open the beadwork dashboard or run beadwork session/worker commands",
+    getArgumentCompletions: (prefix) => commandCompletions.getMainCommandCompletions(prefix),
+    handler: async (args, ctx) => {
+      const trimmed = args.trim();
+      if (trimmed.length === 0) {
+        await dispatchBeadworkCommand("status", "", ctx, { isBare: true });
+        return;
+      }
+
+      const firstSpace = trimmed.search(/\s/);
+      const subcommand = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace);
+      const remainder = firstSpace === -1 ? "" : trimmed.slice(firstSpace + 1).trim();
+      await dispatchBeadworkCommand(subcommand, remainder, ctx);
     },
+  });
+
+  registerBeadworkCommandAliases({
+    pi,
+    dispatch: (subcommand, args, ctx) => dispatchBeadworkCommand(subcommand, args, ctx),
+    getAliasCompletions: (subcommand, prefix) =>
+      commandCompletions.getAliasCommandCompletions(subcommand, prefix),
   });
 
   pi.registerTool({

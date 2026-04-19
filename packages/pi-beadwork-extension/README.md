@@ -56,17 +56,22 @@ Add the extension entrypoint to `settings.json`:
 
 ## Quickstart
 
-### 1. Enter beadwork mode
+### 1. Open the dashboard or jump straight into text commands
 
 ```text
+/bw
 /bw status
 /bw engage
 ```
+
+- bare `/bw` opens the beadwork dashboard when beadwork is active or available in the repo
+- dedicated aliases like `/bw:status`, `/bw:scope`, `/bw:delegate`, `/bw:run`, `/bw:workers`, `/bw:land`, `/bw:cancel`, and `/bw:cleanup` are also registered for faster slash-command discovery
 
 Or scope the session immediately:
 
 ```text
 /bw engage sbdpi-swx.6
+/bw:scope sbdpi-swx.6
 ```
 
 ### 2. Inspect the queue
@@ -74,6 +79,8 @@ Or scope the session immediately:
 ```text
 /bw ready
 /bw show sbdpi-swx.6
+/bw:ready
+/bw:list
 ```
 
 ### 3. Materialize a plan from explicit markdown
