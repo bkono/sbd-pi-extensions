@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [
     "sbdpi-wx1",
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "sbdpi-wx1",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Extract shared beadwork action/command scaffolding for the TUI",
   "type": "task",
-  "updated_at": "2026-04-19T17:57:29Z"
+  "updated_at": "2026-04-19T18:17:11Z"
 }
