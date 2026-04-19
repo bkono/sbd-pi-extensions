@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-04-19T00:33:49Z",
+  "close_reason": "Fixed by preserving assistant tool-call ancestors when OM context pruning would otherwise return orphaned tool-result messages; added regression coverage and verified lint/test/typecheck.",
   "created": "2026-04-19T00:28:17Z",
   "description": "Investigate and fix the pi-om-extension context pruning path so returned message windows never orphan a tool result from its originating assistant tool call. This appears to trigger OpenAI/Codex Responses errors like `No tool call found for function call output with call_id ...` after recent OM lifecycle changes. Add regression coverage for tool-call/tool-result adjacency and validate lint/test/typecheck for the package.",
   "id": "sbdpi-f51.12",
@@ -14,8 +16,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix OM context pruning so tool-result windows keep matching tool calls",
   "type": "task",
-  "updated_at": "2026-04-19T00:33:40Z"
+  "updated_at": "2026-04-19T00:33:49Z"
 }
