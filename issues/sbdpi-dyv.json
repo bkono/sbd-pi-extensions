@@ -6,9 +6,15 @@
   "description": "Create a new package in this monorepo that exposes Exa-backed web search tools/config for pi, following existing package conventions and using env var + config file setup similar to the other packages. Model behavior after the existing Exa/web-search concept already implemented in ../alfred-ts for the assistant runtime.",
   "id": "sbdpi-dyv",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented `@solvedbydev/pi-exa-extension` as a new Exa-backed `web_search` pi extension package with `.pi/exa-config.json` + env-var config loading, compatibility aliases for the Alfred/runtime-style key names, README docs, and unit coverage for config loading, tool behavior, and tool registration.\n\nValidation run:\n- `npm run lint`\n- `npm run test`\n- `npm run typecheck`\n- `npm run build -w @solvedbydev/pi-exa-extension`\n\nCommit: `3f63a3b` (`feat(pi-exa): add Exa-backed web search extension`)",
+      "timestamp": "2026-04-19T00:21:17Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add pi extension package for Exa web search support",
   "type": "task",
-  "updated_at": "2026-04-19T00:11:06Z"
+  "updated_at": "2026-04-19T00:21:17Z"
 }
