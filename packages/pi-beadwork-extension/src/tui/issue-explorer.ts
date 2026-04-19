@@ -1,10 +1,26 @@
+import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { IssueExplorerFilter, IssueExplorerLevelData } from "../actions/issues.js";
 import { ISSUE_EXPLORER_FILTERS } from "../actions/issues.js";
 import type { BeadworkIssue, BeadworkIssueDetail, SessionState } from "../types.js";
-import { joinColumns, normalizeSurfaceLines } from "./common.js";
+import {
+  joinColumns,
+  normalizeSurfaceLines,
+  sectionTitle,
+  styledAccent,
+  styledDim,
+  styledError,
+  styledLabel,
+} from "./common.js";
 import type { DashboardStatusSnapshot } from "./dashboard.js";
 import { renderIssueDetail, renderIssueListEntry } from "./issue-detail.js";
+
+/** Fallback theme that returns text unchanged — used when no theme is provided */
+const passthroughTheme: Theme = {
+  fg: (_color: string, text: string) => text,
+  bg: (_color: string, text: string) => text,
+  bold: (text: string) => text,
+} as Theme;
 
 export type IssueExplorerBreadcrumb =
   | { kind: "repo" }
@@ -34,12 +50,12 @@ export type IssueExplorerInput = {
   onChange?: () => void;
 } & IssueExplorerHooks;
 
-function describeScope(state: SessionState): string {
+function describeScope(theme: Theme, state: SessionState): string {
   if (state.scope.kind === "none") {
-    return "repo-wide";
+    return styledDim(theme, "repo-wide");
   }
 
-  return `${state.scope.kind}:${state.scope.id}`;
+  return `${styledAccent(theme, state.scope.kind)}:${state.scope.id}`;
 }
 
 function isEpic(issue: BeadworkIssue | BeadworkIssueDetail | undefined): boolean {
@@ -96,12 +112,15 @@ function buildSelectionHint(selected?: BeadworkIssueDetail): string {
     "x clear",
   ].join(" • ");
 }
-function buildCurrentLevelLines(current?: BeadworkIssueDetail): string[] {
+function buildCurrentLevelLines(theme: Theme, current?: BeadworkIssueDetail): string[] {
   if (!current) {
-    return ["Browsing", "repo-wide"];
+    return [sectionTitle(theme, "Browsing"), styledDim(theme, "repo-wide")];
   }
 
-  return ["Browsing", `${current.id} · ${current.type} · ${current.status}`];
+  return [
+    sectionTitle(theme, "Browsing"),
+    `${styledLabel(theme, current.id)} · ${current.type} · ${current.status}`,
+  ];
 }
 
 export class IssueExplorerController {
@@ -323,7 +342,7 @@ export class IssueExplorerController {
     this.applySnapshot(snapshot);
   }
 
-  renderLines(width = 120): string[] {
+  renderLines(width = 120, theme?: Theme): string[] {
     const contentWidth = Math.max(40, width);
     const singleColumn = contentWidth < 88;
     const leftWidth = singleColumn ? contentWidth : Math.max(34, Math.floor(contentWidth * 0.44));
@@ -331,20 +350,21 @@ export class IssueExplorerController {
     const breadcrumbLabel = this.breadcrumb
       .map((entry) => (entry.kind === "repo" ? "repo" : entry.id))
       .join(" / ");
+    const t = theme ?? passthroughTheme;
     const headerLines = [
-      `${this.filter} · ${breadcrumbLabel}`,
-      `${this.sessionState.mode} · ${describeScope(this.sessionState)}${this.loading ? " · loading" : ""}`,
+      `${styledAccent(t, this.filter)} · ${styledLabel(t, breadcrumbLabel)}`,
+      `${styledDim(t, this.sessionState.mode)} · ${describeScope(t, this.sessionState)}${this.loading ? ` · ${styledDim(t, "loading")}` : ""}`,
     ];
     if (this.error) {
-      headerLines.push(`Error · ${this.error}`);
+      headerLines.push(`${styledError(t, "Error")} · ${this.error}`);
     }
     const browseLines: string[] = [
-      "Issue list",
-      `${this.items.length} issue${this.items.length === 1 ? "" : "s"} in view`,
+      sectionTitle(t, "Issue list"),
+      styledDim(t, `${this.items.length} issue${this.items.length === 1 ? "" : "s"} in view`),
       "",
     ];
     if (this.items.length === 0) {
-      browseLines.push("(no issues in this view)");
+      browseLines.push(styledDim(t, "(no issues in this view)"));
     } else {
       const window = resolveVisibleWindow(this.items.length, this.selectedIndex, 6);
       if (window.hiddenBefore > 0) {
@@ -356,7 +376,7 @@ export class IssueExplorerController {
       for (const [index, issue] of this.items.slice(window.start, window.end).entries()) {
         const absoluteIndex = window.start + index;
         browseLines.push(
-          ...renderIssueListEntry(issue, {
+          ...renderIssueListEntry(t, issue, {
             selected: absoluteIndex === this.selectedIndex,
             width: leftWidth,
           }),
@@ -372,15 +392,15 @@ export class IssueExplorerController {
     const selected = this.selectedDetail;
     const detailLines = [
       ...renderIssueDetail({
+        theme: t,
         issue: selected,
         heading: "Selected",
         emptyMessage: "Move to an issue to load detail.",
         width: rightWidth - 2,
       }),
       "",
-      ...buildCurrentLevelLines(this.currentDetail),
+      ...buildCurrentLevelLines(t, this.currentDetail),
     ];
-
     if (singleColumn) {
       return normalizeSurfaceLines(
         [...headerLines, "", ...browseLines, ...detailLines],

@@ -169,11 +169,11 @@ describe("worker manager", () => {
     expect(text).toContain("Epic BW-100 (current scope)");
     expect(text).toContain("Task");
     expect(text).toContain("held · ticket closed");
-    expect(text).toContain("Next Validated and held. Run /bw land BW-101 when");
+    expect(text).toContain("Next: Validated and held. Run /bw land BW-101 when");
     expect(text).toContain("you're ready to merge-back.");
     expect(text).not.toContain("Ops");
-    expect(text).toContain("tmux pi-bw:bw-101.%42");
-    expect(text).toContain("log worker.log");
-    expect(text).toContain("worktree worktree");
+    expect(text).toContain("tmux: pi-bw:bw-101.%42");
+    expect(text).toContain("log: worker.log");
+    expect(text).toContain("worktree: worktree");
   });
 });

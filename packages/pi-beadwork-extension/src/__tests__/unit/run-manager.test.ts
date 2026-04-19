@@ -82,9 +82,8 @@ describe("run manager", () => {
     expect(rendered).toContain(
       "Options: workers=3 until=blocked maxCycles=5 dryRun=no noSpawn=yes",
     );
-    expect(rendered).toContain(
-      "Recent result: cycles=2 launched=BW-101 activeWorkers=bw-101-worker",
-    );
+    expect(rendered).toContain("Recent result");
+    expect(rendered).toContain("cycles=2 launched=BW-101 activeWorkers=bw-101-worker");
     expect(rendered).toContain(
       "- cycle 1 · ready=BW-101 · launched=BW-101 · running=bw-101-worker",
     );

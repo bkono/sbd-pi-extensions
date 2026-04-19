@@ -222,7 +222,7 @@ function buildPanelLines(theme: Theme, model: DashboardModel, tab: DashboardTabI
       ];
     }
     case "run":
-      return formatRunManagerLines(model);
+      return formatRunManagerLines(model, theme);
     case "scope":
       return [
         sectionTitle(theme, "Current scope"),
@@ -487,13 +487,14 @@ class DashboardComponent implements Component {
     );
     const bodyLines =
       this.selectedTab === "issues" && this.issueExplorer
-        ? this.issueExplorer.renderLines(bodyWidth)
+        ? this.issueExplorer.renderLines(bodyWidth, this.theme)
         : this.selectedTab === "workers" && this.model.activation.kind === "active"
           ? buildWorkerManagerPanelLines({
               workers: this.model.workers ?? [],
               state: this.model.state,
               selectedWorkerId: this.selectedWorkerEntry?.worker.workerId,
               width: bodyWidth,
+              theme: this.theme,
             })
           : buildPanelLines(this.theme, this.model, this.selectedTab);
 

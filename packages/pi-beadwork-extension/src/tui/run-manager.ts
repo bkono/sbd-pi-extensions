@@ -1,29 +1,58 @@
+import type { Theme } from "@mariozechner/pi-coding-agent";
+import {
+  kv,
+  sectionTitle,
+  styledAccent,
+  styledDim,
+  styledError,
+  styledSuccess,
+  styledWarning,
+} from "./common.js";
 import type { DashboardStatusSnapshot } from "./dashboard.js";
 
+/** Fallback theme that returns text unchanged */
+const passthroughTheme: Theme = {
+  fg: (_color: string, text: string) => text,
+  bg: (_color: string, text: string) => text,
+  bold: (text: string) => text,
+} as Theme;
 function formatIds(items: string[]): string {
   return items.length > 0 ? items.join(", ") : "none";
 }
-
 function describeRunScope(
+  theme: Theme,
   snapshot: Pick<DashboardStatusSnapshot, "state" | "scopeDetail">,
 ): string {
   if (snapshot.state.scope.kind === "epic") {
     const title = snapshot.state.scope.title ?? snapshot.scopeDetail?.title;
-    return title ? `${snapshot.state.scope.id} · ${title}` : snapshot.state.scope.id;
+    return title
+      ? `${styledAccent(theme, snapshot.state.scope.id)} · ${title}`
+      : styledAccent(theme, snapshot.state.scope.id);
   }
 
-  return snapshot.state.recentRunSummary?.epicId ?? "no epic selected";
+  return snapshot.state.recentRunSummary?.epicId
+    ? styledAccent(theme, snapshot.state.recentRunSummary.epicId)
+    : styledDim(theme, "no epic selected");
 }
 
-function describeRunState(snapshot: Pick<DashboardStatusSnapshot, "state">): string {
+function describeRunState(theme: Theme, snapshot: Pick<DashboardStatusSnapshot, "state">): string {
   if (snapshot.state.mode === "run") {
-    return "active supervision armed";
+    return styledSuccess(theme, "active supervision armed");
   }
 
   const stopReason = snapshot.state.recentRunSummary?.stopReason;
-  return stopReason ? `idle · last stop=${stopReason}` : "idle";
-}
+  if (!stopReason) {
+    return styledDim(theme, "idle");
+  }
 
+  const reasonStyle =
+    stopReason === "completed"
+      ? styledSuccess(theme, stopReason)
+      : stopReason === "blocked" || stopReason === "attention"
+        ? styledError(theme, stopReason)
+        : styledWarning(theme, stopReason);
+  return `${styledDim(theme, "idle")} · last stop=${reasonStyle}`;
+}
 function describeRunNextAction(snapshot: Pick<DashboardStatusSnapshot, "state">): string {
   if (snapshot.state.mode === "run") {
     return "Background supervision is armed; use the Workers tab for live follow-up while the session stays open.";
@@ -46,46 +75,52 @@ function describeRunNextAction(snapshot: Pick<DashboardStatusSnapshot, "state">)
   }
 }
 
-export function formatRunManagerLines(snapshot: DashboardStatusSnapshot): string[] {
+export function formatRunManagerLines(snapshot: DashboardStatusSnapshot, theme?: Theme): string[] {
+  const t = theme ?? passthroughTheme;
   const options = snapshot.state.runOptions ?? snapshot.state.lastRunOptions;
   const summary = snapshot.state.recentRunSummary;
   const lines = [
-    "Run panel · single-epic orchestration.",
-    `Run scope: ${describeRunScope(snapshot)}`,
-    `Run state: ${describeRunState(snapshot)}`,
-    `Next: ${describeRunNextAction(snapshot)}`,
+    styledDim(t, "Run panel · single-epic orchestration."),
+    `${kv(t, "Run scope", describeRunScope(t, snapshot))}`,
+    `${kv(t, "Run state", describeRunState(t, snapshot))}`,
+    `${kv(t, "Next", describeRunNextAction(snapshot))}`,
     options
-      ? `Options: workers=${options.workers} until=${options.until} maxCycles=${options.maxCycles ?? "default"} dryRun=${options.dryRun ? "yes" : "no"} noSpawn=${options.noSpawn ? "yes" : "no"}`
-      : "Options: not configured yet.",
+      ? `${kv(t, "Options", `workers=${options.workers} until=${options.until} maxCycles=${options.maxCycles ?? "default"} dryRun=${options.dryRun ? "yes" : "no"} noSpawn=${options.noSpawn ? "yes" : "no"}`)}`
+      : kv(t, "Options", styledDim(t, "not configured yet.")),
     snapshot.counts && snapshot.state.scope.kind === "epic"
-      ? `Scoped ready: ${snapshot.counts.scopedReady ?? 0}`
-      : "Scoped ready: unavailable until an epic is selected.",
+      ? kv(t, "Scoped ready", String(snapshot.counts.scopedReady ?? 0))
+      : kv(t, "Scoped ready", styledDim(t, "unavailable until an epic is selected.")),
     snapshot.workerSummary
-      ? `Workers: total=${snapshot.workerSummary.total} active=${snapshot.workerSummary.active} held=${snapshot.workerSummary.held} landed=${snapshot.workerSummary.landed} attention=${snapshot.workerSummary.attention} failed=${snapshot.workerSummary.failed}`
-      : "Workers: no scoped worker summary yet.",
+      ? `${kv(t, "Workers", `total=${snapshot.workerSummary.total} active=${snapshot.workerSummary.active} held=${snapshot.workerSummary.held} landed=${snapshot.workerSummary.landed} attention=${snapshot.workerSummary.attention} failed=${snapshot.workerSummary.failed}`)}`
+      : kv(t, "Workers", styledDim(t, "no scoped worker summary yet.")),
   ];
   if (!summary) {
-    lines.push("", "Recent cycles: none yet.");
+    lines.push("", styledDim(t, "Recent cycles: none yet."));
     return lines;
   }
 
   lines.push(
     "",
-    `Recent result: cycles=${summary.cycles} launched=${formatIds(summary.launched)} activeWorkers=${formatIds(summary.activeWorkerIds)}`,
+    sectionTitle(t, "Recent result"),
+    `cycles=${summary.cycles} launched=${formatIds(summary.launched)} activeWorkers=${formatIds(summary.activeWorkerIds)}`,
   );
   const recentCycles = summary.cycleSummaries.slice(-3);
   if (recentCycles.length === 0) {
-    lines.push("Recent cycles: none recorded.");
+    lines.push(styledDim(t, "Recent cycles: none recorded."));
     return lines;
   }
-  lines.push("Recent cycles:");
+  lines.push(sectionTitle(t, "Recent cycles"));
   for (const cycle of recentCycles) {
     lines.push(
-      `- cycle ${cycle.cycle} · ready=${formatIds(cycle.ready)} · launched=${formatIds(cycle.launched)} · running=${formatIds(cycle.running)} · held=${formatIds(cycle.held)} · landed=${formatIds(cycle.landed)} · failed=${formatIds(cycle.failed)}`,
+      `${styledDim(t, "-")} cycle ${cycle.cycle} · ready=${formatIds(cycle.ready)} · launched=${formatIds(cycle.launched)} · running=${formatIds(cycle.running)} · held=${formatIds(cycle.held)} · landed=${formatIds(cycle.landed)} · failed=${formatIds(cycle.failed)}`,
     );
   }
   if (summary.notes.length > 0) {
-    lines.push("", ...summary.notes.slice(-3).map((note) => `Note: ${note}`));
+    lines.push(
+      "",
+      sectionTitle(t, "Notes"),
+      ...summary.notes.slice(-3).map((note) => `${styledDim(t, "Note:")} ${note}`),
+    );
   }
 
   return lines;

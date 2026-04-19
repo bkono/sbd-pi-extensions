@@ -5,7 +5,26 @@ import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { summarizeWorkers } from "../registry.js";
 import type { ActivationState, SessionState, WorkerRuntime } from "../types.js";
 import { inspectWorker, type WorkerInspection } from "../worker-diagnostics.js";
-import { joinColumns, normalizeSurfaceLines, renderSurface } from "./common.js";
+import {
+  joinColumns,
+  kv,
+  normalizeSurfaceLines,
+  renderSurface,
+  sectionTitle,
+  selectionMarker,
+  styledAccent,
+  styledDim,
+  styledLabel,
+  styledWarning,
+  workerStatusStyle,
+} from "./common.js";
+
+/** Fallback theme that returns text unchanged */
+const passthroughTheme: Theme = {
+  fg: (_color: string, text: string) => text,
+  bg: (_color: string, text: string) => text,
+  bold: (text: string) => text,
+} as Theme;
 
 export type WorkerActionKind = "land" | "cancel" | "cleanup";
 
@@ -94,17 +113,16 @@ function clamp(text: string, width: number): string {
   return truncateToWidth(text, Math.max(14, width), "…");
 }
 function formatWorkerListEntry(
+  theme: Theme,
   entry: WorkerManagerEntry,
   selected: boolean,
   width: number,
 ): string[] {
+  const marker = selectionMarker(theme, selected);
   return [
-    `${selected ? "●" : "○"} ${entry.worker.ticketId} · ${entry.worker.status}`,
+    `${marker} ${styledLabel(theme, entry.worker.ticketId)} · ${workerStatusStyle(theme, entry.worker.status)}`,
     `  ${clamp(entry.worker.ticketTitle, Math.max(18, width - 4))}`,
   ];
-}
-function formatArtifact(label: string, value: string): string {
-  return `${label} ${path.basename(value) || value}`;
 }
 
 function selectDefaultWorker(
@@ -316,6 +334,7 @@ export function groupWorkersForManager(input: {
 }
 
 function buildGroupSummaryLines(
+  theme: Theme,
   groups: WorkerManagerGroup[],
   selected?: WorkerManagerEntry,
 ): string[] {
@@ -325,18 +344,23 @@ function buildGroupSummaryLines(
       )?.id
     : undefined;
   return [
-    "Groups",
+    sectionTitle(theme, "Groups"),
     ...groups.flatMap((group) => {
-      const marker = group.id === selectedGroupId ? "❯" : " ";
+      const marker = selectionMarker(theme, group.id === selectedGroupId);
+      const label =
+        group.kind === "epic" && group.label.includes("current scope")
+          ? styledAccent(theme, group.label)
+          : group.label;
       return [
-        `${marker} ${group.label}`,
-        `  ${group.summary.total} total · ${group.summary.active} active · ${group.attention} attention`,
+        `${marker} ${label}`,
+        `  ${group.summary.total} total · ${group.summary.active > 0 ? styledAccent(theme, `${group.summary.active} active`) : styledDim(theme, "0 active")} · ${group.attention > 0 ? styledWarning(theme, `${group.attention} attention`) : styledDim(theme, "0 attention")}`,
         "",
       ];
     }),
   ];
 }
 function buildSelectedGroupLines(
+  theme: Theme,
   groups: WorkerManagerGroup[],
   selected: WorkerManagerEntry | undefined,
   width: number,
@@ -347,13 +371,13 @@ function buildSelectedGroupLines(
       )
     : groups[0];
   if (!selectedGroup) {
-    return ["Workers", "No worker selected."];
+    return [sectionTitle(theme, "Workers"), styledDim(theme, "No worker selected.")];
   }
   const selectedIndex = selected
     ? selectedGroup.workers.findIndex((entry) => entry.worker.workerId === selected.worker.workerId)
     : 0;
   const window = resolveVisibleWindow(selectedGroup.workers.length, Math.max(0, selectedIndex), 5);
-  const lines = ["Workers", selectedGroup.label, ""];
+  const lines = [sectionTitle(theme, "Workers"), selectedGroup.label, ""];
   if (window.hiddenBefore > 0) {
     lines.push(
       `↑ ${window.hiddenBefore} earlier worker${window.hiddenBefore === 1 ? "" : "s"}`,
@@ -362,7 +386,7 @@ function buildSelectedGroupLines(
   }
   for (const [index, entry] of selectedGroup.workers.slice(window.start, window.end).entries()) {
     const absoluteIndex = window.start + index;
-    lines.push(...formatWorkerListEntry(entry, absoluteIndex === selectedIndex, width), "");
+    lines.push(...formatWorkerListEntry(theme, entry, absoluteIndex === selectedIndex, width), "");
   }
   if (window.hiddenAfter > 0) {
     lines.push(`↓ ${window.hiddenAfter} later worker${window.hiddenAfter === 1 ? "" : "s"}`);
@@ -370,23 +394,27 @@ function buildSelectedGroupLines(
   return lines;
 }
 
-export function buildWorkerDetailLines(entry: WorkerManagerEntry, width = 40): string[] {
+export function buildWorkerDetailLines(
+  theme: Theme,
+  entry: WorkerManagerEntry,
+  width = 40,
+): string[] {
   const { worker, inspection } = entry;
   return [
-    "Selected worker",
-    `${worker.ticketId} · ${worker.status} · ticket ${worker.ticketStatus ?? "unknown"}`,
+    sectionTitle(theme, "Selected worker"),
+    `${styledLabel(theme, worker.ticketId)} · ${workerStatusStyle(theme, worker.status)} · ticket ${worker.ticketStatus ?? "unknown"}`,
     clamp(worker.ticketTitle, width),
     "",
-    "Checks",
-    `Validation ${inspection.validation.summary}`,
-    `Review ${inspection.review.summary}`,
-    `Landing ${inspection.landing.summary}`,
-    `Next ${inspection.followUp.action}`,
+    sectionTitle(theme, "Checks"),
+    kv(theme, "Validation", inspection.validation.summary),
+    kv(theme, "Review", inspection.review.summary),
+    kv(theme, "Landing", inspection.landing.summary),
+    kv(theme, "Next", inspection.followUp.action),
     "",
-    "Refs",
-    `tmux ${clamp(formatTmuxTarget(worker), width - 5)}`,
-    formatArtifact("log", worker.logFile),
-    formatArtifact("worktree", worker.worktreePath),
+    sectionTitle(theme, "Refs"),
+    kv(theme, "tmux", clamp(formatTmuxTarget(worker), width - 5)),
+    kv(theme, "log", path.basename(worker.logFile) || worker.logFile),
+    kv(theme, "worktree", path.basename(worker.worktreePath) || worker.worktreePath),
   ];
 }
 
@@ -396,12 +424,17 @@ export function buildWorkerManagerPanelLines(input: {
   selectedWorkerId?: string;
   maxWorkersPerGroup?: number;
   width?: number;
+  theme?: Theme;
 }): string[] {
+  const theme = input.theme ?? passthroughTheme;
   const groups = groupWorkersForManager({ workers: input.workers, state: input.state });
   if (groups.length === 0) {
     return [
-      "No beadwork workers are currently tracked.",
-      "Use the Issues tab to delegate work or run an epic to launch bounded workers.",
+      styledDim(theme, "No beadwork workers are currently tracked."),
+      styledDim(
+        theme,
+        "Use the Issues tab to delegate work or run an epic to launch bounded workers.",
+      ),
     ];
   }
   const selected = selectDefaultWorker(groups, input.selectedWorkerId);
@@ -410,17 +443,16 @@ export function buildWorkerManagerPanelLines(input: {
   const leftWidth = singleColumn ? width : Math.max(34, Math.floor(width * 0.44));
   const rightWidth = singleColumn ? width : Math.max(28, width - leftWidth - 2);
   const groupLines = [
-    ...buildGroupSummaryLines(groups, selected),
+    ...buildGroupSummaryLines(theme, groups, selected),
     "",
-    ...buildSelectedGroupLines(groups, selected, leftWidth),
+    ...buildSelectedGroupLines(theme, groups, selected, leftWidth),
   ];
   const detailLines = selected
-    ? buildWorkerDetailLines(selected, rightWidth - 2)
-    : ["Selected worker", "No worker selected."];
+    ? buildWorkerDetailLines(theme, selected, rightWidth - 2)
+    : [sectionTitle(theme, "Selected worker"), styledDim(theme, "No worker selected.")];
   if (singleColumn) {
     return normalizeSurfaceLines([...groupLines, "", ...detailLines], width);
   }
-
   return joinColumns({
     left: groupLines,
     right: detailLines,
@@ -482,14 +514,17 @@ class WorkerManagerComponent implements Component {
       state: this.model.state,
       selectedWorkerId,
       width: Math.max(40, width - 4),
+      theme: this.theme,
     });
 
     const lines = renderSurface(this.theme, width, {
       title: "Beadwork Worker Manager",
       subtitle: [
-        `Repo: ${this.model.activation.repoRoot ?? this.model.cwd}`,
-        this.model.epicId ? `Filter: epic ${this.model.epicId}` : "Filter: all workers",
-        `Summary: total=${summary.total} active=${summary.active} held=${summary.held} landed=${summary.landed} failed=${summary.failed}`,
+        kv(this.theme, "Repo", this.model.activation.repoRoot ?? this.model.cwd),
+        this.model.epicId
+          ? kv(this.theme, "Filter", `epic ${styledAccent(this.theme, this.model.epicId)}`)
+          : kv(this.theme, "Filter", styledDim(this.theme, "all workers")),
+        `${kv(this.theme, "Summary", `total=${summary.total}`)} active=${summary.active} held=${summary.held} landed=${summary.landed} failed=${summary.failed}`,
       ],
       sections: [{ lines: bodyLines }],
       footer: buildWorkerFooterHint(this.entries[this.selectedIndex]),
