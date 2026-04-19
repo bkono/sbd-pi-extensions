@@ -4,6 +4,7 @@ import { showWorkers } from "../commands.js";
 import { stopWorkers } from "../orchestrator.js";
 import { summarizeWorkers } from "../registry.js";
 import { updateStatusline } from "../statusline.js";
+import { getWorkerActionAvailability, openWorkerManager } from "../tui/worker-manager.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
 
 function matchesWorkerTarget(worker: WorkerRuntime, target: string): boolean {
@@ -45,12 +46,30 @@ export async function handleWorkersAction(input: {
       return true;
     }
 
+    const explicitEpicId = parsed.positional[0];
     const epicId =
-      parsed.positional[0] ??
-      (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
+      explicitEpicId ?? (active.state.scope.kind === "epic" ? active.state.scope.id : undefined);
     const workers = await deps.inspectWorkers(ctx, active.activation, active.config, {
       epicId,
     });
+
+    if (ctx.hasUI && explicitEpicId === undefined) {
+      const nextState = await deps.syncWorkerTracking(
+        ctx,
+        active.activation,
+        active.config,
+        active.state,
+        workers,
+      );
+      await openWorkerManager(ctx, {
+        cwd: ctx.cwd,
+        activation: active.activation,
+        state: nextState,
+        workers,
+        epicId,
+      });
+      return true;
+    }
     await showWorkers(ctx, workers, epicId);
     return true;
   }
@@ -75,10 +94,19 @@ export async function handleWorkersAction(input: {
     }
 
     const activeWorkers = matchingWorkers.filter(
-      (worker) => worker.status === "launching" || worker.status === "running",
+      (worker) => getWorkerActionAvailability(worker).cancel.enabled,
     );
     if (activeWorkers.length === 0) {
-      ctx.ui.notify(`No active worker matched ${target}.`, "warning");
+      const latestWorker = matchingWorkers
+        .slice()
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+      const cancel = latestWorker ? getWorkerActionAvailability(latestWorker).cancel : undefined;
+      ctx.ui.notify(
+        cancel
+          ? `Cannot cancel ${target}: ${cancel.reason}.`
+          : `No active worker matched ${target}.`,
+        "warning",
+      );
       return true;
     }
 

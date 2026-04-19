@@ -772,6 +772,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     counts?: BeadworkCounts;
     scopeDetail?: BeadworkIssueDetail;
     workerSummary?: WorkerSummary;
+    workers?: WorkerRuntime[];
   }> {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
@@ -788,20 +789,27 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     ]);
 
     let workerSummary: WorkerSummary | undefined;
+    let workers: WorkerRuntime[] | undefined;
     if (shouldInspectWorkers) {
-      const workers = await inspectWorkers(ctx, activation, config, {
+      const inspectedWorkers = await inspectWorkers(ctx, activation, config, {
         epicId: scopedEpicId,
         workerIds: state.mode === "neutral" ? trackedWorkerIds : undefined,
       });
-      state = await syncWorkerTracking(ctx, activation, config, state, workers);
-      workerSummary = summarizeWorkers(workers);
+      state = await syncWorkerTracking(ctx, activation, config, state, inspectedWorkers);
+      workerSummary = summarizeWorkers(inspectedWorkers);
     } else {
       workerSummary = await resolveWorkerSummary(activation, config, scopedEpicId);
     }
 
+    if (activation.kind === "active" && activation.repoRoot) {
+      workers = await loadWorkerRegistry(
+        resolveWorkerRegistryPath(activation.repoRoot, config.storage.workerRegistryFile),
+      );
+    }
+
     updateStatusline(ctx, activation, state, config, workerSummary);
 
-    return { activation, state, counts, scopeDetail, workerSummary };
+    return { activation, state, counts, scopeDetail, workerSummary, workers };
   }
 
   async function resetState(ctx: ExtensionCommandContext): Promise<SessionState> {

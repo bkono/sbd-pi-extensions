@@ -2,6 +2,8 @@ import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { ParsedArgv } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { requestWorkerLanding } from "../orchestrator.js";
+import { loadWorkerRegistry, resolveWorkerRegistryPath } from "../registry.js";
+import { getWorkerActionAvailability } from "../tui/worker-manager.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
 import { inspectWorker } from "../worker-diagnostics.js";
 
@@ -43,9 +45,28 @@ export async function handleLandingAction(input: {
     return true;
   }
 
+  const workers = await loadWorkerRegistry(
+    resolveWorkerRegistryPath(
+      active.activation.repoRoot ?? ctx.cwd,
+      active.config.storage.workerRegistryFile,
+    ),
+  );
+  const targetWorker = workers
+    .filter((candidate) => candidate.workerId === target || candidate.ticketId === target)
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+
+  if (!targetWorker) {
+    ctx.ui.notify(`No worker matched ${target}.`, "warning");
+    return true;
+  }
+
+  const landAction = getWorkerActionAvailability(targetWorker).land;
+  if (!landAction.enabled) {
+    ctx.ui.notify(`Cannot land ${target}: ${landAction.reason}.`, "warning");
+    return true;
+  }
   let worker: WorkerRuntime | undefined;
   let lastError: unknown;
-
   try {
     worker = await requestWorkerLanding({
       cwd: ctx.cwd,
@@ -57,7 +78,6 @@ export async function handleLandingAction(input: {
   } catch (error) {
     lastError = error;
   }
-
   if (!worker) {
     worker = await requestWorkerLanding({
       cwd: ctx.cwd,
@@ -69,7 +89,6 @@ export async function handleLandingAction(input: {
       throw lastError ?? error;
     });
   }
-
   const inspection = inspectWorker(worker);
   const landed = worker.status === "landed";
   const level = inspection.followUp.needsAttention ? "warning" : "info";

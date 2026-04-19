@@ -8,6 +8,7 @@ import {
   resolveWorkerRuntimeDir,
   saveWorkerRegistry,
 } from "../registry.js";
+import { getWorkerActionAvailability } from "../tui/worker-manager.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
 import { cleanupTicketWorktree } from "../worktree.js";
 
@@ -128,16 +129,9 @@ export async function handleCleanupAction(input: {
       return true;
     }
 
-    if (worker.status === "launching" || worker.status === "running") {
-      ctx.ui.notify(`Cannot cleanup ${target} while the worker is still active.`, "warning");
-      return true;
-    }
-
-    if (!worker.landingVerifiedAt && worker.status !== "landed") {
-      ctx.ui.notify(
-        `Cannot cleanup ${target} before landing has been verified or marked landed.`,
-        "warning",
-      );
+    const cleanupAction = getWorkerActionAvailability(worker).cleanup;
+    if (!cleanupAction.enabled) {
+      ctx.ui.notify(`Cannot cleanup ${target}: ${cleanupAction.reason}.`, "warning");
       return true;
     }
 

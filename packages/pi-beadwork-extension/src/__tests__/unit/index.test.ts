@@ -686,6 +686,38 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("Next: No action needed.");
   });
 
+  it("opens the worker manager overlay from /bw:workers", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-workers-overlay",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "held" as const,
+      ticketStatus: "closed",
+      validationStatus: "passed" as const,
+      landingAheadCount: 2,
+      landingBehindCount: 0,
+      landingVerification: "Validated and held. Ready to land.",
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    await harness.invokeCommand("bw:workers", "", ctx);
+
+    expect(ui.customCalls).toHaveLength(1);
+    expect(ui.notifications.at(-1)?.message ?? "").not.toContain("No beadwork workers");
+  });
+
   it("does not say landed cleanly when validation is still pending", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -802,6 +834,20 @@ describe("pi beadwork extension", () => {
     });
 
     detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [
+        {
+          ...createWorkerRuntime(tempDir),
+          status: "held" as const,
+          ticketStatus: "closed",
+          validationStatus: "passed" as const,
+          landingAheadCount: 2,
+          landingBehindCount: 0,
+          landingVerification: "Validated and held. Ready to land.",
+        },
+      ],
+    );
     requestWorkerLandingMock.mockResolvedValue({
       ...createWorkerRuntime(tempDir),
       status: "landed",
@@ -822,6 +868,36 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("landed successfully");
   });
 
+  it("rejects landing requests while the worker is still active", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-land-worker-active",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "running" as const,
+      ticketStatus: "open",
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    await harness.invokeCommand("bw", "land BW-101", ctx);
+
+    expect(requestWorkerLandingMock).not.toHaveBeenCalled();
+    expect(ui.notifications.at(-1)?.message).toContain(
+      "Cannot land BW-101: worker is still active.",
+    );
+  });
+
   it("queues landing retries for background supervision instead of refreshing synchronously", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -833,6 +909,20 @@ describe("pi beadwork extension", () => {
     });
 
     detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [
+        {
+          ...createWorkerRuntime(tempDir),
+          status: "held" as const,
+          ticketStatus: "closed",
+          validationStatus: "passed" as const,
+          landingAheadCount: 2,
+          landingBehindCount: 1,
+          landingVerification: "Validated and held. Landing needs refresh before merge-back.",
+        },
+      ],
+    );
     requestWorkerLandingMock.mockResolvedValue({
       ...createWorkerRuntime(tempDir),
       status: "exited",
@@ -856,6 +946,39 @@ describe("pi beadwork extension", () => {
       "session-land-worker-queued",
     );
     expect(persisted.trackedWorkerIds).toContain("bw-101-worker");
+  });
+
+  it("rejects cleanup when the worker is configured for automatic cleanup", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-cleanup-restricted",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      status: "landed" as const,
+      ticketStatus: "closed",
+      cleanupPolicy: "cleanup-after-landing" as const,
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification: "Landing verified.",
+      landingBehindCount: 1,
+    };
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [worker],
+    );
+
+    await harness.invokeCommand("bw", "cleanup BW-101", ctx);
+
+    expect(ui.notifications.at(-1)?.message).toContain(
+      "Cannot cleanup BW-101: cleanup policy is cleanup-after-landing.",
+    );
   });
 
   it("tracks delegated workers from a neutral session and notifies once when they land", async () => {

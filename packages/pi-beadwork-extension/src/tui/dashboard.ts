@@ -7,6 +7,7 @@ import type {
   BeadworkCounts,
   BeadworkIssueDetail,
   SessionState,
+  WorkerRuntime,
   WorkerSummary,
 } from "../types.js";
 import {
@@ -14,6 +15,7 @@ import {
   type IssueExplorerDataSource,
   type IssueExplorerHooks,
 } from "./issue-explorer.js";
+import { buildWorkerManagerPanelLines } from "./worker-manager.js";
 
 export type DashboardTabId = "issues" | "workers" | "run" | "scope" | "actions";
 
@@ -23,6 +25,7 @@ export type DashboardStatusSnapshot = {
   counts?: BeadworkCounts;
   scopeDetail?: BeadworkIssueDetail;
   workerSummary?: WorkerSummary;
+  workers?: WorkerRuntime[];
 };
 
 export type DashboardModel = DashboardStatusSnapshot & {
@@ -87,15 +90,18 @@ function buildPanelLines(model: DashboardModel, tab: DashboardTabId): string[] {
       ];
     }
     case "workers": {
-      const summary = model.workerSummary;
-      return [
-        "Worker manager scaffold.",
-        summary
-          ? `Workers: total=${summary.total} active=${summary.active} held=${summary.held} landed=${summary.landed} attention=${summary.attention} failed=${summary.failed}`
-          : "Workers: none tracked in this session yet.",
-        "",
-        "Later tickets will add grouped worker detail, landing, cancel, and cleanup controls.",
-      ];
+      if (model.activation.kind !== "active") {
+        return [
+          "Workers become available after beadwork is active in this repository.",
+          model.activation.detail ?? "No worker diagnostics are available yet.",
+        ];
+      }
+
+      return buildWorkerManagerPanelLines({
+        workers: model.workers ?? [],
+        state: model.state,
+        maxWorkersPerGroup: 3,
+      });
     }
     case "run":
       return [
