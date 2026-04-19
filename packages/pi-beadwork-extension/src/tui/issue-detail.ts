@@ -1,5 +1,5 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { BeadworkIssue, BeadworkIssueDetail } from "../types.js";
 import {
   kv,
@@ -37,18 +37,24 @@ export function formatIssueSummary(theme: Theme, issue: BeadworkIssue, width = 7
     width,
   );
 }
+
+/**
+ * Render a single-line issue list entry: ▸ id · status · P# · title…
+ * Compact format for the single-column explorer layout.
+ */
 export function renderIssueListEntry(
   theme: Theme,
   issue: BeadworkIssue,
   input: { selected: boolean; width: number },
-): string[] {
+): string {
   const marker = selectionMarker(theme, input.selected);
-  const titleWidth = Math.max(18, input.width - 4);
-  return [
-    `${marker} ${styledLabel(theme, issue.id)} · ${typeBadge(theme, issue.type)} · ${statusStyle(theme, issue.status)} · ${priorityBadge(theme, issue.priority)}`,
-    `  ${clamp(issue.title, titleWidth)}`,
-  ];
+  const meta = `${styledLabel(theme, issue.id)} · ${statusStyle(theme, issue.status)} · ${priorityBadge(theme, issue.priority)}`;
+  const prefix = `${marker} ${meta} · `;
+  const prefixWidth = visibleWidth(prefix);
+  const titleWidth = Math.max(10, input.width - prefixWidth);
+  return `${prefix}${clamp(issue.title, titleWidth)}`;
 }
+
 export function renderIssueDetail(input: {
   theme: Theme;
   issue?: BeadworkIssueDetail;

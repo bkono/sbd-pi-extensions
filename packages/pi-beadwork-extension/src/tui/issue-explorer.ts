@@ -4,9 +4,7 @@ import type { IssueExplorerFilter, IssueExplorerLevelData } from "../actions/iss
 import { ISSUE_EXPLORER_FILTERS } from "../actions/issues.js";
 import type { BeadworkIssue, BeadworkIssueDetail, SessionState } from "../types.js";
 import {
-  joinColumns,
   normalizeSurfaceLines,
-  sectionTitle,
   styledAccent,
   styledDim,
   styledError,
@@ -21,6 +19,12 @@ const passthroughTheme: Theme = {
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
 } as Theme;
+
+/** Max issue entries visible in the list before paging kicks in */
+const MAX_VISIBLE_ISSUES = 8;
+
+/** Fixed height for the detail section to prevent layout jumping */
+const DETAIL_SECTION_HEIGHT = 14;
 
 export type IssueExplorerBreadcrumb =
   | { kind: "repo" }
@@ -112,15 +116,13 @@ function buildSelectionHint(selected?: BeadworkIssueDetail): string {
     "x clear",
   ].join(" • ");
 }
-function buildCurrentLevelLines(theme: Theme, current?: BeadworkIssueDetail): string[] {
-  if (!current) {
-    return [sectionTitle(theme, "Browsing"), styledDim(theme, "repo-wide")];
-  }
 
-  return [
-    sectionTitle(theme, "Browsing"),
-    `${styledLabel(theme, current.id)} · ${current.type} · ${current.status}`,
-  ];
+/** Pad an array to exactly `height` lines with empty strings */
+function padToHeight(lines: string[], height: number): string[] {
+  if (lines.length >= height) {
+    return lines.slice(0, height);
+  }
+  return [...lines, ...Array.from({ length: height - lines.length }, () => "")];
 }
 
 export class IssueExplorerController {
@@ -342,82 +344,86 @@ export class IssueExplorerController {
     this.applySnapshot(snapshot);
   }
 
+  /**
+   * Render the explorer as a single-column layout with fixed-height sections.
+   *
+   * Layout:
+   *   header (filter · breadcrumb · count, mode · scope)
+   *   (blank)
+   *   issue list entries (padded to MAX_VISIBLE_ISSUES lines)
+   *   (blank)
+   *   detail section (padded to DETAIL_SECTION_HEIGHT lines)
+   */
   renderLines(width = 120, theme?: Theme): string[] {
     const contentWidth = Math.max(40, width);
-    const singleColumn = contentWidth < 88;
-    const leftWidth = singleColumn ? contentWidth : Math.max(34, Math.floor(contentWidth * 0.44));
-    const rightWidth = singleColumn ? contentWidth : Math.max(28, contentWidth - leftWidth - 2);
+    const t = theme ?? passthroughTheme;
+
     const breadcrumbLabel = this.breadcrumb
       .map((entry) => (entry.kind === "repo" ? "repo" : entry.id))
       .join(" / ");
-    const t = theme ?? passthroughTheme;
+
+    const countLabel = `${this.items.length} issue${this.items.length === 1 ? "" : "s"}`;
+
+    // ── Header ──
     const headerLines = [
-      `${styledAccent(t, this.filter)} · ${styledLabel(t, breadcrumbLabel)}`,
+      `${styledAccent(t, this.filter)} · ${styledLabel(t, breadcrumbLabel)} · ${styledDim(t, countLabel)}`,
       `${styledDim(t, this.sessionState.mode)} · ${describeScope(t, this.sessionState)}${this.loading ? ` · ${styledDim(t, "loading")}` : ""}`,
     ];
     if (this.error) {
       headerLines.push(`${styledError(t, "Error")} · ${this.error}`);
     }
-    const browseLines: string[] = [
-      sectionTitle(t, "Issue list"),
-      styledDim(t, `${this.items.length} issue${this.items.length === 1 ? "" : "s"} in view`),
-      "",
-    ];
+
+    // ── Issue list (single-line entries, padded to fixed height) ──
+    const listLines: string[] = [];
     if (this.items.length === 0) {
-      browseLines.push(styledDim(t, "(no issues in this view)"));
+      listLines.push(styledDim(t, "(no issues in this view)"));
     } else {
-      const window = resolveVisibleWindow(this.items.length, this.selectedIndex, 6);
+      const window = resolveVisibleWindow(
+        this.items.length,
+        this.selectedIndex,
+        MAX_VISIBLE_ISSUES,
+      );
       if (window.hiddenBefore > 0) {
-        browseLines.push(
-          `↑ ${window.hiddenBefore} earlier issue${window.hiddenBefore === 1 ? "" : "s"}`,
+        listLines.push(
+          styledDim(
+            t,
+            `↑ ${window.hiddenBefore} earlier issue${window.hiddenBefore === 1 ? "" : "s"}`,
+          ),
         );
-        browseLines.push("");
       }
       for (const [index, issue] of this.items.slice(window.start, window.end).entries()) {
         const absoluteIndex = window.start + index;
-        browseLines.push(
-          ...renderIssueListEntry(t, issue, {
+        listLines.push(
+          renderIssueListEntry(t, issue, {
             selected: absoluteIndex === this.selectedIndex,
-            width: leftWidth,
+            width: contentWidth,
           }),
-          "",
         );
       }
       if (window.hiddenAfter > 0) {
-        browseLines.push(
-          `↓ ${window.hiddenAfter} later issue${window.hiddenAfter === 1 ? "" : "s"}`,
+        listLines.push(
+          styledDim(t, `↓ ${window.hiddenAfter} later issue${window.hiddenAfter === 1 ? "" : "s"}`),
         );
       }
     }
+    const paddedList = padToHeight(listLines, MAX_VISIBLE_ISSUES);
+
+    // ── Detail section (padded to fixed height) ──
     const selected = this.selectedDetail;
-    const detailLines = [
-      ...renderIssueDetail({
-        theme: t,
-        issue: selected,
-        heading: "Selected",
-        emptyMessage: "Move to an issue to load detail.",
-        width: rightWidth - 2,
-      }),
-      "",
-      ...buildCurrentLevelLines(t, this.currentDetail),
-    ];
-    if (singleColumn) {
-      return normalizeSurfaceLines(
-        [...headerLines, "", ...browseLines, ...detailLines],
-        contentWidth,
-      );
-    }
-    return [
-      ...headerLines,
-      "",
-      ...joinColumns({
-        left: browseLines,
-        right: detailLines,
-        leftWidth,
-        rightWidth,
-        gap: 2,
-      }),
-    ];
+    const detailLines = renderIssueDetail({
+      theme: t,
+      issue: selected,
+      heading: "Selected",
+      emptyMessage: "Move to an issue to load detail.",
+      width: contentWidth - 2,
+    });
+    const paddedDetail = padToHeight(detailLines, DETAIL_SECTION_HEIGHT);
+
+    // ── Assemble single-column layout ──
+    return normalizeSurfaceLines(
+      [...headerLines, "", ...paddedList, "", ...paddedDetail],
+      contentWidth,
+    );
   }
   renderFooterHint(): string {
     return `↑/↓ move • ${buildSelectionHint(this.selectedDetail)}`;
