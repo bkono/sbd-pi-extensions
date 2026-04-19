@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-wx1.4",
     "sbdpi-wx1.6"
@@ -13,8 +13,8 @@
   "labels": [],
   "parent": "sbdpi-wx1",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Polish the default `/bw` workflow, docs, and regression coverage",
   "type": "task",
-  "updated_at": "2026-04-19T19:10:56Z"
+  "updated_at": "2026-04-19T21:11:46Z"
 }
