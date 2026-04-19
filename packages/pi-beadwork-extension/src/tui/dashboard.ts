@@ -163,8 +163,8 @@ class DashboardComponent implements Component {
         onEngageRepoWide: this.wrapSnapshotHook(deps.issueExplorer.onEngageRepoWide),
         onScopeSelection: this.wrapIssueSnapshotHook(deps.issueExplorer.onScopeSelection),
         onClearScope: this.wrapSnapshotHook(deps.issueExplorer.onClearScope),
-        onDelegateIntent: deps.issueExplorer.onDelegateIntent,
-        onRunIntent: deps.issueExplorer.onRunIntent,
+        onDelegateIntent: this.wrapIssueSnapshotHook(deps.issueExplorer.onDelegateIntent),
+        onRunIntent: this.wrapIssueSnapshotHook(deps.issueExplorer.onRunIntent),
       });
       void this.issueExplorer.initialize();
     }
@@ -214,6 +214,7 @@ class DashboardComponent implements Component {
     this.model.counts = snapshot.counts;
     this.model.scopeDetail = snapshot.scopeDetail;
     this.model.workerSummary = snapshot.workerSummary;
+    this.model.workers = snapshot.workers;
     this.issueExplorer?.setSessionState(snapshot.state);
     this.requestRender();
   }
