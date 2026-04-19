@@ -7,6 +7,8 @@
     "sbdpi-wx1",
     "sbdpi-wx1.4"
   ],
+  "closed_at": "2026-04-19T19:06:27Z",
+  "close_reason": "Manually recovered and landed on feat/bw-tui as b4e4eb1 after worker landing stalled; checks passed.",
   "created": "2026-04-19T17:55:45Z",
   "description": "Turn `/bw workers` into a real worker operations surface and keep its code lane separate from the issue explorer.\n\nScope:\n- implement the Workers tab/overlay using the existing worker diagnostics model\n- group workers by active run/epic when metadata exists\n- keep manually delegated/background workers visible separately\n- support detail views for log/tmux/runtime paths\n- add state-aware land/cancel actions\n- add manual cleanup for landed workers when cleanup policy is `keep`\n- keep action enable/disable rules explicit and well-tested\n\nPrimary file lane:\n- `packages/pi-beadwork-extension/src/tui/worker-manager.ts`\n- `packages/pi-beadwork-extension/src/actions/workers.ts`\n- `packages/pi-beadwork-extension/src/actions/landing.ts`\n- `packages/pi-beadwork-extension/src/actions/cleanup.ts`\n- worker-manager-focused tests under `packages/pi-beadwork-extension/src/__tests__`\n\nAcceptance criteria:\n- `/bw:workers` and the dashboard worker surface show grouped worker state clearly\n- land/cancel actions are available only in valid states\n- cleanup is available only for valid landed/verified workers\n- detail views expose the paths/operators need for follow-up\n- tests cover grouping, action guards, and cleanup restrictions\n\nParallel-safety note:\n- after the scaffolding ticket lands, this ticket should be safe to run in parallel with the issue-explorer lane as long as it stays out of issue-browser files and avoids broad rewrites of `dashboard.ts`.",
   "id": "sbdpi-wx1.3",
@@ -23,8 +25,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Implement the worker manager overlay and shared worker action lane",
   "type": "task",
-  "updated_at": "2026-04-19T19:06:22Z"
+  "updated_at": "2026-04-19T19:06:27Z"
 }
