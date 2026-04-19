@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-wx1.1"
   ],
@@ -19,8 +19,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Implement the worker manager overlay and shared worker action lane",
   "type": "task",
-  "updated_at": "2026-04-19T19:04:57Z"
+  "updated_at": "2026-04-19T19:05:02Z"
 }
