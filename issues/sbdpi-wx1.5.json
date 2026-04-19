@@ -3,7 +3,9 @@
   "blocked_by": [
     "sbdpi-wx1.4"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-wx1"
+  ],
   "created": "2026-04-19T17:56:31Z",
   "description": "Finish the first actionable release by tightening UX copy, docs, and regression coverage after the core surfaces land.\n\nScope:\n- polish footer hints, notices, and keyboard consistency across the new TUI surfaces\n- add any lightweight widget/statusline improvements that help background awareness without reopening the architecture\n- update package docs to describe `/bw` as a dashboard-first workflow\n- update README/docs command references for the new aliases and in-TUI flows\n- round out integration coverage for the full operator loop\n\nPrimary file lane:\n- `packages/pi-beadwork-extension/README.md`\n- `packages/pi-beadwork-extension/docs/**`\n- TUI copy/polish files under `packages/pi-beadwork-extension/src/tui/**`\n- integration/regression tests under `packages/pi-beadwork-extension/src/__tests__`\n\nAcceptance criteria:\n- docs describe the new default `/bw` workflow accurately\n- keyboard hints and notices are consistent across surfaces\n- integration coverage exercises dashboard entry, issue selection, worker actions, and run/delegate flows\n- workspace lint/test/typecheck pass cleanly\n\nParallel-safety note:\n- keep this as the final cleanup/polish lane after the feature tickets settle, since it will otherwise collide with active UI copy and docs changes.",
   "id": "sbdpi-wx1.5",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Polish the default `/bw` workflow, docs, and regression coverage",
   "type": "task",
-  "updated_at": "2026-04-19T17:57:26Z"
+  "updated_at": "2026-04-19T17:57:52Z"
 }
