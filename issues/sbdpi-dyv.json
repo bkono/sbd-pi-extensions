@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-04-19T00:10:58Z",
+  "description": "Create a new package in this monorepo that exposes Exa-backed web search tools/config for pi, following existing package conventions and using env var + config file setup similar to the other packages. Model behavior after the existing Exa/web-search concept already implemented in ../alfred-ts for the assistant runtime.",
+  "id": "sbdpi-dyv",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Add pi extension package for Exa web search support",
+  "type": "task",
+  "updated_at": "2026-04-19T00:10:58Z"
+}
