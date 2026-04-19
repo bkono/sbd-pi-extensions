@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-04-19T21:42:38Z",
@@ -10,8 +10,8 @@
   ],
   "parent": "sbdpi-wx1",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Rebuild beadwork overlays as real pi TUI surfaces instead of transparent text dumps",
   "type": "task",
-  "updated_at": "2026-04-19T21:42:50Z"
+  "updated_at": "2026-04-19T21:42:54Z"
 }
