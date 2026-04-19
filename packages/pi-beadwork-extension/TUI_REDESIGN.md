@@ -1,6 +1,6 @@
 # Beadwork Dashboard TUI Redesign
 
-## Status: In Progress
+## Status: Complete
 
 Comprehensive plan for polishing the Beadwork dashboard TUI to match the visual
 quality of the `pi-subagents` chain clarification modal.
