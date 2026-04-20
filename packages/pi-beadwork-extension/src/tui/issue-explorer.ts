@@ -24,7 +24,7 @@ const passthroughTheme: Theme = {
 const MAX_VISIBLE_ISSUES = 8;
 
 /** Fixed height for the detail section to prevent layout jumping */
-const DETAIL_SECTION_HEIGHT = 14;
+const MAX_DETAIL_LINES = 14;
 
 export type IssueExplorerBreadcrumb =
   | { kind: "repo" }
@@ -116,15 +116,6 @@ function buildSelectionHint(selected?: BeadworkIssueDetail): string {
     "x clear",
   ].join(" • ");
 }
-
-/** Pad an array to exactly `height` lines with empty strings */
-function padToHeight(lines: string[], height: number): string[] {
-  if (lines.length >= height) {
-    return lines.slice(0, height);
-  }
-  return [...lines, ...Array.from({ length: height - lines.length }, () => "")];
-}
-
 export class IssueExplorerController {
   private readonly breadcrumb: IssueExplorerBreadcrumb[] = [{ kind: "repo" }];
   private readonly filterOrder = ISSUE_EXPLORER_FILTERS;
@@ -373,7 +364,7 @@ export class IssueExplorerController {
       headerLines.push(`${styledError(t, "Error")} · ${this.error}`);
     }
 
-    // ── Issue list (single-line entries, padded to fixed height) ──
+    // ── Issue list (single-line entries, capped to MAX_VISIBLE_ISSUES) ──
     const listLines: string[] = [];
     if (this.items.length === 0) {
       listLines.push(styledDim(t, "(no issues in this view)"));
@@ -406,9 +397,8 @@ export class IssueExplorerController {
         );
       }
     }
-    const paddedList = padToHeight(listLines, MAX_VISIBLE_ISSUES);
 
-    // ── Detail section (padded to fixed height) ──
+    // ── Detail section (capped to MAX_DETAIL_LINES) ──
     const selected = this.selectedDetail;
     const detailLines = renderIssueDetail({
       theme: t,
@@ -417,11 +407,17 @@ export class IssueExplorerController {
       emptyMessage: "Move to an issue to load detail.",
       width: contentWidth - 2,
     });
-    const paddedDetail = padToHeight(detailLines, DETAIL_SECTION_HEIGHT);
+    const cappedDetail =
+      detailLines.length > MAX_DETAIL_LINES
+        ? [
+            ...detailLines.slice(0, MAX_DETAIL_LINES - 1),
+            styledDim(t, `… ${detailLines.length - MAX_DETAIL_LINES + 1} more lines`),
+          ]
+        : detailLines;
 
     // ── Assemble single-column layout ──
     return normalizeSurfaceLines(
-      [...headerLines, "", ...paddedList, "", ...paddedDetail],
+      [...headerLines, "", ...listLines, "", ...cappedDetail],
       contentWidth,
     );
   }
