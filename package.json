@@ -31,6 +31,9 @@
       "packages/pi-answer-extension/src/index.ts",
       "packages/pi-beadwork-extension/src/index.ts",
       "packages/pi-exa-extension/src/index.ts"
+    ],
+    "skills": [
+      "skills"
     ]
   },
   "devDependencies": {
