@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-05T21:11:04Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-jig",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Preserve previous assistant response across OM context pruning",
   "type": "task",
-  "updated_at": "2026-05-05T21:11:04Z"
+  "updated_at": "2026-05-05T21:11:06Z"
 }
