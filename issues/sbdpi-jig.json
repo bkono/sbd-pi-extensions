@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-05T21:11:04Z",
+  "description": "Fix pi-om-extension context pruning so when a published observation cursor would prune the prior assistant response and the next raw window begins with a user follow-up (e.g. \"save that\"), the immediately preceding assistant response unit remains in raw context for one-turn deictic continuity. Include tests for normal assistant messages, timestamp cursor fallback, tool-result response units, dangling tool-call safety, and pruning metrics.",
+  "id": "sbdpi-jig",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Preserve previous assistant response across OM context pruning",
+  "type": "task",
+  "updated_at": "2026-05-05T21:11:04Z"
+}
