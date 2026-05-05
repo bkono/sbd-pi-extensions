@@ -8,7 +8,13 @@ import {
   createExtensionTestHarness,
   createFakeExtensionContext,
 } from "../helpers/extension-harness.js";
-import { conversation, messageId, resetMessageCounter, userMsg } from "../helpers/fixtures.js";
+import {
+  assistantMsg,
+  conversation,
+  messageId,
+  resetMessageCounter,
+  userMsg,
+} from "../helpers/fixtures.js";
 import { MockObservationAgents } from "../helpers/mock-agents.js";
 import { __clearMockAgents, __installMockAgents } from "../helpers/mock-agents-module.js";
 import { createTempStateDir, type TempStateDir } from "../helpers/temp-state-dir.js";
@@ -129,7 +135,7 @@ describe("extension: context lifecycle (message pruning)", () => {
     expect(result.messages).toHaveLength(3);
   });
 
-  it("returns only messages after the cursor when id cursor is set", async () => {
+  it("returns messages after the cursor plus the previous assistant bridge", async () => {
     const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
     const cursorId = messageId(msgs[1]!)!;
     preloadState({ lastObservedEntryId: cursorId, lastObservedTimestamp: 1_700_000_001_000 });
@@ -143,7 +149,89 @@ describe("extension: context lifecycle (message pruning)", () => {
       ctx,
     )) as { messages: Message[] };
 
-    expect(result.messages).toHaveLength(3); // msgs 2, 3, 4
+    expect(result.messages).toHaveLength(4); // previous assistant bridge + msgs 2, 3, 4
+  });
+
+  it("preserves the previous assistant response when a published cursor would prune it before a user follow-up", async () => {
+    resetMessageCounter();
+    const msgs = [
+      userMsg("draft the proposal", 1_700_000_000_000),
+      assistantMsg("Long proposal text that the user can refer to as that", 1_700_000_001_000),
+      userMsg("save that to a doc", 1_700_000_002_000),
+    ];
+    preloadState({
+      lastObservedEntryId: messageId(msgs[1]!),
+      lastObservedTimestamp: 1_700_000_001_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: msgs },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toHaveLength(2);
+    expect((result.messages[0] as { id?: string }).id).toBe(messageId(msgs[1]!));
+    expect((result.messages[1] as { id?: string }).id).toBe(messageId(msgs[2]!));
+
+    const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+    expect(state.tailEntriesAfterPrune).toBe(2);
+    expect(state.prunedEntriesCount).toBe(1);
+  });
+
+  it("preserves the previous assistant response when pruning falls back from a timestamp cursor", async () => {
+    resetMessageCounter();
+    const msgs = [
+      userMsg("draft the proposal", 1_700_000_000_000),
+      assistantMsg("Long proposal text that the user can refer to as that", 1_700_000_001_000),
+      userMsg("save that to a doc", 1_700_000_002_000),
+    ];
+    preloadState({
+      lastObservedEntryId: "missing-assistant-id",
+      lastObservedTimestamp: 1_700_000_001_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: msgs },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toHaveLength(2);
+    expect((result.messages[0] as { id?: string }).id).toBe(messageId(msgs[1]!));
+    expect((result.messages[1] as { id?: string }).id).toBe(messageId(msgs[2]!));
+  });
+
+  it("does not duplicate the assistant response when the selected window already includes it", async () => {
+    resetMessageCounter();
+    const msgs = [
+      userMsg("draft the proposal", 1_700_000_000_000),
+      assistantMsg("Long proposal text that the user can refer to as that", 1_700_000_001_000),
+      userMsg("save that to a doc", 1_700_000_002_000),
+    ];
+    preloadState({
+      lastObservedEntryId: messageId(msgs[0]!),
+      lastObservedTimestamp: 1_700_000_000_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: msgs },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toHaveLength(2);
+    expect((result.messages[0] as { id?: string }).id).toBe(messageId(msgs[1]!));
+    expect((result.messages[1] as { id?: string }).id).toBe(messageId(msgs[2]!));
   });
 
   it("prepends the matching assistant tool call when pruning would start at a tool result", async () => {
@@ -269,8 +357,8 @@ describe("extension: context lifecycle (message pruning)", () => {
 
     const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
     expect(state.tailEntriesBeforePrune).toBe(5);
-    expect(state.tailEntriesAfterPrune).toBe(3);
-    expect(state.prunedEntriesCount).toBe(2);
+    expect(state.tailEntriesAfterPrune).toBe(4);
+    expect(state.prunedEntriesCount).toBe(1);
     expect(state.lastCycleReason).toBe("context");
   });
 
@@ -334,7 +422,7 @@ describe("extension: context lifecycle (message pruning)", () => {
       expect(state.lastObservedEntryId).toBe(messageId(msgs[1]!));
       expect(state.draftObservations).toContain("staged in context");
       expect(state.draftLastObservedEntryId).toBe(messageId(msgs[4]!));
-      expect(result.messages).toHaveLength(4);
+      expect(result.messages).toHaveLength(5);
     } finally {
       if (originalEnv === undefined) delete process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS;
       else process.env.OM_OBSERVATION_STAGE_MESSAGE_TOKENS = originalEnv;
@@ -383,7 +471,7 @@ describe("extension: context lifecycle (message pruning)", () => {
         { type: "context", messages: msgs },
         ctx,
       )) as { messages: Message[] };
-      expect(contextResult.messages).toHaveLength(3);
+      expect(contextResult.messages).toHaveLength(4);
 
       const midTurnPrompt = (await harness.dispatch(
         "before_agent_start",

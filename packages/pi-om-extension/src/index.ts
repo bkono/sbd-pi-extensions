@@ -14,6 +14,7 @@ import {
   getObservationTriggerThresholds,
   getPublishedObservationState,
   getUnobservedMessages,
+  preservePreviousAssistantResponse,
   runObservationCycle,
 } from "./engine.js";
 import {
@@ -144,15 +145,18 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       state.lastObservedTimestamp,
     );
 
-    let boundedMessages = ensureToolCallPairing(allMessages, unobservedWindow.messages);
+    let boundedMessages = unobservedWindow.messages;
     let cursorMode = unobservedWindow.mode;
     if (boundedMessages.length === 0) {
       const latest = allMessages.at(-1);
       if (latest) {
-        boundedMessages = ensureToolCallPairing(allMessages, [latest]);
+        boundedMessages = [latest];
         cursorMode = "fallback-latest";
       }
     }
+
+    boundedMessages = preservePreviousAssistantResponse(allMessages, boundedMessages);
+    boundedMessages = ensureToolCallPairing(allMessages, boundedMessages);
 
     // Track pruning metrics
     await saveSessionState(cfg.storage.stateDir, {

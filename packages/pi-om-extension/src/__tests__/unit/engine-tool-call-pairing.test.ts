@@ -1,7 +1,7 @@
 import type { Message } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
-import { ensureToolCallPairing } from "../../engine.js";
-import { resetMessageCounter, userMsg } from "../helpers/fixtures.js";
+import { ensureToolCallPairing, preservePreviousAssistantResponse } from "../../engine.js";
+import { assistantMsg, resetMessageCounter, userMsg } from "../helpers/fixtures.js";
 
 function assistantToolCallMessage(
   toolCallId: string,
@@ -119,5 +119,68 @@ describe("ensureToolCallPairing", () => {
     const messages = [user, toolCall, result];
 
     expect(ensureToolCallPairing(messages, [result])).toEqual(messages.slice(1));
+  });
+});
+
+describe("preservePreviousAssistantResponse", () => {
+  it("prepends the immediately preceding assistant response when the kept window starts with a user follow-up", () => {
+    resetMessageCounter();
+    const originalUser = userMsg("give me a proposal", 1_700_000_000_000);
+    const previousAssistant = assistantMsg("Here is the full proposal", 1_700_000_001_000);
+    const followup = userMsg("save that to a doc", 1_700_000_002_000);
+    const messages = [originalUser, previousAssistant, followup];
+
+    expect(preservePreviousAssistantResponse(messages, [followup])).toEqual([
+      previousAssistant,
+      followup,
+    ]);
+  });
+
+  it("does nothing when the kept window already starts with an assistant message", () => {
+    resetMessageCounter();
+    const originalUser = userMsg("give me a proposal", 1_700_000_000_000);
+    const previousAssistant = assistantMsg("Here is the full proposal", 1_700_000_001_000);
+    const followup = userMsg("save that to a doc", 1_700_000_002_000);
+    const selected = [previousAssistant, followup];
+
+    expect(preservePreviousAssistantResponse([originalUser, ...selected], selected)).toEqual(
+      selected,
+    );
+  });
+
+  it("preserves a complete preceding tool-call response unit when no final assistant text exists", () => {
+    resetMessageCounter();
+    const toolCallId = "call-preserve-complete";
+    const originalUser = userMsg("read README", 1_700_000_000_000);
+    const toolCall = assistantToolCallMessage(toolCallId, {
+      id: "assistant-preserve-tool",
+      timestamp: 1_700_000_001_000,
+    });
+    const result = toolResultMessage(toolCallId, {
+      id: "tool-preserve-result",
+      timestamp: 1_700_000_002_000,
+    });
+    const followup = userMsg("use that result", 1_700_000_003_000);
+    const messages = [originalUser, toolCall, result, followup];
+
+    expect(preservePreviousAssistantResponse(messages, [followup])).toEqual([
+      toolCall,
+      result,
+      followup,
+    ]);
+  });
+
+  it("does not preserve a dangling assistant tool call without its result", () => {
+    resetMessageCounter();
+    const toolCallId = "call-preserve-dangling";
+    const originalUser = userMsg("read README", 1_700_000_000_000);
+    const toolCall = assistantToolCallMessage(toolCallId, {
+      id: "assistant-dangling-tool",
+      timestamp: 1_700_000_001_000,
+    });
+    const followup = userMsg("use that result", 1_700_000_002_000);
+    const messages = [originalUser, toolCall, followup];
+
+    expect(preservePreviousAssistantResponse(messages, [followup])).toEqual([followup]);
   });
 });

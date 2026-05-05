@@ -215,6 +215,31 @@ export function ensureToolCallPairing(
   return [...allMessages.slice(earliestRequiredIndex, startIndex), ...selectedMessages];
 }
 
+export function preservePreviousAssistantResponse(
+  allMessages: Message[],
+  selectedMessages: Message[],
+): Message[] {
+  if (selectedMessages.length === 0) {
+    return selectedMessages;
+  }
+
+  if (getMessageRole(selectedMessages[0]) !== "user") {
+    return selectedMessages;
+  }
+
+  const startIndex = findMessageIndex(allMessages, selectedMessages[0]!);
+  if (startIndex <= 0) {
+    return selectedMessages;
+  }
+
+  const previousUnit = getPreviousAssistantResponseUnit(allMessages, startIndex);
+  if (previousUnit.length === 0) {
+    return selectedMessages;
+  }
+
+  return [...previousUnit, ...selectedMessages];
+}
+
 export function getMessagesBetweenCursors(
   messages: Message[],
   startEntryId?: string,
@@ -752,6 +777,57 @@ function getToolResultCallIds(message: Message): string[] {
   }
 
   return [...ids];
+}
+
+function getPreviousAssistantResponseUnit(messages: Message[], userStartIndex: number): Message[] {
+  const previousIndex = userStartIndex - 1;
+  const previous = messages[previousIndex];
+  const previousRole = getMessageRole(previous);
+
+  if (previousRole === "assistant") {
+    // Plain final assistant responses are the common "save that" case. If the
+    // immediately preceding assistant message is instead a tool-call request,
+    // do not preserve it without its required tool results.
+    return getAssistantToolCallIds(previous!).length === 0 ? [previous!] : [];
+  }
+
+  if (previousRole !== "toolResult") {
+    return [];
+  }
+
+  let resultStartIndex = previousIndex;
+  while (resultStartIndex > 0 && getMessageRole(messages[resultStartIndex - 1]) === "toolResult") {
+    resultStartIndex -= 1;
+  }
+
+  const assistantIndex = resultStartIndex - 1;
+  if (assistantIndex < 0 || getMessageRole(messages[assistantIndex]) !== "assistant") {
+    return [];
+  }
+
+  const assistant = messages[assistantIndex]!;
+  const toolCallIds = getAssistantToolCallIds(assistant);
+  if (toolCallIds.length === 0) {
+    return [];
+  }
+
+  const toolCallIdSet = new Set(toolCallIds);
+  const resultMessages = messages.slice(resultStartIndex, userStartIndex);
+  const resultCallIds = new Set(resultMessages.flatMap((message) => getToolResultCallIds(message)));
+
+  for (const resultCallId of resultCallIds) {
+    if (!toolCallIdSet.has(resultCallId)) {
+      return [];
+    }
+  }
+
+  for (const toolCallId of toolCallIds) {
+    if (!resultCallIds.has(toolCallId)) {
+      return [];
+    }
+  }
+
+  return [assistant, ...resultMessages];
 }
 
 function findMessageIndex(messages: Message[], target: Message): number {
