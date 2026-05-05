@@ -6,9 +6,15 @@
   "description": "Fix pi-om-extension context pruning so when a published observation cursor would prune the prior assistant response and the next raw window begins with a user follow-up (e.g. \"save that\"), the immediately preceding assistant response unit remains in raw context for one-turn deictic continuity. Include tests for normal assistant messages, timestamp cursor fallback, tool-result response units, dangling tool-call safety, and pruning metrics.",
   "id": "sbdpi-jig",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented context pruning bridge: when the raw window starts with a user follow-up, prepend the immediately preceding assistant response unit without moving the observation cursor. Added unit and lifecycle coverage for plain assistant messages, timestamp fallback, no duplication, complete tool-result units, dangling tool-call safety, and pruning metrics. Validation: npm run lint, npm run typecheck, npm run test all pass.",
+      "timestamp": "2026-05-05T21:19:35Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Preserve previous assistant response across OM context pruning",
   "type": "task",
-  "updated_at": "2026-05-05T21:11:06Z"
+  "updated_at": "2026-05-05T21:19:35Z"
 }
