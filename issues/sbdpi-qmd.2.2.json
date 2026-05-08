@@ -9,9 +9,15 @@
   "id": "sbdpi-qmd.2.2",
   "labels": [],
   "parent": "sbdpi-qmd.2",
+  "comments": [
+    {
+      "text": "Why `git commit \u003cspecific-files\u003e -m` instead of `git add \u003cfiles\u003e \u0026\u0026 git commit`:\n\nThe shared git index can contain staged files from another concurrent worker. If worker A runs `git add file-a.ts` and then worker B runs `git add file-b.ts \u0026\u0026 git commit -m \"B's work\"`, worker B's commit includes file-a.ts because A's staged change is in the shared index.\n\n`git commit file-b.ts -m \"B's work\"` uses `--only` / temporary-index behavior: it commits EXACTLY the specified files regardless of what else is staged. This is safe under concurrent shared-checkout execution.\n\nThe handoff prompt must explicitly:\n1. Instruct workers to use `git commit \u003cfiles\u003e -m` pattern\n2. Discourage `git add -A`, `git add .`, `git commit -a`\n3. Tell workers NOT to stash/reset/clean unrelated state (it belongs to other workers)\n4. Instruct workers to inspect `git diff -- \u003cfiles\u003e` before committing",
+      "timestamp": "2026-05-08T23:40:29Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Write current-branch handoff prompt with all required worker instructions",
   "type": "task",
-  "updated_at": "2026-05-08T23:36:27Z"
+  "updated_at": "2026-05-08T23:40:29Z"
 }
