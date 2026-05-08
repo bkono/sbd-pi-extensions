@@ -4,7 +4,9 @@
     "sbdpi-qmd.5.1",
     "sbdpi-qmd.5.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-qmd.5.5"
+  ],
   "created": "2026-05-08T23:39:37Z",
   "description": "Flip the runtime default for `workerExecution.mode` from `\"worktree\"` to `\"current-branch\"`.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/config.ts`:\n- Change the default value of `workerExecution.mode` from `\"worktree\"` to `\"current-branch\"`\n\n## Prerequisites (must ALL pass before this change)\n\n- Phase 1: types, config, registry normalization ✓\n- Phase 2: current-branch launch works ✓\n- Phase 3: current-branch verification works ✓\n- Phase 4: scope-completion validation/review works ✓\n- Phase 5 crash recovery works ✓\n- UI shows execution mode correctly ✓\n- Legacy worktree tests all pass ✓\n- Full regression suite passes ✓\n\n## Design Rules\n\n- This is the LAST change that ships — not before everything else passes\n- `worktree` MUST remain accessible via config file (`workerExecution.mode: \"worktree\"`)\n- `worktree` MUST remain accessible via env (`PI_BEADWORK_WORKER_EXECUTION_MODE=worktree`)\n- Do NOT remove any worktree code paths\n- Verify the change by running full test suite with the new default\n\n## Tests\n\n- Default config resolves to `\"current-branch\"` without any override\n- Explicit `\"worktree\"` config overrides the default\n- Env var override still works in both directions\n- Full test suite passes with new default\n\n## Definition of Done\n\n- Default is `\"current-branch\"`\n- `worktree` mode preserved via explicit config/env\n- All tests pass with new default\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.5.2",
