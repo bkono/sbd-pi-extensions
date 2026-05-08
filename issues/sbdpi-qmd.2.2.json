@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-qmd.1.6"
+  ],
   "blocks": [
     "sbdpi-qmd.2.4"
   ],
@@ -19,5 +21,5 @@
   "status": "open",
   "title": "Write current-branch handoff prompt with all required worker instructions",
   "type": "task",
-  "updated_at": "2026-05-08T23:40:29Z"
+  "updated_at": "2026-05-08T23:47:04Z"
 }
