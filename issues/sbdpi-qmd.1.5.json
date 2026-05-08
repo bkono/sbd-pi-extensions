@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:35:07Z",
+  "description": "Replace direct calls to `prepareTicketWorktree()` with a generic `prepareWorkerCheckout()` that branches by execution mode.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/worktree.ts` (or a new `checkout.ts`):\n\n```ts\nasync function prepareWorkerCheckout(opts: {\n  config: BeadworkConfig;\n  ticketId: string;\n  epicId?: string;\n  repoRoot: string;\n  processRunner?: ProcessRunner;\n}): Promise\u003cWorkerCheckout\u003e {\n  if (config.workerExecution.mode === \"current-branch\") {\n    return prepareCurrentBranchCheckout(opts);\n  }\n  return prepareWorktreeCheckout(opts); // wraps existing prepareTicketWorktree\n}\n```\n\nFor Phase 1, `prepareCurrentBranchCheckout` is a stub that:\n1. Resolves repo root\n2. Gets current branch name via `git rev-parse --abbrev-ref HEAD`\n3. Gets current HEAD via `git rev-parse HEAD`\n4. Returns a `CurrentBranchCheckout` record\n\nThe actual launch logic (tmux, runtime dirs, etc.) happens in Phase 2.\n\n## Design Rules\n\n- `prepareWorkerCheckout` is the ONLY entry point for checkout preparation going forward\n- `prepareTicketWorktree` remains as an internal function called by the worktree path\n- Current-branch path does NOT create any branches, worktrees, or directories (that's Phase 2 launch)\n- Current-branch path MUST reject detached HEAD (checking `branchName !== \"HEAD\"`) unless config allows it\n- The stub should already record `branchName` and `launchHead` correctly\n\n## Tests\n\n- Mode branching works: `current-branch` config → current-branch path, `worktree` → worktree path\n- Current-branch returns correct `branchName` and `launchHead` from git\n- Detached HEAD rejection (with override test)\n- Worktree path still calls existing `prepareTicketWorktree` correctly\n- Existing worktree tests still pass\n\n## Definition of Done\n\n- `prepareWorkerCheckout` exported and callable\n- Existing callers of `prepareTicketWorktree` can migrate to `prepareWorkerCheckout`\n- Current-branch stub returns valid `CurrentBranchCheckout`\n- Detached HEAD is rejected\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.1.5",
+  "labels": [],
+  "parent": "sbdpi-qmd.1",
+  "priority": 1,
+  "status": "open",
+  "title": "Implement prepareWorkerCheckout() as the mode-branching dispatcher",
+  "type": "task",
+  "updated_at": "2026-05-08T23:35:07Z"
+}
