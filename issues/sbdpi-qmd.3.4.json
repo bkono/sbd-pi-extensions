@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:37:30Z",
+  "description": "Implement the coordinator's triage of review findings and the remediation relaunch path for current-branch workers.\n\n## What to implement\n\n### Coordinator Triage\n\nAfter per-worker review produces findings, the coordinator classifies each as:\n- **`fix`**: Valid and in scope → send to remediation prompt immediately\n- **`file`**: Valid but out of scope / better handled later → create/comment follow-up work in beadwork\n- **`reject`**: Invalid, contradictory, or based on reviewer misunderstanding → discard\n\n`reject` means rejecting the review FINDING, not rejecting/removing the completed commits. Recovery is fix-forward.\n\n### Remediation Relaunch\n\nWhen coordinator-approved `fix` findings exist:\n1. Relaunch the worker in the same checkout with a remediation prompt\n2. Remediation prompt includes:\n   - Continue ticket `BW-123`\n   - Address only the coordinator-approved `fix` findings or validation failures\n   - Ignore findings classified as `file` or `reject`\n   - Make additional atomic commits referencing the ticket\n   - Update handoff comment with new commit SHAs and validation results\n   - Close and sync when done, or explain the blocker\n3. Cap at **2 remediation attempts** per ticket\n4. If not converged after 2 attempts → `attention`\n\n### Verification Completion\n\nAfter triage (no `fix` findings) or successful remediation:\n- Mark worker status = `verified`\n- Store attributed commit SHAs on the worker record\n- Store touched paths derived from commits\n\n## Design Rules\n\n- Reuse existing review-remediation infrastructure where possible (relaunch patterns)\n- Do NOT run rebase/merge-back/containment during remediation\n- `file` findings create beadwork comments/tasks but do NOT block verification\n- `reject` findings are discarded with no action\n- Remediation cap is 2 (increase from current hardcoded 1)\n- If attribution is missing/ambiguous after remediation → `attention`\n- Closed ticket with no attributed commits → only verified if comments explain why\n\n## Tests\n\n- `fix` findings trigger remediation relaunch\n- `file` findings create follow-up work without blocking\n- `reject` findings are discarded\n- 2-attempt cap enforced; third failure → `attention`\n- Successful triage with no `fix` → `verified`\n- Missing attribution → `attention`\n- Closed ticket with no commits but explanation → `verified`\n- Closed ticket with no commits and no explanation → `attention`\n- Remediation prompt contains only `fix` findings\n\n## Definition of Done\n\n- Full triage/remediation/verification flow works end-to-end\n- Workers reach `verified` on success\n- Edge cases handled correctly\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.3.4",
+  "labels": [],
+  "parent": "sbdpi-qmd.3",
+  "priority": 1,
+  "status": "open",
+  "title": "Implement coordinator review triage and current-branch remediation relaunch",
+  "type": "task",
+  "updated_at": "2026-05-08T23:37:30Z"
+}
