@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:35:07Z",
+  "description": "Ensure existing registry records (which lack `executionMode`) are normalized to `worktree` mode on load, preserving backward compatibility.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/registry.ts`:\n\nWhen loading a `WorkerRuntime` record that has no `executionMode` field:\n1. Set `executionMode = \"worktree\"`\n2. Set `checkoutPath = worktreePath` (it already has `worktreePath`)\n3. Preserve all existing fields as-is\n4. Write the normalized version back if the registry is saved\n\n## Design Rules\n\n- Never crash on old registry format — always normalize gracefully\n- `worktreePath` on old records becomes canonical; do NOT remove it\n- Old records that happen to have `worktreePath` matching repo root should still normalize as `worktree` (they were created under worktree semantics)\n- The normalization function should be explicit and testable, not buried in deserialization logic\n- Add a `normalizeWorkerRecord(raw: unknown): WorkerRuntime` function\n\n## Tests\n\n- Old record without `executionMode` normalizes to `worktree`\n- Old record with all legacy fields preserved after normalization\n- New `current-branch` record passes through normalization unchanged\n- New `worktree` record passes through normalization unchanged\n- Registry load/save round-trip preserves normalized records\n- Malformed/missing fields produce clear errors, not silent corruption\n\n## Definition of Done\n\n- `normalizeWorkerRecord` is exported and tested\n- Registry load path uses normalization\n- Existing worktree workers continue to work after normalization\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.1.4",
+  "labels": [],
+  "parent": "sbdpi-qmd.1",
+  "priority": 1,
+  "status": "open",
+  "title": "Normalize legacy registry records as worktree workers on load",
+  "type": "task",
+  "updated_at": "2026-05-08T23:35:07Z"
+}
