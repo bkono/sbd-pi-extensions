@@ -11,9 +11,15 @@
   "id": "sbdpi-qmd.3.2",
   "labels": [],
   "parent": "sbdpi-qmd.3",
+  "comments": [
+    {
+      "text": "Critical design constraint: the attribution evidence pack is CONTEXT for LLM judgment, NOT a deterministic system.\n\nDo NOT:\n- Build a parser for handoff comments\n- Require a specific comment format/schema\n- Classify text with regex/heuristics\n- Consider missing attribution a \"parse failure\"\n\nDO:\n- Gather all available evidence\n- Render it as LLM-readable text\n- Let the coordinator/LLM make the attribution judgment\n- Route ambiguity to `attention` rather than inventing more code\n\nThis aligns with the broader extension philosophy (sbdpi-swx.8.2): reduce parser-heavy flows and favor prompt/tool-driven agentic execution.",
+      "timestamp": "2026-05-08T23:40:29Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Build LLM-readable commit attribution evidence packs",
   "type": "task",
-  "updated_at": "2026-05-08T23:37:37Z"
+  "updated_at": "2026-05-08T23:40:29Z"
 }
