@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:36:04Z",
+  "description": "Replace hard-coded worktree-centric language in user-facing text, notifications, diagnostics, and TUI components with mode-appropriate language.\n\n## What to change\n\nScan all user-visible text that says \"worktree\" when it should say \"checkout\" or \"current branch\" for current-branch workers:\n\n1. **Worker notices/notifications** — \"launched in worktree\" → mode-appropriate (\"launched in current branch\" / \"launched in worktree\")\n2. **`/bw workers` diagnostics** — show execution mode, use `checkoutPath` not `worktreePath` for current-branch\n3. **`/bw status`** — reflect execution mode in status display\n4. **TUI dashboard worker display** — mode-specific labels\n5. **Delegate action feedback** — \"Created worktree...\" → \"Launching worker in current branch...\" / \"Created worktree...\"\n6. **Run action status** — mode-appropriate progress language\n7. **Error messages** — references to worktree paths should use `checkoutPath` when in current-branch mode\n8. **Statusline** — mode indicator if helpful\n\n## Design Rules\n\n- Do NOT remove worktree language from worktree-mode paths\n- Use `worker.executionMode` to select the right text\n- Keep it simple: don't over-engineer a full i18n system, just conditional strings\n- Current-branch language: \"current branch\", \"checkout\", \"repo root\" — NOT \"shared workspace\" or \"working directory\"\n\n## Tests\n\n- User-facing text uses mode-appropriate language for each mode\n- No stale worktree references in current-branch mode output\n- Worktree mode output unchanged\n\n## Definition of Done\n\n- All user-visible text is mode-appropriate\n- No worktree assumptions visible to users when in current-branch mode\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.2.3",
+  "labels": [],
+  "parent": "sbdpi-qmd.2",
+  "priority": 1,
+  "status": "open",
+  "title": "Update user-facing text and TUI labels from worktree to mode-appropriate language",
+  "type": "task",
+  "updated_at": "2026-05-08T23:36:04Z"
+}
