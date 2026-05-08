@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:39:37Z",
+  "description": "Document the commit-message and handoff-comment conventions for current-branch workers.\n\n## What to document\n\n### In `packages/pi-beadwork-extension/README.md`:\n\nAdd a section on current-branch worker conventions:\n\n1. **Commit messages** — include the beadwork ticket id (e.g., `feat(widget): implement parser BW-123`)\n2. **Atomic commits** — `git commit \u003cspecific-files\u003e -m \"...\"` (explains why not `git add -A`)\n3. **Handoff comments** — leave a concise `bw comment` before exiting with status, commit SHAs, validation results, blockers\n4. **No rigid format** — comments are LLM-readable context, not a schema to parse\n5. **Fix-forward philosophy** — if attribution is imperfect, prefer adding clarifying comments over rewriting history\n\n### In `packages/pi-beadwork-extension/docs/`:\n\n- `docs/current-branch-mode.md` — full explanation of current-branch execution\n- `docs/worker-conventions.md` — detailed worker behavior expectations\n- `docs/execution-modes.md` — comparison of current-branch vs worktree modes\n\n## Design Rules\n\n- Documentation should match the actual implementation, not aspirational behavior\n- Include examples of good commit messages and handoff comments\n- Explain WHY `git commit \u003cfiles\u003e` instead of `git add` (shared-index safety)\n- Reference the proposal for broader context but keep docs self-sufficient\n\n## Definition of Done\n\n- README updated with convention section\n- Docs directory has mode comparison and convention docs\n- Examples included\n- lint pass clean (no broken markdown)",
+  "id": "sbdpi-qmd.5.4",
+  "labels": [],
+  "parent": "sbdpi-qmd.5",
+  "priority": 1,
+  "status": "open",
+  "title": "Document commit-message and handoff-comment conventions",
+  "type": "task",
+  "updated_at": "2026-05-08T23:39:37Z"
+}
