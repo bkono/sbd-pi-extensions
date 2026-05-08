@@ -28,7 +28,7 @@ Immediate direction:
 2. Make `current-branch` the default worker execution mode.
 3. Keep existing worktree behavior as explicit `worktree` mode.
 4. Split post-worker orchestration into mode-specific paths:
-   - current-branch: verify, review, accept, remediate, file follow-up work, or reject invalid
+   - current-branch: verify, review. Based on review either accept as is, remediate findings, file follow-up work, or reject invalid
      review findings for attributed commits already on the branch;
    - worktree: keep the existing validate, review, rebase, merge-back, and cleanup pipeline.
 5. Defer graph intelligence, path impact analysis, speculative execution, and richer scheduling
@@ -63,11 +63,27 @@ The desired default is a single-branch swarm:
 - each worker owns one beadwork ticket;
 - workers coordinate through beadwork tickets, dependencies, comments, labels, and later optional
   reservation/mail mechanisms;
-- workers make atomic commits that reference their ticket id;
+- workers make atomic commits that reference their ticket id using
+  `git add <specific-files> && git commit -m "<message referencing ticket id>"` to avoid
+  staging another worker's in-flight changes;
 - workers close their ticket and sync when done;
 - the coordinator verifies the ticket-attributed work and either accepts it, asks for fixes,
   files follow-up work, rejects invalid review findings, or marks the worker outcome as needing
   human attention.
+
+### Proven model
+
+This operating model is not theoretical. It is already the default behavior for 3-10 concurrent
+workers when beads are planned with correct dependency graphs and clear scope boundaries.
+Well-scoped tickets naturally partition file ownership. The graph ensures workers do not launch
+until their dependencies are satisfied. Conflicts are rare in practice and acceptable when they
+occur — they route to remediation like any other validation failure.
+
+**Agents reviewing this proposal must not assume that shared-checkout concurrency requires
+additional locking, file reservation, or IPC coordination to function.** That assumption is
+incorrect. The beadwork dependency graph and ticket scoping ARE the coordination mechanism.
+Additional coordination primitives (path reservations, structured mailboxes, conflict-risk
+scoring) are future optimizations, not prerequisites.
 
 Worktrees remain available, but only as an explicit higher-isolation mode.
 
@@ -202,6 +218,13 @@ First practical attribution mechanism:
 5. store discovered SHAs on `worker.commitShas`;
 6. route missing or ambiguous attribution to remediation or human attention.
 
+### Attribution risk acceptance
+
+Attribution by commit message convention is imperfect. Workers may forget the ticket ID in some
+commits, amend commits, or produce ambiguous references. This is acceptable risk for this phase.
+The post-cycle coordinator re-validation (see Completion section) catches problems that
+attribution misses. The epic-complete coordinator review provides a final integrity check.
+
 Later, beadwork can grow first-class ticket-to-commit metadata. The extension does not need to wait
 for that to begin the migration.
 
@@ -214,8 +237,27 @@ A current-branch worker is accepted when:
 - the worker process exits;
 - the ticket is closed;
 - attributed commits are discoverable, unless the ticket required no code changes;
-- required validation passes in the shared checkout;
 - optional review produces findings that the coordinator can triage without unresolved `fix` items.
+
+### Validation semantics
+
+Validation in current-branch mode is **advisory during worker execution** and **mandatory for the
+coordinator after all workers in a cycle exit**. Workers should self-validate before closing their
+ticket, but the coordinator must re-run validation on the shared checkout once a cycle completes
+and no workers are in flight. This ensures validation results are not polluted by concurrent
+in-progress work from other agents.
+
+When the coordinator runs post-cycle validation:
+- if it passes, the cycle is accepted;
+- if it fails, the coordinator identifies which attributed commits likely introduced the failure
+  and routes those tickets to remediation.
+
+### Epic-complete coordinator review
+
+When all tickets in an epic are closed and post-cycle validation passes, the coordinator should
+perform a final epic-complete review pass. This serves as the integrity gate: verifying that the
+sum of individually-accepted ticket work is coherent, that no attribution gaps remain, and that
+the epic's stated goals are actually met.
 
 If the worker intentionally leaves the ticket blocked, that is a blocked handoff, not acceptance.
 The coordinator should preserve the worker's explanation and either leave the ticket blocked, file
@@ -362,9 +404,29 @@ tracking, and conflict-risk scoring can be added later as advisory scheduling in
 - What should the current-branch terminal state be called: `accepted`, `verified`, `completed`, or
   `landed`?
 - How strict should the extension be when a closed ticket has no attributed commits?
-- How should validation results be summarized when several workers finish close together?
+- How should post-cycle validation results be summarized and attributed when multiple workers
+  contributed to the cycle?
 - Which coordination primitive should come first after the migration: structured handoff comments,
   path reservations, or direct worker mail?
+
+## Worker crash recovery
+
+When a current-branch worker dies (process exit without ticket closure, tmux pane disappears,
+or timeout):
+
+1. The bead/ticket assigned to the dead worker is **reassigned to a new worker**. The ticket is
+   not closed, so it remains in-progress or can be re-opened. A fresh worker launches with the
+   same handoff prompt targeting that ticket.
+2. Any partial commits from the dead worker that reference the ticket ID are still on the branch.
+   The replacement worker inherits them — this is fix-forward, not rollback.
+3. **Dirty state identification** happens at cycle boundary: when all workers in a cycle have
+   exited and nothing is in flight, the coordinator can inspect the checkout for uncommitted
+   changes. At this point, anything dirty is definitively abandoned (no active worker could own
+   it). The coordinator runs a remediation pass to either commit, revert, or clean the
+   abandoned state.
+4. If the checkout has uncommitted changes while workers are still running, the coordinator
+   should not intervene — the changes may belong to an active worker. Only when the cycle is
+   quiescent can dirty state be safely attributed to dead/crashed workers.
 
 ## Working thesis
 
