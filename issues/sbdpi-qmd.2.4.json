@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-qmd.2.1"
+  ],
   "blocks": [],
   "created": "2026-05-08T23:36:05Z",
   "description": "Comprehensive regression tests for the current-branch launch path.\n\n## What to test\n\n1. Current-branch launch does NOT call `prepareTicketWorktree()`\n2. tmux cwd is repo root / `checkoutPath`, NOT a worktree path\n3. Current-branch workers do NOT have `worktreePath` set\n4. Current-branch launch does NOT fail when checkout has dirty or untracked files\n5. Current-branch launch rejects detached HEAD unless explicitly configured\n6. Handoff prompt contains all required instructions (see handoff task)\n7. Handoff prompt discourages broad staging commands\n8. Handoff prompt does NOT mention worktrees\n9. `/bw run --workers N` can launch multiple current-branch workers simultaneously\n10. Worker runtime dirs are created in the expected location\n11. Worker record in registry has correct `executionMode`, `branchName`, `launchHead`\n12. Existing worktree launch behavior preserved when mode is `worktree`\n13. `branchName` and `launchHead` are recorded BEFORE tmux launch\n\n## Tests Location\n\n`packages/pi-beadwork-extension/src/__tests__/current-branch-launch.test.ts`\n\n## Design Rules\n\n- Use mocked ProcessRunner and tmux backend for unit testing\n- Include at least one integration-style test with a real git repo fixture\n- Test the dirty-checkout tolerance explicitly (create dirty files, launch should succeed)\n- Test multiple concurrent launches (no serialization requirement)\n\n## Definition of Done\n\n- All 13+ test scenarios pass\n- Tests clearly document what they prove\n- lint/test/typecheck pass clean",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add Phase 2 launch regression tests",
   "type": "task",
-  "updated_at": "2026-05-08T23:36:05Z"
+  "updated_at": "2026-05-08T23:36:27Z"
 }
