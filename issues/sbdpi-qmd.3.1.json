@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:37:29Z",
+  "description": "Split `inspectWorkerRuntime` so closed-ticket exited current-branch workers trigger `verifyCurrentBranchWorker` instead of the worktree `autoLandCompletedWorker` path.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/orchestrator.ts`:\n\nWhen `inspectWorkerRuntime` detects a closed-ticket exited worker:\n- If `worker.executionMode === \"worktree\"`: existing `autoLandCompletedWorker` path (unchanged)\n- If `worker.executionMode === \"current-branch\"`: new `verifyCurrentBranchWorker` path\n\nThe new function should:\n1. Return immediately if worker is already `verified` (idempotency)\n2. Use the existing orchestration-lock pattern (promise deduplication per worker) to prevent concurrent verification\n3. Build attribution evidence pack\n4. Run per-worker review\n5. Apply coordinator triage\n6. Handle remediation or mark `verified`\n7. Route failures to `attention`\n\n## Design Rules\n\n- Mirror the existing `autoLandCompletedWorker` pattern structurally but without rebase/merge-back/cleanup\n- Reuse the existing orchestration-lock pattern from `inspectWorkerRuntime` (promise deduplication)\n- Must be idempotent: safe to call repeatedly from supervisor polls and restarts\n- Skip workers already in `verified`, `attention`, or `failed` states\n- Only orchestrate for CLOSED ticket workers; open-ticket workers handled by crash recovery (Phase 5)\n\n## Tests\n\n- Current-branch exited workers trigger `verifyCurrentBranchWorker`, not `autoLandCompletedWorker`\n- Worktree exited workers still trigger `autoLandCompletedWorker`\n- Already-verified workers return immediately\n- Concurrent calls to the same worker deduplicate via lock\n- Open-ticket exited workers do NOT trigger verification\n\n## Definition of Done\n\n- Mode branching works correctly in `inspectWorkerRuntime`\n- `verifyCurrentBranchWorker` skeleton exists and is callable\n- Idempotency and lock deduplication proven by tests\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.3.1",
+  "labels": [],
+  "parent": "sbdpi-qmd.3",
+  "priority": 1,
+  "status": "open",
+  "title": "Split inspectWorkerRuntime post-exit orchestration by execution mode",
+  "type": "task",
+  "updated_at": "2026-05-08T23:37:29Z"
+}
