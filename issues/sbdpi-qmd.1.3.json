@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:35:07Z",
+  "description": "Add `verified` as a new terminal worker status for current-branch workers, and update every location that switches on worker status.\n\n## What to implement\n\nUpdate `WorkerStatus` type:\n```ts\ntype WorkerStatus = \"launching\" | \"running\" | \"exited\" | \"held\" | \"landed\" | \"verified\" | \"failed\" | \"attention\";\n```\n\nAdd a derived successful-terminal concept:\n```ts\nfunction isSuccessfulTerminalWorker(w: WorkerRuntime): boolean {\n  return (isCurrentBranchWorker(w) \u0026\u0026 w.status === \"verified\") ||\n         (isWorktreeWorker(w) \u0026\u0026 w.status === \"landed\");\n}\n```\n\n## Ripple Points (all must handle `verified`)\n\n1. **Registry serialization/deserialization** — accept `verified` in stored records\n2. **Registry normalization** — old records without `executionMode` normalize to `worktree`; `verified` stays as-is\n3. **Worker tracking/notices** — `verified` workers should be treated as completed\n4. **Worker diagnostics** — display `verified` appropriately (checkmark, green, success language)\n5. **Worker-manager action gating** — `verified` workers cannot be landed/cancelled; can be cleaned up\n6. **Session-state summaries** — count `verified` alongside `landed` in success metrics\n7. **Background supervisor** — `verified` workers are not re-inspected\n8. **Bounded epic loop stop conditions** — `verified` workers are NOT attention-worthy; they're terminal\n9. **TUI dashboard/worker display** — show `verified` with appropriate styling\n10. **Statusline** — aggregate counts include `verified` in terminal successes\n\n## Design Rules\n\n- `verified` is for current-branch mode ONLY; do NOT use it for worktree workers\n- `landed` is for worktree mode ONLY; do NOT rename it\n- Use `isSuccessfulTerminalWorker()` in aggregate displays/counts\n- A worker with status `verified` should behave identically to `landed` for tracking/supervision purposes\n\n## Tests\n\n- Every status-switch path handles `verified`\n- `isSuccessfulTerminalWorker` returns true for both terminal states with correct modes\n- Registry round-trips records with `verified`\n- Diagnostics/summaries correctly count `verified`\n- Bounded loop does not stop as `attention` due to `verified` workers\n\n## Definition of Done\n\n- All existing status-switch/case paths handle `verified`\n- No TypeScript exhaustiveness gaps\n- Existing tests still pass (worktree behavior unchanged)\n- New tests cover `verified` in all ripple points\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.1.3",
+  "labels": [],
+  "parent": "sbdpi-qmd.1",
+  "priority": 1,
+  "status": "open",
+  "title": "Add verified worker status and ripple through all status-dependent code",
+  "type": "task",
+  "updated_at": "2026-05-08T23:35:07Z"
+}
