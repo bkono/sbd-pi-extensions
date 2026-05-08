@@ -398,16 +398,26 @@ tracking, and conflict-risk scoring can be added later as advisory scheduling in
 - worktree mode preserves existing launch, validation, review, landing, and cleanup behavior;
 - old registry records normalize safely.
 
-## Open questions
+## Decisions (previously open questions)
 
-- What exact handoff comment format should the coordinator parse first?
-- What should the current-branch terminal state be called: `accepted`, `verified`, `completed`, or
-  `landed`?
-- How strict should the extension be when a closed ticket has no attributed commits?
-- How should post-cycle validation results be summarized and attributed when multiple workers
-  contributed to the cycle?
-- Which coordination primitive should come first after the migration: structured handoff comments,
-  path reservations, or direct worker mail?
+**Handoff comment format:** semi-structured with `handoff:` prefix. Example:
+`bw comment BW-123 "handoff: done; commits: abc123 def456; validation: passed; blockers: none"`.
+The coordinator parses the `handoff:` prefix to locate the comment, then extracts `commits:`,
+`validation:`, and `blockers:` fields. Free-text after the structured fields is allowed. This is
+the first coordination primitive to implement because attribution, crash recovery, and completion
+verification all depend on it.
+
+**Current-branch terminal state:** `accepted`. The proposal already uses this language
+consistently ("A current-branch worker is accepted when:"). Reserve `landed` for worktree mode.
+
+**Closed ticket with no attributed commits:** if the handoff comment explains why no code changes
+were needed (research, investigation, configuration outside this repo), accept. If there is no
+handoff comment and no attributed commits, route to attention.
+
+**Post-cycle validation attribution:** cross-reference failing files/tests against
+`worker.commitShas` and `touchedPaths` per ticket. Route the most-likely-responsible ticket(s) to
+remediation. If attribution is ambiguous (multiple tickets touched the same area), route all
+candidates to remediation or flag for human attention.
 
 ## Worker crash recovery
 
