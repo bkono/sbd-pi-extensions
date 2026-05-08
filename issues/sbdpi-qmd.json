@@ -10,11 +10,15 @@
     {
       "text": "Architecture decision: the 18-revision review validated all aspects of this proposal. Key findings that survived the adversarial review:\n\n1. Shared-checkout concurrency is ALREADY proven behavior for 3-10 workers — this is a product premise, not a risk to mitigate\n2. `git commit \u003cspecific-files\u003e -m \"...\"` uses temporary-index behavior and is safe even when multiple workers have staged files in the shared index\n3. Attribution via LLM evidence packs beats deterministic parsing because worker handoff quality varies\n4. Per-worker review as an agent with tools (not a truncated-diff consumer) avoids the known bad pattern of lossy prompt-diff review\n5. Crash recovery inherits dead worker's `launchHead` — simpler than cross-record commit aggregation\n6. Verification idempotency via the existing orchestration-lock pattern avoids needing a separate durable lock system\n7. Scope-completion validation uses existing bounded-loop quiescence detection — NOT a new \"cycle\" abstraction\n\nThe 18 revisions that were agreed:\n- #1: Strengthen proven model to hard product premise\n- #2: Standardize on executionMode discriminant\n- #3: No clean-checkout launch gating\n- #4: Strengthen handoff index hygiene\n- #7: Command-driven review, not truncated-diff-driven\n- #8: Separate per-worker review from integrated validation\n- #9: Verification idempotent, no new lock subsystem\n- #10: Branch-drift as identity invariant\n- #15: Prevent worktree config leak into current-branch\n- #16: Over-engineering regression tests\n- #17: Trust the graph, don't infer path conflict\n- #18: Phase boundary clarity",
       "timestamp": "2026-05-08T23:40:29Z"
+    },
+    {
+      "text": "## Dependency Architecture Note\n\nBeadwork does NOT cascade parent-epic blocking to children in `bw ready`. The phase sequencing is enforced via **explicit task-level cross-phase dependencies**, not just epic-to-epic blocking:\n\n- Phase 1 → Phase 2: `sbdpi-qmd.1.6` (Phase 1 regression tests) blocks `sbdpi-qmd.2.1` and `sbdpi-qmd.2.2`\n- Phase 2 → Phase 3: `sbdpi-qmd.2.4` (Phase 2 tests) blocks `sbdpi-qmd.3.1`\n- Phase 3 → Phase 4: `sbdpi-qmd.3.5` (Phase 3 tests) blocks `sbdpi-qmd.4.1`\n- Phase 4 → Phase 5: `sbdpi-qmd.4.4` (Phase 4 tests) blocks `sbdpi-qmd.5.1`, `sbdpi-qmd.5.3`, `sbdpi-qmd.5.4`\n\nThis means each phase's **regression tests must pass** before any work in the next phase can begin. The test task of each phase is the gate.\n\n**Critical path (17 tasks):** .1.1 → .1.3 → .1.6 → .2.1 → .2.4 → .3.1 → .3.2 → .3.3 → .3.4 → .3.5 → .4.1 → .4.2 → .4.3 → .4.4 → .5.1 → .5.2 → .5.5\n\n**Parallelism opportunities:**\n- Phase 1: .1.1 + .1.2 (parallel), then .1.3 + .1.4 (parallel after .1.1)\n- Phase 2: .2.1 + .2.2 (parallel), .2.3 (off critical path)\n- Phase 5: .5.1 + .5.3 + .5.4 (all parallel)",
+      "timestamp": "2026-05-08T23:53:42Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Migrate pi-beadwork-extension to current-branch swarm execution",
   "type": "epic",
-  "updated_at": "2026-05-08T23:40:29Z"
+  "updated_at": "2026-05-08T23:53:42Z"
 }
