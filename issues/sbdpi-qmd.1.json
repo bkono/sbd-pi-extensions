@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-qmd.2"
+  ],
   "created": "2026-05-08T23:33:26Z",
   "description": "Phase 1 establishes the type-level and configuration foundation for execution mode branching without changing any runtime behavior yet. Every subsequent phase depends on this foundation being solid.\n\n## Goals\n\n1. Introduce `WorkerExecutionMode`, `CurrentBranchCheckout`, `WorktreeCheckout`, `WorkerCheckout` discriminated union types\n2. Add `workerExecution.mode` config with env override `PI_BEADWORK_WORKER_EXECUTION_MODE`\n3. Add the `verified` worker status to the type surface and ripple through all status-dependent code\n4. Normalize existing registry records as `worktree` workers on load\n5. Implement `prepareWorkerCheckout()` as the mode-branching dispatcher\n6. Prevent worktree config from leaking into current-branch paths\n\n## Key Design Constraints\n\n- `executionMode` must be the single discriminant everywhere: registry, summaries, TUI, orchestration, diagnostics, launch, verification, landing, cleanup\n- `worktreePath` remains only for legacy records and `worktree` workers; current-branch workers must NOT fake `worktreePath = repoRoot`\n- Old registry records without `executionMode` normalize to `worktree` automatically\n- The `verified` status addition ripples through: registry serialization, normalization, tracking/notices, diagnostics/worker-manager, action gating, summaries, and bounded-loop stop conditions\n- `worktrees.copyFiles`, `worktrees.setupCommands`, `worktrees.cleanup`, `worktrees.rerunSetupOnReuse` are ignored when mode is `current-branch`\n\n## Files likely affected\n\n- `packages/pi-beadwork-extension/src/types.ts` — core type changes\n- `packages/pi-beadwork-extension/src/config.ts` — new config block + env parsing\n- `packages/pi-beadwork-extension/src/registry.ts` — normalization + serialization\n- `packages/pi-beadwork-extension/src/orchestrator.ts` — mode-branching prep\n- `packages/pi-beadwork-extension/src/worktree.ts` — `prepareWorkerCheckout` wrapping existing prep\n- `packages/pi-beadwork-extension/src/worker-diagnostics.ts` — status/mode display\n- `packages/pi-beadwork-extension/src/session-state.ts` — status-aware summaries\n- `packages/pi-beadwork-extension/src/__tests__/` — regression coverage\n\n## Definition of Done\n\n- Types compile and express impossible-state elimination\n- Config loads `workerExecution.mode` with env override\n- `verified` status is handled in all status-switch paths\n- Existing worktree tests still pass (no behavior change yet)\n- New tests cover normalization, config parsing, type guards\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Phase 1: Substrate foundation — types, config, registry normalization",
   "type": "epic",
-  "updated_at": "2026-05-08T23:33:26Z"
+  "updated_at": "2026-05-08T23:33:38Z"
 }
