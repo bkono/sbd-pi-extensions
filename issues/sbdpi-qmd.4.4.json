@@ -5,7 +5,8 @@
   ],
   "blocks": [
     "sbdpi-qmd.5.1",
-    "sbdpi-qmd.5.3"
+    "sbdpi-qmd.5.3",
+    "sbdpi-qmd.5.4"
   ],
   "created": "2026-05-08T23:38:33Z",
   "description": "Comprehensive regression tests for the entire scope-completion validation/review pipeline.\n\n## What to test\n\n1. `/bw run` does NOT stop as `completed` while workers are still active\n2. `/bw run` does NOT stop as `completed` while exited-unverified workers exist\n3. `/bw run` does NOT stop as `completed` while scope validation/review has unresolved `fix` findings\n4. Scope-complete validation runs once at quiescence for epic/scope runs\n5. Scope-level `fix` findings create fix-forward beadwork work\n6. Scope-level findings do NOT mutate already-verified worker records\n7. Quiescent dirty-state remediation runs BEFORE scope-completion validation\n8. Dirty-state remediation NEVER runs while workers are still active\n9. Standalone `/bw delegate \u003cticket\u003e` treats ticket as scope, runs validation once\n10. Standalone delegate does NOT run extra scope-complete review\n11. Scope-level fix iterations capped at 2 rounds\n12. Not converged after 2 rounds → `attention`\n13. Validation failure at scope level routes to remediation/attention\n14. Clean quiescence → validation → scope review → `completed` flow works end-to-end\n15. Worktree mode scope behavior preserved (existing landing pipeline)\n\n## Tests Location\n\n`packages/pi-beadwork-extension/src/__tests__/scope-completion.test.ts`\n\n## Definition of Done\n\n- All 15+ scenarios pass\n- Tests use mocked beadwork/git/process for isolation\n- Tests document the scope-completion contract\n- lint/test/typecheck pass clean",
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Add Phase 4 scope-completion regression tests",
   "type": "task",
-  "updated_at": "2026-05-08T23:47:04Z"
+  "updated_at": "2026-05-08T23:47:05Z"
 }
