@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:39:37Z",
+  "description": "Run the final comprehensive regression suite that proves the full migration is coherent.\n\n## What to test (in addition to phase-specific tests)\n\n### End-to-end flows\n\n1. Full `/bw run` with current-branch: launch → work → close → verification → scope-validation → `completed`\n2. Full `/bw delegate` with current-branch: launch → work → close → verification → `verified`\n3. Full `/bw run` with worktree mode: existing behavior preserved\n4. Mixed registry: old worktree records + new current-branch records coexist\n5. Mode switch mid-epic: workers launched in different modes handled correctly\n\n### Cross-cutting concerns\n\n6. Repeated supervisor polls don't duplicate work\n7. Coordinator restart recovers cleanly from any intermediate state\n8. Background supervision triggers verification correctly\n9. Worker notices are appropriate and not duplicated\n10. Registry persistence round-trips cleanly with both modes\n\n### Crash recovery integration\n\n11. Crashed worker → replacement → completion → verification\n12. Multiple crashes of same ticket → eventually `attention`\n13. Replacement inherits and fixes forward successfully\n\n### Config edge cases\n\n14. Env override from `worktree` to `current-branch` mid-session (new workers use new mode)\n15. Explicit worktree config still launches worktrees\n16. `maxLifetime` timeout detection works\n\n### Worktree preservation\n\n17. All existing worktree tests still pass\n18. Worktree launch/validate/review/rebase/land/cleanup unchanged\n19. Worktree workers still reach `landed`\n\n## Tests Location\n\n`packages/pi-beadwork-extension/src/__tests__/integration/` (new integration test files)\n\n## Definition of Done\n\n- Full e2e flow tests pass\n- Cross-cutting concerns verified\n- Crash recovery integration works\n- Worktree mode fully preserved\n- lint/test/typecheck pass clean for entire workspace",
+  "id": "sbdpi-qmd.5.5",
+  "labels": [],
+  "parent": "sbdpi-qmd.5",
+  "priority": 1,
+  "status": "open",
+  "title": "Run final comprehensive integration and regression test suite",
+  "type": "task",
+  "updated_at": "2026-05-08T23:39:37Z"
+}
