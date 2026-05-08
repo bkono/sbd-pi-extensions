@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-08T23:39:37Z",
+  "description": "Add visible execution mode labels to all worker-facing UI surfaces so operators can always tell whether a worker is running in current-branch or worktree mode.\n\n## What to implement\n\n1. **`/bw workers` display** — show `[current-branch]` or `[worktree]` badge per worker\n2. **TUI dashboard worker list** — execution mode column or badge\n3. **Worker detail view** — show `executionMode`, `checkoutPath`, `branchName`, `launchHead`\n4. **Statusline** — optionally show active mode indicator\n5. **`/bw status`** — show default execution mode in config summary\n6. **Worker notices** — include mode in launch/completion/attention notifications\n\n## Design Rules\n\n- Labels should be concise but unambiguous\n- Use consistent terminology: \"current-branch\" and \"worktree\" (not abbreviations)\n- Do NOT hide the execution mode — it should always be visible in worker context\n- For aggregate displays (counts), group by mode if mixed workers exist\n\n## Tests\n\n- Worker displays show correct mode badges\n- Mixed-mode worker lists show both modes correctly\n- Detail view exposes all mode-specific fields\n\n## Definition of Done\n\n- All worker-facing UI surfaces show execution mode\n- Consistent terminology used\n- lint/test/typecheck pass clean",
+  "id": "sbdpi-qmd.5.3",
+  "labels": [],
+  "parent": "sbdpi-qmd.5",
+  "priority": 1,
+  "status": "open",
+  "title": "Add UI/status labels showing worker execution mode",
+  "type": "task",
+  "updated_at": "2026-05-08T23:39:37Z"
+}
