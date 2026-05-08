@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-qmd.1.3"
+  ],
   "blocks": [],
   "created": "2026-05-08T23:35:07Z",
   "description": "Add targeted regression tests that prevent the most common wrong-direction additions from landing during the migration.\n\n## What to test\n\nThese tests codify the operating model and prevent well-meaning but incorrect \"safety\" additions:\n\n1. **No path reservation prerequisite** — launching a current-branch worker does NOT require any file/path reservation system\n2. **No clean-checkout launch gating** — current-branch launch does NOT fail because the checkout has dirty or untracked files\n3. **No worktree config leak** — when mode is `current-branch`, `worktrees.copyFiles`/`setupCommands`/`cleanup`/`rerunSetupOnReuse` are NOT consulted\n4. **No `worktreePath` on current-branch** — current-branch `WorkerRuntime` does NOT have a `worktreePath` field set to repo root\n5. **No new top-level states** — the `WorkerStatus` union does NOT contain `accepted`, `verifying`, `remediating`, `crashed`, `reassigned`, or `blocked`\n6. **Type-level impossible states** — accessing `worktreePath` on a current-branch worker is a compile error\n7. **No IPC/locking prerequisites** — launching multiple current-branch workers does NOT require inter-process coordination beyond beadwork\n8. **Config isolation** — worktree landing review config does NOT decide whether current-branch review runs\n\n## Purpose\n\nThese are \"the tests that prevent the wrong kind of improvement from landing.\" They protect the operating model premises during the migration where well-intentioned reviewers might add safety mechanisms that defeat the purpose of current-branch execution.\n\n## Tests Location\n\n`packages/pi-beadwork-extension/src/__tests__/substrate-invariants.test.ts`\n\n## Definition of Done\n\n- All regression tests pass\n- Tests are clearly commented with WHY they exist (operating model protection)\n- lint/test/typecheck pass clean",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add Phase 1 regression tests for over-engineering prevention",
   "type": "task",
-  "updated_at": "2026-05-08T23:35:07Z"
+  "updated_at": "2026-05-08T23:35:16Z"
 }
