@@ -10,8 +10,8 @@ orchestration model to a **current-branch default** model for same-branch worker
 
 This proposal builds on the existing current-branch sketch and the beadwork/beads_viewer review,
 but intentionally narrows scope to the extension migration needed now. It preserves delegation,
-coordination, verification, remediation, and rejection cycles without forcing every worker into an
-isolated worktree.
+coordination, verification, remediation, and review finding triage without forcing every worker
+into an isolated worktree.
 
 ## Decision summary
 
@@ -28,8 +28,8 @@ Immediate direction:
 2. Make `current-branch` the default worker execution mode.
 3. Keep existing worktree behavior as explicit `worktree` mode.
 4. Split post-worker orchestration into mode-specific paths:
-   - current-branch: verify, review, accept, remediate, or reject attributed commits already on the
-     branch;
+   - current-branch: verify, review, accept, remediate, file follow-up work, or reject invalid
+     review findings for attributed commits already on the branch;
    - worktree: keep the existing validate, review, rebase, merge-back, and cleanup pipeline.
 5. Defer graph intelligence, path impact analysis, speculative execution, and richer scheduling
    heuristics until the substrate split is complete.
@@ -57,13 +57,17 @@ Those ideas remain useful later, but they should not block current-branch delega
 The desired default is a single-branch swarm:
 
 - many workers may run concurrently in the same checkout and on the same branch;
+- shared-checkout concurrency is intentional: current-branch mode relies on beadwork
+  coordination, attribution, validation, remediation, and fix-forward behavior rather than
+  isolation;
 - each worker owns one beadwork ticket;
 - workers coordinate through beadwork tickets, dependencies, comments, labels, and later optional
   reservation/mail mechanisms;
 - workers make atomic commits that reference their ticket id;
 - workers close their ticket and sync when done;
-- the coordinator verifies the ticket-attributed work and either accepts it, asks for fixes, or
-  marks it as needing attention/rejection.
+- the coordinator verifies the ticket-attributed work and either accepts it, asks for fixes,
+  files follow-up work, rejects invalid review findings, or marks the worker outcome as needing
+  human attention.
 
 Worktrees remain available, but only as an explicit higher-isolation mode.
 
@@ -168,12 +172,14 @@ logic.
 Current-branch worker prompts should say:
 
 - you are working ticket `BW-123` in the current checkout/current branch;
+- run `bw start BW-123` before beginning work unless the ticket is already started;
 - do not create a branch, PR, or worktree unless explicitly instructed;
 - keep the change scoped to this ticket;
 - coordinate via `bw comment`, child tickets, dependencies, and labels;
 - make atomic commits that clearly reference the ticket id;
-- close the ticket and run `bw sync` when done;
-- if possible, leave a comment listing commit SHAs before exiting.
+- before exiting, leave a concise handoff comment for the coordinator with status, commit SHAs,
+  validation run/results, and any blockers or follow-up recommendations;
+- close the ticket and run `bw sync` when done.
 
 Worktree-mode prompts can keep the existing worktree wording.
 
@@ -184,34 +190,51 @@ Current-branch mode must review a commit set, not `launchHead..HEAD` wholesale.
 First practical attribution mechanism:
 
 1. require worker commits to include the beadwork ticket id in the commit message;
-2. ask workers to leave a commit manifest comment, for example:
+2. require a worker-to-coordinator handoff comment for code-changing tickets, for example:
 
    ```sh
-   bw comment BW-123 "commits: abc123 def456"
+   bw comment BW-123 "handoff: done; commits: abc123 def456; validation: npm run test passed"
    ```
 
-3. after worker exit, discover commits after `launchHead` whose messages reference the ticket id;
-4. store discovered SHAs on `worker.commitShas`;
-5. route missing or ambiguous attribution to attention/remediation.
+3. if the worker cannot produce a commit manifest, require the handoff comment to say why;
+4. after worker exit, read the handoff comment and discover commits after `launchHead` whose
+   messages reference the ticket id;
+5. store discovered SHAs on `worker.commitShas`;
+6. route missing or ambiguous attribution to remediation or human attention.
 
 Later, beadwork can grow first-class ticket-to-commit metadata. The extension does not need to wait
 for that to begin the migration.
 
-## Completion, verification, and rejection
+## Completion, verification, and review triage
 
 Current-branch mode has no merge-back phase because the work is already on the branch.
 
 A current-branch worker is accepted when:
 
 - the worker process exits;
-- the ticket is closed or intentionally left blocked with an explanation;
+- the ticket is closed;
 - attributed commits are discoverable, unless the ticket required no code changes;
 - required validation passes in the shared checkout;
-- optional review approves the attributed commit set.
+- optional review produces findings that the coordinator can triage without unresolved `fix` items.
 
-If validation or review fails, the coordinator should launch remediation in the same checkout. If
-attribution is missing, the ticket is not closed, or findings are outside safe remediation, the worker
-should be marked as needing attention/rejection.
+If the worker intentionally leaves the ticket blocked, that is a blocked handoff, not acceptance.
+The coordinator should preserve the worker's explanation and either leave the ticket blocked, file
+follow-up work, launch remediation, or mark the outcome as needing human attention.
+
+Reviewer findings are advisory. The coordinator compares each finding against the ticket, epic, and
+beadwork context, then classifies it as one of:
+
+- `fix`: valid and in scope; send the finding to the worker/remediation prompt;
+- `file`: valid but out of scope or better handled later; create or comment follow-up work;
+- `reject`: invalid, contradictory to the goals, or based on a reviewer misunderstanding.
+
+In current-branch mode, `reject` means rejecting the review finding. It does not mean rejecting or
+removing completed commits. Recovery is fix-forward unless a future explicit revert workflow is
+added.
+
+If validation or accepted review findings require changes, the coordinator should launch remediation
+in the same checkout. If attribution is missing, the ticket is not closed, or findings are outside
+safe automated remediation, the worker outcome should be marked as needing human attention.
 
 Current-branch completion must not run:
 
@@ -240,11 +263,13 @@ Reviewer context should include:
 - attributed commit SHAs;
 - patch/stat/name-only output for those SHAs;
 - touched path summary;
-- validation output;
-- relevant beadwork comments or coordination notes.
+- validation output from the shared checkout;
+- relevant beadwork comments, handoff notes, dependency context, and coordination notes.
 
-Reviewer prompts should describe this as a review of ticket-attributed commits already present on the
-current branch, not as a merge-back gate.
+Reviewer prompts should describe this as a review centered on ticket-attributed commits already
+present on the current branch, not as a merge-back gate and not as a review of `launchHead..HEAD`
+wholesale. Review findings must be concrete enough for the coordinator to triage as `fix`, `file`,
+or `reject`.
 
 Worktree-mode review can keep the existing branch diff and landing-gate semantics.
 
@@ -253,9 +278,10 @@ Worktree-mode review can keep the existing branch diff and landing-gate semantic
 Current-branch remediation should relaunch in the same checkout/current branch with instructions to:
 
 - continue ticket `BW-123`;
-- address the validation/review findings;
+- address only the coordinator-accepted `fix` findings or validation failures;
+- ignore reviewer findings that the coordinator classified as `file` or `reject`;
 - make additional atomic commits referencing the ticket;
-- update the commit manifest/comment if required;
+- update the handoff comment with any new commit SHAs and validation results;
 - close and sync when done, or explain the blocker.
 
 It should not mention an existing worktree unless the worker is actually in worktree mode.
@@ -267,7 +293,7 @@ The near-term scheduler should use beadwork graph semantics first:
 - launch only ready tickets;
 - respect dependencies;
 - avoid duplicate active workers for the same ticket;
-- preserve epic-level launch serialization where useful;
+- treat ready tickets as concurrently workable when the operator requests multiple workers;
 - allow N current-branch workers when the operator requests N workers.
 
 Do not require file reservations before same-branch concurrency works. Reservations, touched-path
@@ -297,7 +323,7 @@ tracking, and conflict-risk scoring can be added later as advisory scheduling in
 - Discover ticket-attributed commits.
 - Run validation in `checkoutPath`.
 - Skip rebase, merge-back, containment, and worktree cleanup in current-branch mode.
-- Route missing attribution or validation failures to remediation/attention.
+- Route missing attribution or validation failures to remediation/human attention.
 
 ### Phase 4: review and remediation
 
@@ -311,32 +337,34 @@ tracking, and conflict-risk scoring can be added later as advisory scheduling in
 - Make `current-branch` the default once tests cover the mode split.
 - Keep `worktree` available through explicit config.
 - Add UI/status labels so active workers clearly show their execution mode.
-- Document the commit-message and optional `bw comment` manifest convention.
+- Document the commit-message and required handoff comment convention.
 
 ## Tests to add
 
 - current-branch launch does not call `prepareTicketWorktree()`;
 - tmux cwd is the repo root/current checkout;
-- handoff forbids creating a branch, PR, or worktree by default;
+- handoff prompts require `bw start`, forbid creating a branch/PR/worktree by default, and ask for a
+  coordinator handoff comment;
 - `/bw run --workers N` can launch multiple current-branch workers;
 - current-branch completion skips rebase, merge-back, containment checks, and worktree cleanup;
 - validation runs in `checkoutPath`;
-- review artifacts include only ticket-attributed commits;
-- missing attribution is routed to attention/remediation;
+- review artifacts are centered on ticket-attributed commits and do not use `launchHead..HEAD` as
+  the attribution boundary;
+- coordinator review triage can classify findings as `fix`, `file`, or `reject`;
+- remediation prompts include only coordinator-accepted `fix` findings;
+- missing attribution is routed to remediation or human attention;
 - worktree mode preserves existing launch, validation, review, landing, and cleanup behavior;
 - old registry records normalize safely.
 
 ## Open questions
 
-- Should commit-message ticket references be mandatory in current-branch mode, or should manifest
-  comments be enough?
+- What exact handoff comment format should the coordinator parse first?
 - What should the current-branch terminal state be called: `accepted`, `verified`, `completed`, or
   `landed`?
 - How strict should the extension be when a closed ticket has no attributed commits?
-- Should reviewer agents be read-only in current-branch mode?
-- How should validation be batched when several workers finish close together?
-- Which coordination primitive should come first after the migration: manifest comments, path
-  reservations, or direct worker mail?
+- How should validation results be summarized when several workers finish close together?
+- Which coordination primitive should come first after the migration: structured handoff comments,
+  path reservations, or direct worker mail?
 
 ## Working thesis
 
@@ -344,5 +372,6 @@ Make the extension substrate-aware now. Default to current-branch execution. Kee
 configured isolation mode.
 
 That gives beadwork the same-branch swarm model immediately while preserving the existing
-coordination, verification, remediation, and rejection cycle. It also creates clean attachment points
-for later graph intelligence, file-impact analysis, path reservations, and speculative execution.
+coordination, verification, remediation, and review-finding triage cycle. It also creates clean
+attachment points for later graph intelligence, file-impact analysis, path reservations, and
+speculative execution.
