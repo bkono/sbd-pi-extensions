@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-qmd.4.4"
+  ],
   "blocks": [
     "sbdpi-qmd.5.2",
     "sbdpi-qmd.5.5"
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Implement current-branch worker crash recovery and replacement",
   "type": "task",
-  "updated_at": "2026-05-08T23:39:55Z"
+  "updated_at": "2026-05-08T23:47:04Z"
 }
