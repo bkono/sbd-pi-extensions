@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-qmd.3.5"
+  ],
   "blocks": [
     "sbdpi-qmd.4.2"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Tighten bounded epic loop stop conditions for scope-completion",
   "type": "task",
-  "updated_at": "2026-05-08T23:38:40Z"
+  "updated_at": "2026-05-08T23:47:04Z"
 }
