@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-qmd.2.4"
+  ],
   "created": "2026-05-08T23:36:04Z",
   "description": "Generate the handoff prompt that current-branch workers receive, encoding all coordination rules for shared-checkout execution.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/handoff.ts`:\n\nAdd a `buildCurrentBranchHandoffPrompt()` function that produces a prompt containing:\n\n1. **Identity**: \"You are working ticket `BW-123` in the current checkout/current branch.\"\n2. **First step**: \"Run `bw start BW-123` before beginning work unless the ticket is already started.\"\n3. **Rules**:\n   - Do not create a branch, PR, or worktree unless explicitly instructed\n   - Keep the change scoped to this ticket\n   - Coordinate via `bw comment`, child tickets, dependencies, and labels\n   - Make atomic commits that clearly reference the ticket id\n   - Stage and commit only the specific files intentionally changed: `git commit \u003cspecific-files\u003e -m \"\u003cmessage referencing ticket id\u003e\"`\n   - Avoid broad staging commands (`git add -A`, `git add .`, `git commit -a`) unless truly all paths are ticket-scoped\n   - Do not stash, reset, clean, discard, or otherwise manipulate unrelated checkout state — it may belong to another active worker\n   - Inspect `git diff -- \u003cspecific-files\u003e` and `git status --short` before committing\n   - Before exiting, leave a concise beadwork handoff comment with status, commit SHAs, validation run/results, and any blockers\n   - Close the ticket and run `bw sync` when done\n   - If blocked, explain the blocker in a beadwork comment and exit\n4. **Context**: ticket description, epic description/context\n\n## Design Rules\n\n- The prompt must NOT mention worktrees, worktree branches, or worktree paths\n- The `git commit \u003cfiles\u003e -m` pattern is required (safe temporary-index behavior avoids shared-index contamination)\n- The prompt must discourage broad staging explicitly\n- Keep the handoff comment expectation natural — NOT a rigid schema or format requirement\n- Worker scratch/runtime dir path should be provided for transient artifacts\n\n## Tests\n\n- Generated prompt contains all required instructions\n- Prompt does NOT contain worktree-related language\n- Prompt references correct ticket id, epic context, scratch path\n- Prompt includes `git commit \u003cfiles\u003e -m` instruction\n- Prompt includes `bw start`, `bw close`, `bw sync` instructions\n- Prompt explicitly discourages `git add -A`, `git add .`, `git commit -a`\n\n## Definition of Done\n\n- `buildCurrentBranchHandoffPrompt()` exported and tested\n- All required instructions present\n- No worktree language\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.2.2",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Write current-branch handoff prompt with all required worker instructions",
   "type": "task",
-  "updated_at": "2026-05-08T23:36:04Z"
+  "updated_at": "2026-05-08T23:36:27Z"
 }
