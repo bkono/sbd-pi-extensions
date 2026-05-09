@@ -9,9 +9,15 @@
   "id": "sbdpi-qmd.1.2",
   "labels": [],
   "parent": "sbdpi-qmd.1",
+  "comments": [
+    {
+      "text": "Implemented workerExecution config block and committed e8cc029. Targeted config tests pass: npm run test -w @solvedbydev/pi-beadwork-extension -- src/__tests__/unit/config.test.ts. Did not close because package lint/typecheck are currently blocked by unrelated in-progress changes outside .1.2 scope: src/orchestrator.ts has formatting/unused import lint failures and typecheck fails in current-branch/worktree runtime callsites (actions/orchestrator/registry/tui), plus protected dirty orchestrator.test.ts remains untouched.",
+      "timestamp": "2026-05-09T02:59:36Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add workerExecution config block with mode and maxLifetime",
   "type": "task",
-  "updated_at": "2026-05-09T02:38:12Z"
+  "updated_at": "2026-05-09T02:59:36Z"
 }
