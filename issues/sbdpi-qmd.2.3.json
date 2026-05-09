@@ -6,6 +6,8 @@
   "blocks": [
     "sbdpi-qmd.2.4"
   ],
+  "closed_at": "2026-05-09T04:57:03Z",
+  "close_reason": "Mode-appropriate launch/delegate/run text implemented with regression tests; package lint/test/typecheck pass.",
   "created": "2026-05-08T23:36:04Z",
   "description": "Replace the launch-path and immediate operator-facing worktree-centric language that would be misleading as soon as current-branch workers can launch.\n\n## Why this is separate from Phase 5 UI polish\n\nPhase 2 only needs the minimum terminology changes required for correct current-branch launch and delegation feedback. Comprehensive dashboards, mixed-mode aggregate counts, statusline polish, and final execution-mode badges are handled later by `sbdpi-qmd.5.3`.\n\nThis split avoids duplicate UI work while still ensuring a Phase 2 current-branch worker does not tell the operator it was launched in a worktree.\n\n## What to change now\n\nScan user-visible launch and immediate worker-detail text that says `worktree` when it should say `checkout` or `current branch` for current-branch workers:\n\n1. Delegate action feedback: `Created worktree...` versus `Launching worker in current branch...`.\n2. Worker launch notices/notifications: include the execution mode and correct checkout path.\n3. Run action progress text for newly launched workers: mode-appropriate wording.\n4. Immediate worker detail/inspect output needed for debugging launch: show `executionMode`, `checkoutPath`, `branchName`, and `launchHead` for current-branch workers.\n5. Error messages emitted during launch: use `checkoutPath` for current-branch and `worktreePath` only for worktree mode.\n\n## Defer to Phase 5 (`sbdpi-qmd.5.3`)\n\nDo not try to finish the whole UI surface here. Leave these to Phase 5:\n\n- full `/bw workers` redesign;\n- dashboard worker-list columns/badges;\n- statusline aggregate mode indicators;\n- mixed-mode grouping/counts;\n- final visual polish across every TUI tab.\n\n## How to find locations\n\nUse text search for worktree wording in `packages/pi-beadwork-extension/src/`, then filter to user-facing launch/action strings. Skip internal function names, git commands, and tests unless a test assertion needs updating.\n\n## Design rules\n\n- Do not remove worktree wording from worktree-mode paths.\n- Use `worker.executionMode` to select text, not `worktreePath` existence.\n- Current-branch language: `current branch`, `checkout`, `repo root`.\n- When displaying generic paths, use `worker.checkoutPath`.\n- Keep this as conditional copy, not a new i18n/string abstraction.\n\n## Tests\n\n- Delegate launch feedback says current branch for current-branch workers.\n- Delegate launch feedback says worktree for worktree workers.\n- Worker launch notices include mode and correct path.\n- Immediate launch errors reference the correct path field per mode.\n- No misleading worktree language appears in current-branch launch feedback.\n\n## Definition of Done\n\n- Phase 2 launch/delegate/run feedback is mode-appropriate.\n- Worktree-mode launch feedback remains accurate.\n- Phase 2 regression tests cover the launch-visible text.\n- Full dashboard/statusline polish remains scoped to `sbdpi-qmd.5.3`.\n- lint/test/typecheck pass clean.",
   "id": "sbdpi-qmd.2.3",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Update launch/delegate text from worktree to mode-appropriate language",
   "type": "task",
-  "updated_at": "2026-05-09T04:56:59Z"
+  "updated_at": "2026-05-09T04:57:03Z"
 }
