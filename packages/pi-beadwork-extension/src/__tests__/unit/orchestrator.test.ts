@@ -289,9 +289,7 @@ describe("launchTicketWorker", () => {
         tmuxBackend,
         processRunner,
       }),
-    ).rejects.toThrow(
-      `Failed to launch worker ${ticket.id.toLowerCase()}-worker for ${ticket.id} `,
-    );
+    ).rejects.toThrow(/Failed to launch worker .* for BW-203 /);
 
     const registryPath = resolveWorkerRegistryPath(
       repoRoot,
@@ -3358,6 +3356,54 @@ describe("run loop", () => {
 
     expect(summary.stopReason).toBe("blocked");
     expect(summary.cycles).toBe(1);
+  });
+
+  it("records launch mode and path in run summary notes", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-launch-note-"));
+    const ticket = createIssue({ id: "BW-201", type: "task", title: "Implement task" });
+    const adapter = createAdapter({
+      show: vi.fn(async (id: string) =>
+        id === "BW-100"
+          ? createIssue({ children: [ticket] })
+          : createIssue({ id: ticket.id, type: "task", title: ticket.title }),
+      ),
+      ready: vi.fn().mockResolvedValue([ticket]),
+    });
+    const tmuxBackend = createMockTmuxBackend();
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref HEAD") {
+        return ok("main\n");
+      }
+      if (command === "git" && args.join(" ") === "rev-parse HEAD") {
+        return ok("head123\n");
+      }
+      throw new Error(`unexpected process call: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "current-branch" },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(summary.notes).toContain(
+      `Cycle 1: launched current-branch worker for BW-201 at checkoutPath ${repoRoot}.`,
+    );
   });
 
   itInTmuxSession("stops for attention when ready work was already attempted", async () => {

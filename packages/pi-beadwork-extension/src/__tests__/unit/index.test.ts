@@ -946,8 +946,11 @@ describe("pi beadwork extension", () => {
       ui,
       sessionId: "session-delegate-current-branch-guidance",
     });
-    const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...worker } =
-      createWorkerRuntime(tempDir);
+    const {
+      cleanupPolicy: _cleanupPolicy,
+      worktreePath: _worktreePath,
+      ...worker
+    } = createWorkerRuntime(tempDir);
 
     detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
     launchTicketWorkerMock.mockResolvedValue({
