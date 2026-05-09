@@ -272,6 +272,10 @@ function validateState(raw: unknown, sessionId: string): SessionState {
     state.prunedEntriesCount = obj.prunedEntriesCount;
   }
 
+  if (typeof obj.paused === "boolean") {
+    state.paused = obj.paused;
+  }
+
   if (typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt)) {
     state.updatedAt = obj.updatedAt;
   }

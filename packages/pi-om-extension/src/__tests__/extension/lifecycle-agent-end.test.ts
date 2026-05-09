@@ -1,5 +1,7 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import type { Message } from "@mariozechner/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sessionStatePath } from "../../config.js";
 import piObservationalMemory from "../../index.js";
 import { loadSessionState } from "../../state.js";
 import {
@@ -158,6 +160,47 @@ describe("extension: agent_end lifecycle (observation cycle)", () => {
       const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
       expect(state.observeTriggered).toBe(true);
       expect(state.observations).toContain("resumed-session observation");
+    } finally {
+      if (originalEnv === undefined) delete process.env.OM_OBSERVATION_MESSAGE_TOKENS;
+      else process.env.OM_OBSERVATION_MESSAGE_TOKENS = originalEnv;
+    }
+  });
+
+  it("skips observation when paused", async () => {
+    const originalEnv = process.env.OM_OBSERVATION_MESSAGE_TOKENS;
+    process.env.OM_OBSERVATION_MESSAGE_TOKENS = "50";
+    try {
+      mock = new MockObservationAgents({
+        observeResponses: [{ observations: "* 🔴 should not appear", raw: "" }],
+      });
+      __installMockAgents(mock);
+
+      // Preload state with paused: true
+      const stateDir = `${temp.stateDir}/.pi/om-state`;
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        sessionStatePath(stateDir, sessionId),
+        JSON.stringify({
+          sessionId,
+          observations: "",
+          observationTokens: 0,
+          updatedAt: Date.now(),
+          paused: true,
+        }),
+      );
+
+      const harness = await createExtensionTestHarness(piObservationalMemory);
+      const msgs = conversation(6, { baseTs: 1_700_000_000_000, contentSize: 300 });
+      const ctx = createFakeExtensionContext({
+        cwd: temp.stateDir,
+        sessionId,
+        entries: asBranchEntries(msgs),
+      });
+
+      await harness.dispatch("agent_end", { type: "agent_end", messages: msgs }, ctx);
+
+      // Observation agent should not have been called
+      expect(mock.observeCalls).toHaveLength(0);
     } finally {
       if (originalEnv === undefined) delete process.env.OM_OBSERVATION_MESSAGE_TOKENS;
       else process.env.OM_OBSERVATION_MESSAGE_TOKENS = originalEnv;

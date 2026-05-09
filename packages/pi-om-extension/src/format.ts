@@ -53,6 +53,7 @@ export interface OMStatusReport {
   currentTask: string | null;
   suggestedResponse: string | null;
   updatedAt: string;
+  paused: boolean;
 }
 
 export const OM_COMMAND_USAGE = [
@@ -244,7 +245,7 @@ export function renderStoredObservations(
 
 export function formatStatusReport(status: OMStatusReport): string {
   const lines = [
-    `Observational memory status · ${status.sessionId}`,
+    `Observational memory status · ${status.sessionId}${status.paused ? " · ⏸ PAUSED" : ""}`,
     `Published observations: ${status.observationsPresent ? "yes" : "no"} · ${formatCount(status.observationTokens)} tokens`,
     `Staged draft: ${status.draftObservationsPresent ? "yes" : "no"} · ${formatCount(status.draftObservationTokens)} tokens`,
     `Staging trigger: ${formatThreshold(status.stagingThreshold)} tokens / ${formatThreshold(status.stagingMessageCountThreshold)} messages / ${formatThreshold(status.stagingToolResultTokenThreshold)} tool-result tokens · chunk ≤ ${formatThreshold(status.chunkMessageTokenLimit)} tokens / ${formatThreshold(status.chunkMessageLimit)} messages · model ${status.observationModel}`,

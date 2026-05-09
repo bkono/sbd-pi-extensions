@@ -124,6 +124,13 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       messageCount: allMessages.length,
     });
 
+    // When paused, skip observation and pruning — retain full message history
+    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+    if (state.paused) {
+      debugLog(cfg, "context: paused, skipping observation and pruning", { sessionId });
+      return;
+    }
+
     // Stage observations incrementally during long runs, but keep the public
     // injected block and pruning cursor frozen until the turn ends. We observe
     // against the full branch so resumed sessions and long tool loops can keep
@@ -136,13 +143,14 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
 
     // Pruning still uses the published cursor only. Draft observations must never
     // outrun what the model can see in the injected system prompt this turn.
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+    // Re-load state after observation cycle may have mutated it.
+    const postCycleState = await loadSessionState(cfg.storage.stateDir, sessionId);
 
     // Compute the unobserved window
     const unobservedWindow = getUnobservedMessages(
       allMessages,
-      state.lastObservedEntryId,
-      state.lastObservedTimestamp,
+      postCycleState.lastObservedEntryId,
+      postCycleState.lastObservedTimestamp,
     );
 
     let boundedMessages = unobservedWindow.messages;
@@ -160,7 +168,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
 
     // Track pruning metrics
     await saveSessionState(cfg.storage.stateDir, {
-      ...state,
+      ...postCycleState,
       lastCycleAt: Date.now(),
       lastCycleReason: "context",
       lastCursorMode: cursorMode,
@@ -186,6 +194,13 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   pi.on("agent_end", async (event, ctx) => {
     const { config: cfg, agents: agts } = ensureInitialized(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
+
+    // When paused, skip observation entirely
+    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+    if (state.paused) {
+      debugLog(cfg, "agent_end: paused, skipping observation", { sessionId });
+      return;
+    }
 
     // IMPORTANT: do NOT use `event.messages` here. pi-agent-core's
     // agent_end event is TURN-SCOPED — its `messages` field contains
@@ -225,11 +240,16 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       }
     }
 
-    // Force a final observation pass to capture everything before compaction
-    await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
-      forceObserve: true,
-      reason: "compacting",
-    });
+    // When paused, skip forced observation but still inject existing
+    // observations into compaction summary if available
+    const preState = await loadSessionState(cfg.storage.stateDir, sessionId);
+    if (!preState.paused) {
+      // Force a final observation pass to capture everything before compaction
+      await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
+        forceObserve: true,
+        reason: "compacting",
+      });
+    }
 
     // Build a custom compaction that includes observation context in the summary.
     // This ensures the compaction summary benefits from our extracted observations,
@@ -375,6 +395,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       currentTask: state.currentTask ?? null,
       suggestedResponse: state.suggestedResponse ?? null,
       updatedAt: new Date(state.updatedAt).toISOString(),
+      paused: state.paused ?? false,
     };
   }
 
@@ -422,6 +443,21 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       }
 
       ctx.ui.notify(OM_COMMAND_USAGE, "info");
+    },
+  });
+
+  pi.registerCommand("om:toggle", {
+    description: "Pause or resume observational memory for this session",
+    handler: async (_args, ctx) => {
+      const { config: cfg } = ensureInitialized(ctx);
+      const sessionId = ctx.sessionManager.getSessionId();
+      const state = await loadSessionState(cfg.storage.stateDir, sessionId);
+      const nowPaused = !state.paused;
+      await saveSessionState(cfg.storage.stateDir, { ...state, paused: nowPaused });
+      const label = nowPaused
+        ? "⏸ Observational memory paused — full context retained, no observation cycles"
+        : "▶ Observational memory resumed — observation and pruning active";
+      ctx.ui.notify(label, "info");
     },
   });
 

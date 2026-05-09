@@ -516,4 +516,24 @@ describe("extension: context lifecycle (message pruning)", () => {
     expect(state.lastObservedEntryId).toBeUndefined();
     expect(state.lastObservedTimestamp).toBeUndefined();
   });
+
+  it("skips observation and pruning when paused", async () => {
+    const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
+    const cursorId = messageId(msgs[1]!)!;
+    preloadState({
+      paused: true,
+      lastObservedEntryId: cursorId,
+      lastObservedTimestamp: 1_700_000_001_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+
+    const result = await harness.dispatch("context", { type: "context", messages: msgs }, ctx);
+
+    // When paused, context handler returns undefined (no message modification)
+    expect(result).toBeUndefined();
+    // Observation agent should not have been called
+    expect(mock.observeCalls).toHaveLength(0);
+  });
 });

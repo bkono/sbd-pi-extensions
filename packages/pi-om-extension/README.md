@@ -170,12 +170,26 @@ Set `OM_DEBUG=1` for verbose logging to stderr covering observation cycles, toke
 
 ## Slash Commands
 
-The extension registers a user-facing slash command so OM data is visible without LLM tool use:
+The extension registers user-facing slash commands so OM data is visible and controllable without LLM tool use:
 
 ### `/om`
 
 - `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, message-count/tool-output heuristics, chunk limits, unobserved/unpublished windows, and any tracked current task / suggested response.
 - `/om observations` — show the published observations for the current session in a human-friendly layout.
+
+### `/om:toggle`
+
+Pause or resume observational memory for the current session. When paused:
+
+- No observation cycles run (no observer/reflector LLM calls)
+- No message pruning occurs — full conversation history is retained
+- Existing published observations still inject into the system prompt
+- `/om status` shows a `⏸ PAUSED` indicator
+
+Toggle again to resume. On resume, the stale cursor means all messages accumulated while paused will be observed on the next active turn.
+
+Useful for planning phases where you want the full raw context visible to the LLM, then re-enabling memory for implementation/coordination work.
+
 ### `om_status`
 
 Returns current session memory metrics as JSON: published and staged observation token counts, token/message/tool-result thresholds, next-chunk limits, cursor/window details, cycle history, current task, and suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
@@ -190,9 +204,9 @@ Returns the stored observation block for the current session as XML-wrapped text
 |------|---------|--------|
 | `session_start` | Session created (fires on `bindExtensions`) | Initialize/load session state from disk |
 | `before_agent_start` | Before each agent loop | Append one segmented observation block (durable / active / guidance) to the system prompt |
-| `context` | Before each LLM call | Prune messages to the unobserved window |
-| `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed |
-| `session_before_compact` | Before context compaction | Force a final observation pass and inject a custom `CompactionResult` that includes the observation block |
+| `context` | Before each LLM call | Prune messages to the unobserved window (skipped when paused) |
+| `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed (skipped when paused) |
+| `session_before_compact` | Before context compaction | Force a final observation pass and inject a custom `CompactionResult` that includes the observation block (observation pass skipped when paused; injection still occurs) |
 | `session_shutdown` | Process exit | Persist final state |
 
 ### Important: Observation Timing Deviation
@@ -213,7 +227,7 @@ npm run smoke       # Layer 4: real pi session + real LLM, scripted file-reading
 
 ### Layer 1-3 (automated)
 
-110+ vitest tests covering:
+180+ vitest tests covering:
 - Pure functions: prompt parsing, token counting, cursor math, append semantics, config loading, state persistence
 - State machine: observation cycle thresholds, reflection cascade, cursor advancement, inflight deduplication
 - Extension wiring: all lifecycle hooks + both tools via a fake `ExtensionAPI` dispatcher

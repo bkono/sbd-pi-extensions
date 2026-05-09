@@ -177,4 +177,63 @@ describe("extension: /om command", () => {
 
     expect(ui.notifications[0]?.message).toContain("Usage: /om [status|observations]");
   });
+
+  it("registers the /om:toggle command", async () => {
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    expect(harness.commands.has("om:toggle")).toBe(true);
+  });
+
+  it("toggles paused state on first /om:toggle", async () => {
+    preloadState({});
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ui = createFakeUi();
+    const ctx = createFakeCommandContext({ cwd: temp.stateDir, sessionId, ui });
+
+    await harness.invokeCommand("om:toggle", "", ctx);
+
+    const message = ui.notifications[0]?.message ?? "";
+    expect(message).toContain("\u23f8");
+    expect(message).toContain("paused");
+  });
+
+  it("toggles back to resumed on second /om:toggle", async () => {
+    preloadState({ paused: true });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ui = createFakeUi();
+    const ctx = createFakeCommandContext({ cwd: temp.stateDir, sessionId, ui });
+
+    await harness.invokeCommand("om:toggle", "", ctx);
+
+    const message = ui.notifications[0]?.message ?? "";
+    expect(message).toContain("\u25b6");
+    expect(message).toContain("resumed");
+  });
+
+  it("shows paused indicator in status when paused", async () => {
+    preloadState({ paused: true });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ui = createFakeUi();
+    const ctx = createFakeCommandContext({ cwd: temp.stateDir, sessionId, ui });
+
+    await harness.invokeCommand("om", "status", ctx);
+
+    const message = ui.notifications[0]?.message ?? "";
+    expect(message).toContain("\u23f8 PAUSED");
+  });
+
+  it("does not show paused indicator in status when active", async () => {
+    preloadState({});
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ui = createFakeUi();
+    const ctx = createFakeCommandContext({ cwd: temp.stateDir, sessionId, ui });
+
+    await harness.invokeCommand("om", "status", ctx);
+
+    const message = ui.notifications[0]?.message ?? "";
+    expect(message).not.toContain("PAUSED");
+  });
 });

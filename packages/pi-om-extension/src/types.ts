@@ -120,6 +120,7 @@ export interface SessionState {
   publishTriggered?: boolean;
   reflectTriggered?: boolean;
   prunedEntriesCount?: number;
+  paused?: boolean;
   updatedAt: number;
 }
 
