@@ -6,6 +6,8 @@
   "blocks": [
     "sbdpi-qmd.4.1"
   ],
+  "closed_at": "2026-05-09T07:08:26Z",
+  "close_reason": "Done in commit 09f3011. Added 25 current-branch verification regression scenarios with mocked process/git/beadwork, fixed persisted remediation idempotency gap, and passed package lint/test/typecheck.",
   "created": "2026-05-08T23:37:30Z",
   "description": "Comprehensive regression tests for the entire current-branch verification pipeline.\n\n## What to test\n\n1. Closed-ticket exited current-branch workers trigger verification, not worktree landing.\n2. Verification skips rebase, merge-back, containment checks, and worktree cleanup.\n3. Attribution evidence pack includes all expected sections.\n4. Per-worker review runs for every completion (when enabled).\n5. Review does NOT construct/pass a truncated patch bundle.\n6. Review is centered on ticket-attributed commits.\n7. Coordinator triage classifies findings correctly.\n8. `fix` findings trigger remediation with correct prompt.\n9. Closed-ticket remediation reopens/comments the ticket before relaunch and closes again after success.\n10. Repeated polls/restarts do not launch duplicate remediation workers for the same findings.\n11. `file` findings create beadwork follow-up without blocking.\n12. `reject` findings are discarded.\n13. Remediation cap at 2 attempts enforced.\n14. Missing attribution → `attention`.\n15. Valid commits missing ticket ids attributable through handoff/comment evidence.\n16. Branch drift detected → `attention`.\n17. Detached-HEAD workers launched via explicit opt-in include enough evidence for verification and do not use normal branch-drift assumptions.\n18. Ancestry check failure → `attention`.\n19. Already-verified workers return immediately on re-inspection (idempotency).\n20. Repeated verification after restart does NOT duplicate remediation launches.\n21. Repeated verification does NOT create duplicate follow-up beadwork tasks.\n22. Worktree mode verification (landing) unchanged.\n23. Review/triage/remediation diagnostics include enough structured logs to debug a failure without rerunning.\n24. Reviewer output parses into `ReviewFinding[]` with raw output preserved.\n25. Reviewer parse failure routes to `attention` with raw output/artifacts, not silent approval.\n\n## Tests Location\n\n`packages/pi-beadwork-extension/src/__tests__/current-branch-verification.test.ts`\n\n## Definition of Done\n\n- All 25+ test scenarios pass.\n- Tests use mocked process/git/beadwork for isolation.\n- Tests clearly document verification contract.\n- Idempotency, ticket lifecycle, and logging assertions are included.\n- lint/test/typecheck pass clean.",
   "id": "sbdpi-qmd.3.5",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add Phase 3 verification regression tests",
   "type": "task",
-  "updated_at": "2026-05-09T07:08:23Z"
+  "updated_at": "2026-05-09T07:08:26Z"
 }
