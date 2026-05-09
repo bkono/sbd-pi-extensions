@@ -15,11 +15,15 @@
     {
       "text": "Why `git commit \u003cspecific-files\u003e -m` instead of `git add \u003cfiles\u003e \u0026\u0026 git commit`:\n\nThe shared git index can contain staged files from another concurrent worker. If worker A runs `git add file-a.ts` and then worker B runs `git add file-b.ts \u0026\u0026 git commit -m \"B's work\"`, worker B's commit includes file-a.ts because A's staged change is in the shared index.\n\n`git commit file-b.ts -m \"B's work\"` uses `--only` / temporary-index behavior: it commits EXACTLY the specified files regardless of what else is staged. This is safe under concurrent shared-checkout execution.\n\nThe handoff prompt must explicitly:\n1. Instruct workers to use `git commit \u003cfiles\u003e -m` pattern\n2. Discourage `git add -A`, `git add .`, `git commit -a`\n3. Tell workers NOT to stash/reset/clean unrelated state (it belongs to other workers)\n4. Instruct workers to inspect `git diff -- \u003cfiles\u003e` before committing",
       "timestamp": "2026-05-08T23:40:29Z"
+    },
+    {
+      "text": "Completed sbdpi-qmd.2.2. Reviewed buildCurrentBranchHandoffPrompt implementation from 4f585ba against the ticket requirements; added unit coverage in packages/pi-beadwork-extension/src/__tests__/unit/handoff.test.ts for required current-branch instructions, ticket/epic/scratch context, safe commit guidance, close/sync guidance, and absence of worktree language. Also kept the substrate invariant comment tweak. Validation passed: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension (25 files, 224 tests); npm run typecheck -w @solvedbydev/pi-beadwork-extension. Commit: c542a7c.",
+      "timestamp": "2026-05-09T04:42:57Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Write current-branch handoff prompt with all required worker instructions",
   "type": "task",
-  "updated_at": "2026-05-09T04:29:33Z"
+  "updated_at": "2026-05-09T04:42:57Z"
 }
