@@ -17,11 +17,15 @@
     {
       "text": "Implemented mode-appropriate launch/delegate/run text for worktree vs current-branch workers, including current-branch checkout metadata in launch failures and inspection output. Verified package lint, test, and typecheck pass: `npm run lint -w @solvedbydev/pi-beadwork-extension`, `npm run test -w @solvedbydev/pi-beadwork-extension`, `npm run typecheck -w @solvedbydev/pi-beadwork-extension`.",
       "timestamp": "2026-05-09T04:56:59Z"
+    },
+    {
+      "text": "Review remediation finalized: kept worker-id launch failure assertion nondeterministic-safe, applied Biome formatting to delegate test destructuring, and added run-loop launch notice coverage for current-branch checkoutPath wording. Verified package lint, test, and typecheck for @solvedbydev/pi-beadwork-extension pass clean.",
+      "timestamp": "2026-05-09T05:03:40Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Update launch/delegate text from worktree to mode-appropriate language",
   "type": "task",
-  "updated_at": "2026-05-09T04:57:03Z"
+  "updated_at": "2026-05-09T05:03:40Z"
 }
