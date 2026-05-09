@@ -103,8 +103,8 @@ afterEach(() => {
 });
 
 describe("substrate invariants for current-branch worker execution", () => {
-  // Phase 1 intentionally covers prepareWorkerCheckout and persisted runtime records only;
-  // launchTicketWorker is not wired to current-branch execution until a later phase.
+  // Substrate coverage protects the low-level current-branch invariants independently
+  // from launch/orchestration tests.
   it("does not require a path reservation system before preparing current-branch checkout", async () => {
     // WHY: current-branch execution deliberately lets beadwork own task coordination;
     // adding a separate path reservation prerequisite would reintroduce planning overhead
