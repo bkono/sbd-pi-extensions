@@ -22,11 +22,15 @@
     {
       "text": "Amended implementation commit after adding the valid-partial-work commit-path coverage.\n\nFinal commit: e00cbc2665ff743fb5d54b782fcb496510627f4d\n\nFinal validation passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension",
       "timestamp": "2026-05-09T23:18:16Z"
+    },
+    {
+      "text": "Correction: final commit SHA is e00cbc27149aa6945620c339046dedc90905a8be.",
+      "timestamp": "2026-05-09T23:18:26Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Implement quiescent dirty-state LLM remediation pass",
   "type": "task",
-  "updated_at": "2026-05-09T23:18:16Z"
+  "updated_at": "2026-05-09T23:18:26Z"
 }
