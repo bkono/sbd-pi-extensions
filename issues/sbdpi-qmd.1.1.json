@@ -19,11 +19,15 @@
     {
       "text": "Review remediation complete: added a focused compile-time `@ts-expect-error` assertion in `types.test.ts` proving `worktreePath` cannot be accessed after narrowing to a current-branch worker. Verified with `npm run test -w @solvedbydev/pi-beadwork-extension -- src/__tests__/unit/types.test.ts`, `npm run typecheck -w @solvedbydev/pi-beadwork-extension`, and `npm run lint -w @solvedbydev/pi-beadwork-extension`. Committed as e6490e0 (`test(pi-beadwork): remediate sbdpi-qmd.1.1 review`).",
       "timestamp": "2026-05-09T03:16:30Z"
+    },
+    {
+      "text": "Coordinator review complete. Implemented by commits 6a5a540 and e6490e0. Review finding for missing compile-time impossible-state coverage was remediated with an @ts-expect-error type-level test. Package gates passed: lint, test (193), typecheck for @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-09T03:20:27Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add WorkerExecutionMode discriminated union types to types.ts",
   "type": "task",
-  "updated_at": "2026-05-09T03:16:30Z"
+  "updated_at": "2026-05-09T03:20:27Z"
 }
