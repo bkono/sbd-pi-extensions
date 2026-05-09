@@ -53,6 +53,8 @@ export type RunUntil = "blocked" | "empty";
 
 export type LandingPolicy = "auto" | "deferred";
 
+export type WorkerExecutionMode = "current-branch" | "worktree";
+
 export type WorkerStatus =
   | "launching"
   | "running"
@@ -107,6 +109,14 @@ export type BeadworkConfig = {
     copyFiles: WorktreeCopyRule[];
     setupCommands: string[];
     rerunSetupOnReuse: boolean;
+  };
+  workerExecution: {
+    mode: WorkerExecutionMode;
+    maxLifetime: number | null;
+    allowDetachedHead: boolean;
+    review: {
+      enabled: boolean;
+    };
   };
   run: {
     defaultWorkers: number;

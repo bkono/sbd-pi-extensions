@@ -31,6 +31,14 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     setupCommands: [],
     rerunSetupOnReuse: false,
   },
+  workerExecution: {
+    mode: "worktree",
+    maxLifetime: null,
+    allowDetachedHead: false,
+    review: {
+      enabled: true,
+    },
+  },
   run: {
     defaultWorkers: 2,
     defaultUntil: "blocked",

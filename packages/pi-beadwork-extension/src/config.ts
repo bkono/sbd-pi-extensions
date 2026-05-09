@@ -2,10 +2,24 @@ import { accessSync, existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_CONFIG } from "./constants.js";
-import type { BeadworkConfig, LandingPolicy, WorktreeCopyRule } from "./types.js";
+import type {
+  BeadworkConfig,
+  LandingPolicy,
+  WorkerExecutionMode,
+  WorktreeCopyRule,
+} from "./types.js";
 
 type PartialReviewConfig = Partial<BeadworkConfig["landing"]["review"]> & {
   maxContextChars?: number;
+};
+
+type PartialWorkerExecutionConfig = {
+  mode?: unknown;
+  maxLifetime?: unknown;
+  allowDetachedHead?: unknown;
+  review?: {
+    enabled?: unknown;
+  };
 };
 
 type PartialConfig = {
@@ -13,6 +27,7 @@ type PartialConfig = {
   storage?: Partial<BeadworkConfig["storage"]>;
   tmux?: Partial<BeadworkConfig["tmux"]>;
   worktrees?: Partial<BeadworkConfig["worktrees"]>;
+  workerExecution?: PartialWorkerExecutionConfig;
   run?: Partial<BeadworkConfig["run"]>;
   landing?: Partial<Omit<BeadworkConfig["landing"], "review">> & {
     review?: PartialReviewConfig;
@@ -98,6 +113,50 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+function normalizeBooleanOrThrow(value: unknown, fieldName: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalized = normalizeBoolean(value);
+  if (normalized === undefined) {
+    throw new Error(`${fieldName} must be a boolean (true/false or 1/0)`);
+  }
+  return normalized;
+}
+
+function normalizeWorkerExecutionMode(
+  value: unknown,
+  fieldName: string,
+): WorkerExecutionMode | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "current-branch" || value === "worktree") {
+    return value;
+  }
+  throw new Error(`${fieldName} must be "current-branch" or "worktree"`);
+}
+
+function normalizeMaxLifetime(value: unknown, fieldName: string): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (typeof value === "string" && value.trim() === "") {
+    return null;
+  }
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${fieldName} must be a non-negative number of milliseconds or null`);
+  }
+  return parsed;
+}
+
 function resolveReviewMaxArtifactChars(review?: PartialReviewConfig): number | undefined {
   return review?.maxArtifactChars ?? review?.maxContextChars;
 }
@@ -106,6 +165,23 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
   if (!override) {
     return base;
   }
+
+  const workerExecutionMode = normalizeWorkerExecutionMode(
+    override.workerExecution?.mode,
+    "workerExecution.mode",
+  );
+  const workerMaxLifetime = normalizeMaxLifetime(
+    override.workerExecution?.maxLifetime,
+    "workerExecution.maxLifetime",
+  );
+  const workerAllowDetachedHead = normalizeBooleanOrThrow(
+    override.workerExecution?.allowDetachedHead,
+    "workerExecution.allowDetachedHead",
+  );
+  const workerReviewEnabled = normalizeBooleanOrThrow(
+    override.workerExecution?.review?.enabled,
+    "workerExecution.review.enabled",
+  );
 
   return {
     ui: {
@@ -129,6 +205,15 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
       setupCommands:
         normalizeStringArray(override.worktrees?.setupCommands) ?? base.worktrees.setupCommands,
       rerunSetupOnReuse: override.worktrees?.rerunSetupOnReuse ?? base.worktrees.rerunSetupOnReuse,
+    },
+    workerExecution: {
+      mode: workerExecutionMode ?? base.workerExecution.mode,
+      maxLifetime:
+        workerMaxLifetime !== undefined ? workerMaxLifetime : base.workerExecution.maxLifetime,
+      allowDetachedHead: workerAllowDetachedHead ?? base.workerExecution.allowDetachedHead,
+      review: {
+        enabled: workerReviewEnabled ?? base.workerExecution.review.enabled,
+      },
     },
     run: {
       defaultWorkers: override.run?.defaultWorkers ?? base.run.defaultWorkers,
@@ -202,6 +287,10 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const workerProvider = process.env.PI_BEADWORK_WORKER_PROVIDER;
   const workerModel = process.env.PI_BEADWORK_WORKER_MODEL;
   const worktreeBaseDir = process.env.PI_BEADWORK_WORKTREE_BASE_DIR;
+  const workerExecutionMode = process.env.PI_BEADWORK_WORKER_EXECUTION_MODE;
+  const workerMaxLifetime = process.env.PI_BEADWORK_WORKER_MAX_LIFETIME;
+  const workerAllowDetachedHead = process.env.PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD;
+  const workerExecutionReviewEnabled = process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED;
   const defaultWorkers = process.env.PI_BEADWORK_DEFAULT_WORKERS;
   const defaultMaxCycles = process.env.PI_BEADWORK_DEFAULT_MAX_CYCLES;
   const pollIntervalMs = process.env.PI_BEADWORK_POLL_INTERVAL_MS;
@@ -238,6 +327,14 @@ export function loadConfig(cwd: string): BeadworkConfig {
     },
     worktrees: {
       baseDir: worktreeBaseDir,
+    },
+    workerExecution: {
+      mode: workerExecutionMode,
+      maxLifetime: workerMaxLifetime,
+      allowDetachedHead: workerAllowDetachedHead,
+      review: {
+        enabled: workerExecutionReviewEnabled,
+      },
     },
     run: {
       defaultWorkers: defaultWorkers ? Number.parseInt(defaultWorkers, 10) : undefined,
