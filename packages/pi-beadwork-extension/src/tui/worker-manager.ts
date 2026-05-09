@@ -3,7 +3,12 @@ import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-age
 import type { Component, TUI } from "@mariozechner/pi-tui";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { summarizeWorkers } from "../registry.js";
-import type { ActivationState, SessionState, WorkerRuntime } from "../types.js";
+import {
+  type ActivationState,
+  isWorktreeWorker,
+  type SessionState,
+  type WorkerRuntime,
+} from "../types.js";
 import { inspectWorker, type WorkerInspection } from "../worker-diagnostics.js";
 import {
   joinColumns,
@@ -414,7 +419,9 @@ export function buildWorkerDetailLines(
     sectionTitle(theme, "Refs"),
     kv(theme, "tmux", clamp(formatTmuxTarget(worker), width - 5)),
     kv(theme, "log", path.basename(worker.logFile) || worker.logFile),
-    kv(theme, "worktree", path.basename(worker.worktreePath) || worker.worktreePath),
+    isWorktreeWorker(worker)
+      ? kv(theme, "worktree", path.basename(worker.worktreePath) || worker.worktreePath)
+      : kv(theme, "checkout", path.basename(worker.checkoutPath) || worker.checkoutPath),
   ];
 }
 

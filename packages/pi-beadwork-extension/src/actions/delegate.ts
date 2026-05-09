@@ -68,7 +68,7 @@ export async function executeDelegateAction(input: {
   });
   const landingMode = active.config.landing.policy === "deferred" ? "held" : "completed";
   ctx.ui.notify(
-    `Launched worker ${worker.workerId} for ${worker.ticketId} in the background at ${worker.worktreePath}. ` +
+    `Launched worker ${worker.workerId} for ${worker.ticketId} in the background at ${worker.checkoutPath}. ` +
       `You should stay in the current pane while background supervision keeps checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and notifies when the worker exits and when landing is ${landingMode}. Follow streamed worker activity in ${worker.logFile}.`,
     "info",
   );

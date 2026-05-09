@@ -111,6 +111,8 @@ function createWorkerRuntime(tempDir: string) {
     epicId: "BW-100",
     ticketTitle: "Task",
     ticketStatus: "open",
+    executionMode: "worktree",
+    checkoutPath: path.join(tempDir, "worktree"),
     branchName: "BW-101/task",
     worktreePath: path.join(tempDir, "worktree"),
     backend: "tmux" as const,

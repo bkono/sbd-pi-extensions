@@ -22,7 +22,9 @@ import type {
   RunUntil,
   WorkerReviewVerdict,
   WorkerRuntime,
+  WorktreeWorkerRuntime,
 } from "./types.js";
+import { isWorktreeWorker } from "./types.js";
 import {
   cleanupTicketWorktree,
   type LandingVerificationResult,
@@ -589,7 +591,7 @@ export type WorkerLifecycleEvent =
     };
 
 function buildValidationRemediationPrompt(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   validationDetail: string;
   validationCommands: string[];
 }): string {
@@ -626,7 +628,7 @@ function buildValidationRemediationPrompt(input: {
 }
 
 function buildLandingRemediationPrompt(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   rebaseDetail: string;
   validationCommands: string[];
 }): string {
@@ -664,7 +666,7 @@ function buildLandingRemediationPrompt(input: {
 }
 
 function buildReviewRemediationPrompt(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   reviewSummary: string;
   validFeedback: ReviewFeedbackItem[];
   validationCommands: string[];
@@ -745,7 +747,7 @@ async function gatherReviewArtifacts(input: {
 }
 
 function buildReviewerPrompt(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   ticket: BeadworkIssueDetail;
   epic?: BeadworkIssueDetail;
   artifacts: { commitSummary: string; diffStat: string; diff: string };
@@ -815,7 +817,7 @@ function buildReviewerPrompt(input: {
 
 async function runReviewerPass(input: {
   cwd: string;
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   config: BeadworkConfig;
   adapter: BeadworkAdapter;
   repoHead: string;
@@ -908,7 +910,7 @@ async function runReviewerPass(input: {
 }
 
 async function relaunchWorkerForValidationFailure(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   config: BeadworkConfig;
   tmuxBackend: TmuxBackend;
   validationDetail: string;
@@ -986,7 +988,7 @@ async function relaunchWorkerForValidationFailure(input: {
 }
 
 async function relaunchWorkerForLandingFailure(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   config: BeadworkConfig;
   tmuxBackend: TmuxBackend;
   rebaseDetail: string;
@@ -1079,7 +1081,7 @@ async function relaunchWorkerForLandingFailure(input: {
 }
 
 async function relaunchWorkerForReviewFeedback(input: {
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   config: BeadworkConfig;
   tmuxBackend: TmuxBackend;
   reviewSummary: string;
@@ -1170,7 +1172,7 @@ async function relaunchWorkerForReviewFeedback(input: {
 
 async function cleanupLandedWorker(input: {
   repoRoot: string;
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   runtimeRoot: string;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
@@ -1202,11 +1204,11 @@ async function cleanupLandedWorker(input: {
   }
 }
 
-function buildAttentionState(
-  worker: WorkerRuntime,
+function buildAttentionState<T extends WorkerRuntime>(
+  worker: T,
   detail: string,
-  overrides: Partial<WorkerRuntime> = {},
-): WorkerRuntime {
+  overrides: Partial<T> = {},
+): T {
   return {
     ...worker,
     ...overrides,
@@ -1215,7 +1217,7 @@ function buildAttentionState(
     landingVerification: overrides.landingVerification ?? detail,
     lastError: detail,
     updatedAt: new Date().toISOString(),
-  };
+  } as T;
 }
 
 async function withEpicRunLaunchLock<T>(lockKey: string, task: () => Promise<T>): Promise<T> {
@@ -1405,13 +1407,13 @@ function buildQueuedLandingRequestState(
 
 async function finalizeLandedWorker(input: {
   repoRoot: string;
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   runtimeRoot: string;
   verifiedAt: string;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
 }): Promise<WorkerRuntime> {
-  const landedWorker: WorkerRuntime = {
+  const landedWorker: WorktreeWorkerRuntime = {
     ...input.worker,
     status: "landed",
     landingVerifiedAt: input.verifiedAt,
@@ -1450,7 +1452,7 @@ async function finalizeLandedWorker(input: {
 
 async function refreshDeferredHoldState(input: {
   repoRoot: string;
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   runtimeRoot: string;
   tmuxBackend: TmuxBackend;
   runner: ProcessRunner;
@@ -1470,7 +1472,7 @@ async function refreshDeferredHoldState(input: {
     );
   }
 
-  let worker: WorkerRuntime = {
+  let worker: WorktreeWorkerRuntime = {
     ...input.worker,
     landingVerification: landing.detail,
     landingAheadCount: landing.aheadCount,
@@ -1516,7 +1518,7 @@ async function refreshDeferredHoldState(input: {
 async function autoLandCompletedWorker(input: {
   cwd: string;
   repoRoot: string;
-  worker: WorkerRuntime;
+  worker: WorktreeWorkerRuntime;
   config: BeadworkConfig;
   adapter: BeadworkAdapter;
   tmuxBackend: TmuxBackend;
@@ -1557,7 +1559,7 @@ async function autoLandCompletedWorker(input: {
   }
 
   const reviewerAgent = resolveReviewerAgentSettings(input.config, input.worker);
-  let worker: WorkerRuntime = {
+  let worker: WorktreeWorkerRuntime = {
     ...input.worker,
     landingPolicy,
     reviewerProvider: reviewerAgent.workerProvider,
@@ -1570,7 +1572,7 @@ async function autoLandCompletedWorker(input: {
       ? (input.worker.reviewStatus ?? "pending")
       : input.worker.reviewStatus,
   };
-  const updateWorker = (nextWorker: WorkerRuntime): WorkerRuntime => {
+  const updateWorker = (nextWorker: WorktreeWorkerRuntime): WorktreeWorkerRuntime => {
     worker = nextWorker;
     input.onWorkerUpdate?.(worker);
     return worker;
@@ -2011,7 +2013,7 @@ async function autoLandCompletedWorker(input: {
         worker.logFile,
         "validation passed; holding worker in deferred-landing mode",
       );
-      const heldWorker: WorkerRuntime = {
+      const heldWorker: WorktreeWorkerRuntime = {
         ...worker,
         status: "held",
         landingHeldAt: worker.landingHeldAt ?? new Date().toISOString(),
@@ -2222,6 +2224,8 @@ export async function launchTicketWorker(input: {
     epicId: input.epicId ?? ticket.parentId,
     ticketTitle: ticket.title,
     ticketStatus: ticket.status,
+    executionMode: "worktree",
+    checkoutPath: prepared.worktreePath,
     branchName: prepared.branchName,
     worktreePath: prepared.worktreePath,
     backend: "tmux",
@@ -2353,6 +2357,12 @@ export async function inspectWorkerRuntime(input: {
       tmuxPane: resolvedTmuxPane,
       finishedAt: finishedAtText ?? input.worker.finishedAt,
     };
+    if (!isWorktreeWorker(orchestratedWorker)) {
+      return buildAttentionState(
+        orchestratedWorker,
+        "Current-branch worker landing orchestration is not implemented yet.",
+      );
+    }
     const existingLock = workerOrchestrationLocks.get(orchestratedWorker.workerId);
     if (existingLock) {
       if (input.awaitOrchestration === false) {

@@ -267,14 +267,28 @@ export type AdoptionApplyResult = {
   created: BeadworkIssue[];
 };
 
-export type WorkerRuntime = {
+export type CurrentBranchCheckout = {
+  executionMode: "current-branch";
+  checkoutPath: string;
+  branchName: string;
+  launchHead: string;
+};
+
+export type WorktreeCheckout = {
+  executionMode: "worktree";
+  checkoutPath: string;
+  branchName: string;
+  worktreePath: string;
+};
+
+export type WorkerCheckout = CurrentBranchCheckout | WorktreeCheckout;
+
+export type BaseWorkerRuntime = {
   workerId: string;
   ticketId: string;
   epicId?: string;
   ticketTitle: string;
   ticketStatus?: string;
-  branchName: string;
-  worktreePath: string;
   backend: "tmux";
   tmuxSession: string;
   tmuxWindow: string;
@@ -290,7 +304,7 @@ export type WorkerRuntime = {
   workerCommand: string;
   workerProvider?: string;
   workerModel?: string;
-  cleanupPolicy: BeadworkConfig["worktrees"]["cleanup"];
+  cleanupPolicy?: BeadworkConfig["worktrees"]["cleanup"];
   landingPolicy?: LandingPolicy;
   landingHeldAt?: string;
   landingRequestedAt?: string;
@@ -327,7 +341,23 @@ export type WorkerRuntime = {
   updatedAt: string;
   finishedAt?: string;
   lastError?: string;
+  commitShas?: string[];
+  touchedPaths?: string[];
 };
+
+export type CurrentBranchWorkerRuntime = BaseWorkerRuntime & CurrentBranchCheckout;
+
+export type WorktreeWorkerRuntime = BaseWorkerRuntime & WorktreeCheckout;
+
+export type WorkerRuntime = BaseWorkerRuntime & WorkerCheckout;
+
+export function isCurrentBranchWorker(worker: WorkerRuntime): worker is CurrentBranchWorkerRuntime {
+  return worker.executionMode === "current-branch";
+}
+
+export function isWorktreeWorker(worker: WorkerRuntime): worker is WorktreeWorkerRuntime {
+  return worker.executionMode === "worktree";
+}
 
 export type WorkerSummary = {
   total: number;

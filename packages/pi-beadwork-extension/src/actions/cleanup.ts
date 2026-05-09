@@ -9,7 +9,13 @@ import {
   saveWorkerRegistry,
 } from "../registry.js";
 import { getWorkerActionAvailability } from "../tui/worker-manager.js";
-import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
+import {
+  type ActivationState,
+  type BeadworkConfig,
+  isWorktreeWorker,
+  type SessionState,
+  type WorkerRuntime,
+} from "../types.js";
 import { cleanupTicketWorktree } from "../worktree.js";
 
 function matchesWorkerTarget(worker: WorkerRuntime, target: string): boolean {
@@ -132,6 +138,10 @@ export async function handleCleanupAction(input: {
     const cleanupAction = getWorkerActionAvailability(worker).cleanup;
     if (!cleanupAction.enabled) {
       ctx.ui.notify(`Cannot cleanup ${target}: ${cleanupAction.reason}.`, "warning");
+      return true;
+    }
+    if (!isWorktreeWorker(worker)) {
+      ctx.ui.notify(`Cannot cleanup ${target}: worker is not worktree-backed.`, "warning");
       return true;
     }
 

@@ -65,6 +65,8 @@ function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
     epicId: overrides.epicId ?? "BW-100",
     ticketTitle: overrides.ticketTitle ?? "Task",
     ticketStatus: overrides.ticketStatus ?? "open",
+    executionMode: "worktree",
+    checkoutPath: overrides.checkoutPath ?? overrides.worktreePath ?? "/tmp/worktree",
     branchName: overrides.branchName ?? "BW-101/task",
     worktreePath: overrides.worktreePath ?? "/tmp/worktree",
     backend: overrides.backend ?? "tmux",

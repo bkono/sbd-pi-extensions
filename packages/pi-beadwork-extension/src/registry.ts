@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { WorkerRuntime, WorkerSummary } from "./types.js";
+import type { WorkerCheckout, WorkerRuntime, WorkerSummary } from "./types.js";
 
 type WorkerRegistryFile = {
   workers: WorkerRuntime[];
@@ -23,13 +23,34 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     return undefined;
   }
 
-  const value = input as Partial<WorkerRuntime>;
+  const value = input as Partial<WorkerRuntime> & {
+    checkoutPath?: unknown;
+    executionMode?: unknown;
+    launchHead?: unknown;
+    worktreePath?: unknown;
+  };
+  const executionMode = value.executionMode === "current-branch" ? "current-branch" : "worktree";
+  const worktreePath =
+    typeof value.worktreePath === "string"
+      ? value.worktreePath
+      : typeof value.checkoutPath === "string" && executionMode === "worktree"
+        ? value.checkoutPath
+        : undefined;
+  const checkoutPath =
+    typeof value.checkoutPath === "string"
+      ? value.checkoutPath
+      : executionMode === "worktree"
+        ? worktreePath
+        : undefined;
+
   if (
     typeof value.workerId !== "string" ||
     typeof value.ticketId !== "string" ||
     typeof value.ticketTitle !== "string" ||
     typeof value.branchName !== "string" ||
-    typeof value.worktreePath !== "string" ||
+    typeof checkoutPath !== "string" ||
+    (executionMode === "worktree" && typeof worktreePath !== "string") ||
+    (executionMode === "current-branch" && typeof value.launchHead !== "string") ||
     typeof value.tmuxSession !== "string" ||
     typeof value.tmuxWindow !== "string" ||
     typeof value.tmuxPane !== "string" ||
@@ -42,21 +63,34 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     typeof value.finishedAtFile !== "string" ||
     typeof value.launchCommand !== "string" ||
     typeof value.workerCommand !== "string" ||
-    typeof value.cleanupPolicy !== "string" ||
     typeof value.startedAt !== "string" ||
     typeof value.updatedAt !== "string"
   ) {
     return undefined;
   }
 
+  const checkout: WorkerCheckout =
+    executionMode === "current-branch"
+      ? {
+          executionMode,
+          checkoutPath,
+          branchName: value.branchName,
+          launchHead: value.launchHead as string,
+        }
+      : {
+          executionMode,
+          checkoutPath,
+          branchName: value.branchName,
+          worktreePath: worktreePath as string,
+        };
+
   return {
+    ...checkout,
     workerId: value.workerId,
     ticketId: value.ticketId,
     epicId: typeof value.epicId === "string" ? value.epicId : undefined,
     ticketTitle: value.ticketTitle,
     ticketStatus: typeof value.ticketStatus === "string" ? value.ticketStatus : undefined,
-    branchName: value.branchName,
-    worktreePath: value.worktreePath,
     backend: "tmux",
     tmuxSession: value.tmuxSession,
     tmuxWindow: value.tmuxWindow,
@@ -76,7 +110,11 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
       typeof value.reviewerProvider === "string" ? value.reviewerProvider : undefined,
     reviewerModel: typeof value.reviewerModel === "string" ? value.reviewerModel : undefined,
     cleanupPolicy:
-      value.cleanupPolicy === "cleanup-after-landing" ? "cleanup-after-landing" : "keep",
+      executionMode === "worktree"
+        ? value.cleanupPolicy === "cleanup-after-landing"
+          ? "cleanup-after-landing"
+          : "keep"
+        : undefined,
     landingPolicy:
       value.landingPolicy === "deferred" || value.landingPolicy === "auto"
         ? value.landingPolicy
@@ -172,6 +210,16 @@ function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
     updatedAt: value.updatedAt,
     finishedAt: typeof value.finishedAt === "string" ? value.finishedAt : undefined,
     lastError: typeof value.lastError === "string" ? value.lastError : undefined,
+    commitShas:
+      Array.isArray(value.commitShas) &&
+      value.commitShas.every((entry) => typeof entry === "string")
+        ? value.commitShas
+        : undefined,
+    touchedPaths:
+      Array.isArray(value.touchedPaths) &&
+      value.touchedPaths.every((entry) => typeof entry === "string")
+        ? value.touchedPaths
+        : undefined,
   };
 }
 
