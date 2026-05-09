@@ -88,6 +88,16 @@ export type ReviewFinding = {
   severity: "fix" | "nit";
 };
 
+export type ReviewFindingClassification = "fix" | "file" | "reject";
+
+export type ReviewTriageDecision = {
+  finding: ReviewFinding;
+  findingKey: string;
+  classification: ReviewFindingClassification;
+  rationale: string;
+  action: string;
+};
+
 export type WorktreeCopyRule =
   | string
   | {
@@ -337,8 +347,14 @@ export type BaseWorkerRuntime = {
   reviewedWorkerHead?: string;
   reviewFindings?: ReviewFinding[];
   reviewRawOutput?: string;
+  reviewTriageAt?: string;
+  reviewTriageSummary?: string;
+  reviewTriageDecisions?: ReviewTriageDecision[];
+  reviewTriageFindingSetKey?: string;
   reviewRemediationAttempts?: number;
   reviewRemediationAt?: string;
+  currentBranchRemediationFindingSetKey?: string;
+  currentBranchRemediationSummary?: string;
   landingRemediationAttempts?: number;
   landingRemediationAt?: string;
   landingRemediationSummary?: string;

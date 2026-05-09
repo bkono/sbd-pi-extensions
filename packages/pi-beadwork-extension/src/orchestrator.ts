@@ -20,6 +20,7 @@ import type {
   BeadworkIssueDetail,
   CurrentBranchWorkerRuntime,
   ReviewFinding,
+  ReviewTriageDecision,
   RunOptions,
   RunSummary,
   RunUntil,
@@ -293,6 +294,7 @@ const epicRunLaunchLocks = new Map<string, Promise<void>>();
 
 const MAX_VALIDATION_REMEDIATION_ATTEMPTS = 1;
 const MAX_LANDING_REMEDIATION_ATTEMPTS = 1;
+const MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS = 2;
 const REVIEWER_ALLOWED_VERDICTS: WorkerReviewVerdict[] = [
   "approve",
   "approve-with-nits",
@@ -675,6 +677,113 @@ function parseCurrentBranchReviewOutput(rawOutput: string): {
         : "Reviewer did not provide a summary.",
     findings: findings as ReviewFinding[],
   };
+}
+
+function reviewFindingKey(finding: ReviewFinding): string {
+  return [finding.severity, finding.file, finding.issue, finding.suggestion]
+    .map((value) => value.trim().toLowerCase())
+    .join("|");
+}
+
+function reviewFindingSetKey(findings: ReviewFinding[]): string {
+  return findings.map(reviewFindingKey).sort().join("\n");
+}
+
+function classifyReviewFinding(finding: ReviewFinding): ReviewTriageDecision {
+  const text = `${finding.file} ${finding.issue} ${finding.suggestion}`.toLowerCase();
+  const findingKey = reviewFindingKey(finding);
+
+  if (
+    /\b(false positive|invalid|misunderstood|misunderstanding|already fixed|already handled|not applicable|cannot reproduce)\b/.test(
+      text,
+    )
+  ) {
+    return {
+      finding,
+      findingKey,
+      classification: "reject",
+      rationale: "Finding appears invalid or based on reviewer misunderstanding.",
+      action: "discarded",
+    };
+  }
+
+  if (
+    /\b(out of scope|unrelated|follow[- ]?up|future work|nice to have|prefer(?:ence)?|style only)\b/.test(
+      text,
+    )
+  ) {
+    return {
+      finding,
+      findingKey,
+      classification: "file",
+      rationale:
+        "Finding is valid follow-up material but not required for this ticket verification.",
+      action: "follow-up pending",
+    };
+  }
+
+  if (finding.severity === "nit") {
+    if (
+      /\b(security|data loss|crash|compile|typecheck|test failure|broken|regression)\b/.test(text)
+    ) {
+      return {
+        finding,
+        findingKey,
+        classification: "fix",
+        rationale: "Reviewer marked this as a nit, but the diagnostic names a blocker-class issue.",
+        action: "send to current-branch remediation",
+      };
+    }
+
+    return {
+      finding,
+      findingKey,
+      classification: "file",
+      rationale: "Nit findings default to non-blocking follow-up unless they describe a blocker.",
+      action: "follow-up pending",
+    };
+  }
+
+  return {
+    finding,
+    findingKey,
+    classification: "fix",
+    rationale: "Reviewer requested an in-scope fix and no reject/file heuristic matched.",
+    action: "send to current-branch remediation",
+  };
+}
+
+function summarizeTriageDecisions(decisions: ReviewTriageDecision[]): string {
+  const fixCount = decisions.filter((decision) => decision.classification === "fix").length;
+  const fileCount = decisions.filter((decision) => decision.classification === "file").length;
+  const rejectCount = decisions.filter((decision) => decision.classification === "reject").length;
+  return `Coordinator triage: fix=${fixCount}, file=${fileCount}, reject=${rejectCount}.`;
+}
+
+function formatTriageDecision(decision: ReviewTriageDecision): string {
+  return `${decision.classification.toUpperCase()} ${decision.finding.severity} ${decision.finding.file}: ${decision.finding.issue} — ${decision.rationale} Action: ${decision.action}.`;
+}
+
+function formatFixFindingsForRemediation(decisions: ReviewTriageDecision[]): string {
+  return decisions
+    .filter((decision) => decision.classification === "fix")
+    .map((decision, index) =>
+      [
+        `${index + 1}. ${decision.finding.file}`,
+        `   original severity: ${decision.finding.severity}`,
+        `   issue: ${decision.finding.issue}`,
+        `   suggestion: ${decision.finding.suggestion}`,
+        `   coordinator rationale: ${decision.rationale}`,
+      ].join("\n"),
+    )
+    .join("\n\n");
+}
+
+function hasNoCodeExplanation(history: unknown[]): boolean {
+  const text = history.map((entry) => JSON.stringify(entry)).join("\n");
+  return /\b(no code changes?|no commits?|nothing to commit|no-op|already (?:implemented|complete)|not required)\b/i.test(
+    text,
+  );
 }
 
 function renderHistoryForPrompt(history: unknown[]): string {
@@ -1240,8 +1349,368 @@ async function runCurrentBranchReviewOperation(
   };
 }
 
+async function buildAttributionEvidenceOperation(
+  input: CurrentBranchVerificationContext,
+): Promise<CurrentBranchWorkerRuntime> {
+  const result = await persistCurrentBranchAttributionEvidence({
+    cwd: input.cwd,
+    worker: input.worker,
+    adapter: input.adapter,
+    runner: input.runner,
+  });
+  return result.worker;
+}
+
+async function applyCoordinatorTriageOperation(
+  input: CurrentBranchVerificationContext,
+): Promise<CurrentBranchWorkerRuntime> {
+  const findings = input.worker.reviewFindings ?? [];
+  const findingSetKey = reviewFindingSetKey(findings);
+
+  if (
+    input.worker.reviewTriageFindingSetKey === findingSetKey &&
+    input.worker.reviewTriageDecisions
+  ) {
+    return input.worker;
+  }
+
+  if (input.worker.reviewStatus === "review-blocked" || input.worker.reviewStatus === "pending") {
+    return input.worker;
+  }
+
+  const decisions = findings.map(classifyReviewFinding);
+  const fileDecisions = decisions.filter((decision) => decision.classification === "file");
+  const fixDecisions = decisions.filter((decision) => decision.classification === "fix");
+
+  for (const decision of fileDecisions) {
+    await input.adapter.comment(
+      input.worker.checkoutPath,
+      input.worker.ticketId,
+      [
+        "coordinator follow-up from reviewer triage:",
+        formatTriageDecision(decision),
+        "This is filed as non-blocking follow-up and does not block verification of the current ticket.",
+      ].join("\n"),
+    );
+    decision.action = "filed non-blocking follow-up comment on ticket";
+  }
+
+  for (const decision of decisions.filter((item) => item.classification === "reject")) {
+    decision.action = "discarded by coordinator triage";
+  }
+
+  for (const decision of fixDecisions) {
+    decision.action = "approved for current-branch remediation";
+  }
+
+  const summary = `${summarizeTriageDecisions(decisions)} ${decisions
+    .map(formatTriageDecision)
+    .join(" ")}`;
+
+  return {
+    ...input.worker,
+    reviewStatus:
+      fixDecisions.length > 0
+        ? "changes-requested"
+        : input.worker.reviewStatus === "changes-requested"
+          ? "nits-only"
+          : input.worker.reviewStatus,
+    reviewTriageAt: new Date().toISOString(),
+    reviewTriageSummary: summary,
+    reviewTriageDecisions: decisions,
+    reviewTriageFindingSetKey: findingSetKey,
+    reviewSummary: input.worker.reviewSummary
+      ? `${input.worker.reviewSummary} ${summarizeTriageDecisions(decisions)}`
+      : summarizeTriageDecisions(decisions),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function buildCurrentBranchRemediationPrompt(input: {
+  worker: CurrentBranchWorkerRuntime;
+  ticket: BeadworkIssueDetail;
+  epic?: BeadworkIssueDetail;
+  config: BeadworkConfig;
+  fixDecisions: ReviewTriageDecision[];
+  attempt: number;
+}): Promise<string> {
+  const basePrompt = buildCurrentBranchHandoffPrompt({
+    ticket: input.ticket,
+    epic: input.epic,
+    checkoutPath: input.worker.checkoutPath,
+    branchName: input.worker.branchName,
+    runtimeScratchDir: path.join(input.worker.runtimeDir, "scratch"),
+  });
+
+  return [
+    basePrompt,
+    "",
+    "Coordinator review remediation:",
+    `- Continue ticket \`${input.worker.ticketId}\` after coordinator review.`,
+    `- This is current-branch remediation attempt ${input.attempt}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}.`,
+    "- Address only the coordinator-approved `fix` findings below or validation failures explicitly listed by the coordinator.",
+    "- Ignore findings classified as `file` or `reject`; they are intentionally not included here.",
+    "- Inspect existing ticket commits, beadwork comments, and current checkout state before changing files.",
+    `- Make additional atomic commits referencing ${input.worker.ticketId}; commit only the specific changed files with \`git commit <specific-files> -m "... ${input.worker.ticketId} ..."\`.`,
+    "- Update the handoff comment with new commit SHAs and validation results.",
+    `- Close ticket ${input.worker.ticketId} and run \`bw sync\` when done, or explain the blocker in a comment and leave the ticket open.`,
+    "",
+    "Coordinator-approved fix findings:",
+    formatFixFindingsForRemediation(input.fixDecisions),
+    "",
+    "Validation commands to run before handoff:",
+    input.config.landing.validateCommands.map((command) => `- ${command}`).join("\n") ||
+      "- No validation commands configured.",
+  ].join("\n");
+}
+
+async function relaunchCurrentBranchWorkerForCoordinatorFixes(input: {
+  context: CurrentBranchVerificationContext;
+  fixDecisions: ReviewTriageDecision[];
+}): Promise<CurrentBranchWorkerRuntime> {
+  const { context, fixDecisions } = input;
+  const worker = context.worker;
+  const attempt = (worker.reviewRemediationAttempts ?? 0) + 1;
+  const issue = await context.adapter.show(worker.checkoutPath, worker.ticketId);
+  let ticket = issue;
+
+  if (issue.status === "closed") {
+    await context.adapter.reopen(worker.checkoutPath, worker.ticketId);
+    await context.adapter.comment(
+      worker.checkoutPath,
+      worker.ticketId,
+      `Coordinator-approved remediation is reopening this closed ticket for current-branch attempt ${attempt}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}.`,
+    );
+    ticket = { ...issue, status: "open" };
+  } else {
+    await context.adapter.comment(
+      worker.checkoutPath,
+      worker.ticketId,
+      `Coordinator-approved current-branch remediation attempt ${attempt}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS} is starting.`,
+    );
+  }
+
+  const epic = worker.epicId
+    ? await context.adapter.show(worker.checkoutPath, worker.epicId)
+    : undefined;
+  const remediationPrompt = await buildCurrentBranchRemediationPrompt({
+    worker,
+    ticket,
+    epic,
+    config: context.config,
+    fixDecisions,
+    attempt,
+  });
+  const workerAgentCommand = buildWorkerAgentCommand(context.config, worker);
+
+  await writeFile(worker.promptFile, `${remediationPrompt}\n`, "utf8");
+  await writeFile(
+    worker.scriptFile,
+    buildWorkerScript({
+      workerAgentCommand,
+      promptFile: worker.promptFile,
+      logFile: worker.logFile,
+      stateFile: worker.stateFile,
+      exitCodeFile: worker.exitCodeFile,
+      finishedAtFile: worker.finishedAtFile,
+    }),
+    "utf8",
+  );
+  await chmod(worker.scriptFile, 0o755);
+  await writeFile(worker.stateFile, "launching\n", "utf8");
+  await writeFile(worker.exitCodeFile, "", "utf8");
+  await writeFile(worker.finishedAtFile, "", "utf8");
+
+  try {
+    await context.tmuxBackend.cleanupWorker({
+      paneId: worker.tmuxPane !== "pending" ? worker.tmuxPane : undefined,
+      sessionName: worker.tmuxSession,
+      windowName: worker.tmuxWindow,
+    });
+  } catch {
+    // best-effort tmux cleanup only; no git/worktree cleanup is performed for current-branch remediation
+  }
+
+  await context.tmuxBackend.ensureSession({ sessionName: worker.tmuxSession });
+  const launched = await context.tmuxBackend.launchWorker({
+    sessionName: worker.tmuxSession,
+    workerId: worker.workerId,
+    title: worker.ticketTitle,
+    worktreePath: worker.checkoutPath,
+    launchCommand: worker.launchCommand,
+  });
+
+  const now = new Date().toISOString();
+  return {
+    ...worker,
+    tmuxSession: launched.sessionName,
+    tmuxWindow: launched.windowName,
+    tmuxPane: launched.paneId,
+    launchCommand: launched.launchCommand,
+    status: "running",
+    ticketStatus: "open",
+    validationStatus: "pending",
+    validationAt: now,
+    validationSummary: `Current-branch coordinator remediation attempt ${attempt}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS} started.`,
+    reviewStatus: "remediation-in-progress",
+    reviewVerdict: "request-changes",
+    reviewAt: now,
+    reviewSummary: `${fixDecisions.length} coordinator-approved fix finding(s) sent to current-branch remediation.`,
+    reviewFeedback: fixDecisions.map(formatTriageDecision),
+    reviewValidFeedbackCount: fixDecisions.length,
+    reviewedWorkerHead: undefined,
+    reviewRemediationAttempts: attempt,
+    reviewRemediationAt: now,
+    currentBranchRemediationFindingSetKey: worker.reviewTriageFindingSetKey,
+    currentBranchRemediationSummary: `Attempt ${attempt}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS} launched for ${fixDecisions.length} fix finding(s).`,
+    landingVerifiedAt: undefined,
+    landingVerification: `Current-branch remediation attempt ${attempt}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS} is running in the same checkout; no rebase, merge-back, containment, or worktree cleanup was run.`,
+    lastError: undefined,
+    finishedAt: undefined,
+    updatedAt: now,
+  };
+}
+
+async function handleCurrentBranchRemediationOperation(
+  input: CurrentBranchVerificationContext,
+): Promise<CurrentBranchWorkerRuntime> {
+  const fixDecisions = (input.worker.reviewTriageDecisions ?? []).filter(
+    (decision) => decision.classification === "fix",
+  );
+
+  if (fixDecisions.length === 0) {
+    return input.worker;
+  }
+
+  if (
+    input.worker.reviewStatus === "remediation-in-progress" ||
+    input.worker.status === "running"
+  ) {
+    return input.worker;
+  }
+
+  const attempts = input.worker.reviewRemediationAttempts ?? 0;
+  if (attempts >= MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS) {
+    return buildAttentionState(
+      input.worker,
+      `Current-branch remediation attempts exhausted (${attempts}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}).`,
+      {
+        reviewStatus: "review-blocked",
+        currentBranchRemediationSummary: `Exhausted after ${attempts}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS} current-branch remediation attempts.`,
+        landingVerification:
+          "Current-branch verification blocked by unresolved coordinator-approved fixes.",
+      },
+    ) as CurrentBranchWorkerRuntime;
+  }
+
+  if (
+    input.worker.currentBranchRemediationFindingSetKey === input.worker.reviewTriageFindingSetKey &&
+    attempts > 0
+  ) {
+    return {
+      ...input.worker,
+      status: "running",
+      reviewStatus: "remediation-in-progress",
+      landingVerification:
+        input.worker.landingVerification ??
+        "Current-branch remediation was already launched for this finding set.",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  await appendWorkerLog(
+    input.worker.logFile,
+    `launching current-branch remediation attempt ${attempts + 1}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}`,
+  );
+  await input.onLifecycleEvent?.(
+    `Coordinator approved ${fixDecisions.length} review finding(s) for ${input.worker.ticketId}. ` +
+      `Launching current-branch remediation attempt ${attempts + 1}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}.`,
+  );
+
+  return relaunchCurrentBranchWorkerForCoordinatorFixes({ context: input, fixDecisions });
+}
+
+async function markCurrentBranchVerifiedOperation(
+  input: CurrentBranchVerificationContext,
+): Promise<CurrentBranchWorkerRuntime> {
+  if (input.worker.status === "running") {
+    return input.worker;
+  }
+
+  const fixDecisions = (input.worker.reviewTriageDecisions ?? []).filter(
+    (decision) => decision.classification === "fix",
+  );
+  if (fixDecisions.length > 0) {
+    return buildAttentionState(
+      input.worker,
+      "Current-branch verification still has unresolved fix findings.",
+    ) as CurrentBranchWorkerRuntime;
+  }
+
+  const [attribution, ticket, history] = await Promise.all([
+    persistCurrentBranchAttributionEvidence({
+      cwd: input.cwd,
+      worker: input.worker,
+      adapter: input.adapter,
+      runner: input.runner,
+    }),
+    input.adapter.show(input.worker.checkoutPath, input.worker.ticketId),
+    input.adapter.history(input.worker.checkoutPath, input.worker.ticketId),
+  ]);
+  const evidence = attribution.artifacts.evidence;
+
+  if (evidence.attention.length > 0) {
+    return buildAttentionState(input.worker, evidence.attention.join(" "), {
+      validationSummary: `Attribution evidence has ${evidence.attention.length} attention flag(s).`,
+    }) as CurrentBranchWorkerRuntime;
+  }
+
+  const commitShas = attributionCommitShas(evidence);
+  const touchedPaths = attributionTouchedPaths(evidence);
+  if (commitShas.length === 0 && !hasNoCodeExplanation(history)) {
+    return buildAttentionState(
+      input.worker,
+      "Current-branch verification found no attributed commits and no explicit no-code explanation.",
+      {
+        validationSummary: "Missing current-branch commit attribution.",
+      },
+    ) as CurrentBranchWorkerRuntime;
+  }
+
+  if (ticket.status !== "closed") {
+    return buildAttentionState(
+      input.worker,
+      `Current-branch ticket ${input.worker.ticketId} is ${ticket.status}; worker must close or explain blocker before verification.`,
+    ) as CurrentBranchWorkerRuntime;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    ...input.worker,
+    status: "verified",
+    ticketStatus: "closed",
+    validationStatus: "passed",
+    validationAt: now,
+    validationSummary:
+      commitShas.length > 0
+        ? `Verified ${commitShas.length} attributed commit(s) for current-branch worker.`
+        : "Verified closed no-code ticket with explicit explanation in beadwork history.",
+    commitShas,
+    touchedPaths,
+    landingVerifiedAt: now,
+    landingVerification:
+      "Current-branch worker verified: attribution, review triage, and ticket closure passed. No worktree rebase, merge-back, containment, or cleanup was run.",
+    lastError: undefined,
+    updatedAt: now,
+  };
+}
+
 const DEFAULT_CURRENT_BRANCH_VERIFICATION_PIPELINE: CurrentBranchVerificationPipeline = {
+  buildAttributionEvidence: buildAttributionEvidenceOperation,
   runWorkerReview: runCurrentBranchReviewOperation,
+  applyCoordinatorTriage: applyCoordinatorTriageOperation,
+  handleRemediation: handleCurrentBranchRemediationOperation,
+  markVerified: markCurrentBranchVerifiedOperation,
 };
 
 async function gatherReviewArtifacts(input: {
@@ -2713,6 +3182,9 @@ async function runCurrentBranchVerification(
           onWorkerUpdate: input.onWorkerUpdate,
         }),
       );
+      if (worker.status === "running") {
+        return worker;
+      }
     }
   } catch (error) {
     return buildAttentionState(
@@ -2724,7 +3196,7 @@ async function runCurrentBranchVerification(
     ) as CurrentBranchWorkerRuntime;
   }
 
-  if (worker.status === "verified") {
+  if (worker.status === "verified" || worker.status === "attention") {
     return worker;
   }
 

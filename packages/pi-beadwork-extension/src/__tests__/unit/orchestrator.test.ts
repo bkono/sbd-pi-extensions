@@ -114,6 +114,81 @@ function createCurrentBranchWorker(overrides: Partial<WorkerRuntime> = {}): Work
   return worker;
 }
 
+async function createCurrentBranchRuntimeWorker(
+  repoRoot: string,
+  overrides: Partial<WorkerRuntime> = {},
+): Promise<WorkerRuntime> {
+  const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-worker-"));
+  await mkdir(runtimeDir, { recursive: true });
+  const worker = createCurrentBranchWorker({
+    checkoutPath: repoRoot,
+    runtimeDir,
+    promptFile: path.join(runtimeDir, "handoff.txt"),
+    scriptFile: path.join(runtimeDir, "launch.sh"),
+    logFile: path.join(runtimeDir, "worker.log"),
+    stateFile: path.join(runtimeDir, "state.txt"),
+    exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+    finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+    launchCommand: `bash ${path.join(runtimeDir, "launch.sh")}`,
+    ...overrides,
+  });
+  await Promise.all([
+    writeFile(worker.promptFile, "prompt\n", "utf8"),
+    writeFile(worker.scriptFile, "#!/bin/sh\n", "utf8"),
+    writeFile(worker.logFile, "log\n", "utf8"),
+    writeFile(worker.stateFile, "exited\n", "utf8"),
+    writeFile(worker.exitCodeFile, "0\n", "utf8"),
+    writeFile(worker.finishedAtFile, "2026-04-14T00:00:02.000Z\n", "utf8"),
+  ]);
+  return worker;
+}
+
+function createGitRunner(commits: Array<{ sha: string; subject: string; paths: string[] }> = []) {
+  return vi.fn(async (command: string, args: string[]) => {
+    if (command !== "git") {
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    }
+    if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+      return { stdout: "main\n", stderr: "", code: 0 };
+    }
+    if (args[0] === "rev-parse") {
+      return { stdout: "worker-head\n", stderr: "", code: 0 };
+    }
+    if (args[0] === "merge-base") {
+      return { stdout: "", stderr: "", code: 0 };
+    }
+    if (args[0] === "log") {
+      return {
+        stdout: commits.map((commit) => `${commit.sha}\t${commit.subject}`).join("\n"),
+        stderr: "",
+        code: 0,
+      };
+    }
+    if (args[0] === "show" && args.includes("--name-only")) {
+      const sha = args[args.length - 1];
+      const commit = commits.find((item) => item.sha === sha);
+      return { stdout: `${commit?.paths.join("\n") ?? ""}\n`, stderr: "", code: 0 };
+    }
+    if (args[0] === "show") {
+      const sha = args[args.length - 1];
+      const commit = commits.find((item) => item.sha === sha);
+      return { stdout: `${commit?.subject ?? "subject"}\n`, stderr: "", code: 0 };
+    }
+    throw new Error(`unexpected git ${args.join(" ")}`);
+  });
+}
+
+function currentBranchVerificationConfig(reviewEnabled = false) {
+  return {
+    ...DEFAULT_CONFIG,
+    workerExecution: {
+      ...DEFAULT_CONFIG.workerExecution,
+      mode: "current-branch" as const,
+      review: { enabled: reviewEnabled },
+    },
+  };
+}
+
 function ok(stdout = "") {
   return { stdout, stderr: "", exitCode: 0 };
 }
@@ -550,7 +625,12 @@ describe("worker inspection", () => {
     });
     const tmuxBackend = {
       ensureSession: vi.fn(),
-      launchWorker: vi.fn(),
+      launchWorker: vi.fn().mockResolvedValue({
+        sessionName: "pi-bw",
+        windowName: "bw-101-window",
+        paneId: "%43",
+        launchCommand: "bash launch.sh",
+      }),
       inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
       cleanupWorker: vi.fn().mockResolvedValue(undefined),
     };
@@ -565,9 +645,9 @@ describe("worker inspection", () => {
       runner,
     });
 
-    expect(inspected.status).toBe("attention");
-    expect(inspected.reviewStatus).toBe("changes-requested");
-    expect(inspected.reviewSummary).toContain("Looks good");
+    expect(inspected.status).toBe("running");
+    expect(inspected.reviewStatus).toBe("remediation-in-progress");
+    expect(inspected.reviewSummary).toContain("coordinator-approved fix");
     expect(inspected.reviewRawOutput).toContain("Looks good");
     expect(inspected.reviewFindings).toEqual([
       {
@@ -583,6 +663,10 @@ describe("worker inspection", () => {
         severity: "nit",
       },
     ]);
+    expect(inspected.reviewTriageDecisions?.map((decision) => decision.classification)).toEqual([
+      "fix",
+      "file",
+    ]);
     const prompt = await readFile(
       path.join(runtimeDir, "current-branch-review-handoff.txt"),
       "utf8",
@@ -593,8 +677,8 @@ describe("worker inspection", () => {
     expect(prompt).toContain("git show");
     expect(prompt).not.toContain("Unified diff excerpt");
     expect(prompt).not.toContain("launch-head..HEAD");
-    expect(inspected.lastError).toContain("awaiting coordinator triage");
-    expect(inspected.landingVerification).toContain("No worktree rebase");
+    expect(inspected.lastError).toBeUndefined();
+    expect(inspected.landingVerification).toContain("remediation attempt 1/2");
     expect(runner).toHaveBeenCalledWith(
       "bash",
       expect.arrayContaining(["-lc", expect.stringContaining("current-branch-review-handoff")]),
@@ -603,10 +687,76 @@ describe("worker inspection", () => {
         timeout: DEFAULT_CONFIG.landing.review.commandTimeoutMs,
       }),
     );
-    expect(tmuxBackend.cleanupWorker).not.toHaveBeenCalled();
+    expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
+    expect(adapter.reopen).toHaveBeenCalledWith(repoRoot, "BW-101");
+    expect(adapter.comment).toHaveBeenCalledWith(
+      repoRoot,
+      "BW-101",
+      expect.stringContaining("reopening this closed ticket"),
+    );
+    const remediationPrompt = await readFile(worker.promptFile, "utf8");
+    expect(remediationPrompt).toContain("Continue ticket `BW-101` after coordinator review");
+    expect(remediationPrompt).toContain("missing edge case");
+    expect(remediationPrompt).not.toContain("test name is vague");
     await expect(readFile(worker.logFile, "utf8")).resolves.toContain(
       "starting current-branch verification",
     );
+  });
+
+  it("does not duplicate remediation relaunches for an already launched finding set", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-no-duplicate-"));
+    const finding = {
+      file: "src/task.ts",
+      issue: "broken behavior",
+      suggestion: "fix it",
+      severity: "fix" as const,
+    };
+    const findingSetKey = [finding.severity, finding.file, finding.issue, finding.suggestion]
+      .map((value) => value.trim().toLowerCase())
+      .join("|");
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "open",
+      status: "exited",
+      reviewStatus: "remediation-in-progress",
+      reviewRemediationAttempts: 1,
+      reviewFindings: [finding],
+      reviewTriageFindingSetKey: findingSetKey,
+      currentBranchRemediationFindingSetKey: findingSetKey,
+      reviewTriageDecisions: [
+        {
+          finding,
+          findingKey: findingSetKey,
+          classification: "fix",
+          rationale: "already approved",
+          action: "approved for current-branch remediation",
+        },
+      ],
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn(),
+      cleanupWorker: vi.fn(),
+    };
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(false),
+      adapter: createAdapter({
+        show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "open" })),
+        history: vi.fn().mockResolvedValue([]),
+      }),
+      tmuxBackend,
+      runner: createGitRunner([
+        { sha: "abc123", subject: "BW-101 implement", paths: ["src/task.ts"] },
+      ]),
+    });
+
+    expect(inspected.status).toBe("running");
+    expect(inspected.reviewStatus).toBe("remediation-in-progress");
+    expect(inspected.reviewRemediationAttempts).toBe(1);
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
   });
 
   it("skips current-branch review only when workerExecution.review.enabled is false", async () => {
@@ -636,7 +786,24 @@ describe("worker inspection", () => {
       finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
     });
     await writeFile(worker.logFile, "", "utf8");
-    const runner = vi.fn();
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "main\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse") {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123\tBW-101 implement task\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "show") {
+        return { stdout: "src/task.ts\n", stderr: "", code: 0 };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
 
     const inspected = await inspectWorkerRuntime({
       cwd: repoRoot,
@@ -665,7 +832,176 @@ describe("worker inspection", () => {
     });
 
     expect(inspected.reviewSummary).toContain("workerExecution.review.enabled=false");
-    expect(runner).not.toHaveBeenCalled();
+    expect(runner.mock.calls.some((call) => call[0] === "bash")).toBe(false);
+  });
+
+  it("files non-blocking triage findings, rejects invalid findings, and verifies without fixes", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-triage-file-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "changes-requested",
+      reviewFindings: [
+        {
+          file: "src/task.ts",
+          issue: "style only follow-up: name could be clearer",
+          suggestion: "consider renaming later",
+          severity: "nit",
+        },
+        {
+          file: "src/task.ts",
+          issue: "false positive: reviewer misunderstood existing guard",
+          suggestion: "no change needed",
+          severity: "fix",
+        },
+      ],
+      reviewRawOutput: "raw reviewer json",
+    });
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+      history: vi.fn().mockResolvedValue([]),
+      comment: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn(),
+      cleanupWorker: vi.fn(),
+    };
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(false),
+      adapter,
+      tmuxBackend,
+      runner: createGitRunner([
+        { sha: "abc123", subject: "BW-101 implement", paths: ["src/task.ts"] },
+      ]),
+    });
+
+    expect(inspected.status).toBe("verified");
+    expect(inspected.commitShas).toEqual(["abc123"]);
+    expect(inspected.touchedPaths).toEqual(["src/task.ts"]);
+    expect(inspected.reviewRawOutput).toBe("raw reviewer json");
+    expect(inspected.reviewTriageDecisions?.map((decision) => decision.classification)).toEqual([
+      "file",
+      "reject",
+    ]);
+    expect(adapter.comment).toHaveBeenCalledWith(
+      repoRoot,
+      "BW-101",
+      expect.stringContaining("non-blocking follow-up"),
+    );
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
+  });
+
+  it("enforces the two-attempt current-branch remediation cap", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-triage-cap-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "changes-requested",
+      reviewRemediationAttempts: 2,
+      reviewFindings: [
+        {
+          file: "src/task.ts",
+          issue: "regression still broken",
+          suggestion: "fix the regression",
+          severity: "fix",
+        },
+      ],
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn(),
+      cleanupWorker: vi.fn(),
+    };
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(false),
+      adapter: createAdapter({
+        show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+        history: vi.fn().mockResolvedValue([]),
+      }),
+      tmuxBackend,
+      runner: createGitRunner([
+        { sha: "abc123", subject: "BW-101 implement", paths: ["src/task.ts"] },
+      ]),
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.lastError).toContain("attempts exhausted (2/2)");
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
+  });
+
+  it("verifies closed no-code tickets only when beadwork history explains the no-commit outcome", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-no-code-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "approved",
+      reviewFindings: [],
+    });
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(false),
+      adapter: createAdapter({
+        show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+        history: vi.fn().mockResolvedValue([
+          {
+            intent: "comment",
+            body: "No code changes needed because this was already complete.",
+          },
+        ]),
+      }),
+      tmuxBackend: {
+        ensureSession: vi.fn(),
+        launchWorker: vi.fn(),
+        inspectWorker: vi.fn(),
+        cleanupWorker: vi.fn(),
+      },
+      runner: createGitRunner([]),
+    });
+
+    expect(inspected.status).toBe("verified");
+    expect(inspected.commitShas).toEqual([]);
+    expect(inspected.validationSummary).toContain("no-code ticket");
+  });
+
+  it("routes unexplained no-commit current-branch workers to attention", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-no-attribution-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "approved",
+      reviewFindings: [],
+    });
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(false),
+      adapter: createAdapter({
+        show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+        history: vi.fn().mockResolvedValue([]),
+      }),
+      tmuxBackend: {
+        ensureSession: vi.fn(),
+        launchWorker: vi.fn(),
+        inspectWorker: vi.fn(),
+        cleanupWorker: vi.fn(),
+      },
+      runner: createGitRunner([]),
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.lastError).toContain("no attributed commits");
   });
 
   it("routes unparseable current-branch reviewer output to attention with raw output", async () => {
