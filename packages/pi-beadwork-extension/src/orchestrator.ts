@@ -1,5 +1,15 @@
 import { createWriteStream } from "node:fs";
-import { appendFile, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { type AttributionEvidencePack, buildAttributionEvidencePack } from "./attribution.js";
 import type { BeadworkAdapter } from "./bw.js";
@@ -3944,6 +3954,600 @@ function pendingScopeReviewGateNote(): string {
   );
 }
 
+type DirtyStatusEntry = {
+  code: string;
+  path: string;
+};
+
+type DirtyStateRemediationAction = {
+  type: "delete" | "restore" | "commit" | "create-follow-up" | "none";
+  paths: string[];
+  message?: string;
+  title?: string;
+  description?: string;
+};
+
+type DirtyStateRemediationDecision = {
+  path: string;
+  classification: string;
+  rationale: string;
+  action: DirtyStateRemediationAction;
+};
+
+type DirtyStateRemediationResult = {
+  passed: boolean;
+  detail: string;
+  evidenceFile?: string;
+  logFile?: string;
+};
+
+const DIRTY_STATE_SUMMARY_BYTES = 4_000;
+const DIRTY_STATE_DIFF_BYTES = 12_000;
+const DIRTY_STATE_LOG_BYTES = 8_000;
+
+function parseDirtyStatus(raw: string): DirtyStatusEntry[] {
+  return raw
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length >= 3)
+    .map((line) => {
+      const code = line.slice(0, 2);
+      const rawPath = line.slice(3).trim();
+      const renameTarget = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath;
+      return { code, path: renameTarget ?? rawPath };
+    })
+    .filter((entry) => entry.path.length > 0);
+}
+
+function truncateDirtyStateValue(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars)}\n[truncated ${value.length - maxChars} chars]`;
+}
+
+function isSafeGeneratedPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/");
+  if (normalized.includes("..") || normalized.startsWith("/")) {
+    return false;
+  }
+
+  return (
+    normalized.startsWith("dist/") ||
+    normalized.startsWith("build/") ||
+    normalized.startsWith("coverage/") ||
+    normalized.startsWith(".turbo/") ||
+    normalized.startsWith(".tsdown/") ||
+    normalized.startsWith(".pi/beadwork/workers/runtime/") ||
+    normalized.endsWith(".tsbuildinfo") ||
+    normalized.endsWith(".log") ||
+    normalized.endsWith(".tmp")
+  );
+}
+
+function resolveRepoRelativePath(repoRoot: string, relativePath: string): string {
+  if (path.isAbsolute(relativePath) || relativePath.includes("\0")) {
+    throw new Error(`Refusing unsafe path: ${relativePath}`);
+  }
+
+  const resolved = path.resolve(repoRoot, relativePath);
+  const relative = path.relative(repoRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Refusing path outside repository: ${relativePath}`);
+  }
+  return resolved;
+}
+
+function completedTicketIds(issue: BeadworkIssueDetail): string[] {
+  const result: string[] = [];
+  const visit = (current: BeadworkIssueDetail): void => {
+    if (current.status === "closed") {
+      result.push(current.id);
+    }
+    for (const child of current.children ?? []) {
+      visit({ ...child, children: [] });
+    }
+  };
+  visit(issue);
+  return result;
+}
+
+async function summarizeUntrackedPath(repoRoot: string, relativePath: string): Promise<string> {
+  try {
+    const absolutePath = resolveRepoRelativePath(repoRoot, relativePath);
+    const pathStat = await stat(absolutePath);
+    if (pathStat.isDirectory()) {
+      const entries = (await readdir(absolutePath)).slice(0, 25);
+      return [
+        `### ${relativePath}`,
+        `directory, entries shown=${entries.length}`,
+        ...entries.map((entry) => `- ${entry}`),
+      ].join("\n");
+    }
+
+    if (!pathStat.isFile()) {
+      return `### ${relativePath}\nnon-file path, size=${pathStat.size}`;
+    }
+
+    const fileHandle = await open(absolutePath, "r");
+    const buffer = Buffer.alloc(Math.min(pathStat.size, DIRTY_STATE_SUMMARY_BYTES));
+    try {
+      await fileHandle.read(buffer, 0, buffer.length, 0);
+    } finally {
+      await fileHandle.close();
+    }
+    const text = buffer.toString("utf8");
+    const binaryMarker = text.includes("\0") ? "\n[binary-looking content omitted]" : "";
+    const truncationMarker =
+      pathStat.size > DIRTY_STATE_SUMMARY_BYTES
+        ? `\n[truncated ${pathStat.size - DIRTY_STATE_SUMMARY_BYTES} bytes]`
+        : "";
+    return [
+      `### ${relativePath}`,
+      `file, size=${pathStat.size} bytes`,
+      "```",
+      binaryMarker || `${text}${truncationMarker}`,
+      "```",
+    ].join("\n");
+  } catch (error) {
+    return `### ${relativePath}\nUnable to summarize: ${humanizeError(error)}`;
+  }
+}
+
+async function runOptionalGitCommand(input: {
+  repoRoot: string;
+  runner: ProcessRunner;
+  args: string[];
+  maxChars: number;
+}): Promise<string> {
+  try {
+    const result = await input.runner("git", input.args, { cwd: input.repoRoot, timeout: 30_000 });
+    return truncateDirtyStateValue(result.stdout.trimEnd(), input.maxChars);
+  } catch (error) {
+    return `command failed: git ${input.args.join(" ")}\n${humanizeError(error)}`;
+  }
+}
+
+function normalizeDirtyStateActions(value: unknown): DirtyStateRemediationDecision[] {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const rawDecisions = Array.isArray(record.decisions) ? record.decisions : [];
+  return rawDecisions.map((rawDecision, index) => {
+    if (!rawDecision || typeof rawDecision !== "object") {
+      throw new Error(`Decision ${index + 1} is not an object.`);
+    }
+    const decision = rawDecision as Record<string, unknown>;
+    const action = decision.action;
+    if (!action || typeof action !== "object") {
+      throw new Error(`Decision ${index + 1} is missing action.`);
+    }
+    const actionRecord = action as Record<string, unknown>;
+    const type = actionRecord.type;
+    if (
+      type !== "delete" &&
+      type !== "restore" &&
+      type !== "commit" &&
+      type !== "create-follow-up" &&
+      type !== "none"
+    ) {
+      throw new Error(`Decision ${index + 1} has unsupported action type.`);
+    }
+
+    const paths = Array.isArray(actionRecord.paths)
+      ? actionRecord.paths.filter((item): item is string => typeof item === "string")
+      : [];
+
+    return {
+      path: typeof decision.path === "string" ? decision.path : (paths[0] ?? "<unknown>"),
+      classification:
+        typeof decision.classification === "string" ? decision.classification : "unsafe-unknown",
+      rationale:
+        typeof decision.rationale === "string" ? decision.rationale : "No rationale provided.",
+      action: {
+        type,
+        paths,
+        message: typeof actionRecord.message === "string" ? actionRecord.message : undefined,
+        title: typeof actionRecord.title === "string" ? actionRecord.title : undefined,
+        description:
+          typeof actionRecord.description === "string" ? actionRecord.description : undefined,
+      },
+    };
+  });
+}
+
+async function buildDirtyStateEvidencePack(input: {
+  repoRoot: string;
+  config: BeadworkConfig;
+  epic: BeadworkIssueDetail;
+  workers: WorkerRuntime[];
+  statusRaw: string;
+  statusEntries: DirtyStatusEntry[];
+  runner: ProcessRunner;
+}): Promise<string> {
+  const trackedPaths = input.statusEntries
+    .filter((entry) => entry.code !== "??")
+    .map((entry) => entry.path);
+  const untrackedPaths = input.statusEntries
+    .filter((entry) => entry.code === "??")
+    .map((entry) => entry.path);
+  const diffArgs = trackedPaths.length > 0 ? ["diff", "--", ...trackedPaths] : ["diff", "--"];
+  const cachedDiffArgs =
+    trackedPaths.length > 0 ? ["diff", "--cached", "--", ...trackedPaths] : ["diff", "--cached"];
+  const [diff, cachedDiff, recentLog, registryContext, ...untrackedSummaries] = await Promise.all([
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: diffArgs,
+      maxChars: DIRTY_STATE_DIFF_BYTES,
+    }),
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: cachedDiffArgs,
+      maxChars: DIRTY_STATE_DIFF_BYTES,
+    }),
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: ["log", "--oneline", "-10"],
+      maxChars: DIRTY_STATE_LOG_BYTES,
+    }),
+    Promise.resolve(
+      JSON.stringify(
+        input.workers.map((worker) => ({
+          workerId: worker.workerId,
+          ticketId: worker.ticketId,
+          ticketStatus: worker.ticketStatus,
+          status: worker.status,
+          executionMode: worker.executionMode,
+          commitShas: worker.commitShas ?? [],
+          touchedPaths: worker.touchedPaths ?? [],
+          validationSummary: worker.validationSummary,
+          landingVerification: worker.landingVerification,
+          reviewSummary: worker.reviewSummary,
+        })),
+        null,
+        2,
+      ),
+    ),
+    ...untrackedPaths.map((entryPath) => summarizeUntrackedPath(input.repoRoot, entryPath)),
+  ]);
+
+  return [
+    "# Quiescent dirty-state evidence pack",
+    "",
+    `Epic: ${input.epic.id} ${input.epic.title}`,
+    `Validation commands: ${input.config.landing.validateCommands.join("; ") || "<none>"}`,
+    `Completed tickets: ${completedTicketIds(input.epic).join(", ") || "<none>"}`,
+    "",
+    "## git status --porcelain",
+    "```",
+    input.statusRaw.trimEnd(),
+    "```",
+    "",
+    "## Tracked diff",
+    "```diff",
+    diff,
+    "```",
+    "",
+    "## Staged tracked diff",
+    "```diff",
+    cachedDiff,
+    "```",
+    "",
+    "## Untracked summaries",
+    untrackedSummaries.join("\n\n") || "<none>",
+    "",
+    "## Verified worker/ticket context",
+    "```json",
+    registryContext,
+    "```",
+    "",
+    "## Recent git log",
+    "```",
+    recentLog,
+    "```",
+  ].join("\n");
+}
+
+function buildDirtyStateRemediationPrompt(evidencePack: string): string {
+  return [
+    "You are performing one bounded quiescent dirty-state remediation pass before validation.",
+    "Classify every dirty path. Prefer unsafe-unknown over speculative cleanup.",
+    "Never request blanket reset, stash, or clean. Only path-specific actions are allowed.",
+    "Do not delete source-like untracked files just because they are untracked.",
+    "Return strict JSON only with this shape:",
+    '{"decisions":[{"path":"relative/path","classification":"generated-artifact|valid-partial-work|follow-up-task|unsafe-unknown","rationale":"why","action":{"type":"delete|restore|commit|create-follow-up|none","paths":["relative/path"],"message":"optional commit message","title":"optional issue title","description":"optional issue description"}}]}',
+    "",
+    evidencePack,
+  ].join("\n");
+}
+
+async function writeDirtyStateArtifact(input: {
+  repoRoot: string;
+  config: BeadworkConfig;
+  prefix: string;
+  content: string;
+}): Promise<string> {
+  const artifactDir = path.join(
+    resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir),
+    "dirty-state",
+  );
+  await mkdir(artifactDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filePath = path.join(artifactDir, `${stamp}-${input.prefix}.md`);
+  await writeFile(filePath, input.content, "utf8");
+  return filePath;
+}
+
+async function executeDirtyStateDecision(input: {
+  repoRoot: string;
+  cwd: string;
+  adapter: BeadworkAdapter;
+  epicId: string;
+  runner: ProcessRunner;
+  statusByPath: Map<string, DirtyStatusEntry>;
+  decision: DirtyStateRemediationDecision;
+}): Promise<{ resolved: boolean; log: string }> {
+  const { decision } = input;
+  const logLines = [
+    `path=${decision.path}`,
+    `classification=${decision.classification}`,
+    `rationale=${decision.rationale}`,
+    `action=${decision.action.type}`,
+  ];
+  const paths = decision.action.paths.length > 0 ? decision.action.paths : [decision.path];
+
+  for (const dirtyPath of paths) {
+    if (!input.statusByPath.has(dirtyPath)) {
+      return {
+        resolved: false,
+        log: `${logLines.join("\n")}\nrefused: ${dirtyPath} not in status`,
+      };
+    }
+    resolveRepoRelativePath(input.repoRoot, dirtyPath);
+  }
+
+  if (decision.action.type === "delete") {
+    for (const dirtyPath of paths) {
+      const entry = input.statusByPath.get(dirtyPath);
+      if (entry?.code !== "??" || !isSafeGeneratedPath(dirtyPath)) {
+        return {
+          resolved: false,
+          log: `${logLines.join("\n")}\nrefused: delete is only allowed for untracked generated paths`,
+        };
+      }
+      await rm(resolveRepoRelativePath(input.repoRoot, dirtyPath), {
+        force: true,
+        recursive: true,
+      });
+      logLines.push(`command=rm -rf -- ${dirtyPath}`);
+      logLines.push("exitCode=0");
+    }
+    return { resolved: true, log: logLines.join("\n") };
+  }
+
+  if (decision.action.type === "restore") {
+    for (const dirtyPath of paths) {
+      const entry = input.statusByPath.get(dirtyPath);
+      if (!entry || entry.code === "??" || !isSafeGeneratedPath(dirtyPath)) {
+        return {
+          resolved: false,
+          log: `${logLines.join("\n")}\nrefused: restore is only allowed for tracked generated paths`,
+        };
+      }
+    }
+    await input.runner("git", ["restore", "--", ...paths], {
+      cwd: input.repoRoot,
+      timeout: 30_000,
+    });
+    logLines.push(`command=git restore -- ${paths.join(" ")}`);
+    logLines.push("exitCode=0");
+    return { resolved: true, log: logLines.join("\n") };
+  }
+
+  if (decision.action.type === "commit") {
+    if (!decision.action.message?.trim()) {
+      return { resolved: false, log: `${logLines.join("\n")}\nrefused: commit message missing` };
+    }
+    await input.runner("git", ["add", "--", ...paths], { cwd: input.repoRoot, timeout: 30_000 });
+    await input.runner("git", ["commit", "-m", decision.action.message], {
+      cwd: input.repoRoot,
+      timeout: 120_000,
+    });
+    logLines.push(`command=git add -- ${paths.join(" ")}`);
+    logLines.push(`command=git commit -m ${decision.action.message}`);
+    logLines.push("exitCode=0");
+    return { resolved: true, log: logLines.join("\n") };
+  }
+
+  if (decision.action.type === "create-follow-up") {
+    await input.adapter.createIssue(input.cwd, {
+      title: decision.action.title ?? `Follow up dirty state for ${input.epicId}`,
+      description:
+        decision.action.description ??
+        `Quiescent dirty-state remediation found unresolved paths: ${paths.join(", ")}.\n\nRationale: ${decision.rationale}`,
+      type: "task",
+      priority: 1,
+      parentId: input.epicId,
+    });
+    logLines.push("command=bw create (follow-up task)");
+    logLines.push("exitCode=0");
+    logLines.push("unresolved: follow-up created; preserving dirty files for operator review");
+    return { resolved: false, log: logLines.join("\n") };
+  }
+
+  logLines.push("unresolved: no safe action approved");
+  return { resolved: false, log: logLines.join("\n") };
+}
+
+async function runQuiescentDirtyStateRemediation(input: {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  epic: BeadworkIssueDetail;
+  workers: WorkerRuntime[];
+  runner: ProcessRunner;
+}): Promise<DirtyStateRemediationResult> {
+  let statusRaw = "";
+  try {
+    const status = await input.runner("git", ["status", "--porcelain"], {
+      cwd: input.repoRoot,
+      timeout: 30_000,
+    });
+    statusRaw = status.stdout.trimEnd();
+  } catch (error) {
+    return { passed: false, detail: `Unable to inspect dirty state: ${humanizeError(error)}` };
+  }
+
+  if (statusRaw.trim().length === 0) {
+    return { passed: true, detail: "Checkout clean; dirty-state remediation skipped." };
+  }
+
+  const statusEntries = parseDirtyStatus(statusRaw);
+  const evidencePack = await buildDirtyStateEvidencePack({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    epic: input.epic,
+    workers: input.workers,
+    statusRaw,
+    statusEntries,
+    runner: input.runner,
+  });
+  const evidenceFile = await writeDirtyStateArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: "evidence",
+    content: evidencePack,
+  });
+  const prompt = buildDirtyStateRemediationPrompt(evidencePack);
+  const command = buildReviewerAgentCommand(input.config);
+  let decisions: DirtyStateRemediationDecision[];
+  let rawOutput = "";
+
+  try {
+    const result = await input.runner("bash", ["-lc", `${command} ${JSON.stringify(prompt)}`], {
+      cwd: input.repoRoot,
+      timeout: input.config.landing.review.commandTimeoutMs,
+    });
+    rawOutput = result.stdout.trim();
+    decisions = normalizeDirtyStateActions(extractJsonPayload(rawOutput));
+  } catch (error) {
+    const logFile = await writeDirtyStateArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: "remediation-failed",
+      content: [
+        "# Dirty-state remediation failed",
+        "",
+        `Evidence: ${evidenceFile}`,
+        "",
+        "## Error",
+        humanizeError(error),
+        "",
+        "## Raw output",
+        rawOutput || "<none>",
+      ].join("\n"),
+    });
+    return {
+      passed: false,
+      detail: `Dirty-state remediation failed; evidence=${evidenceFile}; log=${logFile}`,
+      evidenceFile,
+      logFile,
+    };
+  }
+
+  if (decisions.length === 0) {
+    const logFile = await writeDirtyStateArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: "remediation-empty",
+      content: `No dirty-state decisions returned.\n\nEvidence: ${evidenceFile}`,
+    });
+    return {
+      passed: false,
+      detail: `Dirty-state remediation returned no decisions; evidence=${evidenceFile}; log=${logFile}`,
+      evidenceFile,
+      logFile,
+    };
+  }
+
+  const statusByPath = new Map(statusEntries.map((entry) => [entry.path, entry]));
+  const decisionLogs: string[] = [];
+  let allResolved = true;
+  for (const decision of decisions) {
+    try {
+      const result = await executeDirtyStateDecision({
+        cwd: input.cwd,
+        repoRoot: input.repoRoot,
+        adapter: input.adapter,
+        epicId: input.epic.id,
+        runner: input.runner,
+        statusByPath,
+        decision,
+      });
+      allResolved = allResolved && result.resolved;
+      decisionLogs.push(result.log);
+    } catch (error) {
+      allResolved = false;
+      decisionLogs.push(
+        [
+          `path=${decision.path}`,
+          `action=${decision.action.type}`,
+          `error=${humanizeError(error)}`,
+        ].join("\n"),
+      );
+    }
+  }
+
+  let finalStatus = "<not checked>";
+  try {
+    const status = await input.runner("git", ["status", "--porcelain"], {
+      cwd: input.repoRoot,
+      timeout: 30_000,
+    });
+    finalStatus = status.stdout.trimEnd();
+  } catch (error) {
+    allResolved = false;
+    finalStatus = `status check failed: ${humanizeError(error)}`;
+  }
+
+  const logFile = await writeDirtyStateArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: "remediation-log",
+    content: [
+      "# Dirty-state remediation log",
+      "",
+      `Evidence: ${evidenceFile}`,
+      "",
+      "## Decisions",
+      decisionLogs.join("\n\n---\n\n"),
+      "",
+      "## Final git status --porcelain",
+      "```",
+      finalStatus || "<clean>",
+      "```",
+    ].join("\n"),
+  });
+
+  if (!allResolved || finalStatus.trim().length > 0) {
+    return {
+      passed: false,
+      detail: `Dirty-state remediation unresolved; evidence=${evidenceFile}; log=${logFile}`,
+      evidenceFile,
+      logFile,
+    };
+  }
+
+  return {
+    passed: true,
+    detail: `Dirty-state remediation cleaned checkout; evidence=${evidenceFile}; log=${logFile}`,
+    evidenceFile,
+    logFile,
+  };
+}
+
 export async function runBoundedEpicLoop(input: {
   cwd: string;
   repoRoot: string;
@@ -4073,6 +4677,21 @@ export async function runBoundedEpicLoop(input: {
           notes.push(
             "At least one worker needs operator attention before the orchestrator can complete the scope.",
           );
+          stopReason = "attention";
+          break;
+        }
+
+        const dirtyState = await runQuiescentDirtyStateRemediation({
+          cwd: input.cwd,
+          repoRoot: input.repoRoot,
+          config: input.config,
+          adapter: input.adapter,
+          epic,
+          workers,
+          runner,
+        });
+        notes.push(`Dirty-state remediation: ${dirtyState.detail}`);
+        if (!dirtyState.passed) {
           stopReason = "attention";
           break;
         }

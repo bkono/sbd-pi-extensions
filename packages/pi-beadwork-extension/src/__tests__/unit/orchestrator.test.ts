@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -160,6 +160,12 @@ function createGitRunner(commits: Array<{ sha: string; subject: string; paths: s
       return { stdout: "worker-head\n", stderr: "", code: 0 };
     }
     if (args[0] === "merge-base") {
+      return { stdout: "", stderr: "", code: 0 };
+    }
+    if (args[0] === "status") {
+      return { stdout: "", stderr: "", code: 0 };
+    }
+    if (args[0] === "diff") {
       return { stdout: "", stderr: "", code: 0 };
     }
     if (args[0] === "log") {
@@ -4830,6 +4836,370 @@ describe("run loop", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
+  it("runs dirty-state remediation at quiescence and cleans generated artifacts before validation", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-clean-"));
+    await mkdir(path.join(repoRoot, "dist"), { recursive: true });
+    await writeFile(path.join(repoRoot, "dist", "cache.tmp"), "generated\n", "utf8");
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({
+        status: "landed",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        commitShas: ["abc123"],
+        touchedPaths: ["src/done.ts"],
+      }),
+    ]);
+
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100"
+          ? createIssue({
+              status: "closed",
+              children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+            })
+          : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    let statusCalls = 0;
+    let validationCalls = 0;
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        statusCalls += 1;
+        return ok(statusCalls === 1 ? "?? dist/cache.tmp\n" : "");
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+        return ok(
+          JSON.stringify({
+            decisions: [
+              {
+                path: "dist/cache.tmp",
+                classification: "generated-artifact",
+                rationale: "build output residue",
+                action: { type: "delete", paths: ["dist/cache.tmp"] },
+              },
+            ],
+          }),
+        );
+      }
+      if (command === "bash" && args[1] === "echo scope-ok") {
+        validationCalls += 1;
+        return ok("scope-ok\n");
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(validationCalls).toBe(1);
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
+    const artifactDir = path.join(repoRoot, DEFAULT_CONFIG.storage.runtimeDir, "dirty-state");
+    const logFile = (await readdir(artifactDir)).find((entry) =>
+      entry.endsWith("remediation-log.md"),
+    );
+    expect(logFile).toBeTruthy();
+    const log = await readFile(path.join(artifactDir, logFile as string), "utf8");
+    expect(log).toContain("path=dist/cache.tmp");
+    expect(log).toContain("classification=generated-artifact");
+    expect(log).toContain("command=rm -rf -- dist/cache.tmp");
+    expect(log).toContain("<clean>");
+  });
+
+  it("commits approved valid partial work path-specifically before validation", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-commit-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+    ]);
+    const adapter = createAdapter({
+      show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    let statusCalls = 0;
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        statusCalls += 1;
+        return ok(statusCalls === 1 ? " M src/partial.ts\n" : "");
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+        return ok(
+          JSON.stringify({
+            decisions: [
+              {
+                path: "src/partial.ts",
+                classification: "valid-partial-work",
+                rationale: "complete ticket-related fix left unstaged",
+                action: {
+                  type: "commit",
+                  paths: ["src/partial.ts"],
+                  message: "fix: preserve partial work BW-101",
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (command === "git" && args[0] === "add") {
+        expect(args).toEqual(["add", "--", "src/partial.ts"]);
+        return ok("");
+      }
+      if (command === "git" && args[0] === "commit") {
+        expect(args).toEqual(["commit", "-m", "fix: preserve partial work BW-101"]);
+        return ok("[main abc123] fix\n");
+      }
+      if (command === "bash" && args[1] === "echo scope-ok") {
+        return ok("scope-ok\n");
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(runner).toHaveBeenCalledWith("git", ["add", "--", "src/partial.ts"], expect.anything());
+    expect(runner).toHaveBeenCalledWith(
+      "git",
+      ["commit", "-m", "fix: preserve partial work BW-101"],
+      expect.anything(),
+    );
+  });
+
+  it("routes unclear source-like untracked files to attention without validation", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-source-"));
+    await mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await writeFile(path.join(repoRoot, "src", "new.ts"), "export const x = 1;\n", "utf8");
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+    ]);
+    const adapter = createAdapter({
+      show: vi.fn(async () =>
+        createIssue({
+          status: "closed",
+          children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+        }),
+      ),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        return ok("?? src/new.ts\n");
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+        return ok(
+          JSON.stringify({
+            decisions: [
+              {
+                path: "src/new.ts",
+                classification: "unsafe-unknown",
+                rationale: "source-like untracked work has unclear provenance",
+                action: { type: "delete", paths: ["src/new.ts"] },
+              },
+            ],
+          }),
+        );
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(runner).not.toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
+  });
+
+  it("routes dirty-state remediator failure to attention", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-fail-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+    ]);
+    const adapter = createAdapter({
+      show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        return ok("?? dist/cache.tmp\n");
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+        throw new Error("remediator unavailable");
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(summary.notes.join("\n")).toContain("Dirty-state remediation failed");
+  });
+
+  it("requires clean status after remediation before validation", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-post-"));
+    await mkdir(path.join(repoRoot, "dist"), { recursive: true });
+    await writeFile(path.join(repoRoot, "dist", "cache.tmp"), "generated\n", "utf8");
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+    ]);
+    const adapter = createAdapter({
+      show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        return ok("?? dist/cache.tmp\n");
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+        return ok(
+          JSON.stringify({
+            decisions: [
+              {
+                path: "dist/cache.tmp",
+                classification: "generated-artifact",
+                rationale: "generated residue",
+                action: { type: "delete", paths: ["dist/cache.tmp"] },
+              },
+            ],
+          }),
+        );
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(runner).not.toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
+  });
+
   it("keeps worktree landed workers on the existing completion path", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-worktree-complete-"));
     const registryPath = resolveWorkerRegistryPath(
@@ -4856,6 +5226,9 @@ describe("run loop", () => {
       ready: vi.fn().mockResolvedValue([]),
     });
     const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        return ok("");
+      }
       expect(command).toBe("bash");
       expect(args).toEqual(["-lc", "echo scope-ok"]);
       return ok("scope-ok\n");
