@@ -3984,6 +3984,23 @@ type DirtyStateRemediationResult = {
 const DIRTY_STATE_SUMMARY_BYTES = 4_000;
 const DIRTY_STATE_DIFF_BYTES = 12_000;
 const DIRTY_STATE_LOG_BYTES = 8_000;
+const DIRTY_STATE_APPROVED_ACTION_CLASSIFICATIONS: Record<
+  DirtyStateRemediationAction["type"],
+  ReadonlySet<string>
+> = {
+  delete: new Set(["generated-artifact"]),
+  restore: new Set(["generated-artifact"]),
+  commit: new Set(["valid-partial-work"]),
+  "create-follow-up": new Set(["follow-up-task"]),
+  none: new Set(["generated-artifact", "valid-partial-work", "follow-up-task"]),
+};
+
+function isDirtyStateActionClassificationApproved(
+  classification: string,
+  actionType: DirtyStateRemediationAction["type"],
+): boolean {
+  return DIRTY_STATE_APPROVED_ACTION_CLASSIFICATIONS[actionType].has(classification);
+}
 
 function parseDirtyStatus(raw: string): DirtyStatusEntry[] {
   return raw
@@ -4295,6 +4312,13 @@ async function executeDirtyStateDecision(input: {
     `rationale=${decision.rationale}`,
     `action=${decision.action.type}`,
   ];
+
+  if (!isDirtyStateActionClassificationApproved(decision.classification, decision.action.type)) {
+    return {
+      resolved: false,
+      log: `${logLines.join("\n")}\nrefused: classification ${decision.classification} is not approved for action ${decision.action.type}`,
+    };
+  }
   const paths = decision.action.paths.length > 0 ? decision.action.paths : [decision.path];
 
   for (const dirtyPath of paths) {
@@ -4421,12 +4445,19 @@ async function runQuiescentDirtyStateRemediation(input: {
     content: evidencePack,
   });
   const prompt = buildDirtyStateRemediationPrompt(evidencePack);
+  const promptFile = await writeDirtyStateArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: "prompt",
+    content: prompt,
+  });
   const command = buildReviewerAgentCommand(input.config);
+  const reviewerInvocation = `${command} "$(cat ${shellQuote(promptFile)})"`;
   let decisions: DirtyStateRemediationDecision[];
   let rawOutput = "";
 
   try {
-    const result = await input.runner("bash", ["-lc", `${command} ${JSON.stringify(prompt)}`], {
+    const result = await input.runner("bash", ["-lc", reviewerInvocation], {
       cwd: input.repoRoot,
       timeout: input.config.landing.review.commandTimeoutMs,
     });
@@ -4441,6 +4472,7 @@ async function runQuiescentDirtyStateRemediation(input: {
         "# Dirty-state remediation failed",
         "",
         `Evidence: ${evidenceFile}`,
+        `Prompt: ${promptFile}`,
         "",
         "## Error",
         humanizeError(error),

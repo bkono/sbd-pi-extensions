@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +15,7 @@ import {
   stopWorkers,
   verifyCurrentBranchWorker,
 } from "../../orchestrator.js";
-import { ProcessCommandError } from "../../process.js";
+import { defaultProcessRunner, ProcessCommandError } from "../../process.js";
 import {
   loadWorkerRegistry,
   resolveWorkerRegistryPath,
@@ -4875,7 +4875,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
         return ok(
           JSON.stringify({
             decisions: [
@@ -4954,7 +4954,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
         return ok(
           JSON.stringify({
             decisions: [
@@ -5043,7 +5043,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
         return ok(
           JSON.stringify({
             decisions: [
@@ -5085,6 +5085,198 @@ describe("run loop", () => {
     expect(runner).not.toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
   });
 
+  it("routes unsafe or unknown dirty-state classifications to attention without executing actions", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-unsafe-class-"));
+    await mkdir(path.join(repoRoot, "dist"), { recursive: true });
+    await mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await writeFile(path.join(repoRoot, "dist", "cache.tmp"), "generated\n", "utf8");
+    await writeFile(path.join(repoRoot, "src", "partial.ts"), "export const x = 1;\n", "utf8");
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+    ]);
+    const adapter = createAdapter({
+      show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    let validationCalls = 0;
+    let executableActionCalls = 0;
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        return ok(" M src/partial.ts\n?? dist/cache.tmp\n");
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+        return ok(
+          JSON.stringify({
+            decisions: [
+              {
+                path: "src/partial.ts",
+                classification: "unsafe-unknown",
+                rationale: "reviewer could not prove this is safe to commit",
+                action: {
+                  type: "commit",
+                  paths: ["src/partial.ts"],
+                  message: "fix: unsafe commit should not happen",
+                },
+              },
+              {
+                path: "dist/cache.tmp",
+                classification: "model-invented-safe-ish",
+                rationale: "unrecognized classifications must not be trusted",
+                action: { type: "delete", paths: ["dist/cache.tmp"] },
+              },
+            ],
+          }),
+        );
+      }
+      if (command === "git" && ["add", "commit", "restore"].includes(args[0] ?? "")) {
+        executableActionCalls += 1;
+        return ok("");
+      }
+      if (command === "bash" && args[1] === "echo scope-ok") {
+        validationCalls += 1;
+        return ok("scope-ok\n");
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(executableActionCalls).toBe(0);
+    expect(validationCalls).toBe(0);
+    expect(existsSync(path.join(repoRoot, "dist", "cache.tmp"))).toBe(true);
+    const artifactDir = path.join(repoRoot, DEFAULT_CONFIG.storage.runtimeDir, "dirty-state");
+    const logFile = (await readdir(artifactDir)).find((entry) =>
+      entry.endsWith("remediation-log.md"),
+    );
+    expect(logFile).toBeTruthy();
+    const log = await readFile(path.join(artifactDir, logFile as string), "utf8");
+    expect(log).toContain("classification unsafe-unknown is not approved for action commit");
+    expect(log).toContain(
+      "classification model-invented-safe-ish is not approved for action delete",
+    );
+  });
+
+  it("passes dirty-state evidence with shell metacharacters without shell expansion", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-shell-safe-"));
+    await mkdir(path.join(repoRoot, "dist"), { recursive: true });
+    const pwnedPath = path.join(
+      os.tmpdir(),
+      `pi-bw-shell-pwned-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
+    const backtickPwnedPath = `${pwnedPath}-backtick`;
+    const dangerousEvidence = `literal $(touch ${pwnedPath}) and \`touch ${backtickPwnedPath}\``;
+    await writeFile(path.join(repoRoot, "dist", "cache.tmp"), dangerousEvidence, "utf8");
+    const captureFile = path.join(repoRoot, "captured-prompt.txt");
+    const reviewerScript = path.join(repoRoot, "dirty-reviewer.js");
+    await writeFile(
+      reviewerScript,
+      `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+writeFileSync(${JSON.stringify(captureFile)}, process.argv[2] ?? "", "utf8");
+process.stdout.write(${JSON.stringify(
+        JSON.stringify({
+          decisions: [
+            {
+              path: "dist/cache.tmp",
+              classification: "generated-artifact",
+              rationale: "generated residue",
+              action: { type: "delete", paths: ["dist/cache.tmp"] },
+            },
+          ],
+        }),
+      )});
+`,
+      "utf8",
+    );
+    await chmod(reviewerScript, 0o755);
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+    ]);
+    const adapter = createAdapter({
+      show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    let validationCalls = 0;
+    const runner = vi.fn(async (command: string, args: string[], options) => {
+      if (command === "git" && args[0] === "status") {
+        return ok(
+          existsSync(path.join(repoRoot, "dist", "cache.tmp")) ? "?? dist/cache.tmp\n" : "",
+        );
+      }
+      if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
+        return ok("");
+      }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+        expect(args[1]).not.toContain(pwnedPath);
+        return defaultProcessRunner(command, args, options);
+      }
+      if (command === "bash" && args[1] === "echo scope-ok") {
+        validationCalls += 1;
+        return ok("scope-ok\n");
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        tmux: { ...DEFAULT_CONFIG.tmux, workerCommand: reviewerScript },
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(validationCalls).toBe(1);
+    expect(existsSync(pwnedPath)).toBe(false);
+    expect(existsSync(backtickPwnedPath)).toBe(false);
+    expect(await readFile(captureFile, "utf8")).toContain(dangerousEvidence);
+  });
+
   it("routes dirty-state remediator failure to attention", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-dirty-fail-"));
     const registryPath = resolveWorkerRegistryPath(
@@ -5105,7 +5297,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
         throw new Error("remediator unavailable");
       }
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
@@ -5158,7 +5350,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[1]?.includes("dirty-state remediation")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
         return ok(
           JSON.stringify({
             decisions: [
