@@ -11,9 +11,15 @@
   "id": "sbdpi-qmd.3.4",
   "labels": [],
   "parent": "sbdpi-qmd.3",
+  "comments": [
+    {
+      "text": "Implemented coordinator review triage and current-branch remediation relaunch.\n\nHighlights:\n- Review findings are triaged as fix/file/reject with persisted diagnostics and raw reviewer output preserved.\n- Fix findings relaunch remediation in the same checkout, reopen/comment closed tickets first, cap attempts at MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS=2, and avoid duplicate relaunches for the same finding set.\n- File findings create non-blocking follow-up comments; rejects are discarded with rationale.\n- No-fix/current-branch completion verifies workers, stores commitShas/touchedPaths, handles no-code explanations, and routes missing attribution to attention.\n- Added tests for relaunch idempotency, reopened tickets/remediation prompt content, file/reject triage, nit behavior, attempt cap, verified no-fix, missing attribution, no-code explanation, and prompt filtering.\n\nValidation passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension\n\nCommit: 7f3529d",
+      "timestamp": "2026-05-09T06:33:35Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Implement coordinator review triage and current-branch remediation relaunch",
   "type": "task",
-  "updated_at": "2026-05-09T06:19:17Z"
+  "updated_at": "2026-05-09T06:33:35Z"
 }
