@@ -5603,6 +5603,128 @@ process.stdout.write(${JSON.stringify(
     expect(log).toContain("rationale: Failure maps to BW-101");
   });
 
+  it.each([
+    {
+      name: "empty attribution",
+      decision: {
+        classification: "create-fix-forward",
+        rationale: "Failure probably belongs to the completed task, but no attribution is listed.",
+        safetyNotes: "Create follow-up work.",
+        suspectedTickets: [],
+        suspectedCommits: [],
+        files: ["src/task.test.ts"],
+        tests: ["src/task.test.ts"],
+        title: "Repair integrated task behavior",
+        successCriteria: ["echo scope-ok passes"],
+      },
+      expectedReason: "missing suspectedTickets attribution",
+    },
+    {
+      name: "hallucinated ticket/commit attribution",
+      decision: {
+        classification: "create-fix-forward",
+        rationale: "Failure maps to BW-999 and deadbeef.",
+        safetyNotes: "Create follow-up work.",
+        suspectedTickets: ["BW-999"],
+        suspectedCommits: ["deadbeef"],
+        files: ["src/task.test.ts"],
+        tests: ["src/task.test.ts"],
+        title: "Repair integrated task behavior",
+        successCriteria: ["echo scope-ok passes"],
+      },
+      expectedReason: "unknown suspectedTickets: BW-999",
+    },
+  ])("routes create-fix-forward with $name to attention without creating child tasks", async ({
+    decision,
+    expectedReason,
+  }) => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-scope-validation-attr-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      await createCurrentBranchRuntimeWorker(repoRoot, {
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        landingVerifiedAt: "2026-04-14T00:10:00.000Z",
+        launchHead: "base-sha",
+        commitShas: ["abc123"],
+        touchedPaths: ["src/task.ts"],
+      }),
+    ]);
+
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100"
+          ? createIssue({
+              id: "BW-100",
+              status: "closed",
+              children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+            })
+          : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      history: vi.fn(async () => []),
+      list: vi.fn(async () => []),
+      createIssue: vi.fn(),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "status") {
+        return ok("");
+      }
+      if (command === "git" && args[0] === "log") {
+        return ok("abc123 Implement task\n");
+      }
+      if (command === "git" && args[0] === "show") {
+        return ok("Implement task\n");
+      }
+      if (command === "bash" && args[0] === "-lc" && args[1] === "echo scope-ok") {
+        return { stdout: "FAIL src/task.test.ts\n", stderr: "expected behavior\n", code: 1 };
+      }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+        return ok(JSON.stringify(decision));
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...currentBranchVerificationConfig(false),
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(adapter.createIssue).not.toHaveBeenCalled();
+    expect(summary.notes.join("\n")).toContain("attribution was ambiguous/unsafe");
+    expect((await loadWorkerRegistry(registryPath))[0]).toMatchObject({ status: "verified" });
+
+    const artifactDir = path.join(repoRoot, DEFAULT_CONFIG.storage.runtimeDir, "scope-validation");
+    const artifacts = await readdir(artifactDir);
+    const attentionLog = await readFile(
+      path.join(artifactDir, artifacts.find((entry) => entry.includes("-attention-log")) as string),
+      "utf8",
+    );
+    expect(attentionLog).toContain("without verified attribution support");
+    expect(attentionLog).toContain(expectedReason);
+  });
+
   it("routes ambiguous current-branch scope validation failures to attention", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-scope-validation-attn-"));
     const registryPath = resolveWorkerRegistryPath(

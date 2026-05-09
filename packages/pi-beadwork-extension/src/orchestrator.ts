@@ -4309,6 +4309,12 @@ type ScopeValidationDecision = {
   successCriteria: string[];
 };
 
+type ScopeValidationAttributionContext = {
+  evidencePack: string;
+  knownCommits: Set<string>;
+  knownTickets: Set<string>;
+};
+
 type ScopeValidationRemediationResult = {
   proceed: boolean;
   detail: string;
@@ -4369,6 +4375,78 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+}
+
+function evidencePackContainsIdentifier(evidencePack: string, identifier: string): boolean {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_.-])${escaped}([^A-Za-z0-9_.-]|$)`).test(evidencePack);
+}
+
+function isPlausibleTicketIdentifier(identifier: string): boolean {
+  return /^[A-Z][A-Z0-9]+-\d+(?:\.\d+)*$/.test(identifier);
+}
+
+function isPlausibleCommitIdentifier(identifier: string): boolean {
+  return /^[0-9a-f]{6,40}$/i.test(identifier);
+}
+
+function buildScopeValidationAttributionContext(input: {
+  evidencePack: string;
+  workers: WorkerRuntime[];
+}): ScopeValidationAttributionContext {
+  const verifiedWorkers = input.workers.filter((worker) => isSuccessfulTerminalWorker(worker));
+  const knownTickets = new Set<string>();
+  const knownCommits = new Set<string>();
+  for (const worker of verifiedWorkers) {
+    knownTickets.add(worker.ticketId);
+    for (const sha of worker.commitShas ?? []) {
+      knownCommits.add(sha);
+    }
+  }
+  return { evidencePack: input.evidencePack, knownCommits, knownTickets };
+}
+
+function unsupportedScopeValidationAttributionReasons(
+  decision: ScopeValidationDecision,
+  context: ScopeValidationAttributionContext,
+): string[] {
+  if (decision.classification === "attention") {
+    return [];
+  }
+
+  const reasons: string[] = [];
+  if (decision.suspectedTickets.length === 0) {
+    reasons.push("missing suspectedTickets attribution");
+  }
+  if (decision.suspectedCommits.length === 0) {
+    reasons.push("missing suspectedCommits attribution");
+  }
+
+  const unknownTickets = decision.suspectedTickets.filter(
+    (ticket) =>
+      !context.knownTickets.has(ticket) &&
+      !(
+        isPlausibleTicketIdentifier(ticket) &&
+        evidencePackContainsIdentifier(context.evidencePack, ticket)
+      ),
+  );
+  if (unknownTickets.length > 0) {
+    reasons.push(`unknown suspectedTickets: ${unknownTickets.join(", ")}`);
+  }
+
+  const unknownCommits = decision.suspectedCommits.filter(
+    (commit) =>
+      !context.knownCommits.has(commit) &&
+      !(
+        isPlausibleCommitIdentifier(commit) &&
+        evidencePackContainsIdentifier(context.evidencePack, commit)
+      ),
+  );
+  if (unknownCommits.length > 0) {
+    reasons.push(`unknown suspectedCommits: ${unknownCommits.join(", ")}`);
+  }
+
+  return reasons;
 }
 
 function normalizeScopeValidationDecisions(value: unknown): ScopeValidationDecision[] {
@@ -4697,6 +4775,34 @@ async function handleScopeValidationFailure(input: {
     });
     rawOutput = result.stdout.trim();
     decisions = normalizeScopeValidationDecisions(extractJsonPayload(rawOutput));
+    const attributionContext = buildScopeValidationAttributionContext({
+      evidencePack,
+      workers: input.workers,
+    });
+    const unsupportedAttributionReasons = decisions.flatMap((decision, index) =>
+      unsupportedScopeValidationAttributionReasons(decision, attributionContext).map(
+        (reason) => `Decision ${index + 1}: ${reason}`,
+      ),
+    );
+    if (unsupportedAttributionReasons.length > 0) {
+      decisions = [
+        {
+          classification: "attention",
+          rationale: [
+            "Coordinator requested create-fix-forward without verified attribution support.",
+            ...unsupportedAttributionReasons,
+          ].join("\n"),
+          safetyNotes:
+            "Do not create speculative fix-forward child tasks from unsupported attribution.",
+          suspectedTickets: [],
+          suspectedCommits: [],
+          files: [],
+          tests: [],
+          title: "Scope validation attribution requires attention",
+          successCriteria: [],
+        },
+      ];
+    }
   } catch (error) {
     const logFile = await writeScopeValidationArtifact({
       repoRoot: input.repoRoot,
