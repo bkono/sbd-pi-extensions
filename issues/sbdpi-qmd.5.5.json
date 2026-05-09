@@ -4,7 +4,8 @@
     "sbdpi-qmd.5.1",
     "sbdpi-qmd.5.2",
     "sbdpi-qmd.5.3",
-    "sbdpi-qmd.5.4"
+    "sbdpi-qmd.5.4",
+    "sbdpi-qmd.5.6"
   ],
   "blocks": [],
   "created": "2026-05-08T23:39:37Z",
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Run final comprehensive integration and regression test suite",
   "type": "task",
-  "updated_at": "2026-05-08T23:39:55Z"
+  "updated_at": "2026-05-09T00:18:36Z"
 }
