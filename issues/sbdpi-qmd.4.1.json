@@ -17,11 +17,15 @@
     {
       "text": "Implemented in 61a892e. Tightened runBoundedEpicLoop completion so closed scopes only complete after worker inspection/terminal gating and scope validation; active workers continue/max-cycle, verification attention stops as attention, and landed worktree workers remain on their existing path. Added focused run-loop regressions for inline current-branch verification, verification attention, active workers, worktree landed completion, and empty stop behavior.\n\nGates passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension\n\nDeferred: full scope-review/fix-forward primitives (including 2-round scope fix cap) remain for subsequent Phase 4 work; current loop no longer reports completed while existing unresolved fix findings or validation failures block the scope.",
       "timestamp": "2026-05-09T22:43:00Z"
+    },
+    {
+      "text": "Remediation committed in 99248de. Fixed review blockers by making the all-tickets-terminal gate inspect descendant children instead of accepting a closed parent epic, and by routing current-branch quiescent scopes to attention after scope validation until the Phase 4 scope-review/fix-forward gate exists and has no unresolved fix findings. Added regressions for closed epic/open descendant and pending scope-review gate behavior.\n\nGates passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension -- src/__tests__/unit/orchestrator.test.ts\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension",
+      "timestamp": "2026-05-09T22:54:38Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Tighten bounded epic loop stop conditions for scope-completion",
   "type": "task",
-  "updated_at": "2026-05-09T22:43:03Z"
+  "updated_at": "2026-05-09T22:54:38Z"
 }
