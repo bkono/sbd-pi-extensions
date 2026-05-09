@@ -11,9 +11,15 @@
   "id": "sbdpi-qmd.3.5",
   "labels": [],
   "parent": "sbdpi-qmd.3",
+  "comments": [
+    {
+      "text": "Implemented Phase 3 current-branch verification regression coverage in packages/pi-beadwork-extension/src/__tests__/unit/current-branch-verification.test.ts with 25 scenario tests. Added a minimal orchestrator idempotency guard for persisted remediation-in-progress findings to avoid duplicate relaunch after restart. Quality gates run: npm run lint -w @solvedbydev/pi-beadwork-extension, npm run test -w @solvedbydev/pi-beadwork-extension, npm run typecheck -w @solvedbydev/pi-beadwork-extension. Commit: 09f3011 test(pi-beadwork): cover current-branch verification regressions sbdpi-qmd.3.5",
+      "timestamp": "2026-05-09T07:08:23Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add Phase 3 verification regression tests",
   "type": "task",
-  "updated_at": "2026-05-09T06:59:48Z"
+  "updated_at": "2026-05-09T07:08:23Z"
 }
