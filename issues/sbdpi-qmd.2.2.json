@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-qmd.1.6"
   ],
@@ -18,8 +18,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Write current-branch handoff prompt with all required worker instructions",
   "type": "task",
-  "updated_at": "2026-05-08T23:47:04Z"
+  "updated_at": "2026-05-09T04:29:33Z"
 }
