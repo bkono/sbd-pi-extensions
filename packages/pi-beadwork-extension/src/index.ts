@@ -69,6 +69,8 @@ import type {
 import { isSuccessfulTerminalWorker } from "./types.js";
 import { inspectWorker } from "./worker-diagnostics.js";
 
+export type { AttributionCommitEvidence, AttributionEvidencePack } from "./attribution.js";
+export { buildAttributionEvidencePack } from "./attribution.js";
 export { loadConfig } from "./config.js";
 export type {
   ActivationState,

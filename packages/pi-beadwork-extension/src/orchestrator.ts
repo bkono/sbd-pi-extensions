@@ -36,6 +36,9 @@ import {
   verifyWorktreeLanding,
 } from "./worktree.js";
 
+export type { AttributionCommitEvidence, AttributionEvidencePack } from "./attribution.js";
+export { buildAttributionEvidencePack } from "./attribution.js";
+
 function buildWorkerId(ticketId: string): string {
   const stamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 8);
