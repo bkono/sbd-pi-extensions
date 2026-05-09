@@ -703,7 +703,7 @@ describe("worker inspection", () => {
     );
   });
 
-  it("does not duplicate remediation relaunches for an already launched finding set", async () => {
+  it("does not duplicate remediation relaunches while an active finding set is still running", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-no-duplicate-"));
     const finding = {
       file: "src/task.ts",
@@ -716,7 +716,7 @@ describe("worker inspection", () => {
       .join("|");
     const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
       ticketStatus: "open",
-      status: "exited",
+      status: "running",
       reviewStatus: "remediation-in-progress",
       reviewRemediationAttempts: 1,
       reviewFindings: [finding],
@@ -756,6 +756,103 @@ describe("worker inspection", () => {
     expect(inspected.status).toBe("running");
     expect(inspected.reviewStatus).toBe("remediation-in-progress");
     expect(inspected.reviewRemediationAttempts).toBe(1);
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
+  });
+
+  it("reruns review after current-branch remediation exits and closes the ticket", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-remediated-review-"));
+    const finding = {
+      file: "src/task.ts",
+      issue: "broken behavior",
+      suggestion: "fix it",
+      severity: "fix" as const,
+    };
+    const findingSetKey = [finding.severity, finding.file, finding.issue, finding.suggestion]
+      .map((value) => value.trim().toLowerCase())
+      .join("|");
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "remediation-in-progress",
+      reviewRemediationAttempts: 1,
+      reviewFindings: [finding],
+      reviewTriageFindingSetKey: findingSetKey,
+      currentBranchRemediationFindingSetKey: findingSetKey,
+      reviewTriageDecisions: [
+        {
+          finding,
+          findingKey: findingSetKey,
+          classification: "fix",
+          rationale: "approved before remediation",
+          action: "approved for current-branch remediation",
+        },
+      ],
+    });
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [worker]);
+    const [persistedWorker] = await loadWorkerRegistry(registryPath);
+    expect(persistedWorker).toMatchObject({
+      status: "exited",
+      ticketStatus: "closed",
+      reviewStatus: "remediation-in-progress",
+      reviewRemediationAttempts: 1,
+    });
+
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "main\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse") {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123\tBW-101 remediate review finding\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "show") {
+        return { stdout: "src/task.ts\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("current-branch-review-handoff")) {
+        return {
+          stdout:
+            '<review_report>{"summary":"Remediation looks good.","findings":[]}</review_report>',
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn(),
+      cleanupWorker: vi.fn(),
+    };
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      repoRoot,
+      worker: persistedWorker ?? worker,
+      config: currentBranchVerificationConfig(true),
+      adapter: createAdapter({
+        show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+        history: vi.fn().mockResolvedValue([]),
+      }),
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("verified");
+    expect(inspected.reviewStatus).toBe("approved");
+    expect(inspected.reviewRemediationAttempts).toBe(1);
+    expect(inspected.reviewTriageDecisions).toEqual([]);
+    expect(inspected.landingVerification).toContain("Current-branch worker verified");
+    expect(runner.mock.calls.filter((call) => call[0] === "bash")).toHaveLength(1);
     expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
   });
 

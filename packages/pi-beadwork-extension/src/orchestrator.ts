@@ -1278,18 +1278,17 @@ async function runCurrentBranchReviewerPass(input: {
   };
 }
 
+function isActiveWorkerProcess(worker: WorkerRuntime): boolean {
+  return worker.status === "running" || worker.status === "launching";
+}
+
 async function runCurrentBranchReviewOperation(
   input: CurrentBranchVerificationContext,
 ): Promise<CurrentBranchWorkerRuntime> {
-  if (input.worker.status === "running") {
-    return input.worker;
-  }
-
-  if (input.worker.reviewStatus === "remediation-in-progress") {
+  if (isActiveWorkerProcess(input.worker)) {
     return {
       ...input.worker,
       status: "running",
-      reviewStatus: "remediation-in-progress",
       updatedAt: new Date().toISOString(),
     };
   }
@@ -1615,11 +1614,12 @@ async function handleCurrentBranchRemediationOperation(
     return input.worker;
   }
 
-  if (
-    input.worker.reviewStatus === "remediation-in-progress" ||
-    input.worker.status === "running"
-  ) {
-    return input.worker;
+  if (isActiveWorkerProcess(input.worker)) {
+    return {
+      ...input.worker,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   const attempts = input.worker.reviewRemediationAttempts ?? 0;
