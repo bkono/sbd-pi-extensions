@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "sbdpi-qmd.5.1",
-    "sbdpi-qmd.5.3"
+    "sbdpi-qmd.5.3",
+    "sbdpi-qmd.5.6"
   ],
   "blocks": [
     "sbdpi-qmd.5.5"
