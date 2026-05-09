@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "sbdpi-qmd.1",
   "priority": 1,
-  "status": "in_progress",
+  "status": "open",
   "title": "Add WorkerExecutionMode discriminated union types to types.ts",
   "type": "task",
-  "updated_at": "2026-05-09T02:27:26Z"
+  "updated_at": "2026-05-09T02:30:20Z"
 }
