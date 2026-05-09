@@ -1,8 +1,14 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadWorkerRegistry, normalizeWorkerRecord, saveWorkerRegistry } from "../../registry.js";
+import {
+  loadWorkerRegistry,
+  normalizeWorkerRecord,
+  resolveWorkerRegistryPath,
+  saveWorkerRegistry,
+  upsertWorkerRuntime,
+} from "../../registry.js";
 import type { WorkerRuntime } from "../../types.js";
 
 function worktreeWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
@@ -175,6 +181,124 @@ describe("worker registry normalization", () => {
     expect(saved.workers[0]?.checkoutPath).toBe(path.join(tempDir, "worker"));
   });
 
+  it("loads persisted local .pi/beadwork registry records with legacy and current-branch shapes", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-local-registry-"));
+    const repoRoot = path.join(tempDir, "sbd-pi-extensions");
+    const registryPath = resolveWorkerRegistryPath(repoRoot, ".pi/beadwork/workers/registry.json");
+    const legacyWorktree = legacyWorkerRecord({
+      workerId: "sbdpi-qmd.1.1-moxq4a3t-wqjo23",
+      ticketId: "sbdpi-qmd.1.1",
+      epicId: "sbdpi-qmd",
+      ticketTitle: "Add WorkerExecutionMode discriminated union types to types.ts",
+      ticketStatus: "open",
+      branchName: "sbdpi-qmd.1.1/add-workerexecutionmode-discriminated-union-type",
+      worktreePath: path.join(
+        tempDir,
+        "sbd-pi-extensions-worktrees/sbdpi-qmd.1.1-add-workerexecutionmode-discriminated-union-type",
+      ),
+      runtimeDir: path.join(repoRoot, ".pi/beadwork/workers/runtime/sbdpi-qmd.1.1-moxq4a3t-wqjo23"),
+      status: "running",
+    });
+    const currentBranch = currentBranchWorker({
+      workerId: "sbdpi-qmd.3.5-current-branch",
+      ticketId: "sbdpi-qmd.3.5",
+      epicId: "sbdpi-qmd",
+      ticketTitle: "Cover current-branch verification regressions",
+      ticketStatus: "closed",
+      checkoutPath: repoRoot,
+      branchName: "sbdpi-qmd.3.5/current-branch-verification-regressions",
+      launchHead: "09f3011",
+      status: "verified",
+      landingVerifiedAt: "2026-05-09T03:00:00.000Z",
+      landingVerification: "Landing verified: current branch HEAD is unchanged.",
+    });
+    await mkdir(path.dirname(registryPath), { recursive: true });
+    await writeFile(
+      registryPath,
+      `${JSON.stringify({ workers: [legacyWorktree, currentBranch] }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const loaded = await loadWorkerRegistry(registryPath);
+
+    expect(loaded).toHaveLength(2);
+    expect(loaded[0]).toMatchObject({
+      executionMode: "worktree",
+      checkoutPath: legacyWorktree.worktreePath,
+      worktreePath: legacyWorktree.worktreePath,
+      status: "running",
+    });
+    expect(loaded[1]).toMatchObject({
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      launchHead: "09f3011",
+      status: "verified",
+    });
+    expect("worktreePath" in loaded[1]!).toBe(false);
+  });
+
+  it("recovers local registry files left with duplicated trailing object closers", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-local-registry-"));
+    const repoRoot = path.join(tempDir, "sbd-pi-extensions");
+    const registryPath = resolveWorkerRegistryPath(repoRoot, ".pi/beadwork/workers/registry.json");
+    const worker = legacyWorkerRecord({
+      workerId: "sbdpi-qmd.1.2-moxq4aao-3e5s49",
+      ticketId: "sbdpi-qmd.1.2",
+      epicId: "sbdpi-qmd",
+      ticketTitle: "Add workerExecution config block with mode and maxLifetime",
+      ticketStatus: "in_progress",
+      branchName: "sbdpi-qmd.1.2/add-workerexecution-config-block-with-mode-and-m",
+      worktreePath: path.join(
+        tempDir,
+        "sbd-pi-extensions-worktrees/sbdpi-qmd.1.2-add-workerexecution-config-block-with-mode-and-m",
+      ),
+      status: "running",
+    });
+    await mkdir(path.dirname(registryPath), { recursive: true });
+    await writeFile(
+      registryPath,
+      `${JSON.stringify({ workers: [worker] }, null, 2)}\n\n  ]\n}\n`,
+      "utf8",
+    );
+
+    const loaded = await loadWorkerRegistry(registryPath);
+
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({
+      executionMode: "worktree",
+      checkoutPath: worker.worktreePath,
+      worktreePath: worker.worktreePath,
+      status: "running",
+    });
+  });
+
+  it("serializes concurrent upserts against the local registry path without dropping workers", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-local-registry-"));
+    const repoRoot = path.join(tempDir, "sbd-pi-extensions");
+    const registryPath = resolveWorkerRegistryPath(repoRoot, ".pi/beadwork/workers/registry.json");
+    await mkdir(path.dirname(registryPath), { recursive: true });
+    await writeFile(registryPath, `${JSON.stringify({ workers: [] }, null, 2)}\n`, "utf8");
+    const workers = Array.from({ length: 4 }, (_, index) =>
+      worktreeWorker({
+        workerId: `sbdpi-qmd.2.${index + 1}-worker`,
+        ticketId: `sbdpi-qmd.2.${index + 1}`,
+        startedAt: `2026-05-09T03:00:0${index}.000Z`,
+        updatedAt: `2026-05-09T03:00:0${index}.000Z`,
+      }),
+    );
+
+    await Promise.all(workers.map((worker) => upsertWorkerRuntime(registryPath, worker)));
+
+    const loaded = await loadWorkerRegistry(registryPath);
+    expect(loaded.map((worker) => worker.workerId)).toEqual(
+      workers.map((worker) => worker.workerId),
+    );
+    expect(JSON.parse(await readFile(registryPath, "utf8"))).toMatchObject({
+      workers: expect.arrayContaining(
+        workers.map((worker) => expect.objectContaining({ workerId: worker.workerId })),
+      ),
+    });
+  });
   it("throws clear errors for malformed records", async () => {
     const { workerId: _workerId, ...missingWorkerId } = legacyWorkerRecord();
     expect(() => normalizeWorkerRecord(missingWorkerId)).toThrow(/workerId/);

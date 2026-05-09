@@ -1,8 +1,10 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isSuccessfulTerminalWorker, type WorkerRuntime, type WorkerSummary } from "./types.js";
 
 type WorkerRecord = Record<string, unknown>;
+
+const registryWriteQueues = new Map<string, Promise<unknown>>();
 
 const WORKER_STATUSES = [
   "launching",
@@ -149,6 +151,59 @@ function validateOptionalEnum<T extends readonly string[]>(
   }
 }
 
+function parseWorkerRegistryJson(raw: string, registryPath: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const trailingGarbageMatch = detail.match(/after JSON at position (\d+)/);
+    if (trailingGarbageMatch) {
+      const garbagePosition = Number.parseInt(trailingGarbageMatch[1]!, 10);
+      const trailing = raw.slice(garbagePosition).trim();
+      if (/^(?:[\]}]\s*)+$/.test(trailing)) {
+        return JSON.parse(raw.slice(0, garbagePosition));
+      }
+    }
+    throw new Error(`Failed to parse worker registry ${registryPath}: ${detail}`);
+  }
+}
+
+async function writeRegistryFileAtomically(registryPath: string, contents: string): Promise<void> {
+  await mkdir(path.dirname(registryPath), { recursive: true });
+  const temporaryPath = path.join(
+    path.dirname(registryPath),
+    `.${path.basename(registryPath)}.${process.pid}.${Date.now()}.${Math.random()
+      .toString(36)
+      .slice(2)}.tmp`,
+  );
+  try {
+    await writeFile(temporaryPath, contents, "utf8");
+    await rename(temporaryPath, registryPath);
+  } catch (error) {
+    try {
+      await unlink(temporaryPath);
+    } catch {
+      // Best-effort cleanup; preserve the original write failure.
+    }
+    throw error;
+  }
+}
+
+async function withRegistryWriteQueue<T>(
+  registryPath: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = registryWriteQueues.get(registryPath) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(action);
+  const queued = next.finally(() => {
+    if (registryWriteQueues.get(registryPath) === queued) {
+      registryWriteQueues.delete(registryPath);
+    }
+  });
+  registryWriteQueues.set(registryPath, queued);
+  return next;
+}
+
 function validateWorkerRecord(record: WorkerRecord): void {
   for (const field of REQUIRED_STRING_FIELDS) {
     requireString(record, field);
@@ -229,13 +284,7 @@ export async function loadWorkerRegistry(registryPath: string): Promise<WorkerRu
     throw error;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to parse worker registry ${registryPath}: ${detail}`);
-  }
+  const parsed = parseWorkerRegistryJson(raw, registryPath);
 
   if (!isRecord(parsed) || !Array.isArray(parsed.workers)) {
     throw new Error(`Invalid worker registry ${registryPath}: expected object with workers array`);
@@ -253,35 +302,44 @@ export async function loadWorkerRegistry(registryPath: string): Promise<WorkerRu
   });
 }
 
-export async function saveWorkerRegistry(
+async function saveWorkerRegistryUnlocked(
   registryPath: string,
   workers: WorkerRuntime[],
 ): Promise<WorkerRuntime[]> {
   const normalizedWorkers = workers.map((worker) => normalizeWorkerRecord(worker));
-  await mkdir(path.dirname(registryPath), { recursive: true });
-  await writeFile(
+  await writeRegistryFileAtomically(
     registryPath,
     `${JSON.stringify({ workers: normalizedWorkers }, null, 2)}\n`,
-    "utf8",
   );
   return normalizedWorkers;
+}
+
+export async function saveWorkerRegistry(
+  registryPath: string,
+  workers: WorkerRuntime[],
+): Promise<WorkerRuntime[]> {
+  return withRegistryWriteQueue(registryPath, () =>
+    saveWorkerRegistryUnlocked(registryPath, workers),
+  );
 }
 
 export async function upsertWorkerRuntime(
   registryPath: string,
   worker: WorkerRuntime,
 ): Promise<WorkerRuntime[]> {
-  const workers = await loadWorkerRegistry(registryPath);
-  const existing = workers.find((entry) => entry.workerId === worker.workerId);
-  if (existing && existing.updatedAt > worker.updatedAt) {
-    return workers;
-  }
+  return withRegistryWriteQueue(registryPath, async () => {
+    const workers = await loadWorkerRegistry(registryPath);
+    const existing = workers.find((entry) => entry.workerId === worker.workerId);
+    if (existing && existing.updatedAt > worker.updatedAt) {
+      return workers;
+    }
 
-  const normalizedWorker = normalizeWorkerRecord(worker);
-  const filtered = workers.filter((entry) => entry.workerId !== normalizedWorker.workerId);
-  filtered.push(normalizedWorker);
-  filtered.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
-  return saveWorkerRegistry(registryPath, filtered);
+    const normalizedWorker = normalizeWorkerRecord(worker);
+    const filtered = workers.filter((entry) => entry.workerId !== normalizedWorker.workerId);
+    filtered.push(normalizedWorker);
+    filtered.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+    return saveWorkerRegistryUnlocked(registryPath, filtered);
+  });
 }
 
 export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
