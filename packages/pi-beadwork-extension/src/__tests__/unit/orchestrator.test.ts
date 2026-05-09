@@ -759,6 +759,81 @@ describe("worker inspection", () => {
     expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
   });
 
+  it("allows a second current-branch remediation for the same unresolved finding set", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-second-remediation-"));
+    const finding = {
+      file: "src/task.ts",
+      issue: "broken behavior",
+      suggestion: "fix it",
+      severity: "fix" as const,
+    };
+    const findingSetKey = [finding.severity, finding.file, finding.issue, finding.suggestion]
+      .map((value) => value.trim().toLowerCase())
+      .join("|");
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "changes-requested",
+      reviewRemediationAttempts: 1,
+      reviewFindings: [finding],
+      reviewTriageFindingSetKey: findingSetKey,
+      currentBranchRemediationFindingSetKey: findingSetKey,
+      reviewTriageDecisions: [
+        {
+          finding,
+          findingKey: findingSetKey,
+          classification: "fix",
+          rationale: "still unresolved",
+          action: "approved for current-branch remediation",
+        },
+      ],
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn().mockResolvedValue({ sessionName: "pi-bw", created: false }),
+      launchWorker: vi.fn().mockResolvedValue({
+        sessionName: "pi-bw",
+        windowName: "bw-101-second-window",
+        paneId: "%44",
+        launchCommand: "bash launch.sh",
+      }),
+      inspectWorker: vi.fn(),
+      cleanupWorker: vi.fn(),
+    };
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) => {
+        if (id === "BW-101") {
+          return createIssue({ id: "BW-101", type: "task", status: "closed" });
+        }
+        if (id === "BW-100") {
+          return createIssue({ id: "BW-100", type: "epic", status: "open" });
+        }
+        throw new Error(`unexpected issue ${id}`);
+      }),
+      history: vi.fn().mockResolvedValue([]),
+      reopen: vi.fn(),
+      comment: vi.fn(),
+    });
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(false),
+      adapter,
+      tmuxBackend,
+      runner: createGitRunner([
+        { sha: "abc123", subject: "BW-101 implement", paths: ["src/task.ts"] },
+      ]),
+    });
+
+    expect(inspected.status).toBe("running");
+    expect(inspected.reviewStatus).toBe("remediation-in-progress");
+    expect(inspected.reviewRemediationAttempts).toBe(2);
+    expect(inspected.landingVerification).toContain("remediation attempt 2/2");
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledTimes(1);
+    expect(adapter.reopen).toHaveBeenCalledWith(repoRoot, "BW-101");
+    await expect(readFile(worker.promptFile, "utf8")).resolves.toContain("broken behavior");
+  });
+
   it("skips current-branch review only when workerExecution.review.enabled is false", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-skip-review-"));
     const runtimeDir = path.join(
@@ -936,6 +1011,67 @@ describe("worker inspection", () => {
     expect(inspected.status).toBe("attention");
     expect(inspected.lastError).toContain("attempts exhausted (2/2)");
     expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
+
+    expect(inspected.reviewRemediationAttempts).toBe(2);
+  });
+
+  it("reruns current-branch review when cached approval is for a stale HEAD", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-stale-review-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      ticketStatus: "closed",
+      status: "exited",
+      reviewStatus: "approved",
+      reviewVerdict: "approve",
+      reviewFindings: [],
+      reviewedWorkerHead: "old-head",
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "main\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse") {
+        return { stdout: "new-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123\tBW-101 implement task\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "show") {
+        return { stdout: "src/task.ts\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("current-branch-review-handoff")) {
+        return {
+          stdout: '<review_report>{"summary":"Fresh approval.","findings":[]}</review_report>',
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+
+    const inspected = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      worker,
+      config: currentBranchVerificationConfig(true),
+      adapter: createAdapter({
+        show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", status: "closed" })),
+        history: vi.fn().mockResolvedValue([]),
+      }),
+      tmuxBackend: {
+        ensureSession: vi.fn(),
+        launchWorker: vi.fn(),
+        inspectWorker: vi.fn(),
+        cleanupWorker: vi.fn(),
+      },
+      runner,
+    });
+
+    expect(inspected.status).toBe("verified");
+    expect(inspected.reviewStatus).toBe("approved");
+    expect(inspected.reviewedWorkerHead).toBe("new-head");
+    expect(runner.mock.calls.filter((call) => call[0] === "bash")).toHaveLength(1);
   });
 
   it("verifies closed no-code tickets only when beadwork history explains the no-commit outcome", async () => {

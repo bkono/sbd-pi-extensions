@@ -1037,6 +1037,22 @@ function canReuseApprovedReview(worker: WorkerRuntime, workerHead: string | unde
   );
 }
 
+async function resolveCurrentBranchHead(input: {
+  runner: ProcessRunner;
+  checkoutPath: string;
+}): Promise<string | undefined> {
+  try {
+    const result = await input.runner("git", ["rev-parse", "HEAD"], {
+      cwd: input.checkoutPath,
+      timeout: 10_000,
+    });
+    const head = result.code === 0 ? result.stdout.trim() : "";
+    return head.length > 0 ? head : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type WorkerLifecycleEvent =
   | {
       type: "post-exit-started";
@@ -1265,6 +1281,19 @@ async function runCurrentBranchReviewerPass(input: {
 async function runCurrentBranchReviewOperation(
   input: CurrentBranchVerificationContext,
 ): Promise<CurrentBranchWorkerRuntime> {
+  if (input.worker.status === "running") {
+    return input.worker;
+  }
+
+  if (input.worker.reviewStatus === "remediation-in-progress") {
+    return {
+      ...input.worker,
+      status: "running",
+      reviewStatus: "remediation-in-progress",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   if (input.config.workerExecution.review.enabled === false) {
     return {
       ...input.worker,
@@ -1275,11 +1304,14 @@ async function runCurrentBranchReviewOperation(
     };
   }
 
-  if (
-    (input.worker.reviewStatus === "approved" || input.worker.reviewStatus === "nits-only") &&
-    input.worker.reviewedWorkerHead
-  ) {
-    return input.worker;
+  if (hasReusableApprovedReview(input.worker)) {
+    const workerHead = await resolveCurrentBranchHead({
+      runner: input.runner,
+      checkoutPath: input.worker.checkoutPath,
+    });
+    if (canReuseApprovedReview(input.worker, workerHead)) {
+      return input.worker;
+    }
   }
 
   const pendingWorker: CurrentBranchWorkerRuntime = {
@@ -1287,6 +1319,7 @@ async function runCurrentBranchReviewOperation(
     reviewStatus: "pending",
     reviewAt: new Date().toISOString(),
     reviewSummary: "Current-branch reviewer gate is running.",
+    reviewedWorkerHead: undefined,
     updatedAt: new Date().toISOString(),
   };
 
@@ -1601,21 +1634,6 @@ async function handleCurrentBranchRemediationOperation(
           "Current-branch verification blocked by unresolved coordinator-approved fixes.",
       },
     ) as CurrentBranchWorkerRuntime;
-  }
-
-  if (
-    input.worker.currentBranchRemediationFindingSetKey === input.worker.reviewTriageFindingSetKey &&
-    attempts > 0
-  ) {
-    return {
-      ...input.worker,
-      status: "running",
-      reviewStatus: "remediation-in-progress",
-      landingVerification:
-        input.worker.landingVerification ??
-        "Current-branch remediation was already launched for this finding set.",
-      updatedAt: new Date().toISOString(),
-    };
   }
 
   await appendWorkerLog(
