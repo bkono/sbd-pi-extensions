@@ -13,11 +13,15 @@
     {
       "text": "Execution notes for Phase 1:\n\nThis phase is the most file-conflict-prone because it touches the type surface that everything depends on. Recommend a single worker or serial execution for these tickets.\n\nKey files with high churn risk:\n- `src/types.ts` — touched by qmd.1.1 (types), qmd.1.3 (verified status)\n- `src/registry.ts` — touched by qmd.1.3 (status handling), qmd.1.4 (normalization)\n- `src/config.ts` — touched by qmd.1.2 (new block)\n\nSafe parallelism: qmd.1.1 and qmd.1.2 can run concurrently (different files, no dependency). Then qmd.1.3 and qmd.1.4 can potentially parallel after qmd.1.1. Finally qmd.1.5 and qmd.1.6 are serial (qmd.1.6 depends on both qmd.1.3 and qmd.1.5).\n\nThe `isSuccessfulTerminalWorker` helper (qmd.1.3) is a derived concept for UI/summaries — do NOT add a persistent field. It's a pure function over worker record state.",
       "timestamp": "2026-05-08T23:40:29Z"
+    },
+    {
+      "text": "Phase 1 implementation complete. Child tasks sbdpi-qmd.1.1 through .1.6 are closed and reviewed. Key commits: e8cc029, 6a5a540, e6490e0, 8016b40, 5fd9b14, aeac4a8, db3a79a, 948e256, 579d645, 425cbdc. Package gates passed repeatedly for @solvedbydev/pi-beadwork-extension: lint, test, typecheck.",
+      "timestamp": "2026-05-09T04:28:11Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Phase 1: Substrate foundation — types, config, registry normalization",
   "type": "epic",
-  "updated_at": "2026-05-08T23:40:29Z"
+  "updated_at": "2026-05-09T04:28:11Z"
 }
