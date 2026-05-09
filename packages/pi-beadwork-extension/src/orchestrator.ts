@@ -1293,6 +1293,19 @@ async function runCurrentBranchReviewOperation(
     };
   }
 
+  if (
+    input.config.workerExecution.review.enabled === false &&
+    input.worker.reviewStatus === "remediation-in-progress" &&
+    input.worker.reviewTriageFindingSetKey &&
+    input.worker.currentBranchRemediationFindingSetKey === input.worker.reviewTriageFindingSetKey
+  ) {
+    return {
+      ...input.worker,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   if (input.config.workerExecution.review.enabled === false) {
     return {
       ...input.worker,
@@ -1615,6 +1628,18 @@ async function handleCurrentBranchRemediationOperation(
   }
 
   if (isActiveWorkerProcess(input.worker)) {
+    return {
+      ...input.worker,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (
+    input.worker.reviewStatus === "remediation-in-progress" &&
+    input.worker.reviewTriageFindingSetKey &&
+    input.worker.currentBranchRemediationFindingSetKey === input.worker.reviewTriageFindingSetKey
+  ) {
     return {
       ...input.worker,
       status: "running",
