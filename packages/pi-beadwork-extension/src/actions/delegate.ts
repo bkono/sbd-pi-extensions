@@ -35,6 +35,20 @@ export type DelegateActionDeps = {
   ) => Promise<SessionState>;
 };
 
+function describeDelegateLaunch(worker: WorkerRuntime): string {
+  if (worker.executionMode === "worktree") {
+    return (
+      `Launched worktree worker ${worker.workerId} for ${worker.ticketId} in the background ` +
+      `at worktreePath ${worker.worktreePath}.`
+    );
+  }
+
+  return (
+    `Launched current-branch worker ${worker.workerId} for ${worker.ticketId} in the background ` +
+    `in the current branch checkout at checkoutPath ${worker.checkoutPath} (repo root).`
+  );
+}
+
 export async function executeDelegateAction(input: {
   ctx: ExtensionCommandContext;
   deps: DelegateActionDeps;
@@ -67,9 +81,12 @@ export async function executeDelegateAction(input: {
     workerModelOverride: modelOverride?.model,
   });
   const landingMode = active.config.landing.policy === "deferred" ? "held" : "completed";
+  const pollSeconds = Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000));
   ctx.ui.notify(
-    `Launched worker ${worker.workerId} for ${worker.ticketId} in the background at ${worker.checkoutPath}. ` +
-      `You should stay in the current pane while background supervision keeps checking every ${Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000))}s and notifies when the worker exits and when landing is ${landingMode}. Follow streamed worker activity in ${worker.logFile}.`,
+    `${describeDelegateLaunch(worker)} ` +
+      `You should stay in the current pane while background supervision keeps checking every ${pollSeconds}s ` +
+      `and notifies when the worker exits and when landing is ${landingMode}. ` +
+      `Follow streamed worker activity in ${worker.logFile}.`,
     "info",
   );
 

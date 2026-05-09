@@ -927,11 +927,48 @@ describe("pi beadwork extension", () => {
     await harness.invokeCommand("bw", "delegate BW-101", ctx);
 
     const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("Launched worker bw-101-worker for BW-101 in the background");
+    expect(message).toContain(
+      "Launched worktree worker bw-101-worker for BW-101 in the background",
+    );
+    expect(message).toContain("at worktreePath");
     expect(message).toContain("stay in the current pane");
     expect(message).toContain("background supervision keeps checking every 30s");
     expect(message).toContain("Follow streamed worker activity in");
     expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
+  });
+
+  it("shows current-branch launch guidance after /bw delegate", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-delegate-current-branch-guidance",
+    });
+    const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...worker } =
+      createWorkerRuntime(tempDir);
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    launchTicketWorkerMock.mockResolvedValue({
+      ...worker,
+      executionMode: "current-branch",
+      checkoutPath: tempDir,
+      branchName: "main",
+      launchHead: "abc123",
+      status: "running",
+      ticketStatus: "open",
+      workerId: "bw-101-worker",
+    });
+
+    await harness.invokeCommand("bw", "delegate BW-101", ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain(
+      "Launched current-branch worker bw-101-worker for BW-101 in the background",
+    );
+    expect(message).toContain(`checkoutPath ${tempDir} (repo root)`);
+    expect(message).not.toContain("worktreePath");
   });
 
   it("passes one-off provider/model overrides through /bw delegate", async () => {

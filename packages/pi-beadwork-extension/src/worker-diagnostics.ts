@@ -626,6 +626,16 @@ export function formatWorkerInspectionLines(inspection: WorkerInspection): strin
     `  Next: ${inspection.followUp.action}`,
   ];
 
+  if (worker.executionMode === "worktree") {
+    lines.push(
+      `  Launch: executionMode=worktree · checkoutPath=${worker.checkoutPath} · worktreePath=${worker.worktreePath} · branchName=${worker.branchName}`,
+    );
+  } else {
+    lines.push(
+      `  Launch: executionMode=current-branch · checkoutPath=${worker.checkoutPath} · branchName=${worker.branchName} · launchHead=${worker.launchHead}`,
+    );
+  }
+
   if (inspection.validation.detail) {
     lines.push(`  Validation detail: ${inspection.validation.detail}`);
   }

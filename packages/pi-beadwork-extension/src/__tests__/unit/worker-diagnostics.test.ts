@@ -83,6 +83,33 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.action).toContain("verified successfully");
   });
 
+  it("includes current-branch launch metadata in formatted inspections", () => {
+    const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...base } = createWorker();
+    const worker = {
+      ...base,
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      status: "running",
+    } as WorkerRuntime;
+
+    const lines = formatWorkerInspectionLines(inspectWorker(worker));
+
+    expect(lines).toContain(
+      "  Launch: executionMode=current-branch · checkoutPath=/repo · branchName=main · launchHead=abc123",
+    );
+    expect(lines.join("\n")).not.toContain("worktreePath");
+  });
+
+  it("includes worktree launch metadata in formatted inspections", () => {
+    const lines = formatWorkerInspectionLines(inspectWorker(createWorker()));
+
+    expect(lines).toContain(
+      "  Launch: executionMode=worktree · checkoutPath=/tmp/worktree · worktreePath=/tmp/worktree · branchName=BW-101/task",
+    );
+  });
+
   it("requires attention when a landed worker still has pending validation", () => {
     const inspection = inspectWorker(
       createWorker({

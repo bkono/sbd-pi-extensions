@@ -41,6 +41,32 @@ function buildWorkerId(ticketId: string): string {
   return `${ticketId.toLowerCase()}-${stamp}-${random}`;
 }
 
+function describeLaunchLocation(worker: WorkerRuntime): string {
+  if (worker.executionMode === "worktree") {
+    return `executionMode=worktree worktreePath=${worker.worktreePath}`;
+  }
+
+  return (
+    `executionMode=current-branch checkoutPath=${worker.checkoutPath} ` +
+    `branchName=${worker.branchName} launchHead=${worker.launchHead}`
+  );
+}
+
+function buildLaunchFailureMessage(worker: WorkerRuntime, error: unknown): string {
+  return (
+    `Failed to launch worker ${worker.workerId} for ${worker.ticketId} ` +
+    `(${describeLaunchLocation(worker)}): ${humanizeError(error)}`
+  );
+}
+
+function buildRunLaunchNotice(worker: WorkerRuntime): string {
+  if (worker.executionMode === "worktree") {
+    return `launched worktree worker for ${worker.ticketId} at worktreePath ${worker.worktreePath}`;
+  }
+
+  return `launched current-branch worker for ${worker.ticketId} at checkoutPath ${worker.checkoutPath}`;
+}
+
 function humanizeError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
@@ -224,6 +250,7 @@ type RunLaunchLockResult = {
   workers: WorkerRuntime[];
   launchable: BeadworkIssue[];
   launchedThisCycle: string[];
+  launchNotices: string[];
 };
 
 const workerOrchestrationLocks = new Map<string, WorkerOrchestrationLock>();
@@ -1252,11 +1279,13 @@ async function launchReadyWorkersWithinConcurrencyLimit(input: {
   maxWorkers: number;
   prime?: string;
   tmuxBackend: TmuxBackend;
+  processRunner?: ProcessRunner;
 }): Promise<RunLaunchLockResult> {
   const lockKey = `${input.registryPath}::${input.epicId}`;
 
   return withEpicRunLaunchLock(lockKey, async () => {
     const launchedThisCycle: string[] = [];
+    const launchNotices: string[] = [];
     let workers = (await loadWorkerRegistry(input.registryPath)).filter(
       (worker) => worker.epicId === input.epicId,
     );
@@ -1279,8 +1308,10 @@ async function launchReadyWorkersWithinConcurrencyLimit(input: {
         epicId: input.epicId,
         prime: input.prime,
         tmuxBackend: input.tmuxBackend,
+        processRunner: input.processRunner,
       });
       launchedThisCycle.push(worker.ticketId);
+      launchNotices.push(buildRunLaunchNotice(worker));
     }
 
     workers = (await loadWorkerRegistry(input.registryPath)).filter(
@@ -1291,6 +1322,7 @@ async function launchReadyWorkersWithinConcurrencyLimit(input: {
       workers,
       launchable,
       launchedThisCycle,
+      launchNotices,
     };
   });
 }
@@ -2279,14 +2311,27 @@ export async function launchTicketWorker(input: {
         };
 
   await upsertWorkerRuntime(registryPath, pendingWorker);
-  await tmuxBackend.ensureSession({ sessionName: input.config.tmux.sessionName });
-  const launched = await tmuxBackend.launchWorker({
-    sessionName: input.config.tmux.sessionName,
-    workerId,
-    title: ticket.title,
-    worktreePath: checkout.checkoutPath,
-    launchCommand,
-  });
+
+  let launched: Awaited<ReturnType<TmuxBackend["launchWorker"]>>;
+  try {
+    await tmuxBackend.ensureSession({ sessionName: input.config.tmux.sessionName });
+    launched = await tmuxBackend.launchWorker({
+      sessionName: input.config.tmux.sessionName,
+      workerId,
+      title: ticket.title,
+      worktreePath: checkout.checkoutPath,
+      launchCommand,
+    });
+  } catch (error) {
+    const launchFailedWorker: WorkerRuntime = {
+      ...pendingWorker,
+      status: "failed",
+      lastError: buildLaunchFailureMessage(pendingWorker, error),
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertWorkerRuntime(registryPath, launchFailedWorker);
+    throw new Error(launchFailedWorker.lastError);
+  }
 
   const runningWorker: WorkerRuntime = {
     ...pendingWorker,
@@ -2718,12 +2763,16 @@ export async function runBoundedEpicLoop(input: {
         maxWorkers: input.options.workers,
         prime: input.prime,
         tmuxBackend,
+        processRunner: runner,
       });
       workers = launchResult.workers;
       launchable = launchResult.launchable;
       launchedThisCycle = launchResult.launchedThisCycle;
       for (const ticketId of launchedThisCycle) {
         launched.add(ticketId);
+      }
+      for (const notice of launchResult.launchNotices) {
+        notes.push(`Cycle ${cycle}: ${notice}.`);
       }
     } else {
       const attemptedTicketIds = new Set(workers.map((worker) => worker.ticketId));

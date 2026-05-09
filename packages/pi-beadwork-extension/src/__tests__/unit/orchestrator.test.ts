@@ -260,6 +260,104 @@ describe("launchTicketWorker", () => {
       cleanupStatus: "pending",
     });
   });
+
+  it("records current-branch launch failures with checkout metadata", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-launch-current-fail-"));
+    const ticket = createIssue({ id: "BW-203", title: "Current branch fail", type: "task" });
+    const tmuxBackend = createMockTmuxBackend();
+    vi.mocked(tmuxBackend.launchWorker).mockRejectedValueOnce(new Error("tmux pane denied"));
+    const processRunner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref HEAD") {
+        return ok("main\n");
+      }
+      if (command === "git" && args.join(" ") === "rev-parse HEAD") {
+        return ok("head123\n");
+      }
+      throw new Error(`unexpected process call: ${command} ${args.join(" ")}`);
+    });
+
+    await expect(
+      launchTicketWorker({
+        cwd: repoRoot,
+        repoRoot,
+        config: {
+          ...DEFAULT_CONFIG,
+          workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "current-branch" },
+        },
+        adapter: createLaunchAdapter(ticket),
+        ticketId: ticket.id,
+        tmuxBackend,
+        processRunner,
+      }),
+    ).rejects.toThrow(
+      `Failed to launch worker ${ticket.id.toLowerCase()}-worker for ${ticket.id} `,
+    );
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const records = await loadWorkerRegistry(registryPath);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "main",
+      launchHead: "head123",
+      status: "failed",
+    });
+    expect(records[0]?.lastError).toContain(
+      `executionMode=current-branch checkoutPath=${repoRoot} branchName=main launchHead=head123`,
+    );
+    expect(records[0]?.lastError).toContain("tmux pane denied");
+  });
+
+  it("records worktree launch failures with worktree metadata", async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "pi-bw-launch-worktree-fail-"));
+    const repoRoot = path.join(tmp, "repo");
+    const worktreeBase = path.join(tmp, "worktrees");
+    await mkdir(repoRoot, { recursive: true });
+    const ticket = createIssue({ id: "BW-204", title: "Worktree fail", type: "task" });
+    const tmuxBackend = createMockTmuxBackend();
+    vi.mocked(tmuxBackend.launchWorker).mockRejectedValueOnce(new Error("tmux pane denied"));
+    const processRunner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "branch") {
+        return ok("");
+      }
+      if (command === "git" && args[0] === "worktree" && args[1] === "add") {
+        return ok("");
+      }
+      throw new Error(`unexpected process call: ${command} ${args.join(" ")}`);
+    });
+
+    await expect(
+      launchTicketWorker({
+        cwd: repoRoot,
+        repoRoot,
+        config: {
+          ...DEFAULT_CONFIG,
+          worktrees: { ...DEFAULT_CONFIG.worktrees, baseDir: worktreeBase },
+        },
+        adapter: createLaunchAdapter(ticket),
+        ticketId: ticket.id,
+        tmuxBackend,
+        processRunner,
+      }),
+    ).rejects.toThrow("executionMode=worktree worktreePath=");
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const records = await loadWorkerRegistry(registryPath);
+    expect(records).toHaveLength(1);
+    const failed = records[0] as WorkerRuntime;
+    expect(failed).toMatchObject({ executionMode: "worktree", status: "failed" });
+    expect(failed.lastError).toContain(
+      `executionMode=worktree worktreePath=${failed.worktreePath}`,
+    );
+    expect(failed.lastError).toContain("tmux pane denied");
+  });
 });
 
 describe("orchestrator helpers", () => {
