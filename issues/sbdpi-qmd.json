@@ -18,11 +18,15 @@
     {
       "text": "## Dependency Architecture Update (2026-05-09)\n\nReviewed after plan-space polish. Two gaps were fixed and one overlap was narrowed:\n\n1. Added `sbdpi-qmd.4.5` for attribution-aware scope validation failure handling. This preserves the proposal requirement that post-scope validation failures create fix-forward work from validation output + verified ticket commit sets, rather than reopening verified workers or routing everything to vague attention.\n2. Added `sbdpi-qmd.5.6` for deterministic e2e smoke scripts with detailed logging/artifacts. This makes the final validation self-contained and debuggable, not just a broad instruction to run tests.\n3. Narrowed `sbdpi-qmd.2.3` to launch/delegate/run-visible terminology only; comprehensive UI/status badges remain in `sbdpi-qmd.5.3`. Added dependency `.2.3 blocks .2.4` so Phase 2 tests include launch-visible text before Phase 3 starts.\n\nUpdated cross-phase gates:\n- `.1.6` blocks `.2.1` and `.2.2`.\n- `.2.4` blocks `.3.1` and now waits for `.2.1`, `.2.2`, and `.2.3`.\n- `.3.5` blocks `.4.1`.\n- `.4.2` blocks both `.4.5` and `.4.3`; `.4.5` also blocks `.4.3`, so validation-failure fix-forward exists before scope review.\n- `.4.4` blocks `.5.1`, `.5.3`, and `.5.4`.\n- `.5.2` blocks `.5.6`; `.5.6` blocks final `.5.5`.\n\nThe intended ready set remains small and safe: initially `.1.1` and `.1.2` can run in parallel. Later concurrency is allowed only where file ownership is reasonably separated by the dependency graph.",
       "timestamp": "2026-05-09T00:21:04Z"
+    },
+    {
+      "text": "## Plan-space polish update (2026-05-09, pass 2)\n\nReread AGENTS.md and re-reviewed every  issue/dependency with the concurrency rule in mind: any ready bead can run in parallel.\n\nChanges made in this pass:\n\n1. Added explicit current-branch config details that were implied but not self-contained:  plus env override, and  env override. Detached HEAD is rejected by default, opt-in only, and evidence packs must treat it specially.\n2. Tightened remediation lifecycle: per-worker current-branch remediation must reopen/comment a closed ticket before relaunch, track attempts durably, avoid duplicate relaunches across polls/restarts, and close again on success.\n3. Reordered Phase 5 so deterministic e2e smoke scripts are built BEFORE the default flip. The scripts first run current-branch via explicit config; after the default flip the final regression reruns them without an override to prove current-branch is truly default.\n4. Updated final regression/docs coverage for config/env, detached HEAD behavior, default-vs-explicit mode assertions, prompt/artifact logging, and worktree fallback.\n\nDependency correction:\n- Removed .\n- Added  because crash-recovery scenarios need the crash recovery implementation.\n- Added  so the default flip waits until e2e scripts exist and pass in explicit current-branch mode.\n\nThe ready set should remain  +  only at the start, preserving safe parallelism while allowing high-confidence plan-space implementation.",
+      "timestamp": "2026-05-09T01:57:45Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Migrate pi-beadwork-extension to current-branch swarm execution",
   "type": "epic",
-  "updated_at": "2026-05-09T00:21:04Z"
+  "updated_at": "2026-05-09T01:57:45Z"
 }
