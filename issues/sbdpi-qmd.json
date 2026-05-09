@@ -26,11 +26,15 @@
     {
       "text": "## Corrected plan-space polish update (2026-05-09, pass 2)\n\nReread AGENTS.md and re-reviewed every `sbdpi-qmd` issue/dependency with the concurrency rule in mind: any ready bead can run in parallel.\n\nChanges made in this pass:\n\n1. Added explicit current-branch config details that were implied but not self-contained: `workerExecution.allowDetachedHead` plus env override, and `workerExecution.review.enabled` env override. Detached HEAD is rejected by default, opt-in only, and evidence packs must treat it specially.\n2. Tightened remediation lifecycle: per-worker current-branch remediation must reopen/comment a closed ticket before relaunch, track attempts durably, avoid duplicate relaunches across polls/restarts, and close again on success.\n3. Reordered Phase 5 so deterministic e2e smoke scripts are built BEFORE the default flip. The scripts first run current-branch via explicit config; after the default flip the final regression reruns them without an override to prove current-branch is truly default.\n4. Updated final regression/docs coverage for config/env, detached HEAD behavior, default-vs-explicit mode assertions, prompt/artifact logging, and worktree fallback.\n\nDependency correction:\n- Removed `sbdpi-qmd.5.2 blocks sbdpi-qmd.5.6`.\n- Added `sbdpi-qmd.5.1 blocks sbdpi-qmd.5.6` because crash-recovery scenarios need the crash recovery implementation.\n- Added `sbdpi-qmd.5.6 blocks sbdpi-qmd.5.2` so the default flip waits until e2e scripts exist and pass in explicit current-branch mode.\n\nThe intended initial ready set remains `sbdpi-qmd.1.1` + `sbdpi-qmd.1.2`, preserving safe parallelism while allowing high-confidence plan-space implementation.",
       "timestamp": "2026-05-09T01:58:07Z"
+    },
+    {
+      "text": "## Plan-space polish update (pass 3)\n\nFresh AGENTS.md reread and full `sbdpi-qmd` audit focused on self-containment, parallel-ready safety, and user-operability. Adjustments made:\n\n1. Tightened substrate typing so worktree cleanup policy is legacy/worktree-only and current-branch records do not populate or consult it.\n2. Made current-branch reviewer output self-contained with a parseable `ReviewFinding` shape plus raw-output preservation and attention routing on parse failure.\n3. Tightened crash recovery so superseded crashed-worker records do not falsely stop a run once a replacement is active/verified, and duplicate replacements are forbidden across polls/restarts.\n4. Split e2e script documentation into `sbdpi-qmd.5.7`, blocked by script creation and general docs, so docs can be accurate without serializing all convention documentation behind the scripts.\n\nNo planned features were removed; the changes add detail and improve dependency-driven concurrency.\n",
+      "timestamp": "2026-05-09T02:11:39Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Migrate pi-beadwork-extension to current-branch swarm execution",
   "type": "epic",
-  "updated_at": "2026-05-09T01:58:07Z"
+  "updated_at": "2026-05-09T02:11:39Z"
 }
