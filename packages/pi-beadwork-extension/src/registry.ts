@@ -1,226 +1,211 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { WorkerCheckout, WorkerRuntime, WorkerSummary } from "./types.js";
+import type { WorkerRuntime, WorkerSummary } from "./types.js";
 
-type WorkerRegistryFile = {
-  workers: WorkerRuntime[];
-};
+type WorkerRecord = Record<string, unknown>;
 
-function normalizeWorkerStatus(value: unknown): WorkerRuntime["status"] {
-  return value === "launching" ||
-    value === "running" ||
-    value === "exited" ||
-    value === "held" ||
-    value === "landed" ||
-    value === "failed" ||
-    value === "attention"
-    ? value
-    : "failed";
+const WORKER_STATUSES = [
+  "launching",
+  "running",
+  "exited",
+  "held",
+  "landed",
+  "failed",
+  "attention",
+] as const satisfies readonly WorkerRuntime["status"][];
+
+const CLEANUP_POLICIES = ["keep", "cleanup-after-landing"] as const;
+const LANDING_POLICIES = ["auto", "deferred"] as const;
+const CLEANUP_STATUSES = ["pending", "cleaned", "failed"] as const;
+const VALIDATION_STATUSES = ["pending", "passed", "failed"] as const;
+const REMEDIATION_STATUSES = ["running", "failed", "exhausted"] as const;
+const REVIEW_STATUSES = [
+  "pending",
+  "approved",
+  "nits-only",
+  "changes-requested",
+  "remediation-in-progress",
+  "review-blocked",
+] as const;
+const REVIEW_VERDICTS = ["approve", "approve-with-nits", "request-changes"] as const;
+
+const REQUIRED_STRING_FIELDS = [
+  "workerId",
+  "ticketId",
+  "ticketTitle",
+  "branchName",
+  "tmuxSession",
+  "tmuxWindow",
+  "tmuxPane",
+  "runtimeDir",
+  "promptFile",
+  "scriptFile",
+  "logFile",
+  "stateFile",
+  "exitCodeFile",
+  "finishedAtFile",
+  "launchCommand",
+  "workerCommand",
+  "startedAt",
+  "updatedAt",
+] as const;
+
+const OPTIONAL_STRING_FIELDS = [
+  "epicId",
+  "ticketStatus",
+  "workerProvider",
+  "workerModel",
+  "reviewerProvider",
+  "reviewerModel",
+  "landingHeldAt",
+  "landingRequestedAt",
+  "cleanupAt",
+  "validationAt",
+  "validationSummary",
+  "remediationAt",
+  "remediationSummary",
+  "reviewAt",
+  "reviewSummary",
+  "reviewedWorkerHead",
+  "reviewRemediationAt",
+  "landingRemediationAt",
+  "landingRemediationSummary",
+  "landingVerifiedAt",
+  "landingVerification",
+  "finishedAt",
+  "lastError",
+] as const;
+
+const OPTIONAL_NUMBER_FIELDS = [
+  "remediationAttempts",
+  "reviewValidFeedbackCount",
+  "reviewInvalidFeedbackCount",
+  "reviewRemediationAttempts",
+  "landingRemediationAttempts",
+  "landingAheadCount",
+  "landingBehindCount",
+] as const;
+
+const OPTIONAL_STRING_ARRAY_FIELDS = ["reviewFeedback", "commitShas", "touchedPaths"] as const;
+
+function isRecord(value: unknown): value is WorkerRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function normalizeWorkerRuntime(input: unknown): WorkerRuntime | undefined {
-  if (!input || typeof input !== "object") {
-    return undefined;
+function failRecord(message: string): never {
+  throw new Error(`Invalid worker registry record: ${message}`);
+}
+
+function requireString(record: WorkerRecord, field: string): string {
+  const value = record[field];
+  if (typeof value !== "string" || value.length === 0) {
+    failRecord(`missing or invalid string field "${field}"`);
   }
+  return value;
+}
 
-  const value = input as Partial<WorkerRuntime> & {
-    checkoutPath?: unknown;
-    executionMode?: unknown;
-    launchHead?: unknown;
-    worktreePath?: unknown;
-  };
-  const executionMode = value.executionMode === "current-branch" ? "current-branch" : "worktree";
-  const worktreePath =
-    typeof value.worktreePath === "string"
-      ? value.worktreePath
-      : typeof value.checkoutPath === "string" && executionMode === "worktree"
-        ? value.checkoutPath
-        : undefined;
-  const checkoutPath =
-    typeof value.checkoutPath === "string"
-      ? value.checkoutPath
-      : executionMode === "worktree"
-        ? worktreePath
-        : undefined;
+function requireEnum<T extends readonly string[]>(
+  record: WorkerRecord,
+  field: string,
+  allowed: T,
+): T[number] {
+  const value = record[field];
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    failRecord(`missing or invalid field "${field}"; expected one of: ${allowed.join(", ")}`);
+  }
+  return value;
+}
 
+function validateOptionalString(record: WorkerRecord, field: string): void {
+  if (record[field] !== undefined && typeof record[field] !== "string") {
+    failRecord(`invalid optional string field "${field}"`);
+  }
+}
+
+function validateOptionalNumber(record: WorkerRecord, field: string): void {
+  if (record[field] !== undefined && typeof record[field] !== "number") {
+    failRecord(`invalid optional number field "${field}"`);
+  }
+}
+
+function validateOptionalStringArray(record: WorkerRecord, field: string): void {
+  const value = record[field];
   if (
-    typeof value.workerId !== "string" ||
-    typeof value.ticketId !== "string" ||
-    typeof value.ticketTitle !== "string" ||
-    typeof value.branchName !== "string" ||
-    typeof checkoutPath !== "string" ||
-    (executionMode === "worktree" && typeof worktreePath !== "string") ||
-    (executionMode === "current-branch" && typeof value.launchHead !== "string") ||
-    typeof value.tmuxSession !== "string" ||
-    typeof value.tmuxWindow !== "string" ||
-    typeof value.tmuxPane !== "string" ||
-    typeof value.runtimeDir !== "string" ||
-    typeof value.promptFile !== "string" ||
-    typeof value.scriptFile !== "string" ||
-    typeof value.logFile !== "string" ||
-    typeof value.stateFile !== "string" ||
-    typeof value.exitCodeFile !== "string" ||
-    typeof value.finishedAtFile !== "string" ||
-    typeof value.launchCommand !== "string" ||
-    typeof value.workerCommand !== "string" ||
-    typeof value.startedAt !== "string" ||
-    typeof value.updatedAt !== "string"
+    value !== undefined &&
+    (!Array.isArray(value) || value.some((entry) => typeof entry !== "string"))
   ) {
-    return undefined;
+    failRecord(`invalid optional string array field "${field}"`);
+  }
+}
+
+function validateOptionalEnum<T extends readonly string[]>(
+  record: WorkerRecord,
+  field: string,
+  allowed: T,
+): void {
+  if (record[field] !== undefined) {
+    requireEnum(record, field, allowed);
+  }
+}
+
+function validateWorkerRecord(record: WorkerRecord): void {
+  for (const field of REQUIRED_STRING_FIELDS) {
+    requireString(record, field);
+  }
+  for (const field of OPTIONAL_STRING_FIELDS) {
+    validateOptionalString(record, field);
+  }
+  for (const field of OPTIONAL_NUMBER_FIELDS) {
+    validateOptionalNumber(record, field);
+  }
+  for (const field of OPTIONAL_STRING_ARRAY_FIELDS) {
+    validateOptionalStringArray(record, field);
   }
 
-  const checkout: WorkerCheckout =
-    executionMode === "current-branch"
-      ? {
-          executionMode,
-          checkoutPath,
-          branchName: value.branchName,
-          launchHead: value.launchHead as string,
-        }
-      : {
-          executionMode,
-          checkoutPath,
-          branchName: value.branchName,
-          worktreePath: worktreePath as string,
-        };
+  if (record.backend !== "tmux") {
+    failRecord('missing or invalid field "backend"; expected "tmux"');
+  }
 
-  return {
-    ...checkout,
-    workerId: value.workerId,
-    ticketId: value.ticketId,
-    epicId: typeof value.epicId === "string" ? value.epicId : undefined,
-    ticketTitle: value.ticketTitle,
-    ticketStatus: typeof value.ticketStatus === "string" ? value.ticketStatus : undefined,
-    backend: "tmux",
-    tmuxSession: value.tmuxSession,
-    tmuxWindow: value.tmuxWindow,
-    tmuxPane: value.tmuxPane,
-    runtimeDir: value.runtimeDir,
-    promptFile: value.promptFile,
-    scriptFile: value.scriptFile,
-    logFile: value.logFile,
-    stateFile: value.stateFile,
-    exitCodeFile: value.exitCodeFile,
-    finishedAtFile: value.finishedAtFile,
-    launchCommand: value.launchCommand,
-    workerCommand: value.workerCommand,
-    workerProvider: typeof value.workerProvider === "string" ? value.workerProvider : undefined,
-    workerModel: typeof value.workerModel === "string" ? value.workerModel : undefined,
-    reviewerProvider:
-      typeof value.reviewerProvider === "string" ? value.reviewerProvider : undefined,
-    reviewerModel: typeof value.reviewerModel === "string" ? value.reviewerModel : undefined,
-    cleanupPolicy:
-      executionMode === "worktree"
-        ? value.cleanupPolicy === "cleanup-after-landing"
-          ? "cleanup-after-landing"
-          : "keep"
-        : undefined,
-    landingPolicy:
-      value.landingPolicy === "deferred" || value.landingPolicy === "auto"
-        ? value.landingPolicy
-        : undefined,
-    landingHeldAt: typeof value.landingHeldAt === "string" ? value.landingHeldAt : undefined,
-    landingRequestedAt:
-      typeof value.landingRequestedAt === "string" ? value.landingRequestedAt : undefined,
-    cleanupStatus:
-      value.cleanupStatus === "pending" ||
-      value.cleanupStatus === "cleaned" ||
-      value.cleanupStatus === "failed"
-        ? value.cleanupStatus
-        : undefined,
-    cleanupAt: typeof value.cleanupAt === "string" ? value.cleanupAt : undefined,
-    validationStatus:
-      value.validationStatus === "pending" ||
-      value.validationStatus === "passed" ||
-      value.validationStatus === "failed"
-        ? value.validationStatus
-        : undefined,
-    validationAt: typeof value.validationAt === "string" ? value.validationAt : undefined,
-    validationSummary:
-      typeof value.validationSummary === "string" ? value.validationSummary : undefined,
-    remediationStatus:
-      value.remediationStatus === "running" ||
-      value.remediationStatus === "failed" ||
-      value.remediationStatus === "exhausted"
-        ? value.remediationStatus
-        : undefined,
-    remediationAttempts:
-      typeof value.remediationAttempts === "number" ? value.remediationAttempts : undefined,
-    remediationAt: typeof value.remediationAt === "string" ? value.remediationAt : undefined,
-    remediationSummary:
-      typeof value.remediationSummary === "string" ? value.remediationSummary : undefined,
-    reviewStatus:
-      value.reviewStatus === "pending" ||
-      value.reviewStatus === "approved" ||
-      value.reviewStatus === "nits-only" ||
-      value.reviewStatus === "changes-requested" ||
-      value.reviewStatus === "remediation-in-progress" ||
-      value.reviewStatus === "review-blocked"
-        ? value.reviewStatus
-        : undefined,
-    reviewVerdict:
-      value.reviewVerdict === "approve" ||
-      value.reviewVerdict === "approve-with-nits" ||
-      value.reviewVerdict === "request-changes"
-        ? value.reviewVerdict
-        : undefined,
-    reviewAt: typeof value.reviewAt === "string" ? value.reviewAt : undefined,
-    reviewSummary: typeof value.reviewSummary === "string" ? value.reviewSummary : undefined,
-    reviewFeedback:
-      Array.isArray(value.reviewFeedback) &&
-      value.reviewFeedback.every((entry) => typeof entry === "string")
-        ? value.reviewFeedback
-        : undefined,
-    reviewValidFeedbackCount:
-      typeof value.reviewValidFeedbackCount === "number"
-        ? value.reviewValidFeedbackCount
-        : undefined,
-    reviewInvalidFeedbackCount:
-      typeof value.reviewInvalidFeedbackCount === "number"
-        ? value.reviewInvalidFeedbackCount
-        : undefined,
-    reviewedWorkerHead:
-      typeof value.reviewedWorkerHead === "string" ? value.reviewedWorkerHead : undefined,
-    reviewRemediationAttempts:
-      typeof value.reviewRemediationAttempts === "number"
-        ? value.reviewRemediationAttempts
-        : undefined,
-    reviewRemediationAt:
-      typeof value.reviewRemediationAt === "string" ? value.reviewRemediationAt : undefined,
-    landingRemediationAttempts:
-      typeof value.landingRemediationAttempts === "number"
-        ? value.landingRemediationAttempts
-        : undefined,
-    landingRemediationAt:
-      typeof value.landingRemediationAt === "string" ? value.landingRemediationAt : undefined,
-    landingRemediationSummary:
-      typeof value.landingRemediationSummary === "string"
-        ? value.landingRemediationSummary
-        : undefined,
-    landingVerifiedAt:
-      typeof value.landingVerifiedAt === "string" ? value.landingVerifiedAt : undefined,
-    landingVerification:
-      typeof value.landingVerification === "string" ? value.landingVerification : undefined,
-    landingAheadCount:
-      typeof value.landingAheadCount === "number" ? value.landingAheadCount : undefined,
-    landingBehindCount:
-      typeof value.landingBehindCount === "number" ? value.landingBehindCount : undefined,
-    status: normalizeWorkerStatus(value.status),
-    startedAt: value.startedAt,
-    updatedAt: value.updatedAt,
-    finishedAt: typeof value.finishedAt === "string" ? value.finishedAt : undefined,
-    lastError: typeof value.lastError === "string" ? value.lastError : undefined,
-    commitShas:
-      Array.isArray(value.commitShas) &&
-      value.commitShas.every((entry) => typeof entry === "string")
-        ? value.commitShas
-        : undefined,
-    touchedPaths:
-      Array.isArray(value.touchedPaths) &&
-      value.touchedPaths.every((entry) => typeof entry === "string")
-        ? value.touchedPaths
-        : undefined,
-  };
+  requireEnum(record, "status", WORKER_STATUSES);
+  validateOptionalEnum(record, "cleanupPolicy", CLEANUP_POLICIES);
+  validateOptionalEnum(record, "landingPolicy", LANDING_POLICIES);
+  validateOptionalEnum(record, "cleanupStatus", CLEANUP_STATUSES);
+  validateOptionalEnum(record, "validationStatus", VALIDATION_STATUSES);
+  validateOptionalEnum(record, "remediationStatus", REMEDIATION_STATUSES);
+  validateOptionalEnum(record, "reviewStatus", REVIEW_STATUSES);
+  validateOptionalEnum(record, "reviewVerdict", REVIEW_VERDICTS);
+}
+
+export function normalizeWorkerRecord(raw: unknown): WorkerRuntime {
+  if (!isRecord(raw)) {
+    failRecord("expected an object");
+  }
+
+  const record = raw;
+  validateWorkerRecord(record);
+
+  if (record.executionMode === undefined) {
+    const worktreePath = requireString(record, "worktreePath");
+    return {
+      ...record,
+      executionMode: "worktree",
+      checkoutPath: worktreePath,
+    } as WorkerRuntime;
+  }
+
+  if (record.executionMode === "worktree") {
+    requireString(record, "checkoutPath");
+    requireString(record, "worktreePath");
+    return record as WorkerRuntime;
+  }
+
+  if (record.executionMode === "current-branch") {
+    requireString(record, "checkoutPath");
+    requireString(record, "launchHead");
+    return record as WorkerRuntime;
+  }
+
+  failRecord('invalid field "executionMode"; expected "worktree" or "current-branch"');
 }
 
 export function resolveWorkerRegistryPath(repoRoot: string, configuredPath: string): string {
@@ -232,19 +217,38 @@ export function resolveWorkerRuntimeDir(repoRoot: string, configuredPath: string
 }
 
 export async function loadWorkerRegistry(registryPath: string): Promise<WorkerRuntime[]> {
+  let raw: string;
   try {
-    const raw = await readFile(registryPath, "utf8");
-    const parsed = JSON.parse(raw) as WorkerRegistryFile;
-    if (!parsed || !Array.isArray(parsed.workers)) {
+    raw = await readFile(registryPath, "utf8");
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") {
       return [];
     }
-
-    return parsed.workers
-      .map((worker) => normalizeWorkerRuntime(worker))
-      .filter((worker): worker is WorkerRuntime => worker !== undefined);
-  } catch {
-    return [];
+    throw error;
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse worker registry ${registryPath}: ${detail}`);
+  }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.workers)) {
+    throw new Error(`Invalid worker registry ${registryPath}: expected object with workers array`);
+  }
+
+  return parsed.workers.map((worker, index) => {
+    try {
+      return normalizeWorkerRecord(worker);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Invalid worker registry ${registryPath} record at index ${index}: ${detail}`,
+      );
+    }
+  });
 }
 
 export async function saveWorkerRegistry(
