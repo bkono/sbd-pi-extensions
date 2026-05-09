@@ -14,11 +14,15 @@
     {
       "text": "## Dependency Architecture Note\n\nBeadwork does NOT cascade parent-epic blocking to children in `bw ready`. The phase sequencing is enforced via **explicit task-level cross-phase dependencies**, not just epic-to-epic blocking:\n\n- Phase 1 → Phase 2: `sbdpi-qmd.1.6` (Phase 1 regression tests) blocks `sbdpi-qmd.2.1` and `sbdpi-qmd.2.2`\n- Phase 2 → Phase 3: `sbdpi-qmd.2.4` (Phase 2 tests) blocks `sbdpi-qmd.3.1`\n- Phase 3 → Phase 4: `sbdpi-qmd.3.5` (Phase 3 tests) blocks `sbdpi-qmd.4.1`\n- Phase 4 → Phase 5: `sbdpi-qmd.4.4` (Phase 4 tests) blocks `sbdpi-qmd.5.1`, `sbdpi-qmd.5.3`, `sbdpi-qmd.5.4`\n\nThis means each phase's **regression tests must pass** before any work in the next phase can begin. The test task of each phase is the gate.\n\n**Critical path (17 tasks):** .1.1 → .1.3 → .1.6 → .2.1 → .2.4 → .3.1 → .3.2 → .3.3 → .3.4 → .3.5 → .4.1 → .4.2 → .4.3 → .4.4 → .5.1 → .5.2 → .5.5\n\n**Parallelism opportunities:**\n- Phase 1: .1.1 + .1.2 (parallel), then .1.3 + .1.4 (parallel after .1.1)\n- Phase 2: .2.1 + .2.2 (parallel), .2.3 (off critical path)\n- Phase 5: .5.1 + .5.3 + .5.4 (all parallel)",
       "timestamp": "2026-05-08T23:53:42Z"
+    },
+    {
+      "text": "## Dependency Architecture Update (2026-05-09)\n\nReviewed after plan-space polish. Two gaps were fixed and one overlap was narrowed:\n\n1. Added `sbdpi-qmd.4.5` for attribution-aware scope validation failure handling. This preserves the proposal requirement that post-scope validation failures create fix-forward work from validation output + verified ticket commit sets, rather than reopening verified workers or routing everything to vague attention.\n2. Added `sbdpi-qmd.5.6` for deterministic e2e smoke scripts with detailed logging/artifacts. This makes the final validation self-contained and debuggable, not just a broad instruction to run tests.\n3. Narrowed `sbdpi-qmd.2.3` to launch/delegate/run-visible terminology only; comprehensive UI/status badges remain in `sbdpi-qmd.5.3`. Added dependency `.2.3 blocks .2.4` so Phase 2 tests include launch-visible text before Phase 3 starts.\n\nUpdated cross-phase gates:\n- `.1.6` blocks `.2.1` and `.2.2`.\n- `.2.4` blocks `.3.1` and now waits for `.2.1`, `.2.2`, and `.2.3`.\n- `.3.5` blocks `.4.1`.\n- `.4.2` blocks both `.4.5` and `.4.3`; `.4.5` also blocks `.4.3`, so validation-failure fix-forward exists before scope review.\n- `.4.4` blocks `.5.1`, `.5.3`, and `.5.4`.\n- `.5.2` blocks `.5.6`; `.5.6` blocks final `.5.5`.\n\nThe intended ready set remains small and safe: initially `.1.1` and `.1.2` can run in parallel. Later concurrency is allowed only where file ownership is reasonably separated by the dependency graph.",
+      "timestamp": "2026-05-09T00:21:04Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Migrate pi-beadwork-extension to current-branch swarm execution",
   "type": "epic",
-  "updated_at": "2026-05-08T23:53:42Z"
+  "updated_at": "2026-05-09T00:21:04Z"
 }
