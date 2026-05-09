@@ -72,6 +72,15 @@ describe("worker runtime checkout types", () => {
     }
   });
 
+  it("rejects worktreePath access after current-branch narrowing", () => {
+    const worker = currentBranchWorker();
+
+    if (isCurrentBranchWorker(worker)) {
+      // @ts-expect-error current-branch workers must not expose worktreePath
+      expect(worker.worktreePath).toBeUndefined();
+    }
+  });
+
   it("round-trips both checkout shapes and optional verification fields", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-types-"));
     const registryPath = path.join(tempDir, "registry.json");
