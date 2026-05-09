@@ -296,6 +296,9 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
   for (const worker of workers) {
     if (isSuccessfulTerminalWorker(worker)) {
       summary.successfulTerminal += 1;
+      if (worker.cleanupStatus === "cleaned") {
+        summary.cleaned += 1;
+      }
     }
 
     if (worker.status === "launching") {
@@ -310,9 +313,6 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
       summary.held += 1;
     } else if (worker.status === "landed") {
       summary.landed += 1;
-      if (worker.cleanupStatus === "cleaned") {
-        summary.cleaned += 1;
-      }
     } else if (worker.status === "verified") {
       summary.verified += 1;
     } else if (worker.status === "failed") {

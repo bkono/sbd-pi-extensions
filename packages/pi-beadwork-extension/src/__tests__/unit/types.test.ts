@@ -94,16 +94,17 @@ describe("worker runtime checkout types", () => {
     expect(isSuccessfulTerminalWorker(baseWorker({ status: "failed" }))).toBe(false);
   });
 
-  it("summarizes verified workers as successful terminals", () => {
+  it("summarizes verified current-branch cleanup as successful terminal cleanup", () => {
     const summary = summarizeWorkers([
-      currentBranchWorker({ status: "verified" }),
-      baseWorker({ status: "landed" }),
-      baseWorker({ status: "attention" }),
+      currentBranchWorker({ status: "verified", cleanupStatus: "cleaned" }),
+      baseWorker({ status: "landed", cleanupStatus: "cleaned" }),
+      baseWorker({ status: "attention", cleanupStatus: "cleaned" }),
     ]);
 
     expect(summary.verified).toBe(1);
     expect(summary.landed).toBe(1);
     expect(summary.successfulTerminal).toBe(2);
+    expect(summary.cleaned).toBe(2);
     expect(summary.attention).toBe(1);
   });
 

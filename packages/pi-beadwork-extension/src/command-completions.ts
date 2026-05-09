@@ -2,7 +2,12 @@ import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { tokenizeArgs } from "./argv.js";
 import type { BeadworkAdapter } from "./bw.js";
 import { BEADWORK_ALIAS_COMMANDS, type BeadworkAliasSubcommand } from "./command-aliases.js";
-import type { ActivationState, BeadworkIssue, WorkerRuntime } from "./types.js";
+import {
+  type ActivationState,
+  type BeadworkIssue,
+  isSuccessfulTerminalWorker,
+  type WorkerRuntime,
+} from "./types.js";
 
 const MAIN_COMMANDS: Array<{
   value: string;
@@ -238,7 +243,7 @@ export function createBeadworkCommandCompletionFactory(deps: CompletionFactoryDe
           trimmed,
           (await workerItems(
             deps,
-            (worker) => worker.status === "landed" && worker.cleanupStatus !== "cleaned",
+            (worker) => isSuccessfulTerminalWorker(worker) && worker.cleanupStatus !== "cleaned",
           )) ?? [],
         );
       default:
