@@ -6,6 +6,8 @@
   "blocks": [
     "sbdpi-qmd.3"
   ],
+  "closed_at": "2026-05-09T05:26:05Z",
+  "close_reason": "All Phase 2 child tasks complete, reviewed, and package gates pass.",
   "created": "2026-05-08T23:33:26Z",
   "description": "Phase 2 makes current-branch workers actually launchable. After this phase, `/bw delegate` and `/bw run` can spawn workers that execute in the repo root without creating worktrees.\n\n## Goals\n\n1. Branch `launchTicketWorker()` by execution mode\n2. In current-branch mode: resolve repo root, record `branchName` + `launchHead`, create runtime dirs, launch tmux at repo root\n3. Enforce current-branch launch invariants (reject detached HEAD, tolerate dirty checkout, never create branch/worktree)\n4. Generate current-branch-specific handoff prompts that instruct workers on atomic commits, ticket scoping, and `git commit \u003cfiles\u003e -m` pattern\n5. Update all user-facing text/TUI from worktree-centric to mode-appropriate language\n\n## Key Design Constraints\n\n- Current-branch launch must NOT require a clean checkout — dirty/untracked state may belong to active workers\n- Must reject detached HEAD unless explicitly configured\n- Must record `branchName` and `launchHead` before tmux launch (observational metadata for attribution)\n- Handoff prompt must instruct: `bw start`, no branch/PR/worktree creation, atomic ticket-referenced commits, specific file staging only, no broad `git add -A`/`git commit -a`, leave handoff comment, `bw close` + `bw sync`\n- Worktree-mode launch must be preserved and callable through the same `prepareWorkerCheckout` path\n\n## Files likely affected\n\n- `packages/pi-beadwork-extension/src/orchestrator.ts` — launch branching\n- `packages/pi-beadwork-extension/src/handoff.ts` — current-branch prompt generation\n- `packages/pi-beadwork-extension/src/tmux.ts` — cwd = repo root for current-branch\n- `packages/pi-beadwork-extension/src/worktree.ts` — `prepareWorkerCheckout` current-branch path\n- `packages/pi-beadwork-extension/src/tui/` — mode-appropriate labels\n- `packages/pi-beadwork-extension/src/actions/delegate.ts` — launch flow\n- `packages/pi-beadwork-extension/src/__tests__/` — launch regression tests\n\n## Definition of Done\n\n- `/bw delegate \u003cticket\u003e` with `workerExecution.mode = \"current-branch\"` launches a tmux window at repo root\n- No worktree or branch is created\n- Runtime/log/scratch dirs exist\n- Handoff prompt contains all required instructions\n- Existing worktree launch still works when mode is `worktree`\n- Tests prove: no `prepareTicketWorktree` call, cwd is repo root, dirty checkout doesn't fail launch, detached HEAD fails unless configured\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.2",
@@ -18,7 +20,7 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Phase 2: Current-branch launch — tmux at repo root, handoff prompt, no worktree",
   "type": "epic",
   "updated_at": "2026-05-09T05:26:05Z"
