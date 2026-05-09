@@ -13,6 +13,7 @@ import {
   requestWorkerLanding,
   runBoundedEpicLoop,
   stopWorkers,
+  verifyCurrentBranchWorker,
 } from "../../orchestrator.js";
 import { ProcessCommandError } from "../../process.js";
 import {
@@ -91,6 +92,18 @@ function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
     updatedAt: "2026-04-14T00:00:01.000Z",
     ...overrides,
   };
+}
+
+function createCurrentBranchWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
+  const worker = createWorker({
+    executionMode: "current-branch",
+    checkoutPath: "/tmp/repo",
+    branchName: "main",
+    launchHead: "launch-head",
+    ...overrides,
+  });
+  delete (worker as WorkerRuntime & { worktreePath?: string }).worktreePath;
+  return worker;
 }
 
 function ok(stdout = "") {
@@ -470,6 +483,210 @@ describe("orchestrator helpers", () => {
 });
 
 describe("worker inspection", () => {
+  it("routes closed current-branch exited workers to verification without worktree landing", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-verify-"));
+    const runtimeDir = path.join(
+      repoRoot,
+      ".pi",
+      "beadwork",
+      "workers",
+      "runtime",
+      "bw-101-worker",
+    );
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
+
+    const worker = createCurrentBranchWorker({
+      checkoutPath: repoRoot,
+      runtimeDir,
+      promptFile: path.join(runtimeDir, "handoff.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "closed",
+      status: "exited",
+    });
+    const adapter = createAdapter({
+      show: vi
+        .fn()
+        .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+    });
+    const runner = vi.fn(async () => {
+      throw new Error("worktree landing should not run for current-branch workers");
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.lastError).toContain("Current-branch verification pipeline");
+    expect(inspected.landingVerification).toContain("No worktree rebase");
+    expect(runner).not.toHaveBeenCalled();
+    expect(tmuxBackend.cleanupWorker).not.toHaveBeenCalled();
+    await expect(readFile(worker.logFile, "utf8")).resolves.toContain(
+      "starting current-branch verification",
+    );
+  });
+
+  it("leaves open-ticket exited current-branch workers on the existing attention path", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-open-"));
+    const runtimeDir = path.join(
+      repoRoot,
+      ".pi",
+      "beadwork",
+      "workers",
+      "runtime",
+      "bw-101-worker",
+    );
+    await mkdir(runtimeDir, { recursive: true });
+
+    const worker = createCurrentBranchWorker({
+      checkoutPath: repoRoot,
+      runtimeDir,
+      logFile: path.join(runtimeDir, "worker.log"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+      ticketStatus: "open",
+      status: "exited",
+    });
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "open" })),
+    });
+    const runner = vi.fn(async () => {
+      throw new Error("verification or landing should not run for open tickets");
+    });
+    const tmuxBackend = {
+      ensureSession: vi.fn(),
+      launchWorker: vi.fn(),
+      inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+      cleanupWorker: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("exited");
+    expect(inspected.lastError).toBeUndefined();
+    expect(inspected.landingVerification).toBeUndefined();
+    expect(runner).not.toHaveBeenCalled();
+    expect(tmuxBackend.cleanupWorker).not.toHaveBeenCalled();
+  });
+
+  it("returns immediately for already verified, attention, and failed current-branch workers", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-idempotent-"));
+    const operation = vi.fn(async ({ worker }: { worker: WorkerRuntime }) => ({
+      ...worker,
+      status: "verified" as const,
+    }));
+    const adapter = createAdapter({});
+    const runner = vi.fn(async () => ok());
+    const tmuxBackend = createMockTmuxBackend();
+
+    for (const status of ["verified", "attention", "failed"] as const) {
+      const worker = createCurrentBranchWorker({ checkoutPath: repoRoot, status });
+      const inspected = await verifyCurrentBranchWorker({
+        cwd: repoRoot,
+        repoRoot,
+        worker,
+        adapter,
+        config: DEFAULT_CONFIG,
+        runner,
+        tmuxBackend,
+        pipeline: { markVerified: operation },
+      });
+      expect(inspected.status).toBe(status);
+    }
+
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates concurrent current-branch verification for one worker", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-dedupe-"));
+    const runtimeDir = path.join(
+      repoRoot,
+      ".pi",
+      "beadwork",
+      "workers",
+      "runtime",
+      "bw-101-worker",
+    );
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
+    const worker = createCurrentBranchWorker({
+      checkoutPath: repoRoot,
+      runtimeDir,
+      logFile: path.join(runtimeDir, "worker.log"),
+      status: "exited",
+      ticketStatus: "closed",
+    });
+    const adapter = createAdapter({});
+    const runner = vi.fn(async () => ok());
+    const tmuxBackend = createMockTmuxBackend();
+    let releaseVerification!: () => void;
+    const verificationGate = new Promise<void>((resolve) => {
+      releaseVerification = resolve;
+    });
+    const markVerified = vi.fn(async ({ worker: currentWorker }: { worker: WorkerRuntime }) => {
+      await verificationGate;
+      return {
+        ...currentWorker,
+        status: "verified" as const,
+        landingVerification: "current-branch verification complete",
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    const first = verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      runner,
+      tmuxBackend,
+      pipeline: { markVerified },
+    });
+    const second = verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      runner,
+      tmuxBackend,
+      pipeline: { markVerified },
+    });
+
+    releaseVerification();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult.status).toBe("verified");
+    expect(secondResult.status).toBe("verified");
+    expect(markVerified).toHaveBeenCalledTimes(1);
+  });
   it("auto-validates, lands, and cleans up a completed worker", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-land-worker-"));
     const worktreePath = path.join(repoRoot, "worktree");
@@ -577,6 +794,16 @@ describe("worker inspection", () => {
     expect(inspected.landingVerifiedAt).toBeTruthy();
     expect(inspected.lastError).toBeUndefined();
     expect(tmuxBackend.cleanupWorker).toHaveBeenCalled();
+    expect(runner).toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["rebase"]),
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+    expect(runner).toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["merge"]),
+      expect.objectContaining({ cwd: repoRoot }),
+    );
     expect(existsSync(runtimeDir)).toBe(false);
   });
 

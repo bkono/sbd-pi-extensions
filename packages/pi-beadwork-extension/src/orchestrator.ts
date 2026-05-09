@@ -17,6 +17,7 @@ import type {
   BeadworkConfig,
   BeadworkIssue,
   BeadworkIssueDetail,
+  CurrentBranchWorkerRuntime,
   RunOptions,
   RunSummary,
   RunUntil,
@@ -244,6 +245,35 @@ function resolveReviewerLogFile(worker: WorkerRuntime): string {
 type WorkerOrchestrationLock = {
   snapshot: WorkerRuntime;
   promise: Promise<WorkerRuntime>;
+};
+
+export type CurrentBranchVerificationContext = {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  runner: ProcessRunner;
+  tmuxBackend: TmuxBackend;
+  worker: CurrentBranchWorkerRuntime;
+  onLifecycleEvent?: (message: string) => void;
+  onWorkerUpdate?: (worker: WorkerRuntime) => void;
+};
+
+export type CurrentBranchVerificationOperation = (
+  context: CurrentBranchVerificationContext,
+) => Promise<CurrentBranchWorkerRuntime>;
+
+export type CurrentBranchVerificationPipeline = {
+  buildAttributionEvidence?: CurrentBranchVerificationOperation;
+  runWorkerReview?: CurrentBranchVerificationOperation;
+  applyCoordinatorTriage?: CurrentBranchVerificationOperation;
+  handleRemediation?: CurrentBranchVerificationOperation;
+  markVerified?: CurrentBranchVerificationOperation;
+};
+
+type VerifyCurrentBranchWorkerInput = CurrentBranchVerificationContext & {
+  awaitOrchestration?: boolean;
+  pipeline?: CurrentBranchVerificationPipeline;
 };
 
 type RunLaunchLockResult = {
@@ -2142,6 +2172,134 @@ async function autoLandCompletedWorker(input: {
   );
 }
 
+function isSkippedCurrentBranchVerificationStatus(worker: WorkerRuntime): boolean {
+  return (
+    worker.status === "verified" || worker.status === "attention" || worker.status === "failed"
+  );
+}
+
+async function runCurrentBranchVerification(
+  input: VerifyCurrentBranchWorkerInput,
+): Promise<CurrentBranchWorkerRuntime> {
+  let worker: CurrentBranchWorkerRuntime = {
+    ...input.worker,
+    landingVerification:
+      input.worker.landingVerification ??
+      "Current-branch verification started; worktree landing is intentionally skipped.",
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updateWorker = (nextWorker: CurrentBranchWorkerRuntime): CurrentBranchWorkerRuntime => {
+    worker = nextWorker;
+    input.onWorkerUpdate?.(worker);
+    return worker;
+  };
+
+  updateWorker(worker);
+  await appendWorkerLog(
+    worker.logFile,
+    `starting current-branch verification for ${worker.ticketId}; skipping worktree landing`,
+  );
+  await input.onLifecycleEvent?.(
+    `Delegated ticket ${worker.ticketId} exited closed. Starting current-branch verification.`,
+  );
+
+  const steps: Array<[keyof CurrentBranchVerificationPipeline, string]> = [
+    ["buildAttributionEvidence", "build attribution evidence"],
+    ["runWorkerReview", "run per-worker review"],
+    ["applyCoordinatorTriage", "apply coordinator triage"],
+    ["handleRemediation", "handle remediation"],
+    ["markVerified", "mark verified"],
+  ];
+
+  try {
+    for (const [name, label] of steps) {
+      if (isSkippedCurrentBranchVerificationStatus(worker)) {
+        return worker;
+      }
+      const operation = input.pipeline?.[name];
+      if (!operation) {
+        continue;
+      }
+      await appendWorkerLog(worker.logFile, `current-branch verification: ${label}`);
+      worker = updateWorker(
+        await operation({
+          cwd: input.cwd,
+          repoRoot: input.repoRoot,
+          config: input.config,
+          adapter: input.adapter,
+          runner: input.runner,
+          tmuxBackend: input.tmuxBackend,
+          worker,
+          onLifecycleEvent: input.onLifecycleEvent,
+          onWorkerUpdate: input.onWorkerUpdate,
+        }),
+      );
+    }
+  } catch (error) {
+    return buildAttentionState(
+      worker,
+      `Current-branch verification failed: ${humanizeError(error)}`,
+      {
+        landingVerification: `Current-branch verification failed: ${humanizeError(error)}`,
+      },
+    ) as CurrentBranchWorkerRuntime;
+  }
+
+  if (worker.status === "verified") {
+    return worker;
+  }
+
+  return buildAttentionState(
+    worker,
+    "Current-branch verification pipeline is not fully implemented yet; awaiting attribution, review, triage, and remediation steps.",
+    {
+      landingVerification:
+        "Current-branch verification placeholder reached. No worktree rebase, merge-back, containment check, or cleanup was run.",
+    },
+  ) as CurrentBranchWorkerRuntime;
+}
+
+export async function verifyCurrentBranchWorker(
+  input: VerifyCurrentBranchWorkerInput,
+): Promise<WorkerRuntime> {
+  if (isSkippedCurrentBranchVerificationStatus(input.worker)) {
+    return {
+      ...input.worker,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  const existingLock = workerOrchestrationLocks.get(input.worker.workerId);
+  if (existingLock) {
+    return input.awaitOrchestration === false ? existingLock.snapshot : await existingLock.promise;
+  }
+
+  let snapshot: WorkerRuntime = {
+    ...input.worker,
+    updatedAt: new Date().toISOString(),
+  };
+  const publishSnapshot = (nextWorker: WorkerRuntime): void => {
+    snapshot = nextWorker;
+    input.onWorkerUpdate?.(nextWorker);
+  };
+  const promise = runCurrentBranchVerification({
+    ...input,
+    onWorkerUpdate: publishSnapshot,
+  })
+    .then((nextWorker) => {
+      snapshot = nextWorker;
+      return nextWorker;
+    })
+    .finally(() => {
+      workerOrchestrationLocks.delete(input.worker.workerId);
+    });
+
+  workerOrchestrationLocks.set(input.worker.workerId, { promise, snapshot });
+
+  return input.awaitOrchestration === false ? snapshot : await promise;
+}
+
 export function buildRunOptions(
   config: BeadworkConfig,
   options: {
@@ -2431,10 +2589,25 @@ export async function inspectWorkerRuntime(input: {
       finishedAt: finishedAtText ?? input.worker.finishedAt,
     };
     if (!isWorktreeWorker(orchestratedWorker)) {
-      return buildAttentionState(
-        orchestratedWorker,
-        "Current-branch worker landing orchestration is not implemented yet.",
-      );
+      return await verifyCurrentBranchWorker({
+        cwd: input.cwd,
+        repoRoot: input.repoRoot,
+        worker: orchestratedWorker,
+        config,
+        adapter: input.adapter,
+        tmuxBackend,
+        runner,
+        awaitOrchestration: input.awaitOrchestration,
+        onLifecycleEvent: (message) =>
+          input.onLifecycleEvent?.({
+            type: "post-exit-started",
+            ticketId: orchestratedWorker.ticketId,
+            message,
+          }),
+        onWorkerUpdate: (nextWorker) => {
+          void input.onWorkerUpdate?.(nextWorker);
+        },
+      });
     }
     const existingLock = workerOrchestrationLocks.get(orchestratedWorker.workerId);
     if (existingLock) {
