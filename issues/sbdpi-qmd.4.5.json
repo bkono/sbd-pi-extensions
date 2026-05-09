@@ -17,11 +17,15 @@
     {
       "text": "Implemented scope validation fix-forward handling for current-branch mode. Validation failures now capture command/cwd/exit/duration/stdout/stderr, write evidence + prompt/log artifacts, invoke coordinator classification, create deduplicated child fix-forward tasks for likely in-scope issues, continue the bounded loop, and route ambiguous/unsafe failures to attention without mutating verified workers. Added tests for evidence/task creation/deduped repeated polls, ambiguous attention routing, verified worker preservation, and no scope review progression while validation fails. Gates: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension. Commit: f161b63.",
       "timestamp": "2026-05-09T23:43:57Z"
+    },
+    {
+      "text": "Remediated review blocker from commit f161b63 in 8ced037: scope validation fix-forward decisions now require verified suspectedTickets/suspectedCommits attribution against successful workers or explicit evidence-pack identifiers; unsupported/empty/hallucinated attribution is routed to attention with no child task creation. Added regression coverage for empty attribution, hallucinated ticket/commit attribution, and retained the valid attributed child-task path. Gates passed: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-09T23:52:48Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Handle scope validation failures with attribution-aware fix-forward work",
   "type": "task",
-  "updated_at": "2026-05-09T23:44:00Z"
+  "updated_at": "2026-05-09T23:52:48Z"
 }
