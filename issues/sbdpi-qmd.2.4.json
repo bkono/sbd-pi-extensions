@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "sbdpi-qmd.2.1",
-    "sbdpi-qmd.2.2"
+    "sbdpi-qmd.2.2",
+    "sbdpi-qmd.2.3"
   ],
   "blocks": [
     "sbdpi-qmd.3.1"
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Add Phase 2 launch regression tests",
   "type": "task",
-  "updated_at": "2026-05-08T23:47:04Z"
+  "updated_at": "2026-05-09T00:18:42Z"
 }
