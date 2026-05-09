@@ -10,6 +10,30 @@ function truncate(value: string, maxChars: number): string {
   return `${trimmed.slice(0, maxChars).trimEnd()}\n\n[truncated]`;
 }
 
+type SharedHandoffContext = {
+  ticket: BeadworkIssueDetail;
+  epic?: BeadworkIssueDetail;
+  prime?: string;
+};
+
+function appendSharedHandoffContext(lines: string[], input: SharedHandoffContext): void {
+  if (input.ticket.blockedBy.length > 0) {
+    lines.push("", `Blocked by: ${input.ticket.blockedBy.join(", ")}`);
+  }
+
+  if (input.ticket.description.trim()) {
+    lines.push("", "Ticket context:", truncate(input.ticket.description, MAX_TEXT_CHARS));
+  }
+
+  if (input.epic?.description.trim()) {
+    lines.push("", "Epic context:", truncate(input.epic.description, MAX_TEXT_CHARS));
+  }
+
+  if (input.prime?.trim()) {
+    lines.push("", "Cached bw prime guidance:", truncate(input.prime, MAX_TEXT_CHARS));
+  }
+}
+
 export function buildWorkerHandoff(input: {
   ticket: BeadworkIssueDetail;
   epic?: BeadworkIssueDetail;
@@ -45,21 +69,60 @@ export function buildWorkerHandoff(input: {
     lines.push(`- Use \`${input.runtimeScratchDir}\` for transient artifacts like context.md.`);
   }
 
-  if (input.ticket.blockedBy.length > 0) {
-    lines.push("", `Blocked by: ${input.ticket.blockedBy.join(", ")}`);
+  appendSharedHandoffContext(lines, input);
+
+  return lines.join("\n");
+}
+
+export function buildCurrentBranchHandoffPrompt(input: {
+  ticket: BeadworkIssueDetail;
+  epic?: BeadworkIssueDetail;
+  checkoutPath: string;
+  branchName: string;
+  runtimeScratchDir?: string;
+  prime?: string;
+}): string {
+  const lines = [
+    "You are a beadwork worker operating in shared current-branch mode.",
+    `You are working ticket \`${input.ticket.id}\` in the current checkout/current branch.`,
+    "",
+    `Ticket: ${input.ticket.id} ${input.ticket.title}`,
+  ];
+
+  if (input.epic) {
+    lines.push(`Epic: ${input.epic.id} ${input.epic.title}`);
   }
 
-  if (input.ticket.description.trim()) {
-    lines.push("", "Ticket context:", truncate(input.ticket.description, MAX_TEXT_CHARS));
+  lines.push(`Current checkout: ${input.checkoutPath}`);
+  lines.push(`Current branch: ${input.branchName}`);
+  lines.push(
+    "",
+    "Required first step:",
+    `- Run \`bw start ${input.ticket.id}\` before beginning work unless the ticket is already started.`,
+  );
+  lines.push(
+    "",
+    "Rules:",
+    "- Do not create a branch, PR, or alternate checkout unless explicitly instructed.",
+    "- Keep the change scoped to this ticket; do not expand into unrelated cleanup.",
+    "- Coordinate via `bw comment`, child tickets, dependencies, and labels when scope or ordering needs clarification.",
+    `- Make atomic commits that clearly reference ticket ${input.ticket.id}.`,
+    `- Stage and commit only the specific files intentionally changed for this ticket: \`git commit <specific-files> -m "<message referencing ${input.ticket.id}>"\` (the safe \`git commit <files> -m\` pattern).`,
+    "- Avoid broad staging commands such as `git add -A`, `git add .`, and `git commit -a` unless truly every affected path is ticket-scoped and you have inspected the resulting diff.",
+    "- Do not stash, reset, clean, discard, or otherwise manipulate unrelated checkout state; it may belong to another active worker.",
+    "- Inspect `git diff -- <specific-files>` and `git status --short` before committing so each commit contains only ticket-scoped work.",
+    `- Before exiting, leave a concise, natural handoff comment with \`bw comment ${input.ticket.id}\` that names status, commit SHAs when known, validation run/results, blockers, and useful follow-up recommendations.`,
+    `- When done, run \`bw close ${input.ticket.id}\`, then \`bw sync\`.`,
+    `- If blocked, explain the blocker in a \`bw comment ${input.ticket.id}\`, leave the ticket open, and exit so the coordinator can respond.`,
+  );
+
+  if (input.runtimeScratchDir) {
+    lines.push(
+      `- Use \`${input.runtimeScratchDir}\` for scratch/runtime artifacts and transient context files that should not be committed.`,
+    );
   }
 
-  if (input.epic?.description.trim()) {
-    lines.push("", "Epic context:", truncate(input.epic.description, MAX_TEXT_CHARS));
-  }
-
-  if (input.prime?.trim()) {
-    lines.push("", "Cached bw prime guidance:", truncate(input.prime, MAX_TEXT_CHARS));
-  }
+  appendSharedHandoffContext(lines, input);
 
   return lines.join("\n");
 }

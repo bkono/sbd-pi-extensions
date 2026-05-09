@@ -2,7 +2,7 @@ import { createWriteStream } from "node:fs";
 import { appendFile, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BeadworkAdapter } from "./bw.js";
-import { buildWorkerHandoff } from "./handoff.js";
+import { buildCurrentBranchHandoffPrompt, buildWorkerHandoff } from "./handoff.js";
 import { defaultProcessRunner, type ProcessRunner, shellQuote, sleep } from "./process.js";
 import {
   loadWorkerRegistry,
@@ -29,7 +29,7 @@ import {
   cleanupTicketWorktree,
   type LandingVerificationResult,
   landWorktreeBranch,
-  prepareTicketWorktree,
+  prepareWorkerCheckout,
   rebaseWorktreeOntoRepoHead,
   runWorktreeValidation,
   verifyWorktreeLanding,
@@ -2151,6 +2151,7 @@ export async function launchTicketWorker(input: {
   workerProviderOverride?: string;
   workerModelOverride?: string;
   tmuxBackend?: TmuxBackend;
+  processRunner?: ProcessRunner;
 }): Promise<WorkerRuntime> {
   const tmuxBackend = input.tmuxBackend ?? createTmuxBackend();
   const ticket = await input.adapter.show(input.cwd, input.ticketId);
@@ -2159,14 +2160,13 @@ export async function launchTicketWorker(input: {
   }
 
   const epic = ticket.parentId ? await input.adapter.show(input.cwd, ticket.parentId) : undefined;
-  const prepared = await prepareTicketWorktree({
+  const checkout = await prepareWorkerCheckout({
+    config: input.config,
     repoRoot: input.repoRoot,
     ticketId: ticket.id,
+    epicId: input.epicId ?? ticket.parentId,
     title: ticket.title,
-    baseDir: input.config.worktrees.baseDir,
-    copyFiles: input.config.worktrees.copyFiles,
-    setupCommands: input.config.worktrees.setupCommands,
-    rerunSetupOnReuse: input.config.worktrees.rerunSetupOnReuse,
+    processRunner: input.processRunner,
   });
 
   const registryPath = resolveWorkerRegistryPath(
@@ -2179,14 +2179,24 @@ export async function launchTicketWorker(input: {
   const runtimeScratchDir = path.join(runtimeDir, "scratch");
   await mkdir(runtimeScratchDir, { recursive: true });
 
-  const prompt = buildWorkerHandoff({
-    ticket,
-    epic,
-    branchName: prepared.branchName,
-    worktreePath: prepared.worktreePath,
-    runtimeScratchDir,
-    prime: input.prime,
-  });
+  const prompt =
+    checkout.executionMode === "current-branch"
+      ? buildCurrentBranchHandoffPrompt({
+          ticket,
+          epic,
+          branchName: checkout.branchName,
+          checkoutPath: checkout.checkoutPath,
+          runtimeScratchDir,
+          prime: input.prime,
+        })
+      : buildWorkerHandoff({
+          ticket,
+          epic,
+          branchName: checkout.branchName,
+          worktreePath: checkout.worktreePath,
+          runtimeScratchDir,
+          prime: input.prime,
+        });
 
   const promptFile = path.join(runtimeDir, "handoff.txt");
   const logFile = path.join(runtimeDir, "worker.log");
@@ -2218,17 +2228,13 @@ export async function launchTicketWorker(input: {
 
   const now = new Date().toISOString();
   const launchCommand = `bash ${shellQuote(scriptFile)}`;
-  const pendingWorker: WorkerRuntime = {
+  const commonWorker = {
     workerId,
     ticketId: ticket.id,
     epicId: input.epicId ?? ticket.parentId,
     ticketTitle: ticket.title,
     ticketStatus: ticket.status,
-    executionMode: "worktree",
-    checkoutPath: prepared.worktreePath,
-    branchName: prepared.branchName,
-    worktreePath: prepared.worktreePath,
-    backend: "tmux",
+    backend: "tmux" as const,
     tmuxSession: input.config.tmux.sessionName,
     tmuxWindow: workerId,
     tmuxPane: "pending",
@@ -2245,15 +2251,32 @@ export async function launchTicketWorker(input: {
     workerModel: workerAgent.workerModel,
     reviewerProvider: reviewerAgent.workerProvider,
     reviewerModel: reviewerAgent.workerModel,
-    cleanupPolicy: input.config.worktrees.cleanup,
     landingPolicy: input.config.landing.policy,
-    reviewStatus: input.config.landing.review.enabled ? "pending" : undefined,
-    cleanupStatus:
-      input.config.worktrees.cleanup === "cleanup-after-landing" ? "pending" : undefined,
-    status: "launching",
+    reviewStatus: input.config.landing.review.enabled ? ("pending" as const) : undefined,
+    status: "launching" as const,
     startedAt: now,
     updatedAt: now,
   };
+
+  const pendingWorker: WorkerRuntime =
+    checkout.executionMode === "current-branch"
+      ? {
+          ...commonWorker,
+          executionMode: checkout.executionMode,
+          checkoutPath: checkout.checkoutPath,
+          branchName: checkout.branchName,
+          launchHead: checkout.launchHead,
+        }
+      : {
+          ...commonWorker,
+          executionMode: checkout.executionMode,
+          checkoutPath: checkout.checkoutPath,
+          branchName: checkout.branchName,
+          worktreePath: checkout.worktreePath,
+          cleanupPolicy: input.config.worktrees.cleanup,
+          cleanupStatus:
+            input.config.worktrees.cleanup === "cleanup-after-landing" ? "pending" : undefined,
+        };
 
   await upsertWorkerRuntime(registryPath, pendingWorker);
   await tmuxBackend.ensureSession({ sessionName: input.config.tmux.sessionName });
@@ -2261,7 +2284,7 @@ export async function launchTicketWorker(input: {
     sessionName: input.config.tmux.sessionName,
     workerId,
     title: ticket.title,
-    worktreePath: prepared.worktreePath,
+    worktreePath: checkout.checkoutPath,
     launchCommand,
   });
 

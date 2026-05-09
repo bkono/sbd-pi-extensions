@@ -9,13 +9,18 @@ import {
   buildReviewerAgentCommand,
   buildWorkerAgentCommand,
   inspectWorkerRuntime,
+  launchTicketWorker,
   requestWorkerLanding,
   runBoundedEpicLoop,
   stopWorkers,
 } from "../../orchestrator.js";
 import { ProcessCommandError } from "../../process.js";
-import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
-import { createTmuxBackend } from "../../tmux.js";
+import {
+  loadWorkerRegistry,
+  resolveWorkerRegistryPath,
+  saveWorkerRegistry,
+} from "../../registry.js";
+import { createTmuxBackend, type TmuxBackend } from "../../tmux.js";
 import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
 const itInTmuxSession = process.env.TMUX?.trim() ? it : it.skip;
@@ -87,6 +92,175 @@ function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
     ...overrides,
   };
 }
+
+function ok(stdout = "") {
+  return { stdout, stderr: "", exitCode: 0 };
+}
+
+function createMockTmuxBackend(): TmuxBackend {
+  return {
+    ensureSession: vi.fn().mockResolvedValue({ sessionName: "pi-bw", created: false }),
+    launchWorker: vi.fn(async (input) => ({
+      sessionName: input.sessionName,
+      windowName: `${input.workerId}-window`,
+      paneId: "%42",
+      launchCommand: input.launchCommand,
+    })),
+    inspectWorker: vi.fn().mockResolvedValue({ exists: true }),
+    cleanupWorker: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createLaunchAdapter(
+  ticket: BeadworkIssueDetail,
+  epic?: BeadworkIssueDetail,
+): BeadworkAdapter {
+  return createAdapter({
+    show: vi.fn(async (_cwd: string, id: string) => {
+      if (id === ticket.id) {
+        return ticket;
+      }
+      if (epic && id === epic.id) {
+        return epic;
+      }
+      throw new Error(`unexpected issue ${id}`);
+    }),
+  });
+}
+
+describe("launchTicketWorker", () => {
+  it("launches current-branch workers at the repo root without worktree-only fields", async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "pi-bw-launch-current-"));
+    const repoRoot = path.join(tmp, "repo");
+    await mkdir(repoRoot, { recursive: true });
+    const ticket = createIssue({
+      id: "BW-201",
+      title: "Current branch task",
+      type: "task",
+      status: "open",
+      parentId: "BW-200",
+    });
+    const epic = createIssue({ id: "BW-200", title: "Launch epic", type: "epic" });
+    const tmuxBackend = createMockTmuxBackend();
+    const processRunner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref HEAD") {
+        return ok("feature/shared\n");
+      }
+      if (command === "git" && args.join(" ") === "rev-parse HEAD") {
+        return ok("abc123launch\n");
+      }
+      throw new Error(`unexpected process call: ${command} ${args.join(" ")}`);
+    });
+
+    const worker = await launchTicketWorker({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "current-branch" },
+        worktrees: { ...DEFAULT_CONFIG.worktrees, cleanup: "cleanup-after-landing" },
+      },
+      adapter: createLaunchAdapter(ticket, epic),
+      ticketId: ticket.id,
+      tmuxBackend,
+      processRunner,
+    });
+
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreePath: repoRoot }),
+    );
+    expect(processRunner.mock.calls.map((call) => call[1].join(" "))).not.toContain("worktree add");
+    expect(processRunner).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["status"]),
+      expect.anything(),
+    );
+    expect(existsSync(worker.runtimeDir)).toBe(true);
+    expect(existsSync(path.join(worker.runtimeDir, "scratch"))).toBe(true);
+    expect(worker.executionMode).toBe("current-branch");
+    expect(worker.checkoutPath).toBe(repoRoot);
+    expect(worker.branchName).toBe("feature/shared");
+    expect(worker.launchHead).toBe("abc123launch");
+    expect("worktreePath" in worker).toBe(false);
+    expect(worker.cleanupPolicy).toBeUndefined();
+    expect(worker.cleanupStatus).toBeUndefined();
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const records = await loadWorkerRegistry(registryPath);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      workerId: worker.workerId,
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "feature/shared",
+      launchHead: "abc123launch",
+    });
+    expect("worktreePath" in records[0]).toBe(false);
+  });
+
+  it("preserves worktree launch behavior and registry records", async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "pi-bw-launch-worktree-"));
+    const repoRoot = path.join(tmp, "repo");
+    const worktreeBase = path.join(tmp, "worktrees");
+    await mkdir(repoRoot, { recursive: true });
+    const ticket = createIssue({ id: "BW-202", title: "Worktree task", type: "task" });
+    const tmuxBackend = createMockTmuxBackend();
+    const processRunner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "branch") {
+        return ok("");
+      }
+      if (command === "git" && args[0] === "worktree" && args[1] === "add") {
+        return ok("");
+      }
+      throw new Error(`unexpected process call: ${command} ${args.join(" ")}`);
+    });
+
+    const worker = await launchTicketWorker({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        worktrees: {
+          ...DEFAULT_CONFIG.worktrees,
+          baseDir: worktreeBase,
+          cleanup: "cleanup-after-landing",
+        },
+      },
+      adapter: createLaunchAdapter(ticket),
+      ticketId: ticket.id,
+      tmuxBackend,
+      processRunner,
+    });
+
+    expect(worker.executionMode).toBe("worktree");
+    expect(worker.worktreePath).toBe(worker.checkoutPath);
+    expect(worker.worktreePath).toContain(worktreeBase);
+    expect(worker.cleanupPolicy).toBe("cleanup-after-landing");
+    expect(worker.cleanupStatus).toBe("pending");
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreePath: worker.worktreePath }),
+    );
+    expect(processRunner.mock.calls.some((call) => call[1][0] === "worktree")).toBe(true);
+
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const records = await loadWorkerRegistry(registryPath);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      workerId: worker.workerId,
+      executionMode: "worktree",
+      checkoutPath: worker.worktreePath,
+      worktreePath: worker.worktreePath,
+      cleanupPolicy: "cleanup-after-landing",
+      cleanupStatus: "pending",
+    });
+  });
+});
 
 describe("orchestrator helpers", () => {
   it("normalizes pi workers into a valid mode before appending provider/model flags", () => {
