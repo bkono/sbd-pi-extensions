@@ -18,11 +18,15 @@
     {
       "text": "Implemented quiescent dirty-state remediation before integrated scope validation in 5ff6333e9bef65cc856990d6c31603857a6e2a9b.\n\nSummary:\n- Adds a quiescent-only git status gate before scope validation.\n- Clean checkouts skip remediation/LLM and proceed directly to validation.\n- Dirty checkouts build evidence artifacts, run one bounded reviewer/remediator pass, execute only path-specific safe actions, and require final clean status before validation.\n- Unsafe/unresolved/remediator failures route the bounded run to attention with evidence/log paths.\n\nValidation passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension",
       "timestamp": "2026-05-09T23:17:05Z"
+    },
+    {
+      "text": "Amended implementation commit after adding the valid-partial-work commit-path coverage.\n\nFinal commit: e00cbc2665ff743fb5d54b782fcb496510627f4d\n\nFinal validation passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension",
+      "timestamp": "2026-05-09T23:18:16Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Implement quiescent dirty-state LLM remediation pass",
   "type": "task",
-  "updated_at": "2026-05-09T23:17:08Z"
+  "updated_at": "2026-05-09T23:18:16Z"
 }
