@@ -168,6 +168,10 @@ describe("worker manager", () => {
       enabled: false,
       reason: "only launching/running workers can be cancelled",
     });
+    expect(getWorkerActionAvailability(verifiedWorker).cleanup).toMatchObject({
+      enabled: true,
+      reason: "remove retained runtime artifacts",
+    });
   });
 
   it("surfaces grouped worker detail lines with paths and action lane state", () => {

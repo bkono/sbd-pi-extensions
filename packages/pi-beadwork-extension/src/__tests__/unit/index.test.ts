@@ -1,9 +1,13 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import beadworkExtension from "../../index.js";
-import { resolveWorkerRegistryPath, saveWorkerRegistry } from "../../registry.js";
+import {
+  loadWorkerRegistry,
+  resolveWorkerRegistryPath,
+  saveWorkerRegistry,
+} from "../../registry.js";
 import { loadSessionState, resolveSessionStateDir, saveSessionState } from "../../session-state.js";
 import {
   createExtensionTestHarness,
@@ -1113,6 +1117,50 @@ describe("pi beadwork extension", () => {
 
     expect(ui.notifications.at(-1)?.message).toContain(
       "Cannot cleanup BW-101: cleanup policy is cleanup-after-landing.",
+    );
+  });
+
+  it("cleans runtime artifacts for verified current-branch workers", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-cleanup-current-branch",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
+    const worker = {
+      ...createWorkerRuntime(tempDir),
+      executionMode: "current-branch" as const,
+      checkoutPath: tempDir,
+      branchName: "feature/current-branch-worker",
+      launchHead: "abc1234",
+      worktreePath: undefined,
+      status: "verified" as const,
+      ticketStatus: "closed",
+      cleanupPolicy: undefined,
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification: "Current-branch worker verified.",
+    };
+    await mkdir(worker.runtimeDir, { recursive: true });
+    await writeFile(worker.logFile, "worker log");
+    await saveWorkerRegistry(registryPath, [worker]);
+
+    await harness.invokeCommand("bw", "cleanup BW-101", ctx);
+
+    await expect(access(worker.runtimeDir)).rejects.toThrow();
+    const [persisted] = await loadWorkerRegistry(registryPath);
+    expect(persisted).toMatchObject({
+      workerId: worker.workerId,
+      status: "verified",
+      cleanupStatus: "cleaned",
+    });
+    expect(ui.notifications.at(-1)?.message).toContain(
+      "Cleanup completed for BW-101: current-branch runtime removed.",
     );
   });
 

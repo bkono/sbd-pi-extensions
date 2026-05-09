@@ -16,7 +16,7 @@ import {
   type SessionState,
   type WorkerRuntime,
 } from "../types.js";
-import { cleanupTicketWorktree } from "../worktree.js";
+import { cleanupTicketWorktree, cleanupWorkerRuntimeDir } from "../worktree.js";
 
 function matchesWorkerTarget(worker: WorkerRuntime, target: string): boolean {
   return worker.workerId === target || worker.ticketId === target;
@@ -140,35 +140,53 @@ export async function handleCleanupAction(input: {
       ctx.ui.notify(`Cannot cleanup ${target}: ${cleanupAction.reason}.`, "warning");
       return true;
     }
-    if (!isWorktreeWorker(worker)) {
-      ctx.ui.notify(`Cannot cleanup ${target}: worker is not worktree-backed.`, "warning");
-      return true;
-    }
-
     const runtimeRoot = resolveWorkerRuntimeDir(
       active.activation.repoRoot ?? ctx.cwd,
       active.config.storage.runtimeDir,
     );
-    const cleanup = await cleanupTicketWorktree({
-      repoRoot: active.activation.repoRoot ?? ctx.cwd,
-      worktreePath: worker.worktreePath,
+    const now = new Date().toISOString();
+
+    if (isWorktreeWorker(worker)) {
+      const cleanup = await cleanupTicketWorktree({
+        repoRoot: active.activation.repoRoot ?? ctx.cwd,
+        worktreePath: worker.worktreePath,
+        runtimeDir: worker.runtimeDir,
+        runtimeRoot,
+      });
+      const updatedWorker: WorkerRuntime = {
+        ...worker,
+        cleanupStatus: cleanup.removed || cleanup.runtimeRemoved ? "cleaned" : worker.cleanupStatus,
+        cleanupAt: cleanup.removed || cleanup.runtimeRemoved ? now : worker.cleanupAt,
+        updatedAt: now,
+        status: worker.status === "landed" ? "landed" : worker.status,
+      };
+      await saveWorkerRegistry(
+        registryPath,
+        workers.map((entry) => (entry.workerId === worker.workerId ? updatedWorker : entry)),
+      );
+      ctx.ui.notify(
+        `Cleanup completed for ${worker.ticketId}: worktree ${cleanup.removed ? "removed" : "already gone"}, runtime ${cleanup.runtimeRemoved ? "removed" : "already gone"}.`,
+        "info",
+      );
+      return true;
+    }
+
+    const cleanup = await cleanupWorkerRuntimeDir({
       runtimeDir: worker.runtimeDir,
       runtimeRoot,
     });
-    const now = new Date().toISOString();
     const updatedWorker: WorkerRuntime = {
       ...worker,
-      cleanupStatus: cleanup.removed || cleanup.runtimeRemoved ? "cleaned" : worker.cleanupStatus,
-      cleanupAt: cleanup.removed || cleanup.runtimeRemoved ? now : worker.cleanupAt,
+      cleanupStatus: "cleaned",
+      cleanupAt: now,
       updatedAt: now,
-      status: worker.status === "landed" ? "landed" : worker.status,
     };
     await saveWorkerRegistry(
       registryPath,
       workers.map((entry) => (entry.workerId === worker.workerId ? updatedWorker : entry)),
     );
     ctx.ui.notify(
-      `Cleanup completed for ${worker.ticketId}: worktree ${cleanup.removed ? "removed" : "already gone"}, runtime ${cleanup.runtimeRemoved ? "removed" : "already gone"}.`,
+      `Cleanup completed for ${worker.ticketId}: current-branch runtime ${cleanup.removed ? "removed" : "already gone"}.`,
       "info",
     );
     return true;

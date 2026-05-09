@@ -236,7 +236,7 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
     cleanup.reason = "worker is still active";
   } else if (worker.cleanupStatus === "cleaned") {
     cleanup.reason = "already cleaned";
-  } else if (worker.cleanupPolicy !== "keep") {
+  } else if (isWorktreeWorker(worker) && worker.cleanupPolicy !== "keep") {
     cleanup.reason = `cleanup policy is ${worker.cleanupPolicy}`;
   } else if (
     !worker.landingVerifiedAt &&
@@ -246,7 +246,9 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
     cleanup.reason = "landing must be verified or marked landed first";
   } else {
     cleanup.enabled = true;
-    cleanup.reason = "remove retained worktree/runtime artifacts";
+    cleanup.reason = isWorktreeWorker(worker)
+      ? "remove retained worktree/runtime artifacts"
+      : "remove retained runtime artifacts";
   }
 
   return { land, cancel, cleanup };
