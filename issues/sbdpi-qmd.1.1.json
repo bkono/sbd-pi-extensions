@@ -15,11 +15,15 @@
     {
       "text": "Implemented and committed sbdpi-qmd.1.1 as 6a5a540 (feat(pi-beadwork): add worker execution mode types for sbdpi-qmd.1.1). Added WorkerExecutionMode/checkout union/runtime base/type guards, worktree narrowing at orchestration callsites, registry round-trip normalization, and focused type guard/serialization tests. Validation run: npm run lint -w @solvedbydev/pi-beadwork-extension passed; npm run typecheck -w @solvedbydev/pi-beadwork-extension passed; targeted vitest for types/worker-diagnostics/worker-manager/index/dashboard passed (56 tests). I did not close the issue because running the broader relevant vitest set including src/__tests__/unit/orchestrator.test.ts fails in pre-existing dirty user changes in that file: the new dirty test \"reruns reviewer gating after landing rebase remediation before merge-back\" observes timeline [\"rebase-failed\", \"rebase-failed\"] vs expected [\"rebase-failed\"]. I staged only my two fixture lines from orchestrator.test.ts; the rest of that file remains dirty/uncommitted as found.",
       "timestamp": "2026-05-09T03:09:10Z"
+    },
+    {
+      "text": "Review remediation complete: added a focused compile-time `@ts-expect-error` assertion in `types.test.ts` proving `worktreePath` cannot be accessed after narrowing to a current-branch worker. Verified with `npm run test -w @solvedbydev/pi-beadwork-extension -- src/__tests__/unit/types.test.ts`, `npm run typecheck -w @solvedbydev/pi-beadwork-extension`, and `npm run lint -w @solvedbydev/pi-beadwork-extension`. Committed as e6490e0 (`test(pi-beadwork): remediate sbdpi-qmd.1.1 review`).",
+      "timestamp": "2026-05-09T03:16:30Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add WorkerExecutionMode discriminated union types to types.ts",
   "type": "task",
-  "updated_at": "2026-05-09T03:09:10Z"
+  "updated_at": "2026-05-09T03:16:30Z"
 }
