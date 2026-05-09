@@ -13,7 +13,7 @@
   "parent": "sbdpi-qmd.2",
   "priority": 1,
   "status": "open",
-  "title": "Update user-facing text and TUI labels from worktree to mode-appropriate language",
+  "title": "Update launch/delegate text from worktree to mode-appropriate language",
   "type": "task",
-  "updated_at": "2026-05-09T00:18:57Z"
+  "updated_at": "2026-05-09T00:20:02Z"
 }
