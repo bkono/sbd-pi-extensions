@@ -22,7 +22,7 @@ import {
   saveWorkerRegistry,
 } from "../../registry.js";
 import { createTmuxBackend, type TmuxBackend } from "../../tmux.js";
-import type { BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
+import type { BeadworkIssue, BeadworkIssueDetail, WorkerRuntime } from "../../types.js";
 
 const itInTmuxSession = process.env.TMUX?.trim() ? it : it.skip;
 
@@ -43,6 +43,11 @@ function createIssue(overrides: Partial<BeadworkIssueDetail> = {}): BeadworkIssu
     children: [],
     ...overrides,
   };
+}
+
+function stripChildren(issue: BeadworkIssueDetail): BeadworkIssue {
+  const { children: _children, ...rest } = issue;
+  return rest;
 }
 
 function createAdapter(overrides: Partial<BeadworkAdapter>): BeadworkAdapter {
@@ -4354,6 +4359,60 @@ describe("run loop", () => {
     expect(summary.cycles).toBe(1);
   });
 
+  it("does not complete a closed epic while a descendant child remains open", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-open-descendant-"));
+    const openGrandchild = createIssue({ id: "BW-102", type: "task", title: "Open child" });
+    const closedChildEpic = createIssue({
+      id: "BW-101",
+      type: "epic",
+      title: "Closed child epic",
+      status: "closed",
+      children: [openGrandchild],
+    });
+    const rootEpic = createIssue({
+      id: "BW-100",
+      type: "epic",
+      status: "closed",
+      children: [stripChildren(closedChildEpic)],
+    });
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) => {
+        if (id === "BW-100") {
+          return rootEpic;
+        }
+        if (id === "BW-101") {
+          return closedChildEpic;
+        }
+        return openGrandchild;
+      }),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async () => ok("scope-ok\n"));
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      runner,
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+    });
+
+    expect(summary.stopReason).toBe("blocked");
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it("records launch mode and path in run summary notes", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-launch-note-"));
     const ticket = createIssue({ id: "BW-201", type: "task", title: "Implement task" });
@@ -4498,7 +4557,7 @@ describe("run loop", () => {
     expect(summary.cycleSummaries[0]?.verified).toEqual(["BW-101"]);
   });
 
-  it("inspects exited current-branch workers inline before completing a closed scope", async () => {
+  it("routes a verified current-branch closed scope to attention until scope review gates run", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-inline-verify-"));
     const registryPath = resolveWorkerRegistryPath(
       repoRoot,
@@ -4552,10 +4611,13 @@ describe("run loop", () => {
       runner,
     });
 
-    expect(summary.stopReason).toBe("completed");
+    expect(summary.stopReason).toBe("attention");
     expect(summary.workerSummary.verified).toBe(1);
     expect(summary.workerSummary.successfulTerminal).toBe(1);
     expect(runner).toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
+    expect(summary.notes).toContain(
+      "Scope validation passed, but scope-completion review/fix-forward gating is pending. The orchestrator cannot mark the current-branch scope completed until Phase 4 scope review runs and has no unresolved fix findings.",
+    );
     expect((await loadWorkerRegistry(registryPath))[0]).toMatchObject({ status: "verified" });
   });
 

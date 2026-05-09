@@ -3865,18 +3865,79 @@ export async function stopWorkers(input: {
   return stopped;
 }
 
-function isScopeTicketTerminal(epic: BeadworkIssueDetail): boolean {
-  if (epic.status === "closed") {
+function hasInlineChildren(
+  issue: BeadworkIssue | BeadworkIssueDetail,
+): issue is BeadworkIssueDetail {
+  return Array.isArray((issue as BeadworkIssueDetail).children);
+}
+
+async function loadScopeChildDetail(input: {
+  cwd: string;
+  adapter: BeadworkAdapter;
+  child: BeadworkIssue;
+}): Promise<BeadworkIssueDetail> {
+  if (hasInlineChildren(input.child)) {
+    return input.child;
+  }
+
+  const detail = await input.adapter.show(input.cwd, input.child.id);
+  if (detail.id === input.child.id) {
+    return detail;
+  }
+
+  return { ...input.child, children: [] };
+}
+
+async function isScopeTicketTerminal(input: {
+  cwd: string;
+  adapter: BeadworkAdapter;
+  issue: BeadworkIssueDetail;
+  seen?: Set<string>;
+}): Promise<boolean> {
+  const seen = input.seen ?? new Set<string>();
+  if (seen.has(input.issue.id)) {
     return true;
   }
-  if (epic.children.length === 0) {
-    return false;
+  seen.add(input.issue.id);
+
+  if (input.issue.children.length === 0) {
+    return input.issue.status === "closed";
   }
-  return epic.children.every((child) => child.status === "closed");
+
+  for (const child of input.issue.children) {
+    const childDetail = await loadScopeChildDetail({
+      cwd: input.cwd,
+      adapter: input.adapter,
+      child,
+    });
+    if (!(await isScopeTicketTerminal({ ...input, issue: childDetail, seen }))) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function hasUnresolvedFixFindings(worker: WorkerRuntime): boolean {
   return (worker.reviewTriageDecisions ?? []).some((decision) => decision.classification === "fix");
+}
+
+function requiresPendingScopeReviewGate(input: {
+  config: BeadworkConfig;
+  workers: WorkerRuntime[];
+}): boolean {
+  return (
+    input.config.workerExecution.mode === "current-branch" ||
+    input.workers.some((worker) => worker.executionMode === "current-branch")
+  );
+}
+
+function pendingScopeReviewGateNote(): string {
+  return (
+    "Scope validation passed, but scope-completion review/fix-forward gating is pending. " +
+    "The orchestrator cannot mark the current-branch scope completed until Phase 4 scope " +
+    "review runs and has no unresolved fix findings."
+  );
 }
 
 export async function runBoundedEpicLoop(input: {
@@ -3999,7 +4060,7 @@ export async function runBoundedEpicLoop(input: {
         .map((worker) => worker.ticketId),
     });
 
-    if (isScopeTicketTerminal(epic)) {
+    if (await isScopeTicketTerminal({ cwd: input.cwd, adapter: input.adapter, issue: epic })) {
       if (summary.active === 0) {
         const nonTerminalWorkers = workers.filter((worker) => !isSuccessfulTerminalWorker(worker));
         const unresolvedFixWorkers = workers.filter(hasUnresolvedFixFindings);
@@ -4021,6 +4082,12 @@ export async function runBoundedEpicLoop(input: {
 
         notes.push(`Scope validation: ${scopeValidation.detail}`);
         if (!scopeValidation.passed) {
+          stopReason = "attention";
+          break;
+        }
+
+        if (requiresPendingScopeReviewGate({ config: input.config, workers })) {
+          notes.push(pendingScopeReviewGateNote());
           stopReason = "attention";
           break;
         }
