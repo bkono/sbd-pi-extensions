@@ -14,9 +14,15 @@
   "id": "sbdpi-qmd.1.6",
   "labels": [],
   "parent": "sbdpi-qmd.1",
+  "comments": [
+    {
+      "text": "Implemented Phase 1 substrate invariant regression coverage in `packages/pi-beadwork-extension/src/__tests__/unit/substrate-invariants.test.ts` (using `unit/` to match the package's existing test convention). Covered no reservations, dirty checkout tolerance, no worktree config leak, no current-branch worktreePath, unsupported WorkerStatus type guards, type-level worktreePath impossibility, no IPC/locking prerequisites, and landing vs worker review config isolation. Verified with package lint/test/typecheck. Commit: 579d645.",
+      "timestamp": "2026-05-09T04:17:27Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add Phase 1 regression tests for over-engineering prevention",
   "type": "task",
-  "updated_at": "2026-05-09T04:13:44Z"
+  "updated_at": "2026-05-09T04:17:27Z"
 }
