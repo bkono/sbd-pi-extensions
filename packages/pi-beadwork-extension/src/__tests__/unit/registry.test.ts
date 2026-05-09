@@ -108,10 +108,48 @@ describe("worker registry normalization", () => {
     expect("worktreePath" in normalized).toBe(false);
   });
 
+  it("strips spoofed worktreePath from current-branch records during normalization", () => {
+    const spoofed = {
+      ...currentBranchWorker(),
+      worktreePath: "/repo",
+      extraCurrentBranchField: { keep: true },
+    };
+
+    const normalized = normalizeWorkerRecord(spoofed) as WorkerRuntime & {
+      extraCurrentBranchField: { keep: boolean };
+    };
+
+    expect(normalized.executionMode).toBe("current-branch");
+    expect(normalized.checkoutPath).toBe("/repo");
+    expect("worktreePath" in normalized).toBe(false);
+    expect(normalized.extraCurrentBranchField).toEqual({ keep: true });
+  });
+
+  it("drops spoofed current-branch worktreePath during save", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-registry-"));
+    const registryPath = path.join(tempDir, "registry.json");
+    const spoofed = { ...currentBranchWorker(), worktreePath: "/repo" } as unknown as WorkerRuntime;
+
+    const savedWorkers = await saveWorkerRegistry(registryPath, [spoofed]);
+    const saved = JSON.parse(await readFile(registryPath, "utf8")) as { workers: WorkerRuntime[] };
+
+    expect("worktreePath" in savedWorkers[0]!).toBe(false);
+    expect("worktreePath" in saved.workers[0]!).toBe(false);
+  });
+
   it("passes new worktree records through unchanged", () => {
     const worker = worktreeWorker();
 
     expect(normalizeWorkerRecord(worker)).toEqual(worker);
+  });
+
+  it("preserves explicit worktreePath on new worktree records", () => {
+    const worker = worktreeWorker({ worktreePath: "/tmp/isolated", checkoutPath: "/tmp/isolated" });
+
+    const normalized = normalizeWorkerRecord(worker);
+
+    expect(normalized).toEqual(worker);
+    expect(normalized.worktreePath).toBe("/tmp/isolated");
   });
 
   it("preserves normalized legacy records across load/save round trips", async () => {

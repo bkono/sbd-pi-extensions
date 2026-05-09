@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../config.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
 import type { ProcessResult, ProcessRunner } from "../../process.js";
+import { normalizeWorkerRecord } from "../../registry.js";
 import type { BeadworkConfig, CurrentBranchWorkerRuntime, WorkerStatus } from "../../types.js";
 import { prepareWorkerCheckout } from "../../worktree.js";
 
@@ -102,6 +103,8 @@ afterEach(() => {
 });
 
 describe("substrate invariants for current-branch worker execution", () => {
+  // Phase 1 intentionally covers prepareWorkerCheckout and persisted runtime records only;
+  // launchTicketWorker is not wired to current-branch execution until a later phase.
   it("does not require a path reservation system before preparing current-branch checkout", async () => {
     // WHY: current-branch execution deliberately lets beadwork own task coordination;
     // adding a separate path reservation prerequisite would reintroduce planning overhead
@@ -167,13 +170,15 @@ describe("substrate invariants for current-branch worker execution", () => {
     ).resolves.toMatchObject({ executionMode: "current-branch", checkoutPath: repoRoot });
   });
 
-  it("does not put worktreePath on current-branch runtime records", () => {
+  it("does not put worktreePath on normalized current-branch runtime records", () => {
     // WHY: setting worktreePath to the repo root would make downstream code treat the
     // live checkout as disposable worker infrastructure, which is the wrong direction.
     const worker = currentBranchWorker();
+    const spoofedWorker = { ...worker, worktreePath: "/repo" };
 
     expect(worker.checkoutPath).toBe("/repo");
     expect("worktreePath" in worker).toBe(false);
+    expect("worktreePath" in normalizeWorkerRecord(spoofedWorker)).toBe(false);
   });
 
   it("keeps proposed process-phase names out of the WorkerStatus union", () => {

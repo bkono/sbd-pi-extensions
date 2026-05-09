@@ -203,7 +203,8 @@ export function normalizeWorkerRecord(raw: unknown): WorkerRuntime {
   if (record.executionMode === "current-branch") {
     requireString(record, "checkoutPath");
     requireString(record, "launchHead");
-    return record as WorkerRuntime;
+    const { worktreePath: _worktreePath, ...normalized } = record;
+    return normalized as WorkerRuntime;
   }
 
   failRecord('invalid field "executionMode"; expected "worktree" or "current-branch"');
@@ -256,9 +257,14 @@ export async function saveWorkerRegistry(
   registryPath: string,
   workers: WorkerRuntime[],
 ): Promise<WorkerRuntime[]> {
+  const normalizedWorkers = workers.map((worker) => normalizeWorkerRecord(worker));
   await mkdir(path.dirname(registryPath), { recursive: true });
-  await writeFile(registryPath, `${JSON.stringify({ workers }, null, 2)}\n`, "utf8");
-  return workers;
+  await writeFile(
+    registryPath,
+    `${JSON.stringify({ workers: normalizedWorkers }, null, 2)}\n`,
+    "utf8",
+  );
+  return normalizedWorkers;
 }
 
 export async function upsertWorkerRuntime(
@@ -271,8 +277,9 @@ export async function upsertWorkerRuntime(
     return workers;
   }
 
-  const filtered = workers.filter((entry) => entry.workerId !== worker.workerId);
-  filtered.push(worker);
+  const normalizedWorker = normalizeWorkerRecord(worker);
+  const filtered = workers.filter((entry) => entry.workerId !== normalizedWorker.workerId);
+  filtered.push(normalizedWorker);
   filtered.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
   return saveWorkerRegistry(registryPath, filtered);
 }
