@@ -26,11 +26,15 @@
     {
       "text": "Correction: final commit SHA is e00cbc27149aa6945620c339046dedc90905a8be.",
       "timestamp": "2026-05-09T23:18:26Z"
+    },
+    {
+      "text": "Review blocker remediation implemented for e00cbc2: dirty-state decisions now require classification/action approval before any executable action, unsafe or unrecognized classifications route to attention, and remediator prompts are written to runtime artifacts and passed via a shell-quoted file read to avoid interpolating untrusted evidence. Added regressions for unsafe commit/delete decisions and shell-metacharacter evidence. Package lint/test/typecheck pass.",
+      "timestamp": "2026-05-09T23:27:10Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Implement quiescent dirty-state LLM remediation pass",
   "type": "task",
-  "updated_at": "2026-05-09T23:18:26Z"
+  "updated_at": "2026-05-09T23:27:10Z"
 }
