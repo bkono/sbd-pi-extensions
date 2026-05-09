@@ -11,9 +11,15 @@
   "id": "sbdpi-qmd.4.5",
   "labels": [],
   "parent": "sbdpi-qmd.4",
+  "comments": [
+    {
+      "text": "Implemented scope validation fix-forward handling for current-branch mode. Validation failures now capture command/cwd/exit/duration/stdout/stderr, write evidence + prompt/log artifacts, invoke coordinator classification, create deduplicated child fix-forward tasks for likely in-scope issues, continue the bounded loop, and route ambiguous/unsafe failures to attention without mutating verified workers. Added tests for evidence/task creation/deduped repeated polls, ambiguous attention routing, verified worker preservation, and no scope review progression while validation fails. Gates: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension. Commit: f161b63.",
+      "timestamp": "2026-05-09T23:43:57Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Handle scope validation failures with attribution-aware fix-forward work",
   "type": "task",
-  "updated_at": "2026-05-09T23:30:48Z"
+  "updated_at": "2026-05-09T23:43:57Z"
 }
