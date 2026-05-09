@@ -11,9 +11,15 @@
   "id": "sbdpi-qmd.3.1",
   "labels": [],
   "parent": "sbdpi-qmd.3",
+  "comments": [
+    {
+      "text": "Implemented in commit 0a24d11. Closed current-branch exited workers now route through verifyCurrentBranchWorker skeleton with lock dedupe/idempotency and no worktree landing operations; worktree landing path remains unchanged. Added tests for mode branching, idempotency, dedupe, open-ticket fallthrough, attention/failed skip, and worktree landing behavior. Package lint/test/typecheck pass.",
+      "timestamp": "2026-05-09T05:35:10Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Split inspectWorkerRuntime post-exit orchestration by execution mode",
   "type": "task",
-  "updated_at": "2026-05-09T05:27:09Z"
+  "updated_at": "2026-05-09T05:35:10Z"
 }
