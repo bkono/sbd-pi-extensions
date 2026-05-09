@@ -12,9 +12,15 @@
   "id": "sbdpi-qmd.1.5",
   "labels": [],
   "parent": "sbdpi-qmd.1",
+  "comments": [
+    {
+      "text": "Implemented and committed `prepareWorkerCheckout()` dispatcher in aeac4a8. DoD met: current-branch checkout returns branch/launchHead without worktree side effects, detached HEAD rejects by default and allows explicit opt-in, worktree mode wraps existing `prepareTicketWorktree()` behavior, and existing launch flow remains unchanged. Verified with:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension`\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`",
+      "timestamp": "2026-05-09T03:43:34Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Implement prepareWorkerCheckout() as the mode-branching dispatcher",
   "type": "task",
-  "updated_at": "2026-05-09T03:21:31Z"
+  "updated_at": "2026-05-09T03:43:34Z"
 }
