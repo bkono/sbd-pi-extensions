@@ -2260,6 +2260,10 @@ export async function launchTicketWorker(input: {
 
   const now = new Date().toISOString();
   const launchCommand = `bash ${shellQuote(scriptFile)}`;
+  const launchReviewEnabled =
+    checkout.executionMode === "current-branch"
+      ? input.config.workerExecution.review.enabled
+      : input.config.landing.review.enabled;
   const commonWorker = {
     workerId,
     ticketId: ticket.id,
@@ -2284,7 +2288,7 @@ export async function launchTicketWorker(input: {
     reviewerProvider: reviewerAgent.workerProvider,
     reviewerModel: reviewerAgent.workerModel,
     landingPolicy: input.config.landing.policy,
-    reviewStatus: input.config.landing.review.enabled ? ("pending" as const) : undefined,
+    reviewStatus: launchReviewEnabled ? ("pending" as const) : undefined,
     status: "launching" as const,
     startedAt: now,
     updatedAt: now,
