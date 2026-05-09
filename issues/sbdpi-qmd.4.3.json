@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-qmd.4.2",
     "sbdpi-qmd.4.5"
@@ -13,8 +13,8 @@
   "labels": [],
   "parent": "sbdpi-qmd.4",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Implement scope-completion review with fix-forward work creation",
   "type": "task",
-  "updated_at": "2026-05-09T00:16:43Z"
+  "updated_at": "2026-05-09T23:56:37Z"
 }
