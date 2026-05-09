@@ -3865,6 +3865,20 @@ export async function stopWorkers(input: {
   return stopped;
 }
 
+function isScopeTicketTerminal(epic: BeadworkIssueDetail): boolean {
+  if (epic.status === "closed") {
+    return true;
+  }
+  if (epic.children.length === 0) {
+    return false;
+  }
+  return epic.children.every((child) => child.status === "closed");
+}
+
+function hasUnresolvedFixFindings(worker: WorkerRuntime): boolean {
+  return (worker.reviewTriageDecisions ?? []).some((decision) => decision.classification === "fix");
+}
+
 export async function runBoundedEpicLoop(input: {
   cwd: string;
   repoRoot: string;
@@ -3985,9 +3999,35 @@ export async function runBoundedEpicLoop(input: {
         .map((worker) => worker.ticketId),
     });
 
-    if (epic.status === "closed" || epic.children.every((child) => child.status === "closed")) {
-      stopReason = "completed";
-      break;
+    if (isScopeTicketTerminal(epic)) {
+      if (summary.active === 0) {
+        const nonTerminalWorkers = workers.filter((worker) => !isSuccessfulTerminalWorker(worker));
+        const unresolvedFixWorkers = workers.filter(hasUnresolvedFixFindings);
+
+        if (nonTerminalWorkers.length > 0 || unresolvedFixWorkers.length > 0) {
+          notes.push(
+            "At least one worker needs operator attention before the orchestrator can complete the scope.",
+          );
+          stopReason = "attention";
+          break;
+        }
+
+        const scopeValidation = await runWorktreeValidation({
+          worktreePath: input.repoRoot,
+          commands: input.config.landing.validateCommands,
+          timeoutMs: input.config.landing.commandTimeoutMs,
+          runner,
+        });
+
+        notes.push(`Scope validation: ${scopeValidation.detail}`);
+        if (!scopeValidation.passed) {
+          stopReason = "attention";
+          break;
+        }
+
+        stopReason = "completed";
+        break;
+      }
     }
 
     if (

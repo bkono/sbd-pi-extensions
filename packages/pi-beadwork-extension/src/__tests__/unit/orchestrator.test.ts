@@ -4497,4 +4497,252 @@ describe("run loop", () => {
     expect(summary.workerSummary.successfulTerminal).toBe(1);
     expect(summary.cycleSummaries[0]?.verified).toEqual(["BW-101"]);
   });
+
+  it("inspects exited current-branch workers inline before completing a closed scope", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-inline-verify-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      await createCurrentBranchRuntimeWorker(repoRoot, {
+        status: "exited",
+        ticketStatus: "closed",
+        launchHead: "base-sha",
+      }),
+    ]);
+
+    const epic = createIssue({
+      children: [createIssue({ id: "BW-101", type: "task", title: "Task", status: "closed" })],
+    });
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100" ? epic : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const gitRunner = createGitRunner([
+      { sha: "commit-sha", subject: "Implement task", paths: ["src/task.ts"] },
+    ]);
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "bash" && args.join(" ") === "-lc echo scope-ok") {
+        return ok("scope-ok\n");
+      }
+      return gitRunner(command, args);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...currentBranchVerificationConfig(false),
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(summary.workerSummary.verified).toBe(1);
+    expect(summary.workerSummary.successfulTerminal).toBe(1);
+    expect(runner).toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
+    expect((await loadWorkerRegistry(registryPath))[0]).toMatchObject({ status: "verified" });
+  });
+
+  it("stops as attention when inline verification routes a worker to attention", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-inline-attention-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      await createCurrentBranchRuntimeWorker(repoRoot, {
+        status: "exited",
+        ticketStatus: "closed",
+        launchHead: "base-sha",
+      }),
+    ]);
+
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100"
+          ? createIssue({
+              children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+            })
+          : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const gitRunner = createGitRunner([]);
+    const runner = vi.fn(async (command: string, args: string[]) => gitRunner(command, args));
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...currentBranchVerificationConfig(false),
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(summary.workerSummary.attention).toBe(1);
+    expect(runner).not.toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
+  });
+
+  it("does not complete a closed scope while workers are still active", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-active-scope-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      status: "running",
+      ticketStatus: "closed",
+    });
+    await writeFile(worker.stateFile, "running\n", "utf8");
+    await saveWorkerRegistry(registryPath, [worker]);
+
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100"
+          ? createIssue({
+              children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+            })
+          : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async () => ok("scope-ok\n"));
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...currentBranchVerificationConfig(false),
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("max-cycles");
+    expect(summary.workerSummary.active).toBe(1);
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("keeps worktree landed workers on the existing completion path", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-worktree-complete-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({
+        status: "landed",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
+    ]);
+
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100"
+          ? createIssue({
+              children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+            })
+          : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      expect(command).toBe("bash");
+      expect(args).toEqual(["-lc", "echo scope-ok"]);
+      return ok("scope-ok\n");
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(summary.workerSummary.landed).toBe(1);
+    expect(summary.workerSummary.successfulTerminal).toBe(1);
+  });
+
+  it("preserves empty stop behavior for open scopes with no ready work", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-empty-"));
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(createIssue()),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: DEFAULT_CONFIG,
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "empty",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+    });
+
+    expect(summary.stopReason).toBe("empty");
+  });
 });
