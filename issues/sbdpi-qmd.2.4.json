@@ -13,9 +13,15 @@
   "id": "sbdpi-qmd.2.4",
   "labels": [],
   "parent": "sbdpi-qmd.2",
+  "comments": [
+    {
+      "text": "Implemented comprehensive Phase 2 current-branch launch regression coverage in packages/pi-beadwork-extension/src/__tests__/unit/current-branch-launch.test.ts. Covered no worktree prep/clean gate/worktreePath, tmux checkoutPath, runtime dirs, registry metadata before tmux, handoff instructions/no worktree/broad staging guardrails, real dirty/untracked repo launch, detached HEAD reject/allow, /bw run --workers N multi-launch/no lock files, worktree-mode preservation, current-branch error wording, and landing.review vs workerExecution.review independence. Also fixed launch reviewStatus to use workerExecution.review for current-branch mode. Quality gates passed: npm run lint/test/typecheck -w @solvedbydev/pi-beadwork-extension. Commit: a0dbfe4.",
+      "timestamp": "2026-05-09T05:22:42Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add Phase 2 launch regression tests",
   "type": "task",
-  "updated_at": "2026-05-09T05:15:34Z"
+  "updated_at": "2026-05-09T05:22:42Z"
 }
