@@ -1,14 +1,16 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_CONFIG } from "../../constants.js";
 import {
   buildTicketBranchName,
   cleanupTicketWorktree,
   cleanupWorkerRuntimeDir,
   landWorktreeBranch,
   prepareTicketWorktree,
+  prepareWorkerCheckout,
   rebaseWorktreeOntoRepoHead,
   runWorktreeValidation,
   verifyWorktreeLanding,
@@ -18,6 +20,163 @@ describe("worktree helpers", () => {
   it("builds a beadwork-style branch name", () => {
     expect(buildTicketBranchName("BW-123", "Fix auth token refresh")).toBe(
       "BW-123/fix-auth-token-refresh",
+    );
+  });
+
+  it("prepares a current-branch checkout without worktree side effects", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-"));
+    const beforeEntries = await readdir(repoRoot);
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command !== "git") {
+        throw new Error(`unexpected command: ${command}`);
+      }
+      if (args.join(" ") === "rev-parse --abbrev-ref HEAD") {
+        return { stdout: "main\n", stderr: "", code: 0 };
+      }
+      if (args.join(" ") === "rev-parse HEAD") {
+        return { stdout: "abc123\n", stderr: "", code: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(" ")}`);
+    });
+    const config = {
+      ...DEFAULT_CONFIG,
+      workerExecution: {
+        ...DEFAULT_CONFIG.workerExecution,
+        mode: "current-branch" as const,
+      },
+      get worktrees() {
+        throw new Error("current-branch checkout must not consult worktree config");
+      },
+    };
+
+    const result = await prepareWorkerCheckout({
+      config,
+      ticketId: "BW-123",
+      repoRoot,
+      processRunner: runner,
+    });
+
+    expect(result).toEqual({
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "main",
+      launchHead: "abc123",
+    });
+    expect(await readdir(repoRoot)).toEqual(beforeEntries);
+    expect(runner).toHaveBeenCalledTimes(2);
+    expect(runner).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: repoRoot,
+      timeout: 10_000,
+    });
+    expect(runner).toHaveBeenNthCalledWith(2, "git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      timeout: 10_000,
+    });
+  });
+
+  it("rejects detached HEAD for current-branch checkout by default", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-"));
+    const runner = vi.fn(async () => ({ stdout: "HEAD\n", stderr: "", code: 0 }));
+
+    await expect(
+      prepareWorkerCheckout({
+        config: {
+          ...DEFAULT_CONFIG,
+          workerExecution: {
+            ...DEFAULT_CONFIG.workerExecution,
+            mode: "current-branch",
+            allowDetachedHead: false,
+          },
+        },
+        ticketId: "BW-123",
+        repoRoot,
+        processRunner: runner,
+      }),
+    ).rejects.toThrow(/detached HEAD/);
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows detached HEAD for current-branch checkout only with opt-in", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-"));
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      if (args.join(" ") === "rev-parse --abbrev-ref HEAD") {
+        return { stdout: "HEAD\n", stderr: "", code: 0 };
+      }
+      if (args.join(" ") === "rev-parse HEAD") {
+        return { stdout: "detached-sha\n", stderr: "", code: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(" ")}`);
+    });
+
+    const result = await prepareWorkerCheckout({
+      config: {
+        ...DEFAULT_CONFIG,
+        workerExecution: {
+          ...DEFAULT_CONFIG.workerExecution,
+          mode: "current-branch",
+          allowDetachedHead: true,
+        },
+      },
+      ticketId: "BW-123",
+      repoRoot,
+      processRunner: runner,
+    });
+
+    expect(result).toEqual({
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "HEAD",
+      launchHead: "detached-sha",
+    });
+  });
+
+  it("wraps worktree preparation when worker execution mode is worktree", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-worktree-"));
+    const baseDir = path.join(repoRoot, "worker-checkouts");
+    await writeFile(path.join(repoRoot, ".env"), "TOKEN=abc\n", "utf8");
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "worktree" && args[1] === "add") {
+        await mkdir(args[4], { recursive: true });
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const result = await prepareWorkerCheckout({
+      config: {
+        ...DEFAULT_CONFIG,
+        workerExecution: {
+          ...DEFAULT_CONFIG.workerExecution,
+          mode: "worktree",
+        },
+        worktrees: {
+          ...DEFAULT_CONFIG.worktrees,
+          baseDir,
+          copyFiles: [".env"],
+          setupCommands: ["npm install"],
+        },
+      },
+      ticketId: "BW-123",
+      title: "Fix auth token refresh",
+      repoRoot,
+      processRunner: runner,
+    });
+
+    expect(result.executionMode).toBe("worktree");
+    expect(result.branchName).toBe("BW-123/fix-auth-token-refresh");
+    expect(result.checkoutPath).toBe(path.join(baseDir, "BW-123-fix-auth-token-refresh"));
+    expect(result).toEqual({
+      executionMode: "worktree",
+      checkoutPath: path.join(baseDir, "BW-123-fix-auth-token-refresh"),
+      branchName: "BW-123/fix-auth-token-refresh",
+      worktreePath: path.join(baseDir, "BW-123-fix-auth-token-refresh"),
+    });
+    await expect(readFile(path.join(result.checkoutPath, ".env"), "utf8")).resolves.toBe(
+      "TOKEN=abc\n",
+    );
+    expect(runner).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", "npm install"],
+      expect.objectContaining({ cwd: result.checkoutPath }),
     );
   });
 

@@ -1,7 +1,7 @@
 import { access, copyFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { defaultProcessRunner, type ProcessRunner, slugify } from "./process.js";
-import type { WorktreeCopyRule } from "./types.js";
+import type { BeadworkConfig, WorkerCheckout, WorktreeCopyRule } from "./types.js";
 
 export type PreparedWorktree = {
   branchName: string;
@@ -9,6 +9,15 @@ export type PreparedWorktree = {
   reused: boolean;
   copiedFiles: string[];
   setupCommandsRun: string[];
+};
+
+export type PrepareWorkerCheckoutOptions = {
+  config: BeadworkConfig;
+  ticketId: string;
+  epicId?: string;
+  repoRoot: string;
+  title?: string;
+  processRunner?: ProcessRunner;
 };
 
 export type LandingVerificationResult = {
@@ -95,6 +104,67 @@ async function readGitRevision(
     timeout: 10_000,
   });
   return result.stdout.trim();
+}
+
+async function prepareCurrentBranchCheckout(
+  input: PrepareWorkerCheckoutOptions,
+): Promise<WorkerCheckout> {
+  const runner = input.processRunner ?? defaultProcessRunner;
+  const branchResult = await runner("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: input.repoRoot,
+    timeout: 10_000,
+  });
+  const branchName = branchResult.stdout.trim();
+
+  if (branchName === "HEAD" && input.config.workerExecution.allowDetachedHead !== true) {
+    throw new Error(
+      "Cannot prepare current-branch worker checkout from detached HEAD. Checkout a branch or set workerExecution.allowDetachedHead=true.",
+    );
+  }
+
+  const headResult = await runner("git", ["rev-parse", "HEAD"], {
+    cwd: input.repoRoot,
+    timeout: 10_000,
+  });
+
+  return {
+    executionMode: "current-branch",
+    checkoutPath: input.repoRoot,
+    branchName,
+    launchHead: headResult.stdout.trim(),
+  };
+}
+
+async function prepareWorktreeCheckout(
+  input: PrepareWorkerCheckoutOptions,
+): Promise<WorkerCheckout> {
+  const prepared = await prepareTicketWorktree({
+    repoRoot: input.repoRoot,
+    ticketId: input.ticketId,
+    title: input.title ?? input.ticketId,
+    baseDir: input.config.worktrees.baseDir,
+    copyFiles: input.config.worktrees.copyFiles,
+    setupCommands: input.config.worktrees.setupCommands,
+    rerunSetupOnReuse: input.config.worktrees.rerunSetupOnReuse,
+    runner: input.processRunner,
+  });
+
+  return {
+    executionMode: "worktree",
+    checkoutPath: prepared.worktreePath,
+    branchName: prepared.branchName,
+    worktreePath: prepared.worktreePath,
+  };
+}
+
+export async function prepareWorkerCheckout(
+  input: PrepareWorkerCheckoutOptions,
+): Promise<WorkerCheckout> {
+  if (input.config.workerExecution.mode === "current-branch") {
+    return prepareCurrentBranchCheckout(input);
+  }
+
+  return prepareWorktreeCheckout(input);
 }
 
 async function readAheadBehindCounts(
