@@ -20,11 +20,15 @@
     {
       "text": "Implemented Phase 1 substrate invariant regression coverage in `packages/pi-beadwork-extension/src/__tests__/unit/substrate-invariants.test.ts` (using `unit/` to match the package's existing test convention). Covered no reservations, dirty checkout tolerance, no worktree config leak, no current-branch worktreePath, unsupported WorkerStatus type guards, type-level worktreePath impossibility, no IPC/locking prerequisites, and landing vs worker review config isolation. Verified with package lint/test/typecheck. Commit: 579d645.",
       "timestamp": "2026-05-09T04:17:27Z"
+    },
+    {
+      "text": "Review remediation: addressed valid finding B by normalizing current-branch worker records so any spoofed/stale worktreePath is stripped on normalize/save/upsert, with registry and substrate invariant coverage. Clarified substrate tests intentionally cover prepareWorkerCheckout/persisted runtime surfaces only in Phase 1; launchTicketWorker is intentionally not wired/tested yet per sbdpi-qmd.1.5. Package lint/test/typecheck pass.",
+      "timestamp": "2026-05-09T04:24:44Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Add Phase 1 regression tests for over-engineering prevention",
   "type": "task",
-  "updated_at": "2026-05-09T04:17:37Z"
+  "updated_at": "2026-05-09T04:24:44Z"
 }
