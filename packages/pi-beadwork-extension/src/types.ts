@@ -61,6 +61,7 @@ export type WorkerStatus =
   | "exited"
   | "held"
   | "landed"
+  | "verified"
   | "failed"
   | "attention";
 
@@ -359,6 +360,13 @@ export function isWorktreeWorker(worker: WorkerRuntime): worker is WorktreeWorke
   return worker.executionMode === "worktree";
 }
 
+export function isSuccessfulTerminalWorker(worker: WorkerRuntime): boolean {
+  return (
+    (isCurrentBranchWorker(worker) && worker.status === "verified") ||
+    (isWorktreeWorker(worker) && worker.status === "landed")
+  );
+}
+
 export type WorkerSummary = {
   total: number;
   active: number;
@@ -367,6 +375,8 @@ export type WorkerSummary = {
   exited: number;
   held: number;
   landed: number;
+  verified: number;
+  successfulTerminal: number;
   failed: number;
   attention: number;
   cleaned: number;
@@ -388,6 +398,7 @@ export type RunCycleSummary = {
   running: string[];
   held: string[];
   landed: string[];
+  verified: string[];
   failed: string[];
   attention: string[];
   exited: string[];

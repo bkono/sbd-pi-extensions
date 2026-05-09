@@ -32,6 +32,9 @@ export function renderStatusText(
     if (workerSummary && workerSummary.active > 0) {
       parts.push(theme.fg("muted", `· workers ${workerSummary.active}`));
     }
+    if (workerSummary && workerSummary.successfulTerminal > 0) {
+      parts.push(theme.fg("success", `· done ${workerSummary.successfulTerminal}`));
+    }
     if (workerSummary && workerSummary.failed > 0) {
       parts.push(theme.fg("warning", `· fail ${workerSummary.failed}`));
     }

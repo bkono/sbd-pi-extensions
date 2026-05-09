@@ -99,6 +99,8 @@ function createWorkerSummary(overrides: Partial<DashboardStatusSnapshot["workerS
     exited: overrides.exited ?? 0,
     held: overrides.held ?? 0,
     landed: overrides.landed ?? 0,
+    verified: overrides.verified ?? 0,
+    successfulTerminal: overrides.successfulTerminal ?? 0,
     failed: overrides.failed ?? 0,
     attention: overrides.attention ?? 0,
     cleaned: overrides.cleaned ?? 0,
@@ -174,7 +176,9 @@ describe("dashboard", () => {
       render: (width: number) => string[];
       applySnapshot: (snapshot: DashboardStatusSnapshot) => void;
     };
-    expect(renderComponent(dashboard)).toContain("workers 1 · active 1 · held 0 · landed 0");
+    expect(renderComponent(dashboard)).toContain(
+      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
+    );
     expect(renderComponent(dashboard)).toContain("Delegable ticket");
     expect(renderComponent(dashboard)).toContain("running · ticket open");
 
@@ -186,7 +190,7 @@ describe("dashboard", () => {
       }),
     );
     const rendered = renderComponent(dashboard);
-    expect(rendered).toContain("workers 1 · active 0 · held 1 · landed 0");
+    expect(rendered).toContain("workers 1 · active 0 · held 1 · done 0 · landed 0 · verified 0");
     expect(rendered).toContain("held · ticket closed");
     expect(rendered).toContain("tracked 1");
     expect(rendered).not.toContain("running · ticket open");
@@ -238,7 +242,9 @@ describe("dashboard", () => {
     const issuesRendered = renderComponent(dashboard);
     expect(onDelegateIntent).toHaveBeenCalledWith(ticketDetail);
     expect(issuesRendered).toContain("ready 0 · blocked 0 · in progress 1");
-    expect(issuesRendered).toContain("workers 1 · active 1 · held 0 · landed 0");
+    expect(issuesRendered).toContain(
+      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
+    );
 
     selectTab(dashboard, "workers");
     const workersRendered = renderComponent(dashboard);
@@ -248,7 +254,9 @@ describe("dashboard", () => {
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
     expect(runRendered).toContain("Run state: idle");
-    expect(runRendered).toContain("Workers: total=1 active=1 held=0 landed=0 attention=0 failed=0");
+    expect(runRendered).toContain(
+      "Workers: total=1 active=1 held=0 done=0 landed=0 verified=0 attention=0 failed=0",
+    );
   });
   it("applies run follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
@@ -326,7 +334,9 @@ describe("dashboard", () => {
     const issuesRendered = renderComponent(dashboard);
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
     expect(issuesRendered).toContain("repo · active · run · epic:BW-100 · Runnable epic");
-    expect(issuesRendered).toContain("workers 1 · active 1 · held 0 · landed 0");
+    expect(issuesRendered).toContain(
+      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
+    );
 
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);

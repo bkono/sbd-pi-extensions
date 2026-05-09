@@ -2,8 +2,13 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadWorkerRegistry, saveWorkerRegistry } from "../../registry.js";
-import { isCurrentBranchWorker, isWorktreeWorker, type WorkerRuntime } from "../../types.js";
+import { loadWorkerRegistry, saveWorkerRegistry, summarizeWorkers } from "../../registry.js";
+import {
+  isCurrentBranchWorker,
+  isSuccessfulTerminalWorker,
+  isWorktreeWorker,
+  type WorkerRuntime,
+} from "../../types.js";
 
 function baseWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
   return {
@@ -81,6 +86,27 @@ describe("worker runtime checkout types", () => {
     }
   });
 
+  it("recognizes successful terminal statuses by execution mode", () => {
+    expect(isSuccessfulTerminalWorker(currentBranchWorker({ status: "verified" }))).toBe(true);
+    expect(isSuccessfulTerminalWorker(baseWorker({ status: "landed" }))).toBe(true);
+    expect(isSuccessfulTerminalWorker(currentBranchWorker({ status: "landed" }))).toBe(false);
+    expect(isSuccessfulTerminalWorker(baseWorker({ status: "verified" }))).toBe(false);
+    expect(isSuccessfulTerminalWorker(baseWorker({ status: "failed" }))).toBe(false);
+  });
+
+  it("summarizes verified workers as successful terminals", () => {
+    const summary = summarizeWorkers([
+      currentBranchWorker({ status: "verified" }),
+      baseWorker({ status: "landed" }),
+      baseWorker({ status: "attention" }),
+    ]);
+
+    expect(summary.verified).toBe(1);
+    expect(summary.landed).toBe(1);
+    expect(summary.successfulTerminal).toBe(2);
+    expect(summary.attention).toBe(1);
+  });
+
   it("round-trips both checkout shapes and optional verification fields", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-types-"));
     const registryPath = path.join(tempDir, "registry.json");
@@ -89,6 +115,7 @@ describe("worker runtime checkout types", () => {
       ticketId: "BW-102",
       commitShas: ["abc123"],
       touchedPaths: ["src/types.ts"],
+      status: "verified",
     });
     const worktreeWorker = baseWorker({
       commitShas: ["def456"],
@@ -102,6 +129,7 @@ describe("worker runtime checkout types", () => {
     expect(loaded[0]?.checkoutPath).toBe("/repo");
     expect(loaded[0]?.commitShas).toEqual(["abc123"]);
     expect(loaded[0]?.touchedPaths).toEqual(["src/types.ts"]);
+    expect(loaded[0]?.status).toBe("verified");
     expect("worktreePath" in (loaded[0] ?? {})).toBe(false);
     expect(loaded[1]?.checkoutPath).toBe("/tmp/worktree");
     expect(loaded[1]?.commitShas).toEqual(["def456"]);

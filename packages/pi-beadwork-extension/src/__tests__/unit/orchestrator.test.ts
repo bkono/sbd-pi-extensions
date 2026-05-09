@@ -3128,4 +3128,59 @@ describe("run loop", () => {
     expect(summary.stopReason).toBe("attention");
     expect(summary.notes[0]).toContain("needs operator attention");
   });
+
+  itInTmuxSession("does not stop for attention when ready work was already verified", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-verified-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      createWorker({
+        executionMode: "current-branch",
+        checkoutPath: repoRoot,
+        branchName: "main",
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        landingVerifiedAt: "2026-04-14T00:10:00.000Z",
+        landingVerification: "Current branch verified.",
+        launchHead: "abc123",
+      } as Partial<WorkerRuntime>),
+    ]);
+
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(
+        createIssue({
+          children: [createIssue({ id: "BW-101", type: "task", title: "Task" })],
+        }),
+      ),
+      ready: vi
+        .fn()
+        .mockResolvedValue([
+          createIssue({ id: "BW-101", type: "task", title: "Task", children: [] }),
+        ]),
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: DEFAULT_CONFIG,
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 2,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+    });
+
+    expect(summary.stopReason).toBe("blocked");
+    expect(summary.workerSummary.verified).toBe(1);
+    expect(summary.workerSummary.successfulTerminal).toBe(1);
+    expect(summary.cycleSummaries[0]?.verified).toEqual(["BW-101"]);
+  });
 });

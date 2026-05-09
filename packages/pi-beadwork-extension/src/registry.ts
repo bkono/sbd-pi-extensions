@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { WorkerRuntime, WorkerSummary } from "./types.js";
+import { isSuccessfulTerminalWorker, type WorkerRuntime, type WorkerSummary } from "./types.js";
 
 type WorkerRecord = Record<string, unknown>;
 
@@ -10,6 +10,7 @@ const WORKER_STATUSES = [
   "exited",
   "held",
   "landed",
+  "verified",
   "failed",
   "attention",
 ] as const satisfies readonly WorkerRuntime["status"][];
@@ -285,12 +286,18 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
     exited: 0,
     held: 0,
     landed: 0,
+    verified: 0,
+    successfulTerminal: 0,
     failed: 0,
     attention: 0,
     cleaned: 0,
   };
 
   for (const worker of workers) {
+    if (isSuccessfulTerminalWorker(worker)) {
+      summary.successfulTerminal += 1;
+    }
+
     if (worker.status === "launching") {
       summary.launching += 1;
       summary.active += 1;
@@ -306,6 +313,8 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
       if (worker.cleanupStatus === "cleaned") {
         summary.cleaned += 1;
       }
+    } else if (worker.status === "verified") {
+      summary.verified += 1;
     } else if (worker.status === "failed") {
       summary.failed += 1;
     } else if (worker.status === "attention") {

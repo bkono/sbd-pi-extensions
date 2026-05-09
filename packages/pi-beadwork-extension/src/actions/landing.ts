@@ -5,6 +5,7 @@ import { requestWorkerLanding } from "../orchestrator.js";
 import { loadWorkerRegistry, resolveWorkerRegistryPath } from "../registry.js";
 import { getWorkerActionAvailability } from "../tui/worker-manager.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
+import { isSuccessfulTerminalWorker } from "../types.js";
 import { inspectWorker } from "../worker-diagnostics.js";
 
 export type LandingActionDeps = {
@@ -90,7 +91,7 @@ export async function handleLandingAction(input: {
     });
   }
   const inspection = inspectWorker(worker);
-  const landed = worker.status === "landed";
+  const landed = isSuccessfulTerminalWorker(worker);
   const level = inspection.followUp.needsAttention ? "warning" : "info";
   await deps.trackWorkerForBackground(ctx, active.activation, active.config, active.state, worker);
   ctx.ui.notify(

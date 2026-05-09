@@ -5,6 +5,7 @@ import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { summarizeWorkers } from "../registry.js";
 import {
   type ActivationState,
+  isSuccessfulTerminalWorker,
   isWorktreeWorker,
   type SessionState,
   type WorkerRuntime,
@@ -75,6 +76,7 @@ const STATUS_PRIORITY: Record<WorkerRuntime["status"], number> = {
   held: 4,
   exited: 5,
   landed: 6,
+  verified: 7,
 };
 
 function compareWorkerEntries(left: WorkerManagerEntry, right: WorkerManagerEntry): number {
@@ -182,10 +184,10 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
     reason: "not ready",
   };
 
-  if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
+  if (isSuccessfulTerminalWorker(worker) || inspection.landing.state === "verified") {
+    land.reason = worker.status === "verified" ? "already verified" : "already landed";
+  } else if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
     land.reason = "landing already queued";
-  } else if (worker.status === "landed" || inspection.landing.state === "verified") {
-    land.reason = "already landed";
   } else if (worker.status === "launching" || worker.status === "running") {
     land.reason = "worker is still active";
   } else if (worker.ticketStatus !== "closed") {
@@ -236,7 +238,11 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
     cleanup.reason = "already cleaned";
   } else if (worker.cleanupPolicy !== "keep") {
     cleanup.reason = `cleanup policy is ${worker.cleanupPolicy}`;
-  } else if (!worker.landingVerifiedAt && worker.status !== "landed") {
+  } else if (
+    !worker.landingVerifiedAt &&
+    worker.status !== "landed" &&
+    worker.status !== "verified"
+  ) {
     cleanup.reason = "landing must be verified or marked landed first";
   } else {
     cleanup.enabled = true;
@@ -358,7 +364,7 @@ function buildGroupSummaryLines(
           : group.label;
       return [
         `${marker} ${label}`,
-        `  ${group.summary.total} total · ${group.summary.active > 0 ? styledAccent(theme, `${group.summary.active} active`) : styledDim(theme, "0 active")} · ${group.attention > 0 ? styledWarning(theme, `${group.attention} attention`) : styledDim(theme, "0 attention")}`,
+        `  ${group.summary.total} total · ${group.summary.active > 0 ? styledAccent(theme, `${group.summary.active} active`) : styledDim(theme, "0 active")} · ${group.summary.successfulTerminal > 0 ? styledAccent(theme, `${group.summary.successfulTerminal} done`) : styledDim(theme, "0 done")} · ${group.attention > 0 ? styledWarning(theme, `${group.attention} attention`) : styledDim(theme, "0 attention")}`,
         "",
       ];
     }),
@@ -531,7 +537,7 @@ class WorkerManagerComponent implements Component {
         this.model.epicId
           ? kv(this.theme, "Filter", `epic ${styledAccent(this.theme, this.model.epicId)}`)
           : kv(this.theme, "Filter", styledDim(this.theme, "all workers")),
-        `${kv(this.theme, "Summary", `total=${summary.total}`)} active=${summary.active} held=${summary.held} landed=${summary.landed} failed=${summary.failed}`,
+        `${kv(this.theme, "Summary", `total=${summary.total}`)} active=${summary.active} held=${summary.held} done=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} failed=${summary.failed}`,
       ],
       sections: [{ lines: bodyLines }],
       footer: buildWorkerFooterHint(this.entries[this.selectedIndex]),

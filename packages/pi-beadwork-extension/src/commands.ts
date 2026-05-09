@@ -79,7 +79,7 @@ export function formatStatusLines(input: {
 
   if (workerSummary && workerSummary.total > 0) {
     lines.push(
-      `Workers: total=${workerSummary.total} active=${workerSummary.active} held=${workerSummary.held} landed=${workerSummary.landed} cleaned=${workerSummary.cleaned} failed=${workerSummary.failed} attention=${workerSummary.attention} exited=${workerSummary.exited}`,
+      `Workers: total=${workerSummary.total} active=${workerSummary.active} held=${workerSummary.held} completed=${workerSummary.successfulTerminal} landed=${workerSummary.landed} verified=${workerSummary.verified} cleaned=${workerSummary.cleaned} failed=${workerSummary.failed} attention=${workerSummary.attention} exited=${workerSummary.exited}`,
     );
   }
 
@@ -267,7 +267,7 @@ export async function showWorkers(
 
   const lines = [
     epicId ? `Workers for ${epicId}:` : "Workers:",
-    `Summary: total=${summary.total} active=${summary.active} launching=${summary.launching} running=${summary.running} held=${summary.held} landed=${summary.landed} exited=${summary.exited} failed=${summary.failed} attention=${attention} cleaned=${summary.cleaned}`,
+    `Summary: total=${summary.total} active=${summary.active} launching=${summary.launching} running=${summary.running} held=${summary.held} completed=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} exited=${summary.exited} failed=${summary.failed} attention=${attention} cleaned=${summary.cleaned}`,
     "",
   ];
 
@@ -287,7 +287,7 @@ export async function showRunSummary(
     `Stop reason: ${summary.stopReason}`,
     `Cycles: ${summary.cycles}`,
     `Launched: ${summary.launched.length > 0 ? summary.launched.join(", ") : "none"}`,
-    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} held=${summary.workerSummary.held} landed=${summary.workerSummary.landed} cleaned=${summary.workerSummary.cleaned} failed=${summary.workerSummary.failed} attention=${summary.workerSummary.attention} exited=${summary.workerSummary.exited}`,
+    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} held=${summary.workerSummary.held} completed=${summary.workerSummary.successfulTerminal} landed=${summary.workerSummary.landed} verified=${summary.workerSummary.verified} cleaned=${summary.workerSummary.cleaned} failed=${summary.workerSummary.failed} attention=${summary.workerSummary.attention} exited=${summary.workerSummary.exited}`,
   ];
 
   for (const note of summary.notes) {

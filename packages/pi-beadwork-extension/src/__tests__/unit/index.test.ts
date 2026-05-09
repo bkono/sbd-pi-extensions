@@ -94,6 +94,8 @@ function createRunSummary(
       exited: 0,
       held: 0,
       landed: 0,
+      verified: 0,
+      successfulTerminal: 0,
       failed: 0,
       attention: 0,
       cleaned: 0,

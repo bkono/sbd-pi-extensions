@@ -16,8 +16,8 @@ const passthroughTheme: Theme = {
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
 } as Theme;
-function formatIds(items: string[]): string {
-  return items.length > 0 ? items.join(", ") : "none";
+function formatIds(items: string[] | undefined): string {
+  return items && items.length > 0 ? items.join(", ") : "none";
 }
 function describeRunScope(
   theme: Theme,
@@ -91,7 +91,7 @@ export function formatRunManagerLines(snapshot: DashboardStatusSnapshot, theme?:
       ? kv(t, "Scoped ready", String(snapshot.counts.scopedReady ?? 0))
       : kv(t, "Scoped ready", styledDim(t, "unavailable until an epic is selected.")),
     snapshot.workerSummary
-      ? `${kv(t, "Workers", `total=${snapshot.workerSummary.total} active=${snapshot.workerSummary.active} held=${snapshot.workerSummary.held} landed=${snapshot.workerSummary.landed} attention=${snapshot.workerSummary.attention} failed=${snapshot.workerSummary.failed}`)}`
+      ? `${kv(t, "Workers", `total=${snapshot.workerSummary.total} active=${snapshot.workerSummary.active} held=${snapshot.workerSummary.held} done=${snapshot.workerSummary.successfulTerminal} landed=${snapshot.workerSummary.landed} verified=${snapshot.workerSummary.verified} attention=${snapshot.workerSummary.attention} failed=${snapshot.workerSummary.failed}`)}`
       : kv(t, "Workers", styledDim(t, "no scoped worker summary yet.")),
   ];
   if (!summary) {
@@ -112,7 +112,7 @@ export function formatRunManagerLines(snapshot: DashboardStatusSnapshot, theme?:
   lines.push(sectionTitle(t, "Recent cycles"));
   for (const cycle of recentCycles) {
     lines.push(
-      `${styledDim(t, "-")} cycle ${cycle.cycle} · ready=${formatIds(cycle.ready)} · launched=${formatIds(cycle.launched)} · running=${formatIds(cycle.running)} · held=${formatIds(cycle.held)} · landed=${formatIds(cycle.landed)} · failed=${formatIds(cycle.failed)}`,
+      `${styledDim(t, "-")} cycle ${cycle.cycle} · ready=${formatIds(cycle.ready)} · launched=${formatIds(cycle.launched)} · running=${formatIds(cycle.running)} · held=${formatIds(cycle.held)} · landed=${formatIds(cycle.landed)} · verified=${formatIds(cycle.verified)} · failed=${formatIds(cycle.failed)}`,
     );
   }
   if (summary.notes.length > 0) {

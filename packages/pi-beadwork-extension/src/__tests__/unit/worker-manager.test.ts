@@ -124,6 +124,21 @@ describe("worker manager", () => {
       landingVerification: "Landing verified.",
       landingBehindCount: 1,
     });
+    const verifiedWorker = {
+      ...createWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+        landingVerification: "Current branch verified.",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
 
     expect(getWorkerActionAvailability(heldWorker).land).toMatchObject({
       enabled: true,
@@ -144,6 +159,14 @@ describe("worker manager", () => {
     expect(getWorkerActionAvailability(autoCleanupWorker).cleanup).toMatchObject({
       enabled: false,
       reason: "cleanup policy is cleanup-after-landing",
+    });
+    expect(getWorkerActionAvailability(verifiedWorker).land).toMatchObject({
+      enabled: false,
+      reason: "already verified",
+    });
+    expect(getWorkerActionAvailability(verifiedWorker).cancel).toMatchObject({
+      enabled: false,
+      reason: "only launching/running workers can be cancelled",
     });
   });
 

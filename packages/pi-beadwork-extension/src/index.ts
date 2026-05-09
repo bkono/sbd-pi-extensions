@@ -66,6 +66,7 @@ import type {
   WorkerRuntime,
   WorkerSummary,
 } from "./types.js";
+import { isSuccessfulTerminalWorker } from "./types.js";
 import { inspectWorker } from "./worker-diagnostics.js";
 
 export { loadConfig } from "./config.js";
@@ -437,6 +438,13 @@ function buildWorkerNotice(input: {
     };
   }
 
+  if (isSuccessfulTerminalWorker(worker) && worker.status === "verified") {
+    return {
+      key,
+      level: "info",
+      message: `Delegated ticket ${worker.ticketId} completed successfully: current branch verified. ${inspection.followUp.action}`,
+    };
+  }
   if (worker.status === "landed") {
     if (inspection.validation.state === "pending") {
       return {

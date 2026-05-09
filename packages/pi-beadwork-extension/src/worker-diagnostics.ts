@@ -1,4 +1,4 @@
-import type { WorkerRuntime } from "./types.js";
+import { isSuccessfulTerminalWorker, type WorkerRuntime } from "./types.js";
 
 export type WorkerInspection = {
   runtime: WorkerRuntime;
@@ -203,6 +203,18 @@ function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
     };
   }
 
+  if (isSuccessfulTerminalWorker(worker) && worker.status === "verified") {
+    const counts = formatAheadBehind(worker);
+    return {
+      state: "verified",
+      summary: counts ? `verified (${counts})` : "verified",
+      detail: worker.landingVerification ?? "Current-branch worker has been verified.",
+      aheadCount: worker.landingAheadCount,
+      behindCount: worker.landingBehindCount,
+      verifiedAt: worker.landingVerifiedAt,
+    };
+  }
+
   if (worker.ticketStatus !== "closed") {
     return {
       state: "waiting-ticket-close",
@@ -298,6 +310,14 @@ function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
 }
 
 function describeCleanup(worker: WorkerRuntime): WorkerInspection["cleanup"] {
+  if (worker.cleanupPolicy === undefined) {
+    return {
+      policy: worker.cleanupPolicy,
+      state: "keep",
+      summary: "keep (no worktree cleanup)",
+      at: worker.cleanupAt,
+    };
+  }
   if (worker.cleanupPolicy === "keep") {
     return {
       policy: worker.cleanupPolicy,
@@ -411,6 +431,13 @@ function describeFollowUp(
     return {
       needsAttention: false,
       action: "Worker is running. Wait for completion; inspect tmux/logs if stalled.",
+    };
+  }
+
+  if (isSuccessfulTerminalWorker(worker) && worker.status === "verified") {
+    return {
+      needsAttention: false,
+      action: "Current-branch worker verified successfully. No action needed.",
     };
   }
 

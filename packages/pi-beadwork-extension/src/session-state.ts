@@ -120,6 +120,11 @@ function normalizeWorkerSummary(value: unknown): WorkerSummary | undefined {
     exited: normalizePositiveInteger(parsed.exited) ?? 0,
     held: normalizePositiveInteger(parsed.held) ?? 0,
     landed: normalizePositiveInteger(parsed.landed) ?? 0,
+    verified: normalizePositiveInteger(parsed.verified) ?? 0,
+    successfulTerminal:
+      normalizePositiveInteger(parsed.successfulTerminal) ??
+      (normalizePositiveInteger(parsed.landed) ?? 0) +
+        (normalizePositiveInteger(parsed.verified) ?? 0),
     failed: normalizePositiveInteger(parsed.failed) ?? 0,
     attention: normalizePositiveInteger(parsed.attention) ?? 0,
     cleaned: normalizePositiveInteger(parsed.cleaned) ?? 0,
@@ -144,6 +149,7 @@ function normalizeRunCycleSummary(value: unknown): RunCycleSummary | undefined {
     running: normalizeStringArray(parsed.running),
     held: normalizeStringArray(parsed.held),
     landed: normalizeStringArray(parsed.landed),
+    verified: normalizeStringArray(parsed.verified),
     failed: normalizeStringArray(parsed.failed),
     attention: normalizeStringArray(parsed.attention),
     exited: normalizeStringArray(parsed.exited),

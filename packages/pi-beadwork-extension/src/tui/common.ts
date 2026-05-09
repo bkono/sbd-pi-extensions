@@ -99,6 +99,7 @@ export function statusStyle(theme: Theme, status: string): string {
     case "closed":
     case "done":
     case "landed":
+    case "verified":
       return theme.fg("success", status);
     case "blocked":
       return theme.fg("error", status);
@@ -121,6 +122,7 @@ export function workerStatusStyle(theme: Theme, status: string): string {
     case "failed":
       return theme.fg("error", status);
     case "landed":
+    case "verified":
     case "exited":
       return theme.fg("success", status);
     default:

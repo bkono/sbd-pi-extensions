@@ -24,7 +24,7 @@ import type {
   WorkerRuntime,
   WorktreeWorkerRuntime,
 } from "./types.js";
-import { isWorktreeWorker } from "./types.js";
+import { isSuccessfulTerminalWorker, isWorktreeWorker } from "./types.js";
 import {
   cleanupTicketWorktree,
   type LandingVerificationResult,
@@ -2296,14 +2296,14 @@ export async function inspectWorkerRuntime(input: {
   const runner = input.runner ?? defaultProcessRunner;
   const config = input.config;
   const validationRequired = (config?.landing.validateCommands.length ?? 0) > 0;
+  const landedNeedsValidation =
+    input.worker.status === "landed" &&
+    validationRequired &&
+    input.worker.validationStatus !== "passed";
   const shouldRequestLanding =
     input.requestLanding === true || Boolean(input.worker.landingRequestedAt);
 
-  if (
-    input.worker.status === "landed" &&
-    input.worker.landingVerifiedAt &&
-    (!validationRequired || input.worker.validationStatus === "passed")
-  ) {
+  if (isSuccessfulTerminalWorker(input.worker) && !landedNeedsValidation) {
     return {
       ...input.worker,
       updatedAt: new Date().toISOString(),
@@ -2346,7 +2346,8 @@ export async function inspectWorkerRuntime(input: {
     input.worker.status === "failed" ||
     input.worker.status === "held" ||
     input.worker.status === "attention" ||
-    input.worker.status === "landed";
+    input.worker.status === "landed" ||
+    input.worker.status === "verified";
 
   if (ticketStatus === "closed" && workerFinished && config) {
     const orchestratedWorker = {
@@ -2521,6 +2522,14 @@ export async function requestWorkerLanding(input: {
       input.workerId
         ? `No delegated worker found for worker id ${input.workerId}.`
         : `No delegated worker found for ticket ${input.ticketId}.`,
+    );
+  }
+
+  if (isSuccessfulTerminalWorker(worker)) {
+    throw new Error(
+      worker.status === "verified"
+        ? `Worker ${worker.workerId} is already verified.`
+        : `Worker ${worker.workerId} is already landed.`,
     );
   }
 
@@ -2720,6 +2729,9 @@ export async function runBoundedEpicLoop(input: {
       landed: workers
         .filter((worker) => worker.status === "landed")
         .map((worker) => worker.ticketId),
+      verified: workers
+        .filter((worker) => worker.status === "verified")
+        .map((worker) => worker.ticketId),
       failed: workers
         .filter((worker) => worker.status === "failed")
         .map((worker) => worker.ticketId),
@@ -2754,6 +2766,19 @@ export async function runBoundedEpicLoop(input: {
       break;
     }
 
+    if (
+      launchable.length === 0 &&
+      summary.active === 0 &&
+      ready.length > 0 &&
+      ready.every((issue) =>
+        workers.some(
+          (worker) => worker.ticketId === issue.id && isSuccessfulTerminalWorker(worker),
+        ),
+      )
+    ) {
+      stopReason = "blocked";
+      break;
+    }
     if (launchable.length === 0 && summary.active === 0 && ready.length > 0) {
       notes.push("Ready tickets remain, but all have already been attempted in this run.");
       stopReason = "attention";

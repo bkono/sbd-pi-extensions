@@ -155,7 +155,11 @@ function describeWorkerSummary(theme: Theme, workerSummary?: WorkerSummary): str
     sw(workerSummary.total, "workers", styledValue),
     sw(workerSummary.active, "active", styledAccent),
     sw(workerSummary.held, "held", styledWarning),
+    sw(workerSummary.successfulTerminal, "done", styledSuccess),
     sw(workerSummary.landed, "landed", styledSuccess),
+    sw(workerSummary.verified, "verified", styledSuccess),
+    sw(workerSummary.failed, "failed", styledError),
+    sw(workerSummary.attention, "attention", styledWarning),
   ].join(" · ");
 }
 

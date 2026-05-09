@@ -88,6 +88,7 @@ describe("theme-aware content helpers", () => {
     expect(statusStyle(theme, "closed")).toBe("closed");
     expect(statusStyle(theme, "done")).toBe("done");
     expect(statusStyle(theme, "landed")).toBe("landed");
+    expect(statusStyle(theme, "verified")).toBe("verified");
     expect(statusStyle(theme, "blocked")).toBe("blocked");
     expect(statusStyle(theme, "deferred")).toBe("deferred");
     expect(statusStyle(theme, "unknown")).toBe("unknown");
@@ -100,6 +101,7 @@ describe("theme-aware content helpers", () => {
     expect(workerStatusStyle(theme, "attention")).toBe("attention");
     expect(workerStatusStyle(theme, "failed")).toBe("failed");
     expect(workerStatusStyle(theme, "landed")).toBe("landed");
+    expect(workerStatusStyle(theme, "verified")).toBe("verified");
     expect(workerStatusStyle(theme, "exited")).toBe("exited");
     expect(workerStatusStyle(theme, "other")).toBe("other");
   });

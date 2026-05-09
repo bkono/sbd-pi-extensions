@@ -60,6 +60,29 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.action).toBe("No action needed.");
   });
 
+  it("treats verified current-branch workers as successful terminal workers", () => {
+    const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...base } = createWorker();
+    const worker = {
+      ...base,
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      status: "verified",
+      ticketStatus: "closed",
+      validationStatus: "passed",
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification: "Current branch validation passed.",
+    } as WorkerRuntime;
+
+    const inspection = inspectWorker(worker);
+
+    expect(inspection.landing.state).toBe("verified");
+    expect(inspection.cleanup.state).toBe("keep");
+    expect(inspection.followUp.needsAttention).toBe(false);
+    expect(inspection.followUp.action).toContain("verified successfully");
+  });
+
   it("requires attention when a landed worker still has pending validation", () => {
     const inspection = inspectWorker(
       createWorker({
