@@ -17,11 +17,15 @@
     {
       "text": "Implemented coordinator review triage and current-branch remediation relaunch.\n\nHighlights:\n- Review findings are triaged as fix/file/reject with persisted diagnostics and raw reviewer output preserved.\n- Fix findings relaunch remediation in the same checkout, reopen/comment closed tickets first, cap attempts at MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS=2, and avoid duplicate relaunches for the same finding set.\n- File findings create non-blocking follow-up comments; rejects are discarded with rationale.\n- No-fix/current-branch completion verifies workers, stores commitShas/touchedPaths, handles no-code explanations, and routes missing attribution to attention.\n- Added tests for relaunch idempotency, reopened tickets/remediation prompt content, file/reject triage, nit behavior, attempt cap, verified no-fix, missing attribution, no-code explanation, and prompt filtering.\n\nValidation passed:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension\n\nCommit: 7f3529d",
       "timestamp": "2026-05-09T06:33:35Z"
+    },
+    {
+      "text": "Remediated review findings in commit 432603a: current-branch remediation now allows a second attempt for the same unresolved finding set while keeping active remediation polls idempotent, and current-branch approved/nits review reuse now requires reviewedWorkerHead to match current HEAD. Added regression tests for both cases. Package lint/test/typecheck passed.",
+      "timestamp": "2026-05-09T06:43:11Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Implement coordinator review triage and current-branch remediation relaunch",
   "type": "task",
-  "updated_at": "2026-05-09T06:33:38Z"
+  "updated_at": "2026-05-09T06:43:11Z"
 }
