@@ -10,10 +10,17 @@ type CommandRegistration = {
   getArgumentCompletions?: (prefix: string) => unknown | Promise<unknown>;
   handler: (args: string, ctx: ExtensionCommandContext) => unknown | Promise<unknown>;
 };
+type ToolRegistration = {
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+  [key: string]: unknown;
+};
 
 export interface ExtensionTestHarness {
   handlers: Map<string, AnyHandler[]>;
   commands: Map<string, CommandRegistration>;
+  tools: Map<string, ToolRegistration>;
   sentMessages: Array<{ message: unknown; options?: unknown }>;
   sentUserMessages: Array<{ content: unknown; options?: unknown }>;
   dispatch<T = unknown>(
@@ -30,6 +37,7 @@ export async function createExtensionTestHarness(
 ): Promise<ExtensionTestHarness> {
   const handlers = new Map<string, AnyHandler[]>();
   const commands = new Map<string, CommandRegistration>();
+  const tools = new Map<string, ToolRegistration>();
   const sentMessages: Array<{ message: unknown; options?: unknown }> = [];
   const sentUserMessages: Array<{ content: unknown; options?: unknown }> = [];
 
@@ -42,7 +50,9 @@ export async function createExtensionTestHarness(
     registerCommand: ((name: string, options: CommandRegistration) => {
       commands.set(name, options);
     }) as unknown as ExtensionAPI["registerCommand"],
-    registerTool: (() => {}) as unknown as ExtensionAPI["registerTool"],
+    registerTool: ((registration: ToolRegistration) => {
+      tools.set(registration.name, registration);
+    }) as unknown as ExtensionAPI["registerTool"],
     registerShortcut: (() => {}) as ExtensionAPI["registerShortcut"],
     registerFlag: (() => {}) as ExtensionAPI["registerFlag"],
     getFlag: (() => undefined) as ExtensionAPI["getFlag"],
@@ -62,6 +72,7 @@ export async function createExtensionTestHarness(
   return {
     handlers,
     commands,
+    tools,
     sentMessages,
     sentUserMessages,
     async dispatch(eventType, event, ctx) {

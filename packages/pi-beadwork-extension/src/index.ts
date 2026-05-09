@@ -1868,7 +1868,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     label: "Beadwork Delegate",
     description: "Launch a tmux-backed beadwork worker for one existing ticket.",
     parameters: Type.Object({
-      ticket_id: Type.String({ description: "Ticket id to launch in a worktree." }),
+      ticket_id: Type.String({ description: "Ticket id to launch as a worker." }),
       epic_id: Type.Optional(Type.String({ description: "Optional parent epic id." })),
       model: Type.Optional(
         Type.String({

@@ -306,6 +306,16 @@ describe("pi beadwork extension", () => {
     expect(harness.commands.has("bw:adopt")).toBe(true);
   });
 
+  it("registers beadwork_delegate tool with mode-neutral ticket wording", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const delegateTool = harness.tools.get("beadwork_delegate");
+
+    expect(delegateTool?.parameters).toMatchObject({
+      ticket_id: { description: "Ticket id to launch as a worker." },
+    });
+    expect(JSON.stringify(delegateTool?.parameters)).not.toContain("in a worktree");
+  });
+
   it("opens the dashboard from bare /bw in a neutral active session", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
