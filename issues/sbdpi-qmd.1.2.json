@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "sbdpi-qmd.1",
   "priority": 1,
-  "status": "in_progress",
+  "status": "open",
   "title": "Add workerExecution config block with mode and maxLifetime",
   "type": "task",
-  "updated_at": "2026-05-09T02:27:30Z"
+  "updated_at": "2026-05-09T02:30:20Z"
 }
