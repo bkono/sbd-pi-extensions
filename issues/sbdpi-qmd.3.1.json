@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-qmd.2.4"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "sbdpi-qmd.3",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Split inspectWorkerRuntime post-exit orchestration by execution mode",
   "type": "task",
-  "updated_at": "2026-05-08T23:50:49Z"
+  "updated_at": "2026-05-09T05:27:09Z"
 }
