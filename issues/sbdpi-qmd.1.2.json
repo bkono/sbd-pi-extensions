@@ -13,11 +13,15 @@
     {
       "text": "Implemented workerExecution config block and committed e8cc029. Targeted config tests pass: npm run test -w @solvedbydev/pi-beadwork-extension -- src/__tests__/unit/config.test.ts. Did not close because package lint/typecheck are currently blocked by unrelated in-progress changes outside .1.2 scope: src/orchestrator.ts has formatting/unused import lint failures and typecheck fails in current-branch/worktree runtime callsites (actions/orchestrator/registry/tui), plus protected dirty orchestrator.test.ts remains untouched.",
       "timestamp": "2026-05-09T02:59:36Z"
+    },
+    {
+      "text": "Coordinator review complete for commit e8cc029. Config block/defaults/env parsing/tests are implemented and package gates pass. Reviewer findings about launch callsites, detached-head enforcement, maxLifetime runtime use, and current-branch review runtime behavior are Phase 1.5/Phase 2/Phase 3/Phase 5 scope, not .1.2 config-surface scope; they are tracked by downstream beads sbdpi-qmd.1.5, .2, .3, and .5. Package gates passed: lint, test (193), typecheck for @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-09T03:20:28Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add workerExecution config block with mode and maxLifetime",
   "type": "task",
-  "updated_at": "2026-05-09T02:59:36Z"
+  "updated_at": "2026-05-09T03:20:28Z"
 }
