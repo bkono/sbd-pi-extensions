@@ -15,11 +15,15 @@
     {
       "text": "Critical design constraint: the attribution evidence pack is CONTEXT for LLM judgment, NOT a deterministic system.\n\nDo NOT:\n- Build a parser for handoff comments\n- Require a specific comment format/schema\n- Classify text with regex/heuristics\n- Consider missing attribution a \"parse failure\"\n\nDO:\n- Gather all available evidence\n- Render it as LLM-readable text\n- Let the coordinator/LLM make the attribution judgment\n- Route ambiguity to `attention` rather than inventing more code\n\nThis aligns with the broader extension philosophy (sbdpi-swx.8.2): reduce parser-heavy flows and favor prompt/tool-driven agentic execution.",
       "timestamp": "2026-05-08T23:40:29Z"
+    },
+    {
+      "text": "Implemented buildAttributionEvidencePack for current-branch workers, exported it from attribution/orchestrator/index, and added unit coverage for expected sections, missing handoff/history, ticket-id commits, omitted-ticket-id context, branch drift, detached HEAD, ancestry failures, touched paths, and runtime artifact pointers.\n\nQuality gates passed for @solvedbydev/pi-beadwork-extension:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension\n\nCommit: 9a62e6a feat(pi-beadwork): add attribution evidence packs for sbdpi-qmd.3.2",
+      "timestamp": "2026-05-09T05:48:49Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Build LLM-readable commit attribution evidence packs",
   "type": "task",
-  "updated_at": "2026-05-09T05:39:27Z"
+  "updated_at": "2026-05-09T05:48:49Z"
 }
