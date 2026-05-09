@@ -25,11 +25,15 @@
     {
       "text": "Final review remediation: updated `beadwork_delegate.ticket_id` tool schema description from worktree-specific copy to mode-neutral worker launch wording, and added a unit assertion covering the registered tool parameter text. Package lint/test/typecheck passed.",
       "timestamp": "2026-05-09T05:11:18Z"
+    },
+    {
+      "text": "Coordinator triage: final review's runtime/source-text checks passed. Documentation findings against README/docs are valid future cleanup but out of .2.3 scope, which is explicitly Phase 2 launch/action source strings under `src/`; documentation updates are tracked under Phase 5 hardening/docs. Proceeding to sbdpi-qmd.2.4.",
+      "timestamp": "2026-05-09T05:15:08Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Update launch/delegate text from worktree to mode-appropriate language",
   "type": "task",
-  "updated_at": "2026-05-09T05:11:18Z"
+  "updated_at": "2026-05-09T05:15:08Z"
 }
