@@ -21,11 +21,15 @@
     {
       "text": "Review remediation finalized: kept worker-id launch failure assertion nondeterministic-safe, applied Biome formatting to delegate test destructuring, and added run-loop launch notice coverage for current-branch checkoutPath wording. Verified package lint, test, and typecheck for @solvedbydev/pi-beadwork-extension pass clean.",
       "timestamp": "2026-05-09T05:03:40Z"
+    },
+    {
+      "text": "Final review remediation: updated `beadwork_delegate.ticket_id` tool schema description from worktree-specific copy to mode-neutral worker launch wording, and added a unit assertion covering the registered tool parameter text. Package lint/test/typecheck passed.",
+      "timestamp": "2026-05-09T05:11:18Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Update launch/delegate text from worktree to mode-appropriate language",
   "type": "task",
-  "updated_at": "2026-05-09T05:03:40Z"
+  "updated_at": "2026-05-09T05:11:18Z"
 }
