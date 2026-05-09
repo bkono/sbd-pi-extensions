@@ -3900,8 +3900,12 @@ async function isScopeTicketTerminal(input: {
   }
   seen.add(input.issue.id);
 
+  if (input.issue.status !== "closed") {
+    return false;
+  }
+
   if (input.issue.children.length === 0) {
-    return input.issue.status === "closed";
+    return true;
   }
 
   for (const child of input.issue.children) {

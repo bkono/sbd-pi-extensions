@@ -4413,6 +4413,109 @@ describe("run loop", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
+  it("does not complete a closed root while a child epic remains open", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-open-child-epic-"));
+    const closedGrandchild = createIssue({
+      id: "BW-102",
+      type: "task",
+      title: "Closed grandchild",
+      status: "closed",
+    });
+    const openChildEpic = createIssue({
+      id: "BW-101",
+      type: "epic",
+      title: "Open child epic",
+      status: "open",
+      children: [stripChildren(closedGrandchild)],
+    });
+    const rootEpic = createIssue({
+      id: "BW-100",
+      type: "epic",
+      status: "closed",
+      children: [stripChildren(openChildEpic)],
+    });
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) => {
+        if (id === "BW-100") {
+          return rootEpic;
+        }
+        if (id === "BW-101") {
+          return openChildEpic;
+        }
+        return closedGrandchild;
+      }),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async () => ok("scope-ok\n"));
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      runner,
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+    });
+
+    expect(summary.stopReason).toBe("blocked");
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("does not complete an open root even when every child is closed", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-open-root-"));
+    const closedChild = createIssue({
+      id: "BW-101",
+      type: "task",
+      title: "Closed child",
+      status: "closed",
+    });
+    const rootEpic = createIssue({
+      id: "BW-100",
+      type: "epic",
+      status: "open",
+      children: [stripChildren(closedChild)],
+    });
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) => (id === "BW-100" ? rootEpic : closedChild)),
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async () => ok("scope-ok\n"));
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...DEFAULT_CONFIG,
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      runner,
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+    });
+
+    expect(summary.stopReason).toBe("blocked");
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it("records launch mode and path in run summary notes", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-launch-note-"));
     const ticket = createIssue({ id: "BW-201", type: "task", title: "Implement task" });
@@ -4572,6 +4675,7 @@ describe("run loop", () => {
     ]);
 
     const epic = createIssue({
+      status: "closed",
       children: [createIssue({ id: "BW-101", type: "task", title: "Task", status: "closed" })],
     });
     const adapter = createAdapter({
@@ -4691,6 +4795,7 @@ describe("run loop", () => {
       show: vi.fn(async (_cwd: string, id: string) =>
         id === "BW-100"
           ? createIssue({
+              status: "closed",
               children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
             })
           : createIssue({ id: "BW-101", type: "task", status: "closed" }),
@@ -4743,6 +4848,7 @@ describe("run loop", () => {
       show: vi.fn(async (_cwd: string, id: string) =>
         id === "BW-100"
           ? createIssue({
+              status: "closed",
               children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
             })
           : createIssue({ id: "BW-101", type: "task", status: "closed" }),
