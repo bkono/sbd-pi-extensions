@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
   appendFile,
@@ -4296,6 +4297,543 @@ async function writeDirtyStateArtifact(input: {
   return filePath;
 }
 
+type ScopeValidationDecision = {
+  classification: "create-fix-forward" | "attention";
+  rationale: string;
+  safetyNotes: string;
+  suspectedTickets: string[];
+  suspectedCommits: string[];
+  files: string[];
+  tests: string[];
+  title: string;
+  successCriteria: string[];
+};
+
+type ScopeValidationRemediationResult = {
+  proceed: boolean;
+  detail: string;
+  evidenceFile: string;
+  logFile: string;
+  signature: string;
+  createdIssueIds: string[];
+};
+
+function validationFailureSignature(input: {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}): string {
+  return createHash("sha256")
+    .update(input.command)
+    .update("\0")
+    .update(String(input.exitCode))
+    .update("\0")
+    .update(input.stdout)
+    .update("\0")
+    .update(input.stderr)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function truncateScopeValidationValue(value: string, maxChars = 12_000): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars)}\n[truncated ${value.length - maxChars} chars]`;
+}
+
+function extractScopeValidationFailureHints(
+  stdout: string,
+  stderr: string,
+): {
+  files: string[];
+  tests: string[];
+} {
+  const combined = `${stdout}\n${stderr}`;
+  const files = new Set<string>();
+  for (const match of combined.matchAll(
+    /(?:^|[\s('"`])([A-Za-z0-9_./-]+\.(?:test\.|spec\.)?(?:ts|tsx|js|jsx|mjs|cjs|py|rs|go|java|rb|sh))(?:[:)]|\s|$)/g,
+  )) {
+    files.add(match[1]);
+  }
+  const tests = combined
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^(FAIL|✗|×|not ok|Test Files|Tests)\b/i.test(line))
+    .slice(0, 20);
+  return { files: [...files].slice(0, 50), tests };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function normalizeScopeValidationDecisions(value: unknown): ScopeValidationDecision[] {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const rawDecisions = Array.isArray(record.followUpTasks)
+    ? record.followUpTasks
+    : Array.isArray(record.decisions)
+      ? record.decisions
+      : [record];
+
+  return rawDecisions.map((rawDecision, index) => {
+    if (!rawDecision || typeof rawDecision !== "object") {
+      throw new Error(`Scope validation decision ${index + 1} is not an object.`);
+    }
+    const decision = rawDecision as Record<string, unknown>;
+    const classification = decision.classification;
+    if (classification !== "create-fix-forward" && classification !== "attention") {
+      throw new Error(
+        `Scope validation decision ${index + 1} must classify create-fix-forward or attention.`,
+      );
+    }
+    return {
+      classification,
+      rationale:
+        typeof decision.rationale === "string" && decision.rationale.trim()
+          ? decision.rationale.trim()
+          : "No rationale provided.",
+      safetyNotes:
+        typeof decision.safetyNotes === "string" && decision.safetyNotes.trim()
+          ? decision.safetyNotes.trim()
+          : "No safety notes provided.",
+      suspectedTickets: stringArray(decision.suspectedTickets),
+      suspectedCommits: stringArray(decision.suspectedCommits),
+      files: stringArray(decision.files),
+      tests: stringArray(decision.tests),
+      title:
+        typeof decision.title === "string" && decision.title.trim()
+          ? decision.title.trim()
+          : "Fix scope validation failure",
+      successCriteria: stringArray(decision.successCriteria),
+    };
+  });
+}
+
+async function writeScopeValidationArtifact(input: {
+  repoRoot: string;
+  config: BeadworkConfig;
+  prefix: string;
+  content: string;
+}): Promise<string> {
+  const artifactDir = path.join(
+    resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir),
+    "scope-validation",
+  );
+  await mkdir(artifactDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filePath = path.join(artifactDir, `${stamp}-${input.prefix}.md`);
+  await writeFile(filePath, input.content, "utf8");
+  return filePath;
+}
+
+async function commitSubject(input: {
+  repoRoot: string;
+  runner: ProcessRunner;
+  sha: string;
+}): Promise<string> {
+  try {
+    const result = await input.runner("git", ["show", "-s", "--format=%s", input.sha], {
+      cwd: input.repoRoot,
+      timeout: 30_000,
+    });
+    return result.stdout.trim() || "<subject unavailable>";
+  } catch (error) {
+    return `subject unavailable: ${humanizeError(error)}`;
+  }
+}
+
+async function buildScopeValidationEvidencePack(input: {
+  repoRoot: string;
+  adapter: BeadworkAdapter;
+  epic: BeadworkIssueDetail;
+  workers: WorkerRuntime[];
+  validation: NonNullable<Awaited<ReturnType<typeof runWorktreeValidation>>["failedCommand"]>;
+  signature: string;
+  runner: ProcessRunner;
+}): Promise<string> {
+  const verifiedWorkers = input.workers.filter((worker) => isSuccessfulTerminalWorker(worker));
+  const failureHints = extractScopeValidationFailureHints(
+    input.validation.stdout,
+    input.validation.stderr,
+  );
+  const [status, recentLog, epicHistory] = await Promise.all([
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: ["status", "--porcelain"],
+      maxChars: 4_000,
+    }),
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: ["log", "--oneline", "-20"],
+      maxChars: 8_000,
+    }),
+    input.adapter
+      .history(input.repoRoot, input.epic.id, 10)
+      .catch((error: unknown) => [{ intent: "history-error", message: humanizeError(error) }]),
+  ]);
+
+  const workerContexts = await Promise.all(
+    verifiedWorkers.map(async (worker) => {
+      const commits = await Promise.all(
+        (worker.commitShas ?? []).map(async (sha) => ({
+          sha,
+          subject: await commitSubject({ repoRoot: input.repoRoot, runner: input.runner, sha }),
+        })),
+      );
+      const history = await input.adapter
+        .history(input.repoRoot, worker.ticketId, 8)
+        .catch((error: unknown) => [{ intent: "history-error", message: humanizeError(error) }]);
+      return {
+        workerId: worker.workerId,
+        ticketId: worker.ticketId,
+        ticketTitle: worker.ticketTitle,
+        status: worker.status,
+        executionMode: worker.executionMode,
+        validationStatus: worker.validationStatus,
+        landingVerification: worker.landingVerification,
+        reviewSummary: worker.reviewSummary,
+        commitShas: worker.commitShas ?? [],
+        commits,
+        touchedPaths: worker.touchedPaths ?? [],
+        history,
+      };
+    }),
+  );
+
+  return [
+    "# Scope validation failure evidence pack",
+    "",
+    `scope-validation-signature: ${input.signature}`,
+    `Epic: ${input.epic.id} ${input.epic.title}`,
+    "",
+    "## Epic/scope goal",
+    input.epic.description?.trim() || "<no epic description>",
+    "",
+    "## Validation command",
+    `cwd: ${input.validation.cwd}`,
+    `command: ${input.validation.command}`,
+    `exitCode: ${input.validation.exitCode}`,
+    `durationMs: ${input.validation.durationMs}`,
+    "",
+    "### stdout",
+    "```",
+    truncateScopeValidationValue(input.validation.stdout),
+    "```",
+    "",
+    "### stderr",
+    "```",
+    truncateScopeValidationValue(input.validation.stderr),
+    "```",
+    "",
+    "## Derived failing files/tests evidence",
+    "Deterministic extraction only; coordinator judgment decides attribution.",
+    "```json",
+    JSON.stringify(failureHints, null, 2),
+    "```",
+    "",
+    "## Verified workers/tickets, commits, touched paths, and handoff context",
+    "```json",
+    JSON.stringify(workerContexts, null, 2),
+    "```",
+    "",
+    "## Epic coordination history",
+    "```json",
+    JSON.stringify(epicHistory, null, 2),
+    "```",
+    "",
+    "## git status --porcelain",
+    "```",
+    status,
+    "```",
+    "",
+    "## recent git log --oneline",
+    "```",
+    recentLog,
+    "```",
+  ].join("\n");
+}
+
+function buildScopeValidationPrompt(evidencePack: string): string {
+  return [
+    "You are the coordinator for a current-branch Beadwork epic.",
+    "Integrated scope validation failed after all workers were terminal and the checkout was clean.",
+    "Decide whether to create fix-forward child work under the active epic.",
+    "Use the evidence to attribute likely in-scope failures to tickets/commits, but do not rely solely on brittle filename parsing.",
+    "If attribution is ambiguous, unsafe, out-of-scope, or unclear, choose attention.",
+    "Do not ask to reopen verified workers and do not suggest reset/rebase/amend/revert.",
+    "Return strict JSON only. Shape:",
+    '{"classification":"create-fix-forward|attention","rationale":"why","safetyNotes":"why safe/unsafe","suspectedTickets":["BW-123"],"suspectedCommits":["abc123"],"files":["src/file.ts"],"tests":["test name or file"],"title":"Fix validation failure in ...","successCriteria":["Validation command passes"]}',
+    'Alternatively return {"followUpTasks":[...same decision objects...]} for multiple independent fix-forward tasks.',
+    "",
+    evidencePack,
+  ].join("\n");
+}
+
+function buildScopeFixForwardDescription(input: {
+  epic: BeadworkIssueDetail;
+  validation: NonNullable<Awaited<ReturnType<typeof runWorktreeValidation>>["failedCommand"]>;
+  signature: string;
+  decision: ScopeValidationDecision;
+  evidenceFile: string;
+}): string {
+  const outputExcerpt = truncateScopeValidationValue(
+    [input.validation.stdout.trim(), input.validation.stderr.trim()].filter(Boolean).join("\n\n"),
+    4_000,
+  );
+  return [
+    "Fix-forward child task created from a current-branch scope validation failure.",
+    "",
+    `scope-validation-signature: ${input.signature}`,
+    `Parent epic: ${input.epic.id} ${input.epic.title}`,
+    `Evidence pack: ${input.evidenceFile}`,
+    "",
+    "## Failing validation command",
+    `cwd: ${input.validation.cwd}`,
+    `command: ${input.validation.command}`,
+    `exitCode: ${input.validation.exitCode}`,
+    `durationMs: ${input.validation.durationMs}`,
+    "",
+    "## Output excerpt",
+    "```",
+    outputExcerpt || "<no output>",
+    "```",
+    "",
+    "## Suspected related tickets/commits",
+    `Tickets: ${input.decision.suspectedTickets.join(", ") || "<unspecified>"}`,
+    `Commits: ${input.decision.suspectedCommits.join(", ") || "<unspecified>"}`,
+    "",
+    "## Files/tests involved",
+    `Files: ${input.decision.files.join(", ") || "<unspecified>"}`,
+    `Tests: ${input.decision.tests.join(", ") || "<unspecified>"}`,
+    "",
+    "## Coordinator rationale and safety notes",
+    input.decision.rationale,
+    "",
+    input.decision.safetyNotes,
+    "",
+    "## Success criteria",
+    ...(input.decision.successCriteria.length > 0
+      ? input.decision.successCriteria.map((criterion) => `- ${criterion}`)
+      : [`- ${input.validation.command} passes in ${input.validation.cwd}.`]),
+    "",
+    "## Validation command to rerun",
+    "```sh",
+    input.validation.command,
+    "```",
+  ].join("\n");
+}
+
+async function hasExistingScopeValidationTask(input: {
+  cwd: string;
+  adapter: BeadworkAdapter;
+  epicId: string;
+  signature: string;
+}): Promise<boolean> {
+  const marker = `scope-validation-signature: ${input.signature}`;
+  try {
+    const issues = await input.adapter.list(input.cwd, { parent: input.epicId, all: true });
+    return Array.isArray(issues)
+      ? issues.some(
+          (issue) => issue.description.includes(marker) || issue.title.includes(input.signature),
+        )
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+async function handleScopeValidationFailure(input: {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  epic: BeadworkIssueDetail;
+  workers: WorkerRuntime[];
+  validation: NonNullable<Awaited<ReturnType<typeof runWorktreeValidation>>["failedCommand"]>;
+  runner: ProcessRunner;
+}): Promise<ScopeValidationRemediationResult> {
+  const signature = validationFailureSignature({
+    command: input.validation.command,
+    exitCode: input.validation.exitCode,
+    stdout: input.validation.stdout,
+    stderr: input.validation.stderr,
+  });
+  const evidencePack = await buildScopeValidationEvidencePack({
+    repoRoot: input.repoRoot,
+    adapter: input.adapter,
+    epic: input.epic,
+    workers: input.workers,
+    validation: input.validation,
+    signature,
+    runner: input.runner,
+  });
+  const evidenceFile = await writeScopeValidationArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: `${signature}-evidence`,
+    content: evidencePack,
+  });
+  const prompt = buildScopeValidationPrompt(evidencePack);
+  const promptFile = await writeScopeValidationArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: `${signature}-prompt`,
+    content: prompt,
+  });
+  const command = buildReviewerAgentCommand(input.config);
+  const reviewerInvocation = `${command} "$(cat ${shellQuote(promptFile)})"`;
+  let decisions: ScopeValidationDecision[];
+  let rawOutput = "";
+  try {
+    const result = await input.runner("bash", ["-lc", reviewerInvocation], {
+      cwd: input.cwd,
+      timeout: input.config.landing.review.commandTimeoutMs,
+    });
+    rawOutput = result.stdout.trim();
+    decisions = normalizeScopeValidationDecisions(extractJsonPayload(rawOutput));
+  } catch (error) {
+    const logFile = await writeScopeValidationArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: `${signature}-attention-log`,
+      content: [
+        `scope-validation-signature: ${signature}`,
+        "Scope validation coordinator/remediator failed.",
+        `error: ${humanizeError(error)}`,
+        "",
+        `evidenceFile: ${evidenceFile}`,
+        "",
+        rawOutput,
+      ].join("\n"),
+    });
+    return {
+      proceed: false,
+      detail: `Scope validation failed and coordinator classification failed; evidence preserved at ${evidenceFile}.`,
+      evidenceFile,
+      logFile,
+      signature,
+      createdIssueIds: [],
+    };
+  }
+
+  if (
+    decisions.length === 0 ||
+    decisions.some((decision) => decision.classification === "attention")
+  ) {
+    const rationale = decisions.map((decision) => decision.rationale).join("\n") || "No rationale.";
+    const logFile = await writeScopeValidationArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: `${signature}-attention-log`,
+      content: [
+        `scope-validation-signature: ${signature}`,
+        "Scope validation coordinator requested operator attention.",
+        "",
+        rationale,
+        "",
+        `evidenceFile: ${evidenceFile}`,
+        "",
+        rawOutput,
+      ].join("\n"),
+    });
+    return {
+      proceed: false,
+      detail: `Scope validation failed; attribution was ambiguous/unsafe. Evidence: ${evidenceFile}`,
+      evidenceFile,
+      logFile,
+      signature,
+      createdIssueIds: [],
+    };
+  }
+
+  if (
+    await hasExistingScopeValidationTask({
+      cwd: input.cwd,
+      adapter: input.adapter,
+      epicId: input.epic.id,
+      signature,
+    })
+  ) {
+    const logFile = await writeScopeValidationArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: `${signature}-dedupe-log`,
+      content: [
+        `scope-validation-signature: ${signature}`,
+        "Duplicate fix-forward task already exists; no new task created.",
+        `evidenceFile: ${evidenceFile}`,
+        rawOutput,
+      ].join("\n"),
+    });
+    return {
+      proceed: true,
+      detail: `Scope validation failure ${signature} already has a fix-forward task; continuing bounded loop.`,
+      evidenceFile,
+      logFile,
+      signature,
+      createdIssueIds: [],
+    };
+  }
+
+  const createdIssueIds: string[] = [];
+  for (const decision of decisions) {
+    const title = decision.title.startsWith("Fix scope validation")
+      ? `${decision.title} (${signature})`
+      : `Fix scope validation: ${decision.title} (${signature})`;
+    const description = buildScopeFixForwardDescription({
+      epic: input.epic,
+      validation: input.validation,
+      signature,
+      decision,
+      evidenceFile,
+    });
+    const created = await input.adapter.createIssue(input.cwd, {
+      title,
+      description,
+      type: "task",
+      priority: 1,
+      parentId: input.epic.id,
+    });
+    createdIssueIds.push(created.issue.id);
+  }
+
+  const logFile = await writeScopeValidationArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: `${signature}-fix-forward-log`,
+    content: [
+      `scope-validation-signature: ${signature}`,
+      `Created fix-forward issue(s): ${createdIssueIds.join(", ")}`,
+      `command: ${input.validation.command}`,
+      `exitCode: ${input.validation.exitCode}`,
+      `durationMs: ${input.validation.durationMs}`,
+      `relatedTickets: ${decisions.flatMap((decision) => decision.suspectedTickets).join(", ") || "<unspecified>"}`,
+      `relatedCommits: ${decisions.flatMap((decision) => decision.suspectedCommits).join(", ") || "<unspecified>"}`,
+      "",
+      decisions.map((decision) => `rationale: ${decision.rationale}`).join("\n"),
+      "",
+      `evidenceFile: ${evidenceFile}`,
+      "",
+      rawOutput,
+    ].join("\n"),
+  });
+
+  return {
+    proceed: true,
+    detail: `Scope validation failed; created fix-forward task(s) ${createdIssueIds.join(", ")} for signature ${signature}.`,
+    evidenceFile,
+    logFile,
+    signature,
+    createdIssueIds,
+  };
+}
+
 async function executeDirtyStateDecision(input: {
   repoRoot: string;
   cwd: string;
@@ -4737,6 +5275,27 @@ export async function runBoundedEpicLoop(input: {
 
         notes.push(`Scope validation: ${scopeValidation.detail}`);
         if (!scopeValidation.passed) {
+          if (
+            requiresPendingScopeReviewGate({ config: input.config, workers }) &&
+            scopeValidation.failedCommand
+          ) {
+            const remediation = await handleScopeValidationFailure({
+              cwd: input.cwd,
+              repoRoot: input.repoRoot,
+              config: input.config,
+              adapter: input.adapter,
+              epic,
+              workers,
+              validation: scopeValidation.failedCommand,
+              runner,
+            });
+            notes.push(
+              `Scope validation diagnostics: command=${scopeValidation.failedCommand.command}; exitCode=${scopeValidation.failedCommand.exitCode}; durationMs=${scopeValidation.failedCommand.durationMs}; signature=${remediation.signature}; evidence=${remediation.evidenceFile}; log=${remediation.logFile}; ${remediation.detail}`,
+            );
+            if (remediation.proceed) {
+              continue;
+            }
+          }
           stopReason = "attention";
           break;
         }

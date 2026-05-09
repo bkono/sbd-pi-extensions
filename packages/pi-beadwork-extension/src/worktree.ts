@@ -1,6 +1,11 @@
 import { access, copyFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { defaultProcessRunner, type ProcessRunner, slugify } from "./process.js";
+import {
+  defaultProcessRunner,
+  ProcessCommandError,
+  type ProcessRunner,
+  slugify,
+} from "./process.js";
 import type { BeadworkConfig, WorkerCheckout, WorktreeCopyRule } from "./types.js";
 
 export type PreparedWorktree = {
@@ -51,11 +56,21 @@ export type WorktreeRebaseResult = {
   detail: string;
 };
 
+export type WorktreeValidationCommandResult = {
+  command: string;
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+};
+
 export type WorktreeValidationResult = {
   checkedAt: string;
   passed: boolean;
   commandsRun: string[];
   detail: string;
+  failedCommand?: WorktreeValidationCommandResult;
 };
 
 export type WorktreeLandResult = {
@@ -374,17 +389,46 @@ export async function runWorktreeValidation(input: {
   }
 
   for (const command of input.commands) {
+    const startedAt = Date.now();
     try {
-      await runner("bash", ["-lc", command], {
+      const result = await runner("bash", ["-lc", command], {
         cwd: input.worktreePath,
         timeout: input.timeoutMs ?? 600_000,
       });
+      const exitCode = result.code ?? (result as { exitCode?: number }).exitCode ?? 0;
+      const durationMs = Date.now() - startedAt;
+      if (exitCode !== 0) {
+        return {
+          checkedAt,
+          passed: false,
+          commandsRun,
+          failedCommand: {
+            command,
+            cwd: input.worktreePath,
+            exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            durationMs,
+          },
+          detail: `Validation failed on \`${command}\`: exit code ${exitCode}`,
+        };
+      }
       commandsRun.push(command);
     } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const processError = error instanceof ProcessCommandError ? error : undefined;
       return {
         checkedAt,
         passed: false,
         commandsRun,
+        failedCommand: {
+          command,
+          cwd: input.worktreePath,
+          exitCode: processError?.code ?? 1,
+          stdout: processError?.stdout ?? "",
+          stderr: processError?.stderr ?? humanizeError(error),
+          durationMs,
+        },
         detail: `Validation failed on \`${command}\`: ${humanizeError(error)}`,
       };
     }
