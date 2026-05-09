@@ -7,14 +7,16 @@
     "sbdpi-qmd.2.3",
     "sbdpi-qmd.2.4"
   ],
+  "closed_at": "2026-05-09T04:40:02Z",
+  "close_reason": "Implemented launchTicketWorker execution-mode branching in 4f585ba. Package lint/test/typecheck pass.",
   "created": "2026-05-08T23:36:04Z",
   "description": "Make `launchTicketWorker()` in `orchestrator.ts` branch on `config.workerExecution.mode` to use either the current-branch or worktree launch path.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/orchestrator.ts`:\n\nThe existing `launchTicketWorker()` currently always creates a worktree. Update it to:\n1. Call `prepareWorkerCheckout()` (from Phase 1) to get a `WorkerCheckout`\n2. If `current-branch`: set tmux cwd to `checkout.checkoutPath` (repo root), create runtime/log/scratch dirs, generate current-branch handoff prompt\n3. If `worktree`: existing behavior unchanged (tmux cwd = worktree path)\n4. Build the `WorkerRuntime` record with the checkout fields from the discriminated union\n5. Register and launch\n\n## Key Changes\n\n- tmux `cwd` for current-branch = repo root (NOT a worktree)\n- Runtime dirs still created under `.pi/beadwork/workers/runtime/\u003cworkerId\u003e/`\n- Script/log/state files still go in runtime dir\n- The worker record carries `executionMode`, `checkoutPath`, `branchName`, `launchHead` for current-branch\n\n## Design Rules\n\n- Do NOT change the worktree launch path behavior\n- Do NOT add any pre-launch checkout cleanliness checks for current-branch mode\n- Current-branch launch MUST NOT create a git branch or worktree\n- Current-branch runtime records MUST NOT set `worktreePath` or populate worktree-only cleanup policy from `worktrees.cleanup`; those fields remain worktree/legacy-only\n\n## Tests\n\n- Current-branch mode: tmux launched at repo root\n- Current-branch mode: no `prepareTicketWorktree` call\n- Current-branch mode: runtime dirs created\n- Current-branch mode: worker record has correct `executionMode` and checkout fields\n- Current-branch mode: worker record omits `worktreePath` and does not consult/populate worktree cleanup policy\n- Worktree mode: unchanged behavior\n- Both modes: registry records correctly after launch\n\n## Definition of Done\n\n- `/bw delegate` works in both modes\n- Worker registry contains mode-appropriate records\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.2.1",
   "labels": [],
   "parent": "sbdpi-qmd.2",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Branch launchTicketWorker() by execution mode",
   "type": "task",
-  "updated_at": "2026-05-09T04:29:17Z"
+  "updated_at": "2026-05-09T04:40:02Z"
 }
