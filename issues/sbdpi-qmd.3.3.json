@@ -17,11 +17,15 @@
     {
       "text": "Implementation note: The reviewer agent output must be parseable into structured findings for coordinator triage (task .3.4). Define a `ReviewFinding` type that captures: `{ file: string, issue: string, suggestion: string, severity: \"fix\" | \"nit\" }`. The coordinator (not the reviewer) classifies findings as fix/file/reject. The reviewer just reports concrete issues. The existing `parseReviewOutput()` function parses `\u003creview_report\u003e` blocks — adapt this pattern for current-branch review output, or evolve the output format if needed.",
       "timestamp": "2026-05-09T00:02:11Z"
+    },
+    {
+      "text": "Implemented current-branch per-worker review: default verifyCurrentBranchWorker pipeline now runs a commit-list reviewer prompt using existing reviewer command/model/timeout resolution, independent of landing.review.enabled and skipped only by workerExecution.review.enabled=false. Structured ReviewFinding[] plus raw reviewer output are stored on the worker runtime; parse failures preserve raw output and route to attention. Added orchestrator coverage for default review, prompt contents/no diff bundle, explicit skip, parse failure, and timeout propagation.\n\nValidation passed:\n- npm run lint\n- npm run test\n- npm run typecheck",
+      "timestamp": "2026-05-09T06:13:55Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Implement per-worker review for current-branch workers (agent-driven, not diff-bundle)",
   "type": "task",
-  "updated_at": "2026-05-09T06:13:17Z"
+  "updated_at": "2026-05-09T06:13:55Z"
 }
