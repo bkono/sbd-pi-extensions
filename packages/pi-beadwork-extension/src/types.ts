@@ -81,6 +81,13 @@ export type WorkerReviewStatus =
   | "remediation-in-progress"
   | "review-blocked";
 
+export type ReviewFinding = {
+  file: string;
+  issue: string;
+  suggestion: string;
+  severity: "fix" | "nit";
+};
+
 export type WorktreeCopyRule =
   | string
   | {
@@ -328,6 +335,8 @@ export type BaseWorkerRuntime = {
   reviewValidFeedbackCount?: number;
   reviewInvalidFeedbackCount?: number;
   reviewedWorkerHead?: string;
+  reviewFindings?: ReviewFinding[];
+  reviewRawOutput?: string;
   reviewRemediationAttempts?: number;
   reviewRemediationAt?: string;
   landingRemediationAttempts?: number;

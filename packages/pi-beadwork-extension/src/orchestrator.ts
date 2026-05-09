@@ -1,6 +1,7 @@
 import { createWriteStream } from "node:fs";
 import { appendFile, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { type AttributionEvidencePack, buildAttributionEvidencePack } from "./attribution.js";
 import type { BeadworkAdapter } from "./bw.js";
 import { buildCurrentBranchHandoffPrompt, buildWorkerHandoff } from "./handoff.js";
 import { defaultProcessRunner, type ProcessRunner, shellQuote, sleep } from "./process.js";
@@ -18,6 +19,7 @@ import type {
   BeadworkIssue,
   BeadworkIssueDetail,
   CurrentBranchWorkerRuntime,
+  ReviewFinding,
   RunOptions,
   RunSummary,
   RunUntil,
@@ -470,6 +472,31 @@ function extractJsonPayload(raw: string): unknown {
   throw new Error("Reviewer output did not contain a structured review report.");
 }
 
+function formatCurrentBranchReviewFinding(value: {
+  file?: unknown;
+  issue?: unknown;
+  suggestion?: unknown;
+  severity?: unknown;
+}): string | undefined {
+  const issue = typeof value.issue === "string" ? value.issue.trim() : "";
+  const suggestion = typeof value.suggestion === "string" ? value.suggestion.trim() : "";
+  if (!issue && !suggestion) {
+    return undefined;
+  }
+  const file =
+    typeof value.file === "string" && value.file.trim() ? value.file.trim() : "unspecified";
+  const severity =
+    typeof value.severity === "string" && value.severity.trim() ? value.severity.trim() : "fix";
+  const parts = [`[${severity}] ${file}`];
+  if (issue) {
+    parts.push(`issue: ${issue}`);
+  }
+  if (suggestion) {
+    parts.push(`suggestion: ${suggestion}`);
+  }
+  return parts.join(" — ");
+}
+
 function normalizeReviewFeedbackItem(value: unknown): ReviewFeedbackItem | undefined {
   if (typeof value === "string" && value.trim().length > 0) {
     return {
@@ -485,11 +512,18 @@ function normalizeReviewFeedbackItem(value: unknown): ReviewFeedbackItem | undef
 
   const objectValue = value as {
     comment?: unknown;
+    file?: unknown;
+    issue?: unknown;
+    suggestion?: unknown;
     intentAlignment?: unknown;
     requiresChanges?: unknown;
     severity?: unknown;
   };
-  if (typeof objectValue.comment !== "string" || objectValue.comment.trim().length === 0) {
+  const comment =
+    typeof objectValue.comment === "string" && objectValue.comment.trim().length > 0
+      ? objectValue.comment.trim()
+      : formatCurrentBranchReviewFinding(objectValue);
+  if (!comment) {
     return undefined;
   }
 
@@ -506,7 +540,7 @@ function normalizeReviewFeedbackItem(value: unknown): ReviewFeedbackItem | undef
       : objectValue.severity !== "nit";
 
   return {
-    comment: objectValue.comment.trim(),
+    comment,
     intentAlignment,
     requiresChanges,
   };
@@ -548,6 +582,262 @@ function normalizeReviewerDecision(raw: string): ReviewerDecision {
         ? value.summary.trim()
         : "Reviewer did not provide a summary.",
     feedback,
+  };
+}
+
+class ReviewOutputParseError extends Error {
+  readonly rawOutput: string;
+
+  constructor(message: string, rawOutput: string) {
+    super(message);
+    this.name = "ReviewOutputParseError";
+    this.rawOutput = rawOutput;
+  }
+}
+
+type CurrentBranchReviewResult = {
+  checkedAt: string;
+  summary: string;
+  findings: ReviewFinding[];
+  rawOutput: string;
+  reviewLogFile: string;
+};
+
+type CurrentBranchReviewContextArtifacts = {
+  ticket: BeadworkIssueDetail;
+  epic?: BeadworkIssueDetail;
+  history: unknown[];
+  evidence: AttributionEvidencePack;
+};
+
+function normalizeReviewSeverity(value: unknown): "fix" | "nit" | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "fix" || normalized === "nit" ? normalized : undefined;
+}
+
+function normalizeReviewFinding(value: unknown): ReviewFinding | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const file = typeof record.file === "string" ? record.file.trim() : "";
+  const issue = typeof record.issue === "string" ? record.issue.trim() : "";
+  const suggestion = typeof record.suggestion === "string" ? record.suggestion.trim() : "";
+  const severity = normalizeReviewSeverity(record.severity);
+
+  if (!file || !issue || !suggestion || !severity) {
+    return undefined;
+  }
+
+  return { file, issue, suggestion, severity };
+}
+
+function parseCurrentBranchReviewOutput(rawOutput: string): {
+  summary: string;
+  findings: ReviewFinding[];
+} {
+  let payload: unknown;
+  try {
+    payload = extractJsonPayload(rawOutput);
+  } catch (error) {
+    throw new ReviewOutputParseError(humanizeError(error), rawOutput);
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new ReviewOutputParseError(
+      "Reviewer output was not a structured report object.",
+      rawOutput,
+    );
+  }
+
+  const record = payload as { summary?: unknown; findings?: unknown };
+  if (!Array.isArray(record.findings)) {
+    throw new ReviewOutputParseError(
+      "Current-branch reviewer output must contain a findings array.",
+      rawOutput,
+    );
+  }
+
+  const findings = record.findings.map(normalizeReviewFinding);
+  if (findings.some((finding) => finding === undefined)) {
+    throw new ReviewOutputParseError(
+      "Current-branch reviewer findings must include file, issue, suggestion, and severity fix|nit.",
+      rawOutput,
+    );
+  }
+
+  return {
+    summary:
+      typeof record.summary === "string" && record.summary.trim().length > 0
+        ? record.summary.trim()
+        : "Reviewer did not provide a summary.",
+    findings: findings as ReviewFinding[],
+  };
+}
+
+function renderHistoryForPrompt(history: unknown[]): string {
+  if (history.length === 0) {
+    return "No beadwork history or handoff comments were available.";
+  }
+
+  return history
+    .map((entry, index) => `${index + 1}. ${JSON.stringify(entry, null, 2)}`)
+    .join("\n\n");
+}
+
+function renderCommitListForPrompt(evidence: AttributionEvidencePack): string {
+  if (evidence.candidateCommits.length === 0) {
+    return "No candidate commits were attributed; reviewer should inspect handoff/context before concluding.";
+  }
+
+  return evidence.candidateCommits
+    .map((commit) => {
+      const paths =
+        commit.touchedPaths.length > 0 ? commit.touchedPaths.join(", ") : "none derived";
+      return `- ${commit.sha} ${commit.subject}\n  sources: ${commit.sources.join(", ")}\n  touched paths: ${paths}`;
+    })
+    .join("\n");
+}
+
+function buildCurrentBranchReviewerPrompt(input: {
+  worker: CurrentBranchWorkerRuntime;
+  artifacts: CurrentBranchReviewContextArtifacts;
+  validationCommands: string[];
+}): string {
+  const { evidence, epic, history, ticket } = input.artifacts;
+  const lines = [
+    "You are a reviewer agent inspecting ticket-attributed commits on the current branch.",
+    "This is a per-worker quality review, not a merge-back gate and not a precomputed diff review.",
+    "Use your own tools to inspect the repository: read files, grep call sites, run git show <sha>, and run relevant commands when useful.",
+    "Do not edit files. Produce concrete findings that the coordinator can triage later.",
+    "",
+    "Finish with exactly one machine-readable handoff enclosed in <review_report> tags:",
+    "<review_report>",
+    "{",
+    '  "summary": "short summary",',
+    '  "findings": [',
+    '    { "file": "path", "issue": "what is wrong", "suggestion": "what should change", "severity": "fix" | "nit" }',
+    "  ]",
+    "}",
+    "</review_report>",
+    "",
+    `Ticket: ${ticket.id} ${ticket.title}`,
+    `Ticket status/type: ${ticket.status}/${ticket.type}`,
+    `Checkout: ${input.worker.checkoutPath}`,
+    `Recorded branch: ${input.worker.branchName}`,
+    `Recorded launch head: ${input.worker.launchHead}`,
+  ];
+
+  if (epic) {
+    lines.push(`Epic/scope: ${epic.id} ${epic.title}`);
+  }
+
+  if (ticket.description.trim()) {
+    lines.push("", "Ticket description:", truncateForPrompt(ticket.description, 2_500));
+  }
+
+  if (epic?.description.trim()) {
+    lines.push("", "Epic/scope goal:", truncateForPrompt(epic.description, 2_500));
+  }
+
+  if (input.validationCommands.length > 0) {
+    lines.push("", "Validation commands claimed/expected by this workflow:");
+    for (const command of input.validationCommands) {
+      lines.push(`- ${command}`);
+    }
+  }
+
+  lines.push(
+    "",
+    "Attributed commit list to inspect with tools:",
+    renderCommitListForPrompt(evidence),
+    "",
+    "Worker handoff/comments and coordination context:",
+    truncateForPrompt(renderHistoryForPrompt(history), 4_000),
+    "",
+    "Attribution diagnostics:",
+    evidence.attention.length > 0
+      ? evidence.attention.map((item) => `- ${item}`).join("\n")
+      : "No attribution attention flags were detected.",
+    "",
+    "Review rules:",
+    "- Inspect commit SHAs directly; for example run git show on the listed SHAs instead of relying on this prompt.",
+    "- Report only concrete, in-scope findings with file paths and actionable suggestions.",
+    "- Use severity=fix for likely in-scope corrections; use severity=nit for minor follow-up material.",
+    "- Return findings=[] when you find no concrete issues.",
+  );
+
+  return lines.join("\n");
+}
+
+async function safeLoadCurrentBranchReviewArtifacts(input: {
+  cwd: string;
+  adapter: BeadworkAdapter;
+  runner: ProcessRunner;
+  worker: CurrentBranchWorkerRuntime;
+}): Promise<CurrentBranchReviewContextArtifacts> {
+  const ticket = await input.adapter.show(input.cwd, input.worker.ticketId);
+  const epic = ticket.parentId ? await input.adapter.show(input.cwd, ticket.parentId) : undefined;
+  const history =
+    typeof input.adapter.history === "function"
+      ? await input.adapter.history(input.cwd, input.worker.ticketId)
+      : [];
+  const evidence = await buildAttributionEvidencePack({
+    worker: input.worker,
+    adapter: input.adapter,
+    processRunner: input.runner,
+  });
+
+  return { ticket, epic, history, evidence };
+}
+
+function attributionCommitShas(evidence: AttributionEvidencePack): string[] {
+  return evidence.candidateCommits.map((commit) => commit.sha);
+}
+
+function attributionTouchedPaths(evidence: AttributionEvidencePack): string[] {
+  return [...new Set(evidence.candidateCommits.flatMap((commit) => commit.touchedPaths))];
+}
+
+function resolveCurrentBranchAttributionEvidenceFile(worker: CurrentBranchWorkerRuntime): string {
+  return path.join(worker.runtimeDir, "current-branch-attribution.md");
+}
+
+async function persistCurrentBranchAttributionEvidence(input: {
+  cwd: string;
+  worker: CurrentBranchWorkerRuntime;
+  adapter: BeadworkAdapter;
+  runner: ProcessRunner;
+}): Promise<{
+  artifacts: CurrentBranchReviewContextArtifacts;
+  worker: CurrentBranchWorkerRuntime;
+}> {
+  const artifacts = await safeLoadCurrentBranchReviewArtifacts({
+    cwd: input.cwd,
+    adapter: input.adapter,
+    runner: input.runner,
+    worker: input.worker,
+  });
+  const evidenceFile = resolveCurrentBranchAttributionEvidenceFile(input.worker);
+  await mkdir(input.worker.runtimeDir, { recursive: true });
+  await writeFile(evidenceFile, `${artifacts.evidence.renderedText}\n`, "utf8");
+
+  return {
+    artifacts,
+    worker: {
+      ...input.worker,
+      commitShas: attributionCommitShas(artifacts.evidence),
+      touchedPaths: attributionTouchedPaths(artifacts.evidence),
+      validationStatus: "passed",
+      validationAt: new Date().toISOString(),
+      validationSummary:
+        artifacts.evidence.attention.length > 0
+          ? `Attribution evidence gathered with ${artifacts.evidence.attention.length} attention flag(s).`
+          : `Attribution evidence gathered for ${artifacts.evidence.candidateCommits.length} candidate commit(s).`,
+      updatedAt: new Date().toISOString(),
+    },
   };
 }
 
@@ -770,6 +1060,189 @@ function buildReviewRemediationPrompt(input: {
 
   return lines.join("\n");
 }
+
+type CurrentBranchReviewPassResult = CurrentBranchReviewResult & {
+  evidence: AttributionEvidencePack;
+  reviewedHead?: string;
+};
+
+async function runCurrentBranchReviewerPass(input: {
+  cwd: string;
+  worker: CurrentBranchWorkerRuntime;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  runner: ProcessRunner;
+}): Promise<CurrentBranchReviewPassResult> {
+  const { artifacts, worker } = await persistCurrentBranchAttributionEvidence({
+    cwd: input.cwd,
+    worker: input.worker,
+    adapter: input.adapter,
+    runner: input.runner,
+  });
+  const prompt = buildCurrentBranchReviewerPrompt({
+    worker,
+    artifacts,
+    validationCommands: input.config.landing.validateCommands,
+  });
+  const promptFile = path.join(worker.runtimeDir, "current-branch-review-handoff.txt");
+  const reviewLogFile = resolveReviewerLogFile(worker);
+  await writeFile(promptFile, `${prompt}\n`, "utf8");
+
+  await writeFile(reviewLogFile, "", { flag: "a" });
+  const reviewLog = createWriteStream(reviewLogFile, { flags: "a", encoding: "utf8" });
+  let sawStdout = false;
+  let sawStderr = false;
+  reviewLog.write(
+    `[beadwork current-branch reviewer] started ${new Date().toISOString()}\n` +
+      `[beadwork current-branch reviewer] cwd: ${worker.checkoutPath}\n` +
+      `[beadwork current-branch reviewer] handoff: ${promptFile}\n`,
+  );
+
+  const reviewerCommand = buildReviewerAgentCommand(input.config, worker);
+  const reviewerInvocation = `${reviewerCommand} "$(cat ${shellQuote(promptFile)})"`;
+  reviewLog.write(`[beadwork current-branch reviewer] command: ${reviewerInvocation}\n`);
+
+  let reviewResult: Awaited<ReturnType<ProcessRunner>>;
+  try {
+    reviewResult = await input.runner("bash", ["-lc", reviewerInvocation], {
+      cwd: worker.checkoutPath,
+      timeout: input.config.landing.review.commandTimeoutMs,
+      onStdoutChunk: (chunk) => {
+        if (!sawStdout) {
+          sawStdout = true;
+          reviewLog.write("[beadwork current-branch reviewer stdout]\n");
+        }
+        reviewLog.write(chunk);
+      },
+      onStderrChunk: (chunk) => {
+        if (!sawStderr) {
+          sawStderr = true;
+          reviewLog.write("[beadwork current-branch reviewer stderr]\n");
+        }
+        reviewLog.write(chunk);
+      },
+    });
+  } catch (error) {
+    reviewLog.write(`\n[beadwork current-branch reviewer] failed ${new Date().toISOString()}\n`);
+    await new Promise<void>((resolve) => {
+      reviewLog.end(resolve);
+    });
+    throw error;
+  }
+
+  reviewLog.write(`\n[beadwork current-branch reviewer] finished ${new Date().toISOString()}\n`);
+  await new Promise<void>((resolve) => {
+    reviewLog.end(resolve);
+  });
+
+  const rawOutput = `${reviewResult.stdout}\n${reviewResult.stderr}`;
+  const parsed = parseCurrentBranchReviewOutput(rawOutput);
+  const headResult = await input.runner("git", ["rev-parse", "HEAD"], {
+    cwd: worker.checkoutPath,
+    timeout: 10_000,
+  });
+
+  return {
+    checkedAt: new Date().toISOString(),
+    summary: parsed.summary,
+    findings: parsed.findings,
+    rawOutput,
+    reviewLogFile,
+    evidence: artifacts.evidence,
+    reviewedHead: headResult.code === 0 ? headResult.stdout.trim() : undefined,
+  };
+}
+
+async function runCurrentBranchReviewOperation(
+  input: CurrentBranchVerificationContext,
+): Promise<CurrentBranchWorkerRuntime> {
+  if (input.config.workerExecution.review.enabled === false) {
+    return {
+      ...input.worker,
+      reviewStatus: undefined,
+      reviewSummary:
+        "Current-branch worker review disabled by workerExecution.review.enabled=false.",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (
+    (input.worker.reviewStatus === "approved" || input.worker.reviewStatus === "nits-only") &&
+    input.worker.reviewedWorkerHead
+  ) {
+    return input.worker;
+  }
+
+  const pendingWorker: CurrentBranchWorkerRuntime = {
+    ...input.worker,
+    reviewStatus: "pending",
+    reviewAt: new Date().toISOString(),
+    reviewSummary: "Current-branch reviewer gate is running.",
+    updatedAt: new Date().toISOString(),
+  };
+
+  let review: CurrentBranchReviewPassResult;
+  try {
+    review = await runCurrentBranchReviewerPass({
+      cwd: input.cwd,
+      worker: pendingWorker,
+      config: input.config,
+      adapter: input.adapter,
+      runner: input.runner,
+    });
+  } catch (error) {
+    const rawOutput = error instanceof ReviewOutputParseError ? error.rawOutput : undefined;
+    return buildAttentionState(
+      pendingWorker,
+      `Current-branch reviewer gate failed: ${humanizeError(error)}`,
+      {
+        reviewStatus: "review-blocked",
+        reviewRawOutput: rawOutput,
+        reviewSummary: `Reviewer gate failed: ${humanizeError(error)}. Raw output/artifacts are preserved in ${resolveReviewerLogFile(pendingWorker)}.`,
+      },
+    );
+  }
+
+  const now = new Date().toISOString();
+  const fixFindings = review.findings.filter((finding) => finding.severity === "fix");
+  const nits = review.findings.filter((finding) => finding.severity === "nit");
+  const verdict: WorkerReviewVerdict =
+    fixFindings.length > 0 ? "request-changes" : nits.length > 0 ? "approve-with-nits" : "approve";
+
+  return {
+    ...pendingWorker,
+    commitShas: attributionCommitShas(review.evidence),
+    touchedPaths: attributionTouchedPaths(review.evidence),
+    reviewStatus:
+      verdict === "request-changes"
+        ? "changes-requested"
+        : verdict === "approve-with-nits"
+          ? "nits-only"
+          : "approved",
+    reviewVerdict: verdict,
+    reviewAt: review.checkedAt,
+    reviewSummary: `${review.summary} Artifacts: ${review.reviewLogFile}.`,
+    reviewFindings: review.findings,
+    reviewRawOutput: review.rawOutput,
+    reviewFeedback: review.findings
+      .map(formatCurrentBranchReviewFinding)
+      .filter((value): value is string => Boolean(value)),
+    reviewValidFeedbackCount: review.findings.length,
+    reviewInvalidFeedbackCount: 0,
+    reviewedWorkerHead: review.reviewedHead,
+    validationStatus: "passed",
+    validationAt: now,
+    validationSummary:
+      review.evidence.attention.length > 0
+        ? `Attribution evidence gathered with ${review.evidence.attention.length} attention flag(s).`
+        : `Attribution evidence gathered for ${review.evidence.candidateCommits.length} candidate commit(s).`,
+    updatedAt: now,
+  };
+}
+
+const DEFAULT_CURRENT_BRANCH_VERIFICATION_PIPELINE: CurrentBranchVerificationPipeline = {
+  runWorkerReview: runCurrentBranchReviewOperation,
+};
 
 async function gatherReviewArtifacts(input: {
   workerHead: string;
@@ -2207,6 +2680,8 @@ async function runCurrentBranchVerification(
     `Delegated ticket ${worker.ticketId} exited closed. Starting current-branch verification.`,
   );
 
+  const pipeline = input.pipeline ?? DEFAULT_CURRENT_BRANCH_VERIFICATION_PIPELINE;
+
   const steps: Array<[keyof CurrentBranchVerificationPipeline, string]> = [
     ["buildAttributionEvidence", "build attribution evidence"],
     ["runWorkerReview", "run per-worker review"],
@@ -2220,7 +2695,7 @@ async function runCurrentBranchVerification(
       if (isSkippedCurrentBranchVerificationStatus(worker)) {
         return worker;
       }
-      const operation = input.pipeline?.[name];
+      const operation = pipeline[name];
       if (!operation) {
         continue;
       }
@@ -2255,10 +2730,10 @@ async function runCurrentBranchVerification(
 
   return buildAttentionState(
     worker,
-    "Current-branch verification pipeline is not fully implemented yet; awaiting attribution, review, triage, and remediation steps.",
+    "Current-branch verification is awaiting coordinator triage/remediation and final verified-state handling.",
     {
       landingVerification:
-        "Current-branch verification placeholder reached. No worktree rebase, merge-back, containment check, or cleanup was run.",
+        "Current-branch review completed through the current implemented gate. No worktree rebase, merge-back, containment check, or cleanup was run.",
     },
   ) as CurrentBranchWorkerRuntime;
 }

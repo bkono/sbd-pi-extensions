@@ -303,6 +303,14 @@ Current built-in defaults:
     "setupCommands": [],
     "rerunSetupOnReuse": false
   },
+  "workerExecution": {
+    "mode": "worktree",
+    "maxLifetime": null,
+    "allowDetachedHead": false,
+    "review": {
+      "enabled": true
+    }
+  },
   "run": {
     "defaultWorkers": 2,
     "defaultUntil": "blocked",
@@ -333,6 +341,8 @@ Important behavior notes:
 - if `tmux.workerCommand` includes `--print`, that flag is stripped so worker output still uses JSON mode cleanly
 - `tmux.workerProvider` / `tmux.workerModel` only affect delegated workers, not the current parent session
 - reviewer provider/model fall back to the worker provider/model when not set explicitly
+- `workerExecution.review.enabled` controls current-branch per-worker review and is on by default; set it to `false` to skip that pass
+- `landing.review.enabled` only controls worktree landing review and does not disable current-branch worker review
 - `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after successful orchestrator landing
 - a worker only counts as `landed` when the parent branch actually contains the worker head; equivalent diff heuristics alone do not count as landed
 

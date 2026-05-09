@@ -52,6 +52,14 @@ function createAdapter(overrides: Partial<BeadworkAdapter>): BeadworkAdapter {
     blocked: vi.fn(),
     list: vi.fn(),
     show: vi.fn(),
+    history: vi.fn(async () => []),
+    updateIssue: vi.fn(),
+    comment: vi.fn(),
+    label: vi.fn(),
+    removeDependency: vi.fn(),
+    reopen: vi.fn(),
+    defer: vi.fn(),
+    undefer: vi.fn(),
     createIssue: vi.fn(),
     addDependency: vi.fn(),
     start: vi.fn(),
@@ -512,9 +520,33 @@ describe("worker inspection", () => {
       show: vi
         .fn()
         .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+      history: vi.fn().mockResolvedValue([]),
     });
-    const runner = vi.fn(async () => {
-      throw new Error("worktree landing should not run for current-branch workers");
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "main\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse") {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123\tBW-101 implement task\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "show") {
+        return { stdout: "src/task.ts\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[1]?.includes("current-branch-review-handoff")) {
+        return {
+          stdout:
+            '<review_report>{"summary":"Looks good.","findings":[{"file":"src/task.ts","issue":"missing edge case","suggestion":"cover the edge case","severity":"fix"},{"file":"src/task.test.ts","issue":"test name is vague","suggestion":"make the test name more specific","severity":"nit"}]}</review_report>',
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
     });
     const tmuxBackend = {
       ensureSession: vi.fn(),
@@ -534,13 +566,181 @@ describe("worker inspection", () => {
     });
 
     expect(inspected.status).toBe("attention");
-    expect(inspected.lastError).toContain("Current-branch verification pipeline");
+    expect(inspected.reviewStatus).toBe("changes-requested");
+    expect(inspected.reviewSummary).toContain("Looks good");
+    expect(inspected.reviewRawOutput).toContain("Looks good");
+    expect(inspected.reviewFindings).toEqual([
+      {
+        file: "src/task.ts",
+        issue: "missing edge case",
+        suggestion: "cover the edge case",
+        severity: "fix",
+      },
+      {
+        file: "src/task.test.ts",
+        issue: "test name is vague",
+        suggestion: "make the test name more specific",
+        severity: "nit",
+      },
+    ]);
+    const prompt = await readFile(
+      path.join(runtimeDir, "current-branch-review-handoff.txt"),
+      "utf8",
+    );
+    expect(prompt).toContain("ticket-attributed commits on the current branch");
+    expect(prompt).toContain("BW-101");
+    expect(prompt).toContain("abc123");
+    expect(prompt).toContain("git show");
+    expect(prompt).not.toContain("Unified diff excerpt");
+    expect(prompt).not.toContain("launch-head..HEAD");
+    expect(inspected.lastError).toContain("awaiting coordinator triage");
     expect(inspected.landingVerification).toContain("No worktree rebase");
-    expect(runner).not.toHaveBeenCalled();
+    expect(runner).toHaveBeenCalledWith(
+      "bash",
+      expect.arrayContaining(["-lc", expect.stringContaining("current-branch-review-handoff")]),
+      expect.objectContaining({
+        cwd: repoRoot,
+        timeout: DEFAULT_CONFIG.landing.review.commandTimeoutMs,
+      }),
+    );
     expect(tmuxBackend.cleanupWorker).not.toHaveBeenCalled();
     await expect(readFile(worker.logFile, "utf8")).resolves.toContain(
       "starting current-branch verification",
     );
+  });
+
+  it("skips current-branch review only when workerExecution.review.enabled is false", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-skip-review-"));
+    const runtimeDir = path.join(
+      repoRoot,
+      ".pi",
+      "beadwork",
+      "workers",
+      "runtime",
+      "bw-101-worker",
+    );
+    await mkdir(runtimeDir, { recursive: true });
+    const worker = createWorker({
+      status: "exited",
+      ticketStatus: "closed",
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "main",
+      launchHead: "launch-head",
+      runtimeDir,
+      logFile: path.join(runtimeDir, "worker.log"),
+      promptFile: path.join(runtimeDir, "prompt.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+    });
+    await writeFile(worker.logFile, "", "utf8");
+    const runner = vi.fn();
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter: createAdapter({
+        show: vi
+          .fn()
+          .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+      }),
+      config: {
+        ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, review: { enabled: false } },
+        landing: {
+          ...DEFAULT_CONFIG.landing,
+          review: { ...DEFAULT_CONFIG.landing.review, enabled: true },
+        },
+      },
+      tmuxBackend: {
+        ensureSession: vi.fn(),
+        launchWorker: vi.fn(),
+        inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+        cleanupWorker: vi.fn().mockResolvedValue(undefined),
+      },
+      runner,
+    });
+
+    expect(inspected.reviewSummary).toContain("workerExecution.review.enabled=false");
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("routes unparseable current-branch reviewer output to attention with raw output", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-bad-review-"));
+    const runtimeDir = path.join(
+      repoRoot,
+      ".pi",
+      "beadwork",
+      "workers",
+      "runtime",
+      "bw-101-worker",
+    );
+    await mkdir(runtimeDir, { recursive: true });
+    const worker = createWorker({
+      status: "exited",
+      ticketStatus: "closed",
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "main",
+      launchHead: "launch-head",
+      runtimeDir,
+      logFile: path.join(runtimeDir, "worker.log"),
+      promptFile: path.join(runtimeDir, "prompt.txt"),
+      scriptFile: path.join(runtimeDir, "launch.sh"),
+      stateFile: path.join(runtimeDir, "state.txt"),
+      exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
+      finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
+    });
+    await writeFile(worker.logFile, "", "utf8");
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "main\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "rev-parse") {
+        return { stdout: "worker-head\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "merge-base") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "abc123\tBW-101 implement task\n", stderr: "", code: 0 };
+      }
+      if (command === "git" && args[0] === "show") {
+        return { stdout: "src/task.ts\n", stderr: "", code: 0 };
+      }
+      if (command === "bash") {
+        return { stdout: "not structured", stderr: "", code: 0 };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter: createAdapter({
+        show: vi
+          .fn()
+          .mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "closed" })),
+        history: vi.fn().mockResolvedValue([]),
+      }),
+      config: DEFAULT_CONFIG,
+      tmuxBackend: {
+        ensureSession: vi.fn(),
+        launchWorker: vi.fn(),
+        inspectWorker: vi.fn().mockResolvedValue({ exists: false }),
+        cleanupWorker: vi.fn().mockResolvedValue(undefined),
+      },
+      runner,
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.reviewStatus).toBe("review-blocked");
+    expect(inspected.reviewRawOutput).toContain("not structured");
+    expect(inspected.lastError).toContain("Current-branch reviewer gate failed");
   });
 
   it("leaves open-ticket exited current-branch workers on the existing attention path", async () => {
