@@ -8,6 +8,8 @@
   "blocks": [
     "sbdpi-qmd.3.1"
   ],
+  "closed_at": "2026-05-09T05:22:44Z",
+  "close_reason": "Implemented in commit a0dbfe4 with package lint/test/typecheck passing.",
   "created": "2026-05-08T23:36:05Z",
   "description": "Comprehensive regression tests for the current-branch launch path.\n\n## What to test\n\n1. Current-branch launch does NOT call `prepareTicketWorktree()`.\n2. tmux cwd is repo root / `checkoutPath`, NOT a worktree path.\n3. Current-branch workers do NOT have `worktreePath` set.\n4. Current-branch launch does NOT fail when checkout has dirty or untracked files.\n5. Current-branch launch rejects detached HEAD by default.\n6. Current-branch launch allows detached HEAD only when `workerExecution.allowDetachedHead === true`, and the worker record/evidence clearly captures the detached identity.\n7. Handoff prompt contains all required instructions.\n8. Handoff prompt discourages broad staging commands.\n9. Handoff prompt does NOT mention worktrees.\n10. `/bw run --workers N` can launch multiple current-branch workers simultaneously.\n11. Worker runtime dirs are created in the expected location.\n12. Worker record in registry has correct `executionMode`, `checkoutPath`, `branchName`, and `launchHead`.\n13. Existing worktree launch behavior is preserved when mode is `worktree`.\n14. `branchName` and `launchHead` are recorded BEFORE tmux launch.\n15. Delegate/run launch feedback and launch notices use mode-appropriate language.\n16. Current-branch launch errors reference `checkoutPath`/current branch, not `worktreePath`.\n17. `landing.review.enabled` does not affect current-branch launch/review config, and worktree config is not consulted in current-branch launch.\n\n## Tests location\n\n`packages/pi-beadwork-extension/src/__tests__/current-branch-launch.test.ts`\n\n## Design rules\n\n- Use mocked ProcessRunner and tmux backend for most unit tests.\n- Include at least one integration-style test with a real git repo fixture.\n- Test dirty-checkout tolerance explicitly by creating dirty and untracked files and proving launch succeeds.\n- Test multiple concurrent launches without requiring extra serialization, IPC, locks, or reservations.\n- Keep launch text assertions limited to Phase 2 surfaces; comprehensive dashboard/statusline UI remains in `sbdpi-qmd.5.3`.\n- Include detailed assertion messages/log capture so failures explain which launch invariant regressed.\n\n## Definition of Done\n\n- All 17+ launch scenarios pass.\n- Tests clearly document what they prove and why the no-lock/no-clean-gate invariants matter.\n- Worktree-mode launch tests still pass.\n- lint/test/typecheck pass clean.",
   "id": "sbdpi-qmd.2.4",
@@ -20,8 +22,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add Phase 2 launch regression tests",
   "type": "task",
-  "updated_at": "2026-05-09T05:22:42Z"
+  "updated_at": "2026-05-09T05:22:44Z"
 }
