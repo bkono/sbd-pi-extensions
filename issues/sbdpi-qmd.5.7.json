@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-09T02:11:39Z",
+  "description": "Document the e2e smoke scripts and artifact interpretation after `sbdpi-qmd.5.6` creates the scripts and logging format. This split keeps general current-branch conventions docs parallelizable while ensuring script docs are accurate and self-contained.\n\n## What to document\n\nIn `packages/pi-beadwork-extension/README.md` and/or `packages/pi-beadwork-extension/docs/`:\n\n1. How to run deterministic fake-worker/fake-reviewer smoke mode.\n2. How to opt into real-agent smoke mode with `PI_BEADWORK_E2E_REAL_AGENT=1`.\n3. Which npm scripts exist and what each scenario covers.\n4. Where timestamped artifact directories are written.\n5. How to read `summary.json`, `events.jsonl`, raw command logs, registry snapshots, beadwork snapshots, git snapshots, captured prompts, validation output, and markdown reports.\n6. How artifacts are preserved on failure and how operators should attach/share them in bug reports.\n7. How pre-flip explicit-current-branch runs differ from post-flip default-current-branch runs.\n8. How to run explicit worktree-preservation smoke coverage.\n\n## Design rules\n\n- Documentation must match the implemented scripts from `sbdpi-qmd.5.6`, not aspirational names.\n- Include a short troubleshooting guide mapping common failures to artifact files.\n- Keep console-vs-artifact expectations clear: console output concise, artifact directory exhaustive.\n- Do not require real LLM credentials for the default deterministic smoke path.\n- Reference the general conventions docs from `sbdpi-qmd.5.4` rather than duplicating all worker rules.\n\n## Tests / validation\n\n- Markdown references to npm scripts match `package.json`.\n- Example commands are copy/pasteable.\n- Artifact filenames listed here are produced by the scripts.\n- Docs explain both deterministic and optional real-agent modes.\n\n## Definition of Done\n\n- E2E script usage is documented.\n- Artifact interpretation and failure-debugging workflow are documented.\n- Docs reference all generated artifact types from `sbdpi-qmd.5.6`.\n- lint pass clean (no broken markdown).\n",
+  "id": "sbdpi-qmd.5.7",
+  "labels": [],
+  "parent": "sbdpi-qmd.5",
+  "priority": 1,
+  "status": "open",
+  "title": "Document e2e smoke script usage and artifact interpretation",
+  "type": "task",
+  "updated_at": "2026-05-09T02:11:39Z"
+}
