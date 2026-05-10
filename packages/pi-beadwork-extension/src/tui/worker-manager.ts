@@ -214,12 +214,16 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
     land.reason = inspection.followUp.action;
   } else {
     land.enabled = true;
-    land.reason =
-      inspection.landing.state === "needs-refresh"
-        ? "re-run merge-back checks and refresh the held branch"
-        : inspection.landing.state === "ready-to-land" || worker.status === "held"
-          ? "merge back the held worker branch"
-          : "queue merge-back checks for this worker";
+    if (worker.executionMode === "current-branch") {
+      land.reason = "run current-branch verification for this worker";
+    } else {
+      land.reason =
+        inspection.landing.state === "needs-refresh"
+          ? "re-run merge-back checks and refresh the held branch"
+          : inspection.landing.state === "ready-to-land" || worker.status === "held"
+            ? "merge back the held worker branch"
+            : "queue merge-back checks for this worker";
+    }
   }
 
   const cancel: WorkerActionAvailability = {

@@ -74,6 +74,46 @@ function workerModeLabel(worker: Pick<WorkerRuntime, "executionMode">): string {
   return `[${worker.executionMode}]`;
 }
 
+function postExitCheckLabel(worker: Pick<WorkerRuntime, "executionMode">): string {
+  return worker.executionMode === "worktree"
+    ? "validation and merge-back checks"
+    : "validation and current-branch verification";
+}
+
+function queuedLandingRequestDetail(input: {
+  worker: WorkerRuntime;
+  reviewEnabled: boolean;
+  preserveApprovedReview: boolean;
+  reviewLogFile: string;
+  ticketClosed: boolean;
+}): string {
+  const { worker, reviewEnabled, preserveApprovedReview, reviewLogFile, ticketClosed } = input;
+
+  if (!ticketClosed) {
+    return worker.executionMode === "worktree"
+      ? "Explicit landing request queued. Landing will continue after the worker exits and the ticket closes."
+      : "Explicit current-branch verification request queued. Verification will continue after the worker exits and the ticket closes.";
+  }
+
+  if (worker.executionMode === "current-branch") {
+    if (!reviewEnabled) {
+      return "Explicit current-branch verification request queued. Background supervision will rerun validation in the current checkout.";
+    }
+
+    return preserveApprovedReview
+      ? "Explicit current-branch verification request queued. Background supervision will rerun validation while reusing the previously approved reviewer result."
+      : `Explicit current-branch verification request queued. Background supervision will rerun validation and reviewer gating. Reviewer output will stream to ${reviewLogFile} once it starts.`;
+  }
+
+  if (!reviewEnabled) {
+    return "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.";
+  }
+
+  return preserveApprovedReview
+    ? "Explicit landing request queued. Background supervision will rerun validation and merge-back while reusing the previously approved reviewer result."
+    : `Explicit landing request queued. Background supervision will rerun validation, reviewer gating, and merge-back. Reviewer output will stream to ${reviewLogFile} once it starts.`;
+}
+
 function buildLaunchFailureMessage(worker: WorkerRuntime, error: unknown): string {
   return (
     `Failed to launch worker ${worker.workerId} for ${worker.ticketId} ` +
@@ -3096,13 +3136,13 @@ function buildQueuedLandingRequestState(
   const reviewEnabled = config.landing.review.enabled;
   const preserveApprovedReview = reviewEnabled && hasReusableApprovedReview(worker);
 
-  const queuedDetail = ticketClosed
-    ? reviewEnabled
-      ? preserveApprovedReview
-        ? "Explicit landing request queued. Background supervision will rerun validation and merge-back while reusing the previously approved reviewer result."
-        : `Explicit landing request queued. Background supervision will rerun validation, reviewer gating, and merge-back. Reviewer output will stream to ${reviewLogFile} once it starts.`
-      : "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background."
-    : "Explicit landing request queued. Landing will continue after the worker exits and the ticket closes.";
+  const queuedDetail = queuedLandingRequestDetail({
+    worker,
+    reviewEnabled,
+    preserveApprovedReview,
+    reviewLogFile,
+    ticketClosed,
+  });
 
   return {
     ...worker,
@@ -3347,13 +3387,13 @@ async function autoLandCompletedWorker(input: {
   ) {
     await appendWorkerLog(
       worker.logFile,
-      `starting post-worker validation and landing checks for ${worker.ticketId}`,
+      `${postExitCheckLabel(worker)} starting for ${worker.ticketId}`,
     );
     await input.onLifecycleEvent?.({
       type: "post-exit-started",
       ticketId: worker.ticketId,
       executionMode: worker.executionMode,
-      message: `Delegated ticket ${worker.ticketId} ${workerModeLabel(worker)} exited. Starting validation and merge-back checks.`,
+      message: `Delegated ticket ${worker.ticketId} ${workerModeLabel(worker)} exited. Starting ${postExitCheckLabel(worker)}.`,
     });
   }
 

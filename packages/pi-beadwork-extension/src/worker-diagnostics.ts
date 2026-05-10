@@ -63,6 +63,30 @@ function formatAheadBehind(worker: WorkerRuntime): string | undefined {
   return `ahead=${worker.landingAheadCount ?? 0}, behind=${worker.landingBehindCount ?? 0}`;
 }
 
+function verificationSubject(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "Landing" : "Current-branch verification";
+}
+
+function verificationSubjectLower(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "landing" : "current-branch verification";
+}
+
+function mergeBackOrVerification(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "merge-back" : "current-branch verification";
+}
+
+function backgroundCheckLabel(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "merge-back checks" : "current-branch verification";
+}
+
+function remediationCheckoutLabel(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "the existing worktree" : "the current checkout";
+}
+
+function manualCleanupTarget(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "tmux/worktree" : "tmux/runtime";
+}
+
 function describeValidation(worker: WorkerRuntime): WorkerInspection["validation"] {
   if (worker.validationStatus === "passed") {
     return {
@@ -364,8 +388,7 @@ function describeFollowUp(
     if (worker.ticketStatus !== "closed") {
       return {
         needsAttention: false,
-        action:
-          "Landing was requested. Waiting for the worker to finish and close the ticket before merge-back checks can continue.",
+        action: `${verificationSubject(worker)} was requested. Waiting for the worker to finish and close the ticket before ${backgroundCheckLabel(worker)} can continue.`,
       };
     }
 
@@ -373,7 +396,8 @@ function describeFollowUp(
       return {
         needsAttention: false,
         action:
-          review.detail ?? "Landing was requested. Reviewer gating is running before merge-back.",
+          review.detail ??
+          `${verificationSubject(worker)} was requested. Reviewer gating is running before ${mergeBackOrVerification(worker)}.`,
       };
     }
 
@@ -382,7 +406,7 @@ function describeFollowUp(
         needsAttention: false,
         action:
           validation.detail ??
-          "Landing was requested. Validation and merge-back checks are running in the background.",
+          `${verificationSubject(worker)} was requested. ${worker.executionMode === "worktree" ? "Validation and merge-back checks are" : "Validation is"} running in the background.`,
       };
     }
 
@@ -390,7 +414,7 @@ function describeFollowUp(
       needsAttention: false,
       action:
         worker.landingVerification ??
-        "Landing was requested. Background merge-back orchestration is in progress.",
+        `${verificationSubject(worker)} was requested. Background ${worker.executionMode === "worktree" ? "merge-back orchestration" : "verification"} is in progress.`,
     };
   }
 
@@ -407,7 +431,7 @@ function describeFollowUp(
         needsAttention: false,
         action:
           worker.remediationSummary ??
-          "Validation previously failed. Automatic remediation is running in the worker worktree.",
+          `Validation previously failed. Automatic remediation is running in ${remediationCheckoutLabel(worker)}.`,
       };
     }
 
@@ -423,8 +447,7 @@ function describeFollowUp(
     if (worker.ticketStatus === "closed") {
       return {
         needsAttention: false,
-        action:
-          "Ticket is closed. Waiting for the worker process to exit so landing can be verified.",
+        action: `Ticket is closed. Waiting for the worker process to exit so ${worker.executionMode === "worktree" ? "landing can be verified" : "current-branch verification can run"}.`,
       };
     }
 
@@ -456,9 +479,9 @@ function describeFollowUp(
           worker.remediationStatus === "exhausted"
             ? (worker.remediationSummary ??
               worker.validationSummary ??
-              "Validation failed after automatic remediation. Fix the worktree manually.")
+              `Validation failed after automatic remediation. Fix ${remediationCheckoutLabel(worker)} manually.`)
             : (worker.validationSummary ??
-              "Validation failed; fix the worktree and re-run /bw workers."),
+              `Validation failed; fix ${remediationCheckoutLabel(worker)} and re-run /bw workers.`),
       };
     }
 
@@ -467,13 +490,15 @@ function describeFollowUp(
         needsAttention: true,
         action:
           review.detail ??
-          "Reviewer requested in-scope changes that still need remediation before landing.",
+          `${verificationSubject(worker)} is blocked by reviewer-requested changes that still need remediation.`,
       };
     }
 
     return {
       needsAttention: true,
-      action: worker.lastError ?? "Worker needs operator attention before it can be landed.",
+      action:
+        worker.lastError ??
+        `Worker needs operator attention before ${verificationSubjectLower(worker)} can finish.`,
     };
   }
 
@@ -521,14 +546,14 @@ function describeFollowUp(
       if (cleanup.state === "failed") {
         return {
           needsAttention: true,
-          action: "Landing verified, but cleanup failed. Remove tmux/worktree manually.",
+          action: `${verificationSubject(worker)} verified, but cleanup failed. Remove ${manualCleanupTarget(worker)} manually.`,
         };
       }
 
       if (cleanup.state === "pending") {
         return {
           needsAttention: true,
-          action: "Landing verified. Cleanup is still pending.",
+          action: `${verificationSubject(worker)} verified. Cleanup is still pending.`,
         };
       }
 
@@ -540,7 +565,7 @@ function describeFollowUp(
 
     return {
       needsAttention: true,
-      action: "Ticket is closed, but landing still needs human review.",
+      action: `Ticket is closed, but ${worker.executionMode === "worktree" ? "worktree landing" : "current-branch verification"} still needs human review.`,
     };
   }
 
@@ -561,7 +586,7 @@ function describeFollowUp(
   if (review.state === "pending") {
     return {
       needsAttention: true,
-      action: "Landing is integrated, but reviewer gating is still pending.",
+      action: `${verificationSubject(worker)} is integrated, but reviewer gating is still pending.`,
     };
   }
 
@@ -570,28 +595,28 @@ function describeFollowUp(
       needsAttention: true,
       action:
         review.detail ??
-        "Landing is integrated, but reviewer-requested changes are still unresolved.",
+        `${verificationSubject(worker)} is integrated, but reviewer-requested changes are still unresolved.`,
     };
   }
 
   if (cleanup.state === "failed") {
     return {
       needsAttention: true,
-      action: "Landing verified, but cleanup failed. Remove tmux/worktree manually.",
+      action: `${verificationSubject(worker)} verified, but cleanup failed. Remove ${manualCleanupTarget(worker)} manually.`,
     };
   }
 
   if (cleanup.state === "pending") {
     return {
       needsAttention: true,
-      action: "Landing verified. Cleanup is still pending.",
+      action: `${verificationSubject(worker)} verified. Cleanup is still pending.`,
     };
   }
 
   if (cleanup.state === "keep") {
     return {
       needsAttention: false,
-      action: "Landing verified. Optional manual cleanup (policy: keep).",
+      action: `${verificationSubject(worker)} verified. Optional manual cleanup (policy: keep).`,
     };
   }
 

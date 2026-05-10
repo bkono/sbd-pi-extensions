@@ -139,11 +139,30 @@ describe("worker manager", () => {
       cleanupPolicy: undefined,
       worktreePath: undefined,
     } as unknown as WorkerRuntime;
+    const currentBranchPendingWorker = {
+      ...createWorker({
+        status: "exited",
+        ticketStatus: "closed",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
 
     expect(getWorkerActionAvailability(heldWorker).land).toMatchObject({
       enabled: true,
       reason: "merge back the held worker branch",
     });
+    expect(getWorkerActionAvailability(currentBranchPendingWorker).land).toMatchObject({
+      enabled: true,
+      reason: "run current-branch verification for this worker",
+    });
+    expect(getWorkerActionAvailability(currentBranchPendingWorker).land.reason).not.toContain(
+      "merge-back",
+    );
     expect(getWorkerActionAvailability(runningWorker).land).toMatchObject({
       enabled: false,
       reason: "worker is still active",

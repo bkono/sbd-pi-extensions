@@ -1266,7 +1266,7 @@ describe("pi beadwork extension", () => {
     await harness.invokeCommand("bw", "land BW-101", ctx);
 
     const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("Queued landing retry for BW-101 [worktree]");
+    expect(message).toContain("Queued worktree landing retry for BW-101 [worktree]");
     expect(message).toContain("Background supervision will keep validating/reviewing/merging");
 
     const persisted = await loadSessionState(
@@ -1275,6 +1275,54 @@ describe("pi beadwork extension", () => {
     );
     expect(persisted.trackedWorkerIds).toContain("bw-101-worker");
     expect(ui.statuses.get("beadwork")).toContain("tracked 1");
+  });
+
+  it("uses current-branch verification wording for explicit verification requests", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-land-current-branch-worker",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    const {
+      cleanupPolicy: _cleanupPolicy,
+      worktreePath: _worktreePath,
+      ...currentBase
+    } = createWorkerRuntime(tempDir);
+    const currentWorker = {
+      ...currentBase,
+      executionMode: "current-branch" as const,
+      checkoutPath: tempDir,
+      branchName: "main",
+      launchHead: "abc123",
+      status: "exited" as const,
+      ticketStatus: "closed",
+    } as WorkerRuntime;
+
+    await saveWorkerRegistry(
+      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
+      [currentWorker],
+    );
+    requestWorkerLandingMock.mockResolvedValue({
+      ...currentWorker,
+      status: "verified",
+      validationStatus: "passed",
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification: "Current-branch worker verified.",
+    });
+
+    await harness.invokeCommand("bw", "land BW-101", ctx);
+
+    const message = ui.notifications.at(-1)?.message ?? "";
+    expect(message).toContain("BW-101 [current-branch] verified successfully");
+    expect(message).toContain("Current-branch worker verified successfully");
+    expect(message).not.toContain("landed successfully");
+    expect(message).not.toContain("merge-back");
+    expect(message).not.toContain("worktree");
   });
 
   it("rejects cleanup when the worker is configured for automatic cleanup", async () => {

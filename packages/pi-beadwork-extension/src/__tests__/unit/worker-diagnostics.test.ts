@@ -83,6 +83,41 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.action).toContain("verified successfully");
   });
 
+  it("uses current-branch wording for queued verification follow-up", () => {
+    const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...base } = createWorker();
+    const worker = {
+      ...base,
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      status: "exited",
+      ticketStatus: "closed",
+      landingRequestedAt: "2026-04-14T01:00:00.000Z",
+      validationStatus: "pending",
+    } as WorkerRuntime;
+
+    const action = inspectWorker(worker).followUp.action;
+
+    expect(action).toContain("Current-branch verification was requested");
+    expect(action).not.toContain("merge-back");
+    expect(action).not.toContain("worktree");
+  });
+
+  it("keeps merge-back wording for queued worktree landing follow-up", () => {
+    const action = inspectWorker(
+      createWorker({
+        status: "exited",
+        ticketStatus: "closed",
+        landingRequestedAt: "2026-04-14T01:00:00.000Z",
+        validationStatus: "pending",
+      }),
+    ).followUp.action;
+
+    expect(action).toContain("Landing was requested");
+    expect(action).toContain("merge-back checks");
+  });
+
   it("includes current-branch launch metadata in formatted inspections", () => {
     const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...base } = createWorker();
     const worker = {

@@ -4442,7 +4442,7 @@ describe("worker inspection", () => {
     });
 
     const log = await readFile(logFile, "utf8");
-    expect(log).toContain("starting post-worker validation and landing checks");
+    expect(log).toContain("validation and merge-back checks starting for BW-101");
     expect(log).toContain("running configured validation commands before landing");
   });
 

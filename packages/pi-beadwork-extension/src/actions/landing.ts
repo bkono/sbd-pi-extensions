@@ -24,6 +24,24 @@ export type LandingActionDeps = {
   ) => Promise<SessionState>;
 };
 
+function formatLandingActionNotification(input: {
+  worker: WorkerRuntime;
+  landed: boolean;
+  followUpAction: string;
+}): string {
+  const { worker, landed, followUpAction } = input;
+
+  if (worker.executionMode === "worktree") {
+    return landed
+      ? `Delegated ticket ${worker.ticketId} [worktree] landed successfully. ${followUpAction}`
+      : `Queued worktree landing retry for ${worker.ticketId} [worktree]. Background supervision will keep validating/reviewing/merging and notify when it finishes. ${followUpAction}`;
+  }
+
+  return landed
+    ? `Delegated ticket ${worker.ticketId} [current-branch] verified successfully. ${followUpAction}`
+    : `Queued current-branch verification retry for ${worker.ticketId} [current-branch]. Background supervision will keep validating/reviewing the current branch and notify when it finishes. ${followUpAction}`;
+}
+
 export async function handleLandingAction(input: {
   subcommand: string;
   parsed: ParsedArgv;
@@ -95,9 +113,11 @@ export async function handleLandingAction(input: {
   const level = inspection.followUp.needsAttention ? "warning" : "info";
   await deps.trackWorkerForBackground(ctx, active.activation, active.config, active.state, worker);
   ctx.ui.notify(
-    landed
-      ? `Delegated ticket ${worker.ticketId} [${worker.executionMode}] landed successfully. ${inspection.followUp.action}`
-      : `Queued landing retry for ${worker.ticketId} [${worker.executionMode}]. Background supervision will keep validating/reviewing/merging and notify when it finishes. ${inspection.followUp.action}`,
+    formatLandingActionNotification({
+      worker,
+      landed,
+      followUpAction: inspection.followUp.action,
+    }),
     level,
   );
   return true;
