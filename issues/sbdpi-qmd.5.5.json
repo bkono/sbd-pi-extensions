@@ -14,9 +14,15 @@
   "id": "sbdpi-qmd.5.5",
   "labels": [],
   "parent": "sbdpi-qmd.5",
+  "comments": [
+    {
+      "text": "Final regression completed successfully.\n\nCommands passed:\n- `npm run lint`\n- `npm run test` (58 files / 541 tests)\n- `npm run typecheck`\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- `npm run test -w @solvedbydev/pi-beadwork-extension` (30 files / 339 tests)\n- `npm run typecheck -w @solvedbydev/pi-beadwork-extension`\n- Focused phase regression: `npx vitest run packages/pi-beadwork-extension/src/__tests__/unit/config.test.ts packages/pi-beadwork-extension/src/__tests__/unit/registry.test.ts packages/pi-beadwork-extension/src/__tests__/unit/current-branch-launch.test.ts packages/pi-beadwork-extension/src/__tests__/unit/current-branch-verification.test.ts packages/pi-beadwork-extension/src/__tests__/unit/scope-completion.test.ts packages/pi-beadwork-extension/src/__tests__/unit/worktree.test.ts packages/pi-beadwork-extension/src/__tests__/unit/substrate-invariants.test.ts` (7 files / 100 tests)\n- `env -u PI_BEADWORK_WORKER_EXECUTION_MODE npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension`\n- Artifact verification script confirmed required summary/events/report, raw command logs, registry snapshots, beadwork snapshots, git snapshots, prompts, validation output, default-mode resolution, env/config mode overrides, verified replacement worker, and explicit worktree landing.\n\nFinal e2e artifact dirs:\n- `packages/pi-beadwork-extension/tmp/e2e-current-branch-delegate/20260510020942-25591-current-branch-delegate`\n- `packages/pi-beadwork-extension/tmp/e2e-current-branch-swarm/20260510020942-26292-current-branch-swarm`\n- `packages/pi-beadwork-extension/tmp/e2e-worktree-preservation/20260510020943-27954-worktree-preservation`\n\nCommit: `bd09d04 test(pi-beadwork): harden final e2e regression coverage`.",
+      "timestamp": "2026-05-10T02:11:01Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Run final comprehensive integration and regression test suite",
   "type": "task",
-  "updated_at": "2026-05-10T02:01:46Z"
+  "updated_at": "2026-05-10T02:11:01Z"
 }
