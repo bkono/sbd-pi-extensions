@@ -6219,12 +6219,12 @@ async function executeDirtyStateDecision(input: {
       return { resolved: false, log: `${logLines.join("\n")}\nrefused: commit message missing` };
     }
     await input.runner("git", ["add", "--", ...paths], { cwd: input.repoRoot, timeout: 30_000 });
-    await input.runner("git", ["commit", "-m", decision.action.message], {
+    await input.runner("git", ["commit", "-m", decision.action.message, "--", ...paths], {
       cwd: input.repoRoot,
       timeout: 120_000,
     });
     logLines.push(`command=git add -- ${paths.join(" ")}`);
-    logLines.push(`command=git commit -m ${decision.action.message}`);
+    logLines.push(`command=git commit -m ${decision.action.message} -- ${paths.join(" ")}`);
     logLines.push("exitCode=0");
     return { resolved: true, log: logLines.join("\n") };
   }
@@ -6565,19 +6565,23 @@ export async function runBoundedEpicLoop(input: {
           break;
         }
 
-        const dirtyState = await runQuiescentDirtyStateRemediation({
-          cwd: input.cwd,
-          repoRoot: input.repoRoot,
-          config: input.config,
-          adapter: input.adapter,
-          epic,
-          workers,
-          runner,
-        });
-        notes.push(`Dirty-state remediation: ${dirtyState.detail}`);
-        if (!dirtyState.passed) {
-          stopReason = "attention";
-          break;
+        if (requiresScopeCompletionReview({ config: input.config, workers })) {
+          const dirtyState = await runQuiescentDirtyStateRemediation({
+            cwd: input.cwd,
+            repoRoot: input.repoRoot,
+            config: input.config,
+            adapter: input.adapter,
+            epic,
+            workers,
+            runner,
+          });
+          notes.push(`Dirty-state remediation: ${dirtyState.detail}`);
+          if (!dirtyState.passed) {
+            stopReason = "attention";
+            break;
+          }
+        } else {
+          notes.push("Dirty-state remediation: skipped for isolated worktree execution mode.");
         }
 
         const scopeValidation = await runWorktreeValidation({

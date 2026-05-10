@@ -5409,8 +5409,8 @@ describe("run loop", () => {
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({
-        status: "landed",
+      createCurrentBranchWorker({
+        status: "verified",
         ticketStatus: "closed",
         validationStatus: "passed",
         commitShas: ["abc123"],
@@ -5439,7 +5439,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("dirty-state")) {
         return ok(
           JSON.stringify({
             decisions: [
@@ -5453,6 +5453,9 @@ describe("run loop", () => {
           }),
         );
       }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("scope-review")) {
+        return ok(JSON.stringify({ summary: "ok", findings: [] }));
+      }
       if (command === "bash" && args[1] === "echo scope-ok") {
         validationCalls += 1;
         return ok("scope-ok\n");
@@ -5464,8 +5467,7 @@ describe("run loop", () => {
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
-        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
+        ...currentBranchVerificationConfig(false),
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5504,7 +5506,11 @@ describe("run loop", () => {
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+      createCurrentBranchWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
     ]);
     const adapter = createAdapter({
       show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
@@ -5519,7 +5525,7 @@ describe("run loop", () => {
       if (command === "git" && (args[0] === "diff" || args[0] === "log")) {
         return ok("");
       }
-      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("dirty-state")) {
         return ok(
           JSON.stringify({
             decisions: [
@@ -5537,12 +5543,21 @@ describe("run loop", () => {
           }),
         );
       }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("scope-review")) {
+        return ok(JSON.stringify({ summary: "ok", findings: [] }));
+      }
       if (command === "git" && args[0] === "add") {
         expect(args).toEqual(["add", "--", "src/partial.ts"]);
         return ok("");
       }
       if (command === "git" && args[0] === "commit") {
-        expect(args).toEqual(["commit", "-m", "fix: preserve partial work BW-101"]);
+        expect(args).toEqual([
+          "commit",
+          "-m",
+          "fix: preserve partial work BW-101",
+          "--",
+          "src/partial.ts",
+        ]);
         return ok("[main abc123] fix\n");
       }
       if (command === "bash" && args[1] === "echo scope-ok") {
@@ -5555,8 +5570,7 @@ describe("run loop", () => {
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
-        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
+        ...currentBranchVerificationConfig(false),
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5577,7 +5591,7 @@ describe("run loop", () => {
     expect(runner).toHaveBeenCalledWith("git", ["add", "--", "src/partial.ts"], expect.anything());
     expect(runner).toHaveBeenCalledWith(
       "git",
-      ["commit", "-m", "fix: preserve partial work BW-101"],
+      ["commit", "-m", "fix: preserve partial work BW-101", "--", "src/partial.ts"],
       expect.anything(),
     );
   });
@@ -5591,7 +5605,11 @@ describe("run loop", () => {
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+      createCurrentBranchWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
     ]);
     const adapter = createAdapter({
       show: vi.fn(async () =>
@@ -5630,7 +5648,7 @@ describe("run loop", () => {
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
+        ...currentBranchVerificationConfig(false),
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5662,7 +5680,11 @@ describe("run loop", () => {
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+      createCurrentBranchWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
     ]);
     const adapter = createAdapter({
       show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
@@ -5716,7 +5738,7 @@ describe("run loop", () => {
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
+        ...currentBranchVerificationConfig(false),
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5765,19 +5787,24 @@ describe("run loop", () => {
       reviewerScript,
       `#!/usr/bin/env node
 const { writeFileSync } = require("node:fs");
-writeFileSync(${JSON.stringify(captureFile)}, process.argv[2] ?? "", "utf8");
-process.stdout.write(${JSON.stringify(
-        JSON.stringify({
-          decisions: [
-            {
-              path: "dist/cache.tmp",
-              classification: "generated-artifact",
-              rationale: "generated residue",
-              action: { type: "delete", paths: ["dist/cache.tmp"] },
-            },
-          ],
-        }),
-      )});
+const prompt = process.argv[2] ?? "";
+if (prompt.includes("scope-complete reviewer")) {
+  process.stdout.write(JSON.stringify({ summary: "ok", findings: [] }));
+} else {
+  writeFileSync(${JSON.stringify(captureFile)}, prompt, "utf8");
+  process.stdout.write(${JSON.stringify(
+    JSON.stringify({
+      decisions: [
+        {
+          path: "dist/cache.tmp",
+          classification: "generated-artifact",
+          rationale: "generated residue",
+          action: { type: "delete", paths: ["dist/cache.tmp"] },
+        },
+      ],
+    }),
+  )});
+}
 `,
       "utf8",
     );
@@ -5787,7 +5814,11 @@ process.stdout.write(${JSON.stringify(
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+      createCurrentBranchWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
     ]);
     const adapter = createAdapter({
       show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
@@ -5818,8 +5849,7 @@ process.stdout.write(${JSON.stringify(
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
-        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
+        ...currentBranchVerificationConfig(false),
         tmux: { ...DEFAULT_CONFIG.tmux, workerCommand: reviewerScript },
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
@@ -5851,7 +5881,11 @@ process.stdout.write(${JSON.stringify(
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+      createCurrentBranchWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
     ]);
     const adapter = createAdapter({
       show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
@@ -5874,7 +5908,7 @@ process.stdout.write(${JSON.stringify(
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
+        ...currentBranchVerificationConfig(false),
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5904,7 +5938,11 @@ process.stdout.write(${JSON.stringify(
       DEFAULT_CONFIG.storage.workerRegistryFile,
     );
     await saveWorkerRegistry(registryPath, [
-      createWorker({ status: "landed", ticketStatus: "closed", validationStatus: "passed" }),
+      createCurrentBranchWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+      }),
     ]);
     const adapter = createAdapter({
       show: vi.fn(async () => createIssue({ status: "closed", children: [] })),
@@ -5938,7 +5976,7 @@ process.stdout.write(${JSON.stringify(
       cwd: repoRoot,
       repoRoot,
       config: {
-        ...DEFAULT_CONFIG,
+        ...currentBranchVerificationConfig(false),
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,

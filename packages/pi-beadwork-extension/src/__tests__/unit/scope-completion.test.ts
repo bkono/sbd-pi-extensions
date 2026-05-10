@@ -263,8 +263,10 @@ async function runScopeCompletionScenario(input: {
   runner?: ReturnType<typeof vi.fn>;
   maxCycles?: number;
   config?: ReturnType<typeof currentBranchConfig> | ReturnType<typeof worktreeConfig>;
+  setupRepo?: (repoRoot: string) => Promise<void>;
 }) {
   const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-scope-completion-"));
+  await input.setupRepo?.(repoRoot);
   const registryPath = resolveWorkerRegistryPath(
     repoRoot,
     DEFAULT_CONFIG.storage.workerRegistryFile,
@@ -463,6 +465,32 @@ describe("Phase 4 scope-completion contract", () => {
     expect(summary.stopReason).toBe("completed");
     expect(events.indexOf("dirty-review")).toBeLessThan(events.indexOf("validation"));
     expect(existsSync(path.join(repoRoot, "dist", "cache.tmp"))).toBe(false);
+  });
+
+  it("8. worktree-mode completion skips root dirty-state remediation", async () => {
+    const events: string[] = [];
+    const runner = createScopeRunner({ statuses: ["?? dist/cache.tmp\n"], events });
+
+    const { repoRoot, summary } = await runScopeCompletionScenario({
+      config: worktreeConfig(),
+      worker: createWorker({
+        executionMode: "worktree",
+        status: "landed",
+        worktreePath: "/tmp/repo",
+      }),
+      runner,
+      setupRepo: async (root) => {
+        await mkdir(path.join(root, "dist"), { recursive: true });
+        await writeFile(path.join(root, "dist", "cache.tmp"), "dirty\n", "utf8");
+      },
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(events).toEqual(["validation"]);
+    expect(summary.notes.join("\n")).toContain(
+      "Dirty-state remediation: skipped for isolated worktree execution mode.",
+    );
+    expect(existsSync(path.join(repoRoot, "dist", "cache.tmp"))).toBe(true);
   });
 
   it("8. dirty-state remediation never runs while workers are active", async () => {
