@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -33,6 +33,55 @@ export function shortHash(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
+function shellQuote(value) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function fakeWorkerScript() {
+  return [
+    "#!/usr/bin/env node",
+    'import { execFileSync } from "node:child_process";',
+    'import { mkdirSync, writeFileSync } from "node:fs";',
+    'import path from "node:path";',
+    "",
+    'const prompt = process.argv[2] ?? "";',
+    "const ticketId = prompt.match(/^Ticket:\\s+([^\\s]+)/m)?.[1];",
+    "if (!ticketId) {",
+    '  throw new Error("fake worker could not find Ticket line in handoff prompt");',
+    "}",
+    "const checkout =",
+    "  prompt.match(/^Current checkout:\\s+(.+)$/m)?.[1]?.trim() ??",
+    "  prompt.match(/^Worktree:\\s+(.+)$/m)?.[1]?.trim() ??",
+    "  process.cwd();",
+    'const mode = prompt.includes("shared current-branch mode") ? "current-branch" : "worktree";',
+    'const outputFile = path.join(checkout, "src", `${mode}-orchestrated-result.txt`);',
+    "",
+    "function run(command, args) {",
+    '  console.log(`[fake-worker] ${command} ${args.join(" ")}`);',
+    '  execFileSync(command, args, { cwd: checkout, stdio: "inherit" });',
+    "}",
+    "",
+    "mkdirSync(path.dirname(outputFile), { recursive: true });",
+    "writeFileSync(",
+    "  outputFile,",
+    '  [`ticket=${ticketId}`, `mode=${mode}`, `checkout=${checkout}`, ""].join("\\n"),',
+    '  "utf8",',
+    ");",
+    'run("bw", ["start", ticketId]);',
+    'run("git", ["add", path.relative(checkout, outputFile)]);',
+    'run("git", ["commit", "-m", `feat: ${ticketId} e2e fake worker result\\n\\nTicket: ${ticketId}`]);',
+    'run("bw", ["comment", ticketId, `Fake ${mode} worker committed ${path.basename(outputFile)}.`]);',
+    'run("bw", ["close", ticketId]);',
+    "try {",
+    '  run("bw", ["sync"]);',
+    "} catch (error) {",
+    "  console.log(`[fake-worker] bw sync skipped: ${error.message}`);",
+    "}",
+    'run("git", ["merge", "beadwork", "--no-edit", "--allow-unrelated-histories"]);',
+    "",
+  ].join("\n");
+}
+
 export function resolveExecutionMode({
   env = process.env,
   config = {},
@@ -49,6 +98,32 @@ export function resolveExecutionMode({
   }
 
   return { mode: defaultMode, source: "default" };
+}
+
+export function ensureBuiltRuntime() {
+  if (process.env.PI_BEADWORK_E2E_SKIP_BUILD === "1") {
+    return;
+  }
+
+  const result = spawnSync("npm", ["run", "build"], {
+    cwd: packageRoot,
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(`npm run build failed before e2e runtime imports (exit ${result.status})`);
+  }
+}
+
+export async function loadRuntimeModules() {
+  ensureBuiltRuntime();
+  const [bw, constants, orchestrator, registry] = await Promise.all([
+    import(pathToFileURL(path.join(packageRoot, "dist/bw.mjs")).href),
+    import(pathToFileURL(path.join(packageRoot, "dist/constants.mjs")).href),
+    import(pathToFileURL(path.join(packageRoot, "dist/orchestrator.mjs")).href),
+    import(pathToFileURL(path.join(packageRoot, "dist/registry.mjs")).href),
+  ]);
+  return { bw, constants, orchestrator, registry };
 }
 
 export async function packageDefaultExecutionMode() {
@@ -174,6 +249,63 @@ export class E2eHarness {
     this.artifacts.push(record.stdoutPath, record.stderrPath, `${base}.json`);
     await this.event("command", { kind, label, exitCode: record.exitCode, log: `${base}.json` });
     return record;
+  }
+
+  async installFakeWorkerCommand() {
+    const scriptPath = path.join(this.commandsDir, "fake-worker.mjs");
+    await writeFile(scriptPath, fakeWorkerScript(), "utf8");
+    await chmod(scriptPath, 0o755);
+    this.artifacts.push(scriptPath);
+    await this.event("fake-worker.installed", { scriptPath });
+    return `${shellQuote(process.execPath)} ${shellQuote(scriptPath)}`;
+  }
+
+  processRunner(labelPrefix = "orchestrator") {
+    return async (command, args = [], options = {}) => {
+      const renderedArgs = args.join(" ");
+      const label = `${labelPrefix}-${command}-${shortHash(renderedArgs).slice(0, 8)}`;
+      const record = await this.command(label, options.cwd ?? this.repoDir, command, args);
+      return {
+        stdout: record.stdout,
+        stderr: record.stderr,
+        code: record.exitCode,
+        exitCode: record.exitCode,
+      };
+    };
+  }
+
+  scriptedTmuxBackend() {
+    const h = this;
+    return {
+      async ensureSession(input) {
+        await h.event("tmux.ensureSession", input);
+        return { sessionName: input.sessionName, created: false };
+      },
+      async launchWorker(input) {
+        await h.event("tmux.launchWorker", {
+          workerId: input.workerId,
+          worktreePath: input.worktreePath,
+          launchCommand: input.launchCommand,
+        });
+        await h.command(`tmux-scripted-worker-${input.workerId}`, input.worktreePath, "bash", [
+          "-lc",
+          input.launchCommand,
+        ]);
+        return {
+          sessionName: input.sessionName,
+          windowName: `${input.workerId}-window`,
+          paneId: `%${input.workerId}`,
+          launchCommand: input.launchCommand,
+        };
+      },
+      async inspectWorker(input) {
+        await h.event("tmux.inspectWorker", input);
+        return { exists: false };
+      },
+      async cleanupWorker(input) {
+        await h.event("tmux.cleanupWorker", input);
+      },
+    };
   }
 
   async command(label, cwd, command, args = [], options = {}) {
