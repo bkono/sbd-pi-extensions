@@ -330,6 +330,18 @@ describe("pi beadwork extension", () => {
     expect(landTool?.description).toContain("merge back held worktree workers");
     expect(landTool?.description).toContain("rerun current-branch verification");
     expect(landTool?.description).not.toContain("Request explicit merge-back");
+    expect(landTool?.parameters).toMatchObject({
+      ticket_id: {
+        description:
+          "Ticket id to process through explicit follow-up (worktree landing/merge-back or current-branch verification/retry).",
+      },
+      worker_id: {
+        description:
+          "Worker id to process through explicit follow-up (worktree landing/merge-back or current-branch verification/retry).",
+      },
+    });
+    expect(JSON.stringify(landTool?.parameters)).not.toContain("Ticket id to land");
+    expect(JSON.stringify(landTool?.parameters)).not.toContain("Worker id to land");
   });
 
   it("opens the dashboard from bare /bw in a neutral active session", async () => {

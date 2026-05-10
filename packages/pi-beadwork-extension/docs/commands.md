@@ -17,7 +17,7 @@ Bare `/bw` opens the dashboard when beadwork is active or available in the repo.
 | `/bw blocked`                                                                                         | List currently blocked work.                                                                            |
 | `/bw workers [epic-id]` / `/bw:workers [epic-id]`                                                     | Show delegated worker diagnostics and next actions; with no explicit epic id and UI available, open the worker console overlay. |
 | `/bw delegate <ticket-id> [--model provider/model]` / `/bw:delegate ...`                             | Launch one ticket into a tmux-backed delegated worker using `workerExecution.mode`, optionally with a one-off worker model override. |
-| `/bw land <ticket-id\|worker-id>` / `/bw:land ...`                                                   | Resume merge-back for a deferred worker.                                                                |
+| `/bw land <ticket-id\|worker-id>` / `/bw:land ...`                                                   | Run explicit worker follow-up: land/merge-back held worktree workers or rerun current-branch verification/retry. |
 | `/bw cancel <ticket-id\|worker-id>` / `/bw:cancel ...`                                               | Stop an active worker by ticket id or worker id.                                                        |
 | `/bw cleanup <ticket-id\|worker-id>` / `/bw:cleanup ...`                                             | Remove landed worker worktree/runtime artifacts when cleanup is safe.                                   |
 | `/bw run <epic-id> [--workers n] [--until blocked\|empty] [--max-cycles n] [--dry-run] [--no-spawn]` / `/bw:run ...` | Run bounded orchestration over an epic.                                                                 |
@@ -160,13 +160,14 @@ Usage:
 /bw land <ticket-id|worker-id>
 ```
 
-This is primarily for `landing.policy: "deferred"`.
+This handles explicit worker follow-up. For held worktree workers, it resumes deferred landing/merge-back. For current-branch workers, it reruns verification/retry steps when applicable.
 
 The command:
 
-- locates the held worker
-- re-enters orchestrator merge-back logic
-- refreshes/rebases if needed
+- locates the worker by ticket id or worker id
+- re-enters orchestrator landing/merge-back logic for held worktree workers
+- refreshes/rebases/revalidates if needed
+- reruns current-branch verification/retry when applicable
 - returns updated inspection output
 
 ## `/bw run`

@@ -1962,8 +1962,18 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     description:
       "Request explicit worker follow-up: merge back held worktree workers or rerun current-branch verification.",
     parameters: Type.Object({
-      ticket_id: Type.Optional(Type.String({ description: "Ticket id to land." })),
-      worker_id: Type.Optional(Type.String({ description: "Worker id to land." })),
+      ticket_id: Type.Optional(
+        Type.String({
+          description:
+            "Ticket id to process through explicit follow-up (worktree landing/merge-back or current-branch verification/retry).",
+        }),
+      ),
+      worker_id: Type.Optional(
+        Type.String({
+          description:
+            "Worker id to process through explicit follow-up (worktree landing/merge-back or current-branch verification/retry).",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (!params.ticket_id && !params.worker_id) {
