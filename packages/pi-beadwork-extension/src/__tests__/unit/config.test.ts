@@ -81,7 +81,7 @@ describe("reviewer config", () => {
 describe("worker execution config", () => {
   it("loads defaults independently from landing review", () => {
     expect(DEFAULT_CONFIG.workerExecution).toEqual({
-      mode: "worktree",
+      mode: "current-branch",
       maxLifetime: null,
       allowDetachedHead: false,
       review: {
@@ -115,6 +115,17 @@ describe("worker execution config", () => {
     });
   });
 
+  it("preserves explicit worktree workerExecution from project config", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-config-"));
+    await writeProjectConfig(repoRoot, {
+      workerExecution: {
+        mode: "worktree",
+      },
+    });
+
+    expect(loadConfig(repoRoot).workerExecution.mode).toBe("worktree");
+  });
+
   it("lets env override project workerExecution config", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-config-"));
     await writeProjectConfig(repoRoot, {
@@ -138,6 +149,19 @@ describe("worker execution config", () => {
     expect(config.workerExecution.maxLifetime).toBe(200);
     expect(config.workerExecution.allowDetachedHead).toBe(true);
     expect(config.workerExecution.review.enabled).toBe(false);
+  });
+
+  it("lets env force worktree over current-branch config", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-config-"));
+    await writeProjectConfig(repoRoot, {
+      workerExecution: {
+        mode: "current-branch",
+      },
+    });
+
+    process.env.PI_BEADWORK_WORKER_EXECUTION_MODE = "worktree";
+
+    expect(loadConfig(repoRoot).workerExecution.mode).toBe("worktree");
   });
 
   it("parses maxLifetime null, empty, unset, and numeric values", async () => {

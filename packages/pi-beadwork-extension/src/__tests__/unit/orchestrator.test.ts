@@ -330,6 +330,7 @@ describe("launchTicketWorker", () => {
       repoRoot,
       config: {
         ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
         worktrees: {
           ...DEFAULT_CONFIG.worktrees,
           baseDir: worktreeBase,
@@ -441,6 +442,7 @@ describe("launchTicketWorker", () => {
         repoRoot,
         config: {
           ...DEFAULT_CONFIG,
+          workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
           worktrees: { ...DEFAULT_CONFIG.worktrees, baseDir: worktreeBase },
         },
         adapter: createLaunchAdapter(ticket),
@@ -5463,6 +5465,7 @@ describe("run loop", () => {
       repoRoot,
       config: {
         ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5553,6 +5556,7 @@ describe("run loop", () => {
       repoRoot,
       config: {
         ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,
@@ -5815,6 +5819,7 @@ process.stdout.write(${JSON.stringify(
       repoRoot,
       config: {
         ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
         tmux: { ...DEFAULT_CONFIG.tmux, workerCommand: reviewerScript },
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
@@ -5993,6 +5998,7 @@ process.stdout.write(${JSON.stringify(
       repoRoot,
       config: {
         ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, mode: "worktree" },
         landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
       },
       adapter,

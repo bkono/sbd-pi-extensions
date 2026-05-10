@@ -32,7 +32,7 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     rerunSetupOnReuse: false,
   },
   workerExecution: {
-    mode: "worktree",
+    mode: "current-branch",
     maxLifetime: null,
     allowDetachedHead: false,
     review: {

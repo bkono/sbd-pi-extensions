@@ -162,6 +162,37 @@ async function createRealRepo(): Promise<string> {
 }
 
 describe("Phase 2 current-branch launch regressions", () => {
+  it("uses the default config to launch current-branch workers", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-default-current-"));
+    const ticket = createIssue({ id: "BW-200", title: "Default current branch", type: "task" });
+    const { calls, runner } = createCurrentBranchRunner({
+      branchName: "feature/default-current",
+      head: "default-head",
+    });
+    const tmuxBackend = createMockTmuxBackend();
+
+    const worker = await launchTicketWorker({
+      cwd: repoRoot,
+      repoRoot,
+      config: DEFAULT_CONFIG,
+      adapter: createLaunchAdapter(ticket),
+      ticketId: ticket.id,
+      tmuxBackend,
+      processRunner: runner,
+    });
+
+    expect(worker).toMatchObject({
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      branchName: "feature/default-current",
+      launchHead: "default-head",
+    });
+    expect("worktreePath" in worker).toBe(false);
+    expect(calls).toEqual(["git rev-parse --abbrev-ref HEAD", "git rev-parse HEAD"]);
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreePath: repoRoot }),
+    );
+  });
   it("launches in the current checkout without worktree prep, clean gates, or worktree-only fields", async () => {
     // WHY: current-branch workers intentionally share the live branch. A clean-checkout
     // gate, worktree bootstrap, or fake worktreePath would reintroduce the old isolated
