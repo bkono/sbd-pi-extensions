@@ -15,9 +15,15 @@
   "id": "sbdpi-qmd.5.6",
   "labels": [],
   "parent": "sbdpi-qmd.5",
+  "comments": [
+    {
+      "text": "Completed in commit 360d5fc (test(pi-beadwork): add current-branch swarm e2e smoke scripts).\n\nAdded deterministic e2e scripts and npm wiring:\n- e2e:current-branch-delegate\n- e2e:current-branch-swarm\n- e2e:worktree-preservation\n- e2e:current-branch-all\n\nValidated:\n- npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension\n- npm run lint\n- npm run test\n- npm run typecheck",
+      "timestamp": "2026-05-10T01:52:47Z"
+    }
+  ],
   "priority": 1,
   "status": "closed",
   "title": "Build current-branch swarm e2e smoke scripts with detailed logging",
   "type": "task",
-  "updated_at": "2026-05-10T01:51:10Z"
+  "updated_at": "2026-05-10T01:52:47Z"
 }
