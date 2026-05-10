@@ -13,9 +13,15 @@
   "id": "sbdpi-qmd.5.1",
   "labels": [],
   "parent": "sbdpi-qmd.5",
+  "comments": [
+    {
+      "text": "Implemented current-branch crash recovery in inspectWorkerRuntime: detects open-ticket worker exits/pane loss/maxLifetime, performs coordinator blocker-vs-replacement judgment with evidence artifacts, launches inherited-context replacements with existing ticket commits/dead-worker context, persists supersession/replacement metadata for idempotency and run-loop filtering, and caps repeated crashes at 3. Added tests for replacement/idempotency, blocker attention, maxLifetime, crash cap, and updated open-ticket behavior. Package gates passed: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-10T01:33:30Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Implement current-branch worker crash recovery and replacement",
   "type": "task",
-  "updated_at": "2026-05-09T02:11:39Z"
+  "updated_at": "2026-05-10T01:33:30Z"
 }
