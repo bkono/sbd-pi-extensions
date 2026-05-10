@@ -11,4 +11,5 @@ Then use these deeper docs as needed:
 - [execution-modes.md](./execution-modes.md) — current-branch vs worktree behavior and config examples
 - [configuration.md](./configuration.md) — config keys, environment variables, examples, compatibility aliases
 - [commands.md](./commands.md) — slash command reference, dashboard controls, worker states, and tool surface
+- [current-branch-e2e.md](./current-branch-e2e.md) — deterministic current-branch swarm smoke scripts and artifact layout
 - [tui-proposal.md](./tui-proposal.md) — design notes and future TUI backlog beyond the shipped dashboard/workflow

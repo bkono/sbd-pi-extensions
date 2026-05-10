@@ -23,5 +23,8 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Test/e2e artifacts
+packages/*/tmp/
+
 # agents
 .pi/

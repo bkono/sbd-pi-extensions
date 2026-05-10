@@ -19,7 +19,11 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format .",
-    "format:fix": "biome format --write ."
+    "format:fix": "biome format --write .",
+    "e2e:current-branch-delegate": "node scripts/e2e-current-branch-delegate.mjs",
+    "e2e:current-branch-swarm": "node scripts/e2e-current-branch-swarm.mjs",
+    "e2e:worktree-preservation": "node scripts/e2e-worktree-preservation.mjs",
+    "e2e:current-branch-all": "node scripts/e2e-current-branch-all.mjs"
   },
   "exports": {
     ".": {
