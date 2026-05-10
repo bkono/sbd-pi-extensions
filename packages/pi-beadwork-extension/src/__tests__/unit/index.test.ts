@@ -323,6 +323,15 @@ describe("pi beadwork extension", () => {
     expect(JSON.stringify(delegateTool?.parameters)).not.toContain("in a worktree");
   });
 
+  it("registers beadwork_land_worker tool with mode-aware follow-up wording", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const landTool = harness.tools.get("beadwork_land_worker");
+
+    expect(landTool?.description).toContain("merge back held worktree workers");
+    expect(landTool?.description).toContain("rerun current-branch verification");
+    expect(landTool?.description).not.toContain("Request explicit merge-back");
+  });
+
   it("opens the dashboard from bare /bw in a neutral active session", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -1048,6 +1057,25 @@ describe("pi beadwork extension", () => {
       }),
     );
     expect(worktreeExited).toContain("worktree landing still needs review");
+
+    const currentRequest = await noticeFor(
+      currentWorker("current-request", {
+        status: "exited",
+        ticketStatus: "open",
+        landingRequestedAt: "2026-04-14T01:00:00.000Z",
+      }),
+    );
+    expect(currentRequest).toContain("explicit current-branch verification request in flight");
+    expect(currentRequest).not.toContain("landing request in flight");
+
+    const worktreeRequest = await noticeFor(
+      worktreeWorker("worktree-request", {
+        status: "exited",
+        ticketStatus: "open",
+        landingRequestedAt: "2026-04-14T01:00:00.000Z",
+      }),
+    );
+    expect(worktreeRequest).toContain("explicit landing request in flight");
   });
 
   it("shows explicit launch guidance after /bw delegate", async () => {

@@ -151,6 +151,24 @@ describe("worker manager", () => {
       cleanupPolicy: undefined,
       worktreePath: undefined,
     } as unknown as WorkerRuntime;
+    const worktreeQueuedWorker = createWorker({
+      status: "exited",
+      ticketStatus: "closed",
+      landingRequestedAt: "2026-04-14T01:00:00.000Z",
+    });
+    const currentBranchQueuedWorker = {
+      ...createWorker({
+        status: "exited",
+        ticketStatus: "closed",
+        landingRequestedAt: "2026-04-14T01:00:00.000Z",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
 
     expect(getWorkerActionAvailability(heldWorker).land).toMatchObject({
       enabled: true,
@@ -162,6 +180,17 @@ describe("worker manager", () => {
     });
     expect(getWorkerActionAvailability(currentBranchPendingWorker).land.reason).not.toContain(
       "merge-back",
+    );
+    expect(getWorkerActionAvailability(worktreeQueuedWorker).land).toMatchObject({
+      enabled: false,
+      reason: "landing already queued",
+    });
+    expect(getWorkerActionAvailability(currentBranchQueuedWorker).land).toMatchObject({
+      enabled: false,
+      reason: "verification already queued",
+    });
+    expect(getWorkerActionAvailability(currentBranchQueuedWorker).land.reason).not.toContain(
+      "landing",
     );
     expect(getWorkerActionAvailability(runningWorker).land).toMatchObject({
       enabled: false,

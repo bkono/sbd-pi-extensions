@@ -282,7 +282,7 @@ The extension also exposes beadwork-aware tools to the model.
 | `beadwork_defer_issue`       | Defer one issue.                                                                  |
 | `beadwork_undefer_issue`     | Undefer one issue.                                                                |
 | `beadwork_delegate`          | Launch a delegated worker for a ticket, optionally with a one-off model override. |
-| `beadwork_land_worker`       | Explicitly request merge-back for a held worker.                                  |
+| `beadwork_land_worker`       | Request worktree merge-back or current-branch verification/retry for a worker.    |
 | `beadwork_worker_check`      | Inspect worker runtime/diagnostic state.                                          |
 | `beadwork_sync`              | Run `bw sync`.                                                                    |
 

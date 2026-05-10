@@ -341,6 +341,12 @@ function refreshTarget(worker: WorkerRuntime): string {
   return worker.executionMode === "worktree" ? "merge-back" : "current-branch verification";
 }
 
+function explicitWorkerRequestLabel(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree"
+    ? "explicit landing request"
+    : "explicit current-branch verification request";
+}
+
 function buildWorkerNotice(input: {
   worker: WorkerRuntime;
   inspection: ReturnType<typeof inspectWorker>;
@@ -374,11 +380,12 @@ function buildWorkerNotice(input: {
         : inspection.validation.state === "pending"
           ? ` Follow orchestrator progress in ${worker.logFile}.`
           : "";
+    const requestLabel = explicitWorkerRequestLabel(worker);
     return {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} ${mode} has an explicit landing request in flight. ${inspection.followUp.action}${detail}`.trim(),
+        `Delegated ticket ${worker.ticketId} ${mode} has an ${requestLabel} in flight. ${inspection.followUp.action}${detail}`.trim(),
     };
   }
 
@@ -1953,7 +1960,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     name: "beadwork_land_worker",
     label: "Beadwork Land Worker",
     description:
-      "Request explicit merge-back for a delegated worker that was held after validation.",
+      "Request explicit worker follow-up: merge back held worktree workers or rerun current-branch verification.",
     parameters: Type.Object({
       ticket_id: Type.Optional(Type.String({ description: "Ticket id to land." })),
       worker_id: Type.Optional(Type.String({ description: "Worker id to land." })),

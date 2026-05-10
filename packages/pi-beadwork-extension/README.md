@@ -420,7 +420,7 @@ The extension also exposes beadwork-aware tools to the model, including:
 - create / update / dependency add-remove
 - start / close / reopen / comment / label / defer / undefer / sync
 - delegated worker launch (`beadwork_delegate`)
-- deferred explicit landing (`beadwork_land_worker`)
+- worker follow-up (`beadwork_land_worker`) for deferred worktree landing or current-branch verification/retry
 - worker inspection (`beadwork_worker_check`)
 
 See [docs/commands.md](./docs/commands.md#tool-reference) for the full list.

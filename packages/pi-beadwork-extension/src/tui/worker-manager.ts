@@ -196,7 +196,10 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
   if (isSuccessfulTerminalWorker(worker) || inspection.landing.state === "verified") {
     land.reason = worker.status === "verified" ? "already verified" : "already landed";
   } else if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
-    land.reason = "landing already queued";
+    land.reason =
+      worker.executionMode === "worktree"
+        ? "landing already queued"
+        : "verification already queued";
   } else if (worker.status === "launching" || worker.status === "running") {
     land.reason = "worker is still active";
   } else if (worker.ticketStatus !== "closed") {
