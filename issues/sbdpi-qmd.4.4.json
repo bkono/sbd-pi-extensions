@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-qmd.4.3"
   ],
@@ -14,8 +14,8 @@
   "labels": [],
   "parent": "sbdpi-qmd.4",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Add Phase 4 scope-completion regression tests",
   "type": "task",
-  "updated_at": "2026-05-08T23:47:05Z"
+  "updated_at": "2026-05-10T00:25:09Z"
 }
