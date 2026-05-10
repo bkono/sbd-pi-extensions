@@ -12,9 +12,15 @@
   "id": "sbdpi-qmd.4.3",
   "labels": [],
   "parent": "sbdpi-qmd.4",
+  "comments": [
+    {
+      "text": "Implemented scope-completion review gate for current-branch quiescent completion: builds evidence/prompt, launches reviewer via existing reviewer command path, triages fix/file/reject findings into fix-forward child tasks without mutating verified workers, deduplicates by finding signature, and routes to attention after two fix rounds. Validation passing: lint/test/typecheck for @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-10T00:10:02Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Implement scope-completion review with fix-forward work creation",
   "type": "task",
-  "updated_at": "2026-05-09T23:56:37Z"
+  "updated_at": "2026-05-10T00:10:02Z"
 }
