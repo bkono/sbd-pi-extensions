@@ -144,8 +144,9 @@ which limits normal branch-drift assumptions during attribution.
 - Current-branch workers use `workerExecution.review.enabled` for their per-worker review gate.
 - Worktree workers use `landing.review.enabled` during landing review before merge-back or deferred
   ready-to-land state.
-- Reviewer provider/model and artifact limits are still configured under `landing.review.*`; the
-  current implementation reuses that reviewer-agent configuration for current-branch review runs.
+- Reviewer provider/model/timeout settings are shared reviewer-agent settings, but artifact limits are
+  not shared across modes: `landing.review.maxArtifactChars` caps worktree landing review artifacts
+  only. Current-branch review does not build a `maxArtifactChars`-bounded diff artifact.
 
 ## `maxLifetime`
 

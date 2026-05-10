@@ -252,8 +252,9 @@ Controls the per-worker current-branch reviewer gate. It is separate from `landi
 - `workerExecution.review.enabled` affects current-branch worker verification.
 - `landing.review.enabled` affects worktree landing review before merge-back or deferred hold.
 
-Disabling one does not disable the other. Reviewer provider/model/timeout/artifact settings are still
-configured under `landing.review.*` and are reused by the current-branch reviewer pass.
+Disabling one does not disable the other. Current-branch review shares the reviewer
+provider/model/timeout settings from `landing.review.*`, but it does not use
+`landing.review.maxArtifactChars`; that artifact budget only caps worktree landing review artifacts.
 
 ### `run.*`
 
@@ -331,15 +332,16 @@ How many orchestrator remediation passes are allowed after valid reviewer-reques
 
 #### `maxArtifactChars`
 
-Caps the review artifacts bundled into the reviewer prompt, especially:
-
-The reviewer prompt still includes ticket/epic context, the mandatory validation commands, and instructions to finish with a machine-readable `<review_report>` handoff.
+Caps the worktree landing review artifacts bundled into the reviewer prompt, especially:
 
 - commit summaries
 - diff stats
 - unified diff content
 
-This does **not** cap all prompt content. Ticket descriptions, epic descriptions, and other structured context are bounded separately.
+The reviewer prompt still includes ticket/epic context, the mandatory validation commands, and instructions to finish with a machine-readable `<review_report>` handoff.
+
+This does **not** cap all prompt content. Ticket descriptions, epic descriptions, and other structured
+context are bounded separately. Current-branch per-worker review does not use this artifact budget.
 
 ##### Compatibility alias
 
