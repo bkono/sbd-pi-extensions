@@ -26,11 +26,15 @@
     {
       "text": "Remediated current-branch e2e docs review blockers in `packages/pi-beadwork-extension/docs/current-branch-e2e.md`.\n\nCommit: 31afd2e499c5bb9d0b32248c032287983ba2a1ac\n\nValidated:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- Node docs validation for npm script names, relative docs links, and `scenario-result.json` field names (`resolvedMode` for delegate; `resolved` for swarm/worktree)\n- `git diff --check -- packages/pi-beadwork-extension/docs/current-branch-e2e.md`\n\nNotes: did not run `npx biome check` directly on the ignored markdown path.",
       "timestamp": "2026-05-10T02:19:58Z"
+    },
+    {
+      "text": "Remediated post-default-flip stale docs wording so current-branch is documented as the built-in/default mode and worktree as an explicit fallback/config override. Commit: dd3daef32bcdfc064a1748f5330c6b0e8232bcee.\n\nGates:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension\n- docs stale-default Node validation (no built-in-default/default-is-worktree contradictions)\n- git grep stale default/worktree contradictions (no matches)\n- git diff --check on docs (status 0)",
+      "timestamp": "2026-05-10T02:32:02Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Document e2e smoke script usage and artifact interpretation",
   "type": "task",
-  "updated_at": "2026-05-10T02:19:58Z"
+  "updated_at": "2026-05-10T02:32:02Z"
 }
