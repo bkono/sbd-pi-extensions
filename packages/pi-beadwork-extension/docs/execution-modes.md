@@ -5,7 +5,7 @@
 ```json
 {
   "workerExecution": {
-    "mode": "worktree"
+    "mode": "current-branch"
   }
 }
 ```
@@ -15,8 +15,8 @@ Valid values:
 - `worktree` — create or reuse a per-ticket git worktree and branch.
 - `current-branch` — run in the parent session's current checkout/current branch.
 
-The built-in default in this package is `worktree`. Repos that want current-branch swarming should
-set `workerExecution.mode: "current-branch"` in `.pi/beadwork-config.json` or use the environment
+The built-in package default is `current-branch`. Repos that want isolated worktree workers should
+set `workerExecution.mode: "worktree"` in `.pi/beadwork-config.json` or use the environment
 override.
 
 ## Comparison
@@ -93,8 +93,8 @@ PI_BEADWORK_WORKTREE_BASE_DIR=../sbd-pi-extensions-worktrees \
 pi
 ```
 
-Because `worktree` is the built-in default today, omitting `workerExecution.mode` also falls back to
-worktree unless a global/project config or environment variable overrides it.
+Because `current-branch` is the built-in default today, omitting `workerExecution.mode` uses the
+current checkout/current branch unless config or an environment variable explicitly sets `worktree`.
 
 ## Detached HEAD
 

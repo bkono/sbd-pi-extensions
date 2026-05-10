@@ -18,8 +18,8 @@ Or for one shell:
 PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch pi
 ```
 
-The built-in package default is still `worktree`; set the repo or environment config above when a
-project wants current-branch workers as its local default.
+The built-in package default is now `current-branch`. Set `workerExecution.mode: "worktree"`
+or `PI_BEADWORK_WORKER_EXECUTION_MODE=worktree` when a project needs isolated worktree workers.
 
 ## What launches
 

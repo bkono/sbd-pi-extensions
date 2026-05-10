@@ -37,7 +37,7 @@ Config is merged in this order:
     "rerunSetupOnReuse": false
   },
   "workerExecution": {
-    "mode": "worktree",
+    "mode": "current-branch",
     "maxLifetime": null,
     "allowDetachedHead": false,
     "review": {
@@ -167,11 +167,11 @@ Controls where delegated workers run and which review gate applies after current
 
 Values:
 
-- `worktree` — built-in default; creates or reuses a per-ticket worktree/branch.
-- `current-branch` — launches the worker in the repo root/current branch and does not create a
-  worktree or merge-back branch.
+- `current-branch` — built-in default; launches the worker in the repo root/current branch and
+  does not create a worktree or merge-back branch.
+- `worktree` — explicit fallback; creates or reuses a per-ticket worktree/branch.
 
-Current-branch project default example:
+Current-branch explicit config example:
 
 ```json
 {

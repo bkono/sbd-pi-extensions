@@ -133,7 +133,7 @@ Recommended bug report payload:
 | Reviewer triage or fix-forward behavior looks wrong | `prompts/reviewer-triage.md`, `prompts/validation-failure-fix-forward.md`, `scenario-result.json`, `idempotency-result.json` | Contains the deterministic triage decisions and remediation/idempotency data. |
 | Validation fails | `validation/*.json`, referenced `commands/*validation-*.stdout.log`, referenced `commands/*validation-*.stderr.log` | Validation JSON points at raw logs for the failing command. |
 | Worktree preservation fails | `commands/*git-worktree-add*.stderr.log`, `commands/*git-worktree-list*.stdout.log`, `snapshots/after-landing-registry.json`, `scenario-result.json` | Confirms linked worktree creation, checkout path, and landed status. |
-| Default-mode resolution behaves unexpectedly | `scenario-result.json`, `default-mode-resolution.json`, `summary.json`, and `repo/.pi/beadwork-config.json` when present | Shows `defaultMode`, delegate `resolvedMode` or swarm/worktree `resolved`, and any explicit fixture config used for the run. |
+| Runtime mode resolution behaves unexpectedly | `scenario-result.json`, `default-mode-resolution.json`, `summary.json`, and `repo/.pi/beadwork-config.json` when present | Shows `defaultMode`, delegate `resolvedMode`, swarm `resolved`, and any explicit fixture config used for the run. |
 
 Keep console output concise in CI logs. Link or upload the artifact directory for the exhaustive
 record.

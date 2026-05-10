@@ -137,9 +137,9 @@ Current-branch mode runs a worker in the same checkout and branch as the parent 
 }
 ```
 
-The built-in package default is currently `worktree`, but repos can make current-branch their local
-default with project config or `PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch`. In current-branch
-mode the target is the current checkout/current branch; no ticket branch or worktree is created.
+The built-in package default is now `current-branch`. Repos can opt back into worktree isolation
+with project config or `PI_BEADWORK_WORKER_EXECUTION_MODE=worktree`. In current-branch mode the
+target is the current checkout/current branch; no ticket branch or worktree is created.
 Use explicit worktree fallback when a task needs isolation:
 
 ```json
@@ -351,7 +351,7 @@ Current built-in defaults:
     "rerunSetupOnReuse": false
   },
   "workerExecution": {
-    "mode": "worktree",
+    "mode": "current-branch",
     "maxLifetime": null,
     "allowDetachedHead": false,
     "review": {
@@ -388,7 +388,8 @@ Important behavior notes:
 - if `tmux.workerCommand` includes `--print`, that flag is stripped so worker output still uses JSON mode cleanly
 - `tmux.workerProvider` / `tmux.workerModel` only affect delegated workers, not the current parent session
 - reviewer provider/model fall back to the worker provider/model when not set explicitly
-- `workerExecution.mode` selects `worktree` (built-in default) or `current-branch` execution
+- `workerExecution.mode` selects `current-branch` by default
+- set `workerExecution.mode: "worktree"` explicitly for isolated worktree execution
 - `workerExecution.maxLifetime` accepts `null` or non-negative milliseconds; it is parsed/stored, while current supervision still primarily follows tmux/runtime exit state
 - `workerExecution.allowDetachedHead` is false by default and must be explicitly enabled for current-branch launch from detached HEAD
 - `workerExecution.review.enabled` controls current-branch per-worker review and is on by default; set it to `false` to skip that pass
