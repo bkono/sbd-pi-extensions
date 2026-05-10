@@ -9,6 +9,7 @@ import {
   saveWorkerRegistry,
 } from "../../registry.js";
 import { loadSessionState, resolveSessionStateDir, saveSessionState } from "../../session-state.js";
+import type { WorkerRuntime } from "../../types.js";
 import {
   createExtensionTestHarness,
   createFakeExtensionContext,
@@ -22,6 +23,7 @@ const {
   runBoundedEpicLoopMock,
   launchTicketWorkerMock,
   requestWorkerLandingMock,
+  inspectWorkerRuntimeMock,
 } = vi.hoisted(() => ({
   detectActivationMock: vi.fn(),
   adapterMock: {
@@ -48,6 +50,7 @@ const {
   createBeadworkAdapterMock: vi.fn(),
   runBoundedEpicLoopMock: vi.fn(),
   launchTicketWorkerMock: vi.fn(),
+  inspectWorkerRuntimeMock: vi.fn(),
   requestWorkerLandingMock: vi.fn(),
 }));
 
@@ -78,6 +81,10 @@ vi.mock("../../orchestrator.js", async () => {
     runBoundedEpicLoop: runBoundedEpicLoopMock,
     launchTicketWorker: launchTicketWorkerMock,
     requestWorkerLanding: requestWorkerLandingMock,
+    inspectWorkerRuntime: (input: Parameters<typeof actual.inspectWorkerRuntime>[0]) => {
+      const implementation = inspectWorkerRuntimeMock.getMockImplementation();
+      return implementation ? implementation(input) : actual.inspectWorkerRuntime(input);
+    },
   };
 });
 
@@ -916,6 +923,133 @@ describe("pi beadwork extension", () => {
     expect(message).not.toContain("landed cleanly");
   });
 
+  it("uses execution-mode-specific wording in worker supervision notices", async () => {
+    inspectWorkerRuntimeMock.mockImplementation(async (input) => input.worker);
+
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+
+    const currentWorker = (workerId: string, overrides: Partial<WorkerRuntime>): WorkerRuntime => {
+      const {
+        cleanupPolicy: _cleanupPolicy,
+        worktreePath: _worktreePath,
+        ...worker
+      } = createWorkerRuntime(tempDir);
+
+      return {
+        ...worker,
+        workerId,
+        ticketId: `BW-${workerId}`,
+        executionMode: "current-branch",
+        checkoutPath: tempDir,
+        branchName: "main",
+        launchHead: "abc123",
+        ...overrides,
+      } as WorkerRuntime;
+    };
+
+    const worktreeWorker = (workerId: string, overrides: Partial<WorkerRuntime>): WorkerRuntime =>
+      ({
+        ...createWorkerRuntime(tempDir),
+        workerId,
+        ticketId: `BW-${workerId}`,
+        ...overrides,
+      }) as WorkerRuntime;
+
+    async function noticeFor(worker: WorkerRuntime): Promise<string> {
+      const sessionId = `session-${worker.workerId}`;
+      const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId });
+      const before = ui.notifications.length;
+
+      await saveWorkerRegistry(registryPath, [worker]);
+      await saveSessionState(stateDir, sessionId, {
+        mode: "neutral",
+        scope: { kind: "none" },
+        updatedAt: "2026-04-14T00:00:00.000Z",
+        trackedWorkerIds: [worker.workerId],
+      });
+
+      await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
+
+      return ui.notifications.slice(before).at(-1)?.message ?? "";
+    }
+
+    const currentValidation = await noticeFor(
+      currentWorker("current-validation", {
+        status: "running",
+        remediationStatus: "running",
+        validationStatus: "failed",
+      }),
+    );
+    expect(currentValidation).toContain("running in the current checkout");
+    expect(currentValidation).not.toContain("existing worktree");
+
+    const worktreeValidation = await noticeFor(
+      worktreeWorker("worktree-validation", {
+        status: "running",
+        remediationStatus: "running",
+        validationStatus: "failed",
+      }),
+    );
+    expect(worktreeValidation).toContain("running in the existing worktree");
+
+    const currentReview = await noticeFor(
+      currentWorker("current-review", {
+        status: "running",
+        reviewStatus: "remediation-in-progress",
+      }),
+    );
+    expect(currentReview).toContain("before current-branch verification");
+    expect(currentReview).not.toContain("before merge-back");
+
+    const worktreeReview = await noticeFor(
+      worktreeWorker("worktree-review", {
+        status: "running",
+        reviewStatus: "remediation-in-progress",
+      }),
+    );
+    expect(worktreeReview).toContain("before merge-back");
+
+    const currentClosed = await noticeFor(
+      currentWorker("current-closed", {
+        status: "running",
+        ticketStatus: "closed",
+      }),
+    );
+    expect(currentClosed).toContain("current-branch verification can run");
+    expect(currentClosed).not.toContain("landing can be verified");
+
+    const worktreeClosed = await noticeFor(
+      worktreeWorker("worktree-closed", {
+        status: "running",
+        ticketStatus: "closed",
+      }),
+    );
+    expect(worktreeClosed).toContain("landing can be verified");
+
+    const currentExited = await noticeFor(
+      currentWorker("current-exited", {
+        status: "exited",
+        ticketStatus: "closed",
+      }),
+    );
+    expect(currentExited).toContain("current-branch verification still needs review");
+    expect(currentExited).not.toContain("landing still needs review");
+
+    const worktreeExited = await noticeFor(
+      worktreeWorker("worktree-exited", {
+        status: "exited",
+        ticketStatus: "closed",
+      }),
+    );
+    expect(worktreeExited).toContain("worktree landing still needs review");
+  });
+
   it("shows explicit launch guidance after /bw delegate", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -945,6 +1079,7 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("stay in the current pane");
     expect(message).toContain("background supervision keeps checking every 30s");
     expect(message).toContain("Follow streamed worker activity in");
+    expect(message).toContain("when worktree landing is completed");
     expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
   });
 
@@ -983,6 +1118,8 @@ describe("pi beadwork extension", () => {
     );
     expect(message).toContain("[current-branch]");
     expect(message).toContain(`checkoutPath ${tempDir} (repo root)`);
+    expect(message).toContain("when current-branch verification is completed");
+    expect(message).not.toContain("landing is");
     expect(message).not.toContain("worktreePath");
   });
 

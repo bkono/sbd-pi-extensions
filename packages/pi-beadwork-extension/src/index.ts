@@ -319,6 +319,28 @@ function workerModeNotice(worker: WorkerRuntime): string {
   return `[${worker.executionMode}]`;
 }
 
+function remediationCheckoutLabel(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "the existing worktree" : "the current checkout";
+}
+
+function reviewRemediationTarget(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "merge-back" : "current-branch verification";
+}
+
+function postExitVerificationWaitMessage(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree"
+    ? "landing can be verified"
+    : "current-branch verification can run";
+}
+
+function postExitReviewSubject(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "worktree landing" : "current-branch verification";
+}
+
+function refreshTarget(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "merge-back" : "current-branch verification";
+}
+
 function buildWorkerNotice(input: {
   worker: WorkerRuntime;
   inspection: ReturnType<typeof inspectWorker>;
@@ -365,7 +387,7 @@ function buildWorkerNotice(input: {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} ${mode} failed validation, and an automatic remediation pass is now running in the existing worktree. ` +
+        `Delegated ticket ${worker.ticketId} ${mode} failed validation, and an automatic remediation pass is now running in ${remediationCheckoutLabel(worker)}. ` +
         `Follow streamed worker activity in ${worker.logFile}.`,
     };
   }
@@ -375,7 +397,7 @@ function buildWorkerNotice(input: {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} ${mode} is remediating reviewer-requested changes before merge-back. ` +
+        `Delegated ticket ${worker.ticketId} ${mode} is remediating reviewer-requested changes before ${reviewRemediationTarget(worker)}. ` +
         `Follow streamed worker activity in ${worker.logFile}.`,
     };
   }
@@ -384,7 +406,7 @@ function buildWorkerNotice(input: {
     return {
       key,
       level: "info",
-      message: `Delegated ticket ${worker.ticketId} ${mode} was closed in the worker and is waiting for process exit so landing can be verified.`,
+      message: `Delegated ticket ${worker.ticketId} ${mode} was closed in the worker and is waiting for process exit so ${postExitVerificationWaitMessage(worker)}.`,
     };
   }
 
@@ -418,7 +440,7 @@ function buildWorkerNotice(input: {
       key,
       level: "warning",
       message:
-        `Delegated ticket ${worker.ticketId} ${mode} finished, but landing still needs review. ${inspection.followUp.action}${detail}`.trim(),
+        `Delegated ticket ${worker.ticketId} ${mode} finished, but ${postExitReviewSubject(worker)} still needs review. ${inspection.followUp.action}${detail}`.trim(),
     };
   }
 
@@ -444,7 +466,7 @@ function buildWorkerNotice(input: {
         key,
         level: "warning",
         message:
-          `Delegated ticket ${worker.ticketId} ${mode} is validated and held, but repo drift means it needs refresh before merge-back. ` +
+          `Delegated ticket ${worker.ticketId} ${mode} is validated and held, but repo drift means it needs refresh before ${refreshTarget(worker)}. ` +
           inspection.followUp.action,
       };
     }

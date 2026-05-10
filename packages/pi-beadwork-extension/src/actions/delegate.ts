@@ -49,6 +49,19 @@ function describeDelegateLaunch(worker: WorkerRuntime): string {
   );
 }
 
+function describeDelegateSupervisionOutcome(
+  worker: WorkerRuntime,
+  landingPolicy: BeadworkConfig["landing"]["policy"],
+): string {
+  if (worker.executionMode === "worktree") {
+    return landingPolicy === "deferred"
+      ? "worktree landing is held for explicit /bw land"
+      : "worktree landing is completed";
+  }
+
+  return "current-branch verification is completed";
+}
+
 export async function executeDelegateAction(input: {
   ctx: ExtensionCommandContext;
   deps: DelegateActionDeps;
@@ -80,12 +93,15 @@ export async function executeDelegateAction(input: {
     workerProviderOverride: modelOverride?.provider,
     workerModelOverride: modelOverride?.model,
   });
-  const landingMode = active.config.landing.policy === "deferred" ? "held" : "completed";
+  const supervisionOutcome = describeDelegateSupervisionOutcome(
+    worker,
+    active.config.landing.policy,
+  );
   const pollSeconds = Math.max(1, Math.round(active.config.supervisor.pollIntervalMs / 1000));
   ctx.ui.notify(
     `${describeDelegateLaunch(worker)} ` +
       `You should stay in the current pane while background supervision keeps checking every ${pollSeconds}s ` +
-      `and notifies when the worker exits and when landing is ${landingMode}. ` +
+      `and notifies when the worker exits and when ${supervisionOutcome}. ` +
       `Follow streamed worker activity in ${worker.logFile}.`,
     "info",
   );

@@ -8,8 +8,8 @@ This package is meant to make the real beadwork workflow usable inside pi:
 - inspect and mutate beadwork issues without leaving pi
 - turn an explicit markdown plan into an epic/task graph
 - delegate one ticket into either a worktree-backed or current-branch worker
-- let the orchestrator supervise worker exit, validation, review, merge-back, and cleanup
-- optionally hold validated work for later `/bw land` instead of merging immediately
+- let the orchestrator supervise worker exit, validation/review, current-branch verification, worktree merge-back, and cleanup
+- optionally hold validated worktree work for later `/bw land` instead of merging immediately
 
 ## Status
 
@@ -19,8 +19,8 @@ This extension is now in a practical dogfooding state for:
 - explicit markdown-plan adoption
 - delegated `/bw delegate` worker flows with streamed logs + notifications
 - configurable worktree/current-branch worker execution modes
-- orchestrator-owned validation / remediation / merge-back
-- deferred landing and reviewer-gated landing modes
+- orchestrator-owned validation / remediation / current-branch verification / worktree merge-back
+- deferred worktree landing and reviewer-gated landing modes
 - bounded `/bw run` orchestration over an epic
 
 Truths to keep in mind:
@@ -28,7 +28,8 @@ Truths to keep in mind:
 - the worker backend is tmux-first today
 - background supervision is **session-local**, not a standalone daemon
 - supervisor work happens while the parent pi session is alive and idle enough to process turns
-- validation runs synchronously in delegated worktrees, so large repos can still take a while after a worker exits
+- post-worker checks run synchronously: worktree mode validates/reviews/merges delegated worktrees; current-branch mode verifies the current checkout in place
+- large repos can still take a while after a worker exits because those checks run before final notification
 - `/bw adopt` now expects an **explicit** markdown source (inline, file, or editor text), not scraped chat history
 
 ## Install
