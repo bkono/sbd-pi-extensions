@@ -7,6 +7,8 @@
     "sbdpi-qmd.5.2",
     "sbdpi-qmd.5.5"
   ],
+  "closed_at": "2026-05-10T00:56:52Z",
+  "close_reason": "Completed in db8d88b with passing package lint/test/typecheck.",
   "created": "2026-05-08T23:39:37Z",
   "description": "Add visible execution mode labels to all worker-facing UI surfaces so operators can always tell whether a worker is running in current-branch or worktree mode.\n\n## What to implement\n\n1. **`/bw workers` display** — show `[current-branch]` or `[worktree]` badge per worker\n2. **TUI dashboard worker list** — execution mode column or badge\n3. **Worker detail view** — show `executionMode`, `checkoutPath`, `branchName`, `launchHead` (for current-branch); show `worktreePath` for worktree\n4. **Statusline** — show active mode indicator when workers are running\n5. **`/bw status`** — show default execution mode from config summary\n6. **Worker notices** — include mode in launch/completion/attention notifications\n7. **Aggregate views** — when mixed workers exist, group counts by mode (e.g., \"3 current-branch running, 1 worktree held\")\n\n## Key UI Patterns\n\nUse `isSuccessfulTerminalWorker(worker)` from `.1.3` for displaying success states (shows ✓ for both `verified` and `landed`). Use `worker.executionMode` for badge text. Use `worker.checkoutPath` for path display (works for both modes without narrowing).\n\n## Where to look in existing code\n\n- `packages/pi-beadwork-extension/src/worker-diagnostics.ts` — worker detail formatting\n- `packages/pi-beadwork-extension/src/tui/worker-manager.ts` — TUI worker dashboard\n- `packages/pi-beadwork-extension/src/statusline.ts` — statusline indicators\n- `packages/pi-beadwork-extension/src/index.ts` — worker notices in `buildWorkerNotice()`\n- `packages/pi-beadwork-extension/src/actions/issues.ts` — `/bw workers` command output\n\n## Design Rules\n\n- Labels should be concise but unambiguous\n- Use consistent terminology: \"current-branch\" and \"worktree\" (not abbreviations or alternatives)\n- Do NOT hide the execution mode — it should always be visible in worker context\n- For aggregate displays (counts), group by mode if mixed workers exist\n- Detail view for current-branch workers should show `launchHead` (useful for debugging attribution)\n- Detail view for worktree workers should show `worktreePath` (existing behavior)\n- Use the `checkoutPath` field (available on both modes) for generic path display\n\n## Tests\n\n- Worker list shows `[current-branch]` badge for current-branch workers\n- Worker list shows `[worktree]` badge for worktree workers\n- Mixed-mode worker lists show both modes with correct badges\n- Detail view shows mode-specific fields (`launchHead` for current-branch, `worktreePath` for worktree)\n- Aggregate counts correctly group by mode when mixed workers exist\n- `/bw status` displays the configured default execution mode\n- Worker notices mention execution mode\n- Statusline includes mode indicator\n\n## Definition of Done\n\n- All worker-facing UI surfaces show execution mode\n- Consistent terminology used everywhere\n- Mixed-mode scenarios display correctly\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.5.3",
@@ -19,8 +21,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add UI/status labels showing worker execution mode",
   "type": "task",
-  "updated_at": "2026-05-10T00:56:49Z"
+  "updated_at": "2026-05-10T00:56:52Z"
 }
