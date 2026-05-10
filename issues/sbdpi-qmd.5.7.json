@@ -22,11 +22,15 @@
     {
       "text": "Post-close gate update for df5d5bc51f9bfdd4e49b456382054ec3f460ba87: npm run test -w @solvedbydev/pi-beadwork-extension passed (30 files, 339 tests); npm run typecheck -w @solvedbydev/pi-beadwork-extension passed. Working tree clean.",
       "timestamp": "2026-05-10T02:00:01Z"
+    },
+    {
+      "text": "Remediated current-branch e2e docs review blockers in `packages/pi-beadwork-extension/docs/current-branch-e2e.md`.\n\nCommit: 31afd2e499c5bb9d0b32248c032287983ba2a1ac\n\nValidated:\n- `npm run lint -w @solvedbydev/pi-beadwork-extension`\n- Node docs validation for npm script names, relative docs links, and `scenario-result.json` field names (`resolvedMode` for delegate; `resolved` for swarm/worktree)\n- `git diff --check -- packages/pi-beadwork-extension/docs/current-branch-e2e.md`\n\nNotes: did not run `npx biome check` directly on the ignored markdown path.",
+      "timestamp": "2026-05-10T02:19:58Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Document e2e smoke script usage and artifact interpretation",
   "type": "task",
-  "updated_at": "2026-05-10T02:00:01Z"
+  "updated_at": "2026-05-10T02:19:58Z"
 }
