@@ -18,11 +18,15 @@
     {
       "text": "Implemented docs for current-branch e2e smoke usage and artifact interpretation in df5d5bc. Covered deterministic fake-worker/fake-reviewer commands, real-agent mode absence, package scripts/scenarios, artifact locations/filenames, failure preservation/bug reports, pre/post flip expectations, worktree-preservation coverage, and troubleshooting. Validation: custom Node markdown reference check passed; npm run lint -w @solvedbydev/pi-beadwork-extension passed.",
       "timestamp": "2026-05-10T01:59:09Z"
+    },
+    {
+      "text": "Post-close gate update for df5d5bc51f9bfdd4e49b456382054ec3f460ba87: npm run test -w @solvedbydev/pi-beadwork-extension passed (30 files, 339 tests); npm run typecheck -w @solvedbydev/pi-beadwork-extension passed. Working tree clean.",
+      "timestamp": "2026-05-10T02:00:01Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Document e2e smoke script usage and artifact interpretation",
   "type": "task",
-  "updated_at": "2026-05-10T01:59:13Z"
+  "updated_at": "2026-05-10T02:00:01Z"
 }
