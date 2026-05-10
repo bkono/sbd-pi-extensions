@@ -4,6 +4,8 @@
     "sbdpi-qmd.4"
   ],
   "blocks": [],
+  "closed_at": "2026-05-10T02:11:30Z",
+  "close_reason": "All Phase 5 children closed; final comprehensive regression and e2e gates passed.",
   "created": "2026-05-08T23:33:26Z",
   "description": "Phase 5 flips the default to `current-branch`, implements crash recovery, adds UI polish for execution mode visibility, documents conventions, and runs the final comprehensive regression suite.\n\n## Goals\n\n1. Flip `workerExecution.mode` default to `current-branch` only after all prior phases pass as one coherent slice\n2. Implement worker crash recovery for current-branch mode\n3. Add UI/status labels so workers clearly show their execution mode\n4. Document commit-message and handoff-comment conventions\n5. Run final comprehensive e2e and regression test suite\n\n## Key Design Constraints — Crash Recovery\n\n- Worker death = process exit without ticket closure, tmux pane disappearance, or `maxLifetime` timeout\n- Coordinator judges crash vs deliberate blocker from comments/history (LLM judgment, not deterministic parsing)\n- Crashed workers: auto-reassign ticket to replacement worker\n- Blocked workers: route to `attention`\n- Closed-ticket exited workers: enter normal verification, NOT crash-reassignment\n- Replacement worker inherits dead worker's `launchHead`, existing attributed commits, state/comment fragments\n- Partial commits referencing ticket ID remain on branch — fix-forward inheritance, not rollback\n- Do NOT reset/stash/revert/amend partial work; replacement judges local dirty state during normal execution\n- Do NOT have coordinator pre-inspect dirty state before replacement\n- While workers are still running, coordinator does NOT intervene in uncommitted state\n\n## Key Design Constraints — Default Flip\n\n- Do NOT expose a half-migrated default\n- The flip only happens after: launch works, verification works, registry normalization handles old records, review/remediation works, scope-completion works, UI shows modes correctly, and legacy worktree tests still pass\n- `worktree` remains available through explicit config and env override\n\n## Files likely affected\n\n- `packages/pi-beadwork-extension/src/config.ts` — default flip\n- `packages/pi-beadwork-extension/src/orchestrator.ts` — crash detection + reassignment\n- `packages/pi-beadwork-extension/src/handoff.ts` — replacement worker prompts\n- `packages/pi-beadwork-extension/src/tui/` — execution mode labels\n- `packages/pi-beadwork-extension/src/statusline.ts` — mode indicators\n- `packages/pi-beadwork-extension/README.md` — convention docs\n- `packages/pi-beadwork-extension/docs/` — detailed documentation\n- `packages/pi-beadwork-extension/src/__tests__/` — final regression suite\n\n## Definition of Done\n\n- `current-branch` is the active runtime default\n- Crash recovery works: reassignment, inheritance, fix-forward\n- UI clearly shows execution mode for each worker\n- Conventions documented\n- Full regression suite passes\n- Worktree mode preserved via explicit config\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.5",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Phase 5: Hardening — default flip, UI, docs, crash recovery, final regression",
   "type": "epic",
-  "updated_at": "2026-05-10T02:11:16Z"
+  "updated_at": "2026-05-10T02:11:30Z"
 }
