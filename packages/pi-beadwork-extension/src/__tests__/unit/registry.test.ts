@@ -181,7 +181,7 @@ describe("worker registry normalization", () => {
     expect(saved.workers[0]?.checkoutPath).toBe(path.join(tempDir, "worker"));
   });
 
-  it("loads persisted local .pi/beadwork registry records with legacy and current-branch shapes", async () => {
+  it("round-trips persisted local .pi/beadwork registry records with legacy and current-branch shapes", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-local-registry-"));
     const repoRoot = path.join(tempDir, "sbd-pi-extensions");
     const registryPath = resolveWorkerRegistryPath(repoRoot, ".pi/beadwork/workers/registry.json");
@@ -235,6 +235,15 @@ describe("worker registry normalization", () => {
       status: "verified",
     });
     expect("worktreePath" in loaded[1]!).toBe(false);
+    await saveWorkerRegistry(registryPath, loaded);
+    const reloaded = await loadWorkerRegistry(registryPath);
+    expect(reloaded).toEqual(loaded);
+    expect(reloaded[0]).toMatchObject({
+      executionMode: "worktree",
+      worktreePath: legacyWorktree.worktreePath,
+    });
+    expect(reloaded[1]).toMatchObject({ executionMode: "current-branch", launchHead: "09f3011" });
+    expect("worktreePath" in reloaded[1]!).toBe(false);
   });
 
   it("recovers local registry files left with duplicated trailing object closers", async () => {

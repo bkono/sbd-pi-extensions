@@ -4,7 +4,6 @@ import {
   packageDefaultExecutionMode,
   resolveExecutionMode,
   runScenario,
-  stableJson,
 } from "./lib/current-branch-e2e-harness.mjs";
 
 runScenario(async () => {
@@ -16,15 +15,22 @@ runScenario(async () => {
   await h.initGitRepo();
   await h.initBeadwork("e2ecbd");
 
-  await h.step("configure explicit current-branch worker mode");
+  await h.step("resolve current-branch from package default without mode override");
   const defaultMode = await packageDefaultExecutionMode();
-  const config = { workerExecution: { mode: "current-branch" } };
-  await h.writeRepoFile(".pi/beadwork-config.json", stableJson(config));
+  const config = {};
   const resolved = resolveExecutionMode({ env: {}, config, defaultMode });
-  h.assert(resolved.mode === "current-branch", "delegate did not resolve current-branch mode", {
-    resolved,
+  h.assert(
+    resolved.mode === "current-branch" && resolved.source === "default",
+    "delegate did not resolve current-branch mode from default",
+    {
+      defaultMode,
+      resolved,
+    },
+  );
+  h.assert(defaultMode === "current-branch", "package default is not current-branch", {
+    defaultMode,
   });
-  h.cover("10-config-overrides");
+  await h.writeArtifact("default-mode-resolution.json", { defaultMode, resolved });
   h.cover("11-default-flip-readiness");
 
   const ticketId = await h.bwCreate("delegate current-branch fixture", {

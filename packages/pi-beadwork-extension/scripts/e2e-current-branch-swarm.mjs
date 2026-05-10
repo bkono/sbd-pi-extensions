@@ -63,28 +63,49 @@ runScenario(async () => {
   await h.initGitRepo();
   await h.initBeadwork("e2ecbs");
 
-  await h.step("configure explicit current-branch swarm mode");
+  await h.step("resolve current-branch swarm mode from package default without mode override");
   const defaultMode = await packageDefaultExecutionMode();
   const config = {
     run: { defaultWorkers: 2 },
-    workerExecution: { mode: "current-branch", review: { enabled: true } },
+    workerExecution: { review: { enabled: true } },
   };
   await h.writeRepoFile(".pi/beadwork-config.json", stableJson(config));
   const resolved = resolveExecutionMode({ env: {}, config, defaultMode });
-  h.assert(resolved.mode === "current-branch", "swarm did not resolve current-branch mode", {
-    resolved,
+  h.assert(
+    resolved.mode === "current-branch" && resolved.source === "default",
+    "swarm did not resolve current-branch mode from package default",
+    {
+      defaultMode,
+      resolved,
+    },
+  );
+  h.assert(defaultMode === "current-branch", "package default is not current-branch", {
+    defaultMode,
   });
 
-  const envOverride = resolveExecutionMode({
-    config: { workerExecution: { mode: "worktree" } },
+  const envToWorktree = resolveExecutionMode({
+    config,
     defaultMode,
-    env: { PI_BEADWORK_WORKER_EXECUTION_MODE: "current-branch" },
+    env: { PI_BEADWORK_WORKER_EXECUTION_MODE: "worktree" },
   });
   h.assert(
-    envOverride.source === "env" && envOverride.mode === "current-branch",
-    "env override failed",
+    envToWorktree.source === "env" && envToWorktree.mode === "worktree",
+    "env override from default current-branch to worktree failed",
     {
-      envOverride,
+      envToWorktree,
+    },
+  );
+
+  const configToCurrentBranch = resolveExecutionMode({
+    config: { workerExecution: { mode: "current-branch" } },
+    defaultMode: "worktree",
+    env: {},
+  });
+  h.assert(
+    configToCurrentBranch.source === "config" && configToCurrentBranch.mode === "current-branch",
+    "config override to current-branch failed",
+    {
+      configToCurrentBranch,
     },
   );
   h.cover("10-config-overrides");
@@ -262,13 +283,18 @@ runScenario(async () => {
     ticketId: ticketCrash,
     decision: "replace",
   });
-  const replacement = {
-    ...(await launchWorker(h, registry, ticketCrash, "worker-replacement", resolved.mode, {
+  const replacement = await launchWorker(
+    h,
+    registry,
+    ticketCrash,
+    "worker-replacement",
+    resolved.mode,
+    {
       startTicket: false,
-    })),
-    replacedWorkerId: crashed.id,
-    launchHead: crashed.launchHead,
-  };
+    },
+  );
+  replacement.replacedWorkerId = crashed.id;
+  replacement.launchHead = crashed.launchHead;
   await h.writeRepoFile("src/crash-recovery.txt", `recovered ${ticketCrash}\n`);
   const crashCommit = await h.gitCommit(
     ticketCrash,
@@ -358,7 +384,8 @@ runScenario(async () => {
   await h.writeArtifact("scenario-result.json", {
     defaultMode,
     resolved,
-    envOverride,
+    envToWorktree,
+    configToCurrentBranch,
     tickets: { ticketA, ticketB, ticketCrash, fixTicket, fileTicket, validationFixTicket },
     workers: registry.workers,
     scopeValidations,

@@ -301,14 +301,30 @@ export class E2eHarness {
   }
 
   async snapshotBwCli(name, ticketIds = []) {
-    await this.bw(`${name}-ready-json`, ["ready", "--json"], { allowFailure: true });
+    const ready = await this.bw(`${name}-ready-json`, ["ready", "--json"], { allowFailure: true });
+    await this.writeArtifact(
+      path.join("snapshots", `${name}-bw-ready.json`),
+      ready.stdout.trim() || "[]\n",
+    );
     for (const ticketId of ticketIds) {
-      await this.bw(`${name}-show-${ticketId}`, ["show", ticketId, "--json"], {
+      const show = await this.bw(`${name}-show-${ticketId}`, ["show", ticketId, "--json"], {
         allowFailure: true,
       });
-      await this.bw(`${name}-history-${ticketId}`, ["history", ticketId, "--json"], {
-        allowFailure: true,
-      });
+      await this.writeArtifact(
+        path.join("snapshots", `${name}-bw-show-${ticketId}.json`),
+        show.stdout.trim() || "{}\n",
+      );
+      const history = await this.bw(
+        `${name}-history-${ticketId}`,
+        ["history", ticketId, "--json"],
+        {
+          allowFailure: true,
+        },
+      );
+      await this.writeArtifact(
+        path.join("snapshots", `${name}-bw-history-${ticketId}.json`),
+        history.stdout.trim() || "[]\n",
+      );
     }
   }
 
