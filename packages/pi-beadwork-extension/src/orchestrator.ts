@@ -3937,7 +3937,7 @@ function hasUnresolvedFixFindings(worker: WorkerRuntime): boolean {
   return (worker.reviewTriageDecisions ?? []).some((decision) => decision.classification === "fix");
 }
 
-function requiresPendingScopeReviewGate(input: {
+function requiresScopeCompletionReview(input: {
   config: BeadworkConfig;
   workers: WorkerRuntime[];
 }): boolean {
@@ -3947,13 +3947,7 @@ function requiresPendingScopeReviewGate(input: {
   );
 }
 
-function pendingScopeReviewGateNote(): string {
-  return (
-    "Scope validation passed, but scope-completion review/fix-forward gating is pending. " +
-    "The orchestrator cannot mark the current-branch scope completed until Phase 4 scope " +
-    "review runs and has no unresolved fix findings."
-  );
-}
+const MAX_SCOPE_REVIEW_FIX_ROUNDS = 2;
 
 type DirtyStatusEntry = {
   code: string;
@@ -4296,6 +4290,23 @@ async function writeDirtyStateArtifact(input: {
   await writeFile(filePath, input.content, "utf8");
   return filePath;
 }
+
+type ScopeReviewFindingTask = {
+  decision: ReviewTriageDecision;
+  signature: string;
+  blocking: boolean;
+  existingIssue?: BeadworkIssue;
+};
+
+type ScopeReviewResult = {
+  proceed: boolean;
+  complete: boolean;
+  detail: string;
+  evidenceFile: string;
+  promptFile: string;
+  logFile: string;
+  createdIssueIds: string[];
+};
 
 type ScopeValidationDecision = {
   classification: "create-fix-forward" | "attention";
@@ -4940,6 +4951,436 @@ async function handleScopeValidationFailure(input: {
   };
 }
 
+async function writeScopeReviewArtifact(input: {
+  repoRoot: string;
+  config: BeadworkConfig;
+  prefix: string;
+  content: string;
+}): Promise<string> {
+  const artifactDir = path.join(
+    resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir),
+    "scope-review",
+  );
+  await mkdir(artifactDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filePath = path.join(artifactDir, `${stamp}-${input.prefix}.md`);
+  await writeFile(filePath, input.content, "utf8");
+  return filePath;
+}
+
+async function buildVerifiedWorkerEvidence(input: {
+  repoRoot: string;
+  adapter: BeadworkAdapter;
+  workers: WorkerRuntime[];
+  runner: ProcessRunner;
+}): Promise<unknown[]> {
+  const verifiedWorkers = input.workers.filter(isSuccessfulTerminalWorker);
+  return Promise.all(
+    verifiedWorkers.map(async (worker) => ({
+      workerId: worker.workerId,
+      ticketId: worker.ticketId,
+      ticketTitle: worker.ticketTitle,
+      ticketStatus: worker.ticketStatus,
+      status: worker.status,
+      validationStatus: worker.validationStatus,
+      validationSummary: worker.validationSummary,
+      reviewStatus: worker.reviewStatus,
+      reviewSummary: worker.reviewSummary,
+      landingVerification: worker.landingVerification,
+      touchedPaths: worker.touchedPaths ?? [],
+      commits: await Promise.all(
+        (worker.commitShas ?? []).map(async (sha) => ({
+          sha,
+          subject: await commitSubject({ repoRoot: input.repoRoot, runner: input.runner, sha }),
+        })),
+      ),
+      history: await input.adapter
+        .history(input.repoRoot, worker.ticketId, 8)
+        .catch((error: unknown) => [{ intent: "history-error", message: humanizeError(error) }]),
+    })),
+  );
+}
+
+async function buildScopeReviewEvidence(input: {
+  repoRoot: string;
+  adapter: BeadworkAdapter;
+  epic: BeadworkIssueDetail;
+  workers: WorkerRuntime[];
+  validationDetail: string;
+  notes: string[];
+  runner: ProcessRunner;
+}): Promise<string> {
+  const [workerEvidence, epicHistory, status, recentLog] = await Promise.all([
+    buildVerifiedWorkerEvidence({
+      repoRoot: input.repoRoot,
+      adapter: input.adapter,
+      workers: input.workers,
+      runner: input.runner,
+    }),
+    input.adapter
+      .history(input.repoRoot, input.epic.id, 10)
+      .catch((error: unknown) => [{ intent: "history-error", message: humanizeError(error) }]),
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: ["status", "--porcelain"],
+      maxChars: 4_000,
+    }),
+    runOptionalGitCommand({
+      repoRoot: input.repoRoot,
+      runner: input.runner,
+      args: ["log", "--oneline", "-20"],
+      maxChars: 8_000,
+    }),
+  ]);
+
+  return [
+    "# Scope completion review evidence",
+    "",
+    `Epic: ${input.epic.id} ${input.epic.title}`,
+    `Epic status: ${input.epic.status}`,
+    "",
+    "## Epic/scope description and goal",
+    input.epic.description?.trim() || "<no epic description>",
+    "",
+    "## Verified ticket summaries and attributed commits",
+    "```json",
+    JSON.stringify(workerEvidence, null, 2),
+    "```",
+    "",
+    "## Integrated validation pass output",
+    input.validationDetail,
+    "",
+    "## Coordination notes / run context",
+    "```",
+    input.notes.length > 0 ? input.notes.join("\n") : "<no prior notes>",
+    "```",
+    "",
+    "## Epic coordination history",
+    "```json",
+    JSON.stringify(epicHistory, null, 2),
+    "```",
+    "",
+    "## git status --porcelain",
+    "```",
+    status,
+    "```",
+    "",
+    "## recent git log --oneline",
+    "```",
+    recentLog,
+    "```",
+  ].join("\n");
+}
+
+function buildScopeReviewPrompt(evidence: string): string {
+  return [
+    "You are a scope-complete reviewer for a Beadwork epic.",
+    "Goal: inspect the repository with tools and decide whether the integrated current-branch scope satisfies the epic goal after validation passed.",
+    "This is not a patch-by-patch re-review. Look for unmet epic goals, attribution gaps, contradictory/orphaned changes, or issues hidden by passing tests.",
+    "Do not ask to reopen or mutate verified worker records. In-scope blockers become new fix-forward child tasks.",
+    "Classify each finding with severity fix|nit. Use severity fix only for blockers to completing this epic; use nit for non-blocking follow-up. If feedback is invalid, clearly say false positive/invalid so coordinator can reject it.",
+    'Return strict JSON only: {"summary":"...","findings":[{"file":"path or <scope>","issue":"...","suggestion":"...","severity":"fix|nit"}]}. Return an empty findings array when complete.',
+    "",
+    evidence,
+  ].join("\n");
+}
+
+function scopeReviewSignature(epicId: string, decision: ReviewTriageDecision): string {
+  return createHash("sha256")
+    .update([epicId, decision.classification, decision.findingKey].join("|"))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+async function listScopeReviewTasks(input: {
+  cwd: string;
+  adapter: BeadworkAdapter;
+  epicId: string;
+}): Promise<BeadworkIssue[]> {
+  try {
+    return await input.adapter.list(input.cwd, { parent: input.epicId, all: true });
+  } catch {
+    return [];
+  }
+}
+
+function findScopeReviewTaskBySignature(
+  issues: BeadworkIssue[],
+  signature: string,
+): BeadworkIssue | undefined {
+  const marker = `scope-review-finding-signature: ${signature}`;
+  const matching = issues.filter(
+    (issue) => issue.description.includes(marker) || issue.title.includes(signature),
+  );
+  return matching.find((issue) => issue.status !== "closed") ?? matching[0];
+}
+
+function countPriorScopeFixRounds(issues: BeadworkIssue[]): number {
+  const rounds = new Set<string>();
+  for (const issue of issues) {
+    if (!issue.description.includes("scope-review-classification: fix")) {
+      continue;
+    }
+    const matches = issue.description.matchAll(/scope-review-fix-round:\s*(\d+)/g);
+    for (const match of matches) {
+      rounds.add(match[1] ?? "");
+    }
+  }
+  return rounds.size;
+}
+
+function summarizeRelatedWorkerEvidence(workers: WorkerRuntime[]): {
+  tickets: string[];
+  commits: string[];
+  files: string[];
+} {
+  return {
+    tickets: [
+      ...new Set(workers.filter(isSuccessfulTerminalWorker).map((worker) => worker.ticketId)),
+    ],
+    commits: [...new Set(workers.flatMap((worker) => worker.commitShas ?? []))],
+    files: [...new Set(workers.flatMap((worker) => worker.touchedPaths ?? []))],
+  };
+}
+
+function buildScopeReviewFollowUpDescription(input: {
+  epic: BeadworkIssueDetail;
+  decision: ReviewTriageDecision;
+  signature: string;
+  round: number;
+  blocking: boolean;
+  evidenceFile: string;
+  promptFile: string;
+  logFile: string;
+  workers: WorkerRuntime[];
+}): string {
+  const related = summarizeRelatedWorkerEvidence(input.workers);
+  return [
+    input.blocking
+      ? "Fix-forward child task created from scope-completion review."
+      : "Non-blocking follow-up task filed from scope-completion review.",
+    "",
+    `scope-review-finding-signature: ${input.signature}`,
+    `scope-review-fix-round: ${input.round}`,
+    `scope-review-classification: ${input.decision.classification}`,
+    `Parent epic: ${input.epic.id} ${input.epic.title}`,
+    `Evidence pack: ${input.evidenceFile}`,
+    `Reviewer prompt: ${input.promptFile}`,
+    `Reviewer log: ${input.logFile}`,
+    "",
+    "## Finding",
+    `File/scope: ${input.decision.finding.file}`,
+    `Severity: ${input.decision.finding.severity}`,
+    `Issue: ${input.decision.finding.issue}`,
+    `Suggestion: ${input.decision.finding.suggestion}`,
+    "",
+    "## Coordinator triage",
+    `Classification: ${input.decision.classification}`,
+    `Rationale: ${input.decision.rationale}`,
+    `Action: ${input.decision.action}`,
+    "",
+    "## Related verified tickets / commits / files",
+    `Tickets: ${related.tickets.join(", ") || "<none>"}`,
+    `Commits: ${related.commits.join(", ") || "<none>"}`,
+    `Files: ${related.files.join(", ") || "<none>"}`,
+    "",
+    "## Success criteria",
+    input.blocking
+      ? "- Resolve the scope-review blocker and keep integrated validation passing."
+      : "- Preserve current scope behavior while addressing or explicitly declining this follow-up.",
+  ].join("\n");
+}
+
+async function handleScopeCompletionReview(input: {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  epic: BeadworkIssueDetail;
+  workers: WorkerRuntime[];
+  validationDetail: string;
+  notes: string[];
+  runner: ProcessRunner;
+}): Promise<ScopeReviewResult> {
+  const evidence = await buildScopeReviewEvidence({
+    repoRoot: input.repoRoot,
+    adapter: input.adapter,
+    epic: input.epic,
+    workers: input.workers,
+    validationDetail: input.validationDetail,
+    notes: input.notes,
+    runner: input.runner,
+  });
+  const evidenceSignature = createHash("sha256").update(evidence).digest("hex").slice(0, 12);
+  const evidenceFile = await writeScopeReviewArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: `${evidenceSignature}-evidence`,
+    content: evidence,
+  });
+  const prompt = buildScopeReviewPrompt(evidence);
+  const promptFile = await writeScopeReviewArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: `${evidenceSignature}-prompt`,
+    content: prompt,
+  });
+  const command = buildReviewerAgentCommand(input.config);
+  const reviewerInvocation = `${command} "$(cat ${shellQuote(promptFile)})"`;
+  let rawOutput = "";
+  let report: ReturnType<typeof parseCurrentBranchReviewOutput>;
+  try {
+    const result = await input.runner("bash", ["-lc", reviewerInvocation], {
+      cwd: input.cwd,
+      timeout: input.config.landing.review.commandTimeoutMs,
+    });
+    rawOutput = result.stdout.trim();
+    report = parseCurrentBranchReviewOutput(rawOutput);
+  } catch (error) {
+    const logFile = await writeScopeReviewArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: `${evidenceSignature}-attention-log`,
+      content: [
+        "Scope-completion reviewer failed or returned unparseable output.",
+        `error: ${humanizeError(error)}`,
+        `evidenceFile: ${evidenceFile}`,
+        `promptFile: ${promptFile}`,
+        "",
+        rawOutput,
+      ].join("\n"),
+    });
+    return {
+      proceed: false,
+      complete: false,
+      detail: `Scope-completion review needs attention; evidence=${evidenceFile}; log=${logFile}.`,
+      evidenceFile,
+      promptFile,
+      logFile,
+      createdIssueIds: [],
+    };
+  }
+
+  const decisions = report.findings.map(classifyReviewFinding);
+  const existingTasks = await listScopeReviewTasks({
+    cwd: input.cwd,
+    adapter: input.adapter,
+    epicId: input.epic.id,
+  });
+  const priorFixRounds = countPriorScopeFixRounds(existingTasks);
+  const nextRound = priorFixRounds + 1;
+  const tasks = decisions
+    .filter((decision) => decision.classification !== "reject")
+    .map((decision): ScopeReviewFindingTask => {
+      const signature = scopeReviewSignature(input.epic.id, decision);
+      return {
+        decision,
+        signature,
+        blocking: decision.classification === "fix",
+        existingIssue: (() => {
+          const existing = findScopeReviewTaskBySignature(existingTasks, signature);
+          return existing?.status === "closed" ? undefined : existing;
+        })(),
+      };
+    });
+  const hasBlockingFinding = tasks.some((task) => task.blocking);
+
+  if (hasBlockingFinding && priorFixRounds >= MAX_SCOPE_REVIEW_FIX_ROUNDS) {
+    const logFile = await writeScopeReviewArtifact({
+      repoRoot: input.repoRoot,
+      config: input.config,
+      prefix: `${evidenceSignature}-attention-log`,
+      content: [
+        `Scope-completion review still has fix findings after ${MAX_SCOPE_REVIEW_FIX_ROUNDS} fix-forward rounds.`,
+        summarizeTriageDecisions(decisions),
+        ...decisions.map(formatTriageDecision),
+        "",
+        `evidenceFile: ${evidenceFile}`,
+        `promptFile: ${promptFile}`,
+        "",
+        rawOutput,
+      ].join("\n"),
+    });
+    return {
+      proceed: false,
+      complete: false,
+      detail: `Scope-completion review exceeded ${MAX_SCOPE_REVIEW_FIX_ROUNDS} fix-forward rounds; operator attention required.`,
+      evidenceFile,
+      promptFile,
+      logFile,
+      createdIssueIds: [],
+    };
+  }
+
+  const logFile = await writeScopeReviewArtifact({
+    repoRoot: input.repoRoot,
+    config: input.config,
+    prefix: `${evidenceSignature}-review-log`,
+    content: [
+      `summary: ${report.summary}`,
+      summarizeTriageDecisions(decisions),
+      ...decisions.map(formatTriageDecision),
+      "",
+      rawOutput,
+    ].join("\n"),
+  });
+
+  const createdIssueIds: string[] = [];
+  for (const task of tasks) {
+    if (task.existingIssue) {
+      continue;
+    }
+    const prefix = task.blocking ? "Fix scope review" : "Follow up scope review";
+    const created = await input.adapter.createIssue(input.cwd, {
+      title: `${prefix}: ${task.decision.finding.issue} (${task.signature})`,
+      description: buildScopeReviewFollowUpDescription({
+        epic: input.epic,
+        decision: task.decision,
+        signature: task.signature,
+        round: nextRound,
+        blocking: task.blocking,
+        evidenceFile,
+        promptFile,
+        logFile,
+        workers: input.workers,
+      }),
+      type: "task",
+      priority: task.blocking ? 1 : 3,
+      parentId: input.epic.id,
+    });
+    createdIssueIds.push(created.issue.id);
+  }
+
+  if (hasBlockingFinding) {
+    return {
+      proceed: true,
+      complete: false,
+      detail:
+        createdIssueIds.length > 0
+          ? `Scope-completion review filed blocking fix-forward task(s) ${createdIssueIds.join(", ")}; continuing loop.`
+          : "Scope-completion review blocking finding already has a follow-up task; continuing loop.",
+      evidenceFile,
+      promptFile,
+      logFile,
+      createdIssueIds,
+    };
+  }
+
+  return {
+    proceed: true,
+    complete: true,
+    detail:
+      createdIssueIds.length > 0
+        ? `Scope-completion review filed non-blocking follow-up task(s) ${createdIssueIds.join(", ")} and passed completion.`
+        : "Scope-completion review found no blocking follow-up work.",
+    evidenceFile,
+    promptFile,
+    logFile,
+    createdIssueIds,
+  };
+}
+
 async function executeDirtyStateDecision(input: {
   repoRoot: string;
   cwd: string;
@@ -5382,7 +5823,7 @@ export async function runBoundedEpicLoop(input: {
         notes.push(`Scope validation: ${scopeValidation.detail}`);
         if (!scopeValidation.passed) {
           if (
-            requiresPendingScopeReviewGate({ config: input.config, workers }) &&
+            requiresScopeCompletionReview({ config: input.config, workers }) &&
             scopeValidation.failedCommand
           ) {
             const remediation = await handleScopeValidationFailure({
@@ -5406,10 +5847,26 @@ export async function runBoundedEpicLoop(input: {
           break;
         }
 
-        if (requiresPendingScopeReviewGate({ config: input.config, workers })) {
-          notes.push(pendingScopeReviewGateNote());
-          stopReason = "attention";
-          break;
+        if (requiresScopeCompletionReview({ config: input.config, workers })) {
+          const scopeReview = await handleScopeCompletionReview({
+            cwd: input.cwd,
+            repoRoot: input.repoRoot,
+            config: input.config,
+            adapter: input.adapter,
+            epic,
+            workers,
+            validationDetail: scopeValidation.detail,
+            notes,
+            runner,
+          });
+          notes.push(`Scope review: ${scopeReview.detail}`);
+          if (!scopeReview.proceed) {
+            stopReason = "attention";
+            break;
+          }
+          if (!scopeReview.complete) {
+            continue;
+          }
         }
 
         stopReason = "completed";

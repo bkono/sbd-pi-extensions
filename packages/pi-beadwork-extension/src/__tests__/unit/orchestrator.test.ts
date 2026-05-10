@@ -4666,8 +4666,8 @@ describe("run loop", () => {
     expect(summary.cycleSummaries[0]?.verified).toEqual(["BW-101"]);
   });
 
-  it("routes a verified current-branch closed scope to attention until scope review gates run", async () => {
-    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-inline-verify-"));
+  it("runs scope-completion review after validation passes at quiescence", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-inline-review-"));
     const registryPath = resolveWorkerRegistryPath(
       repoRoot,
       DEFAULT_CONFIG.storage.workerRegistryFile,
@@ -4677,25 +4677,37 @@ describe("run loop", () => {
         status: "exited",
         ticketStatus: "closed",
         launchHead: "base-sha",
+        commitShas: ["commit-sha"],
+        touchedPaths: ["src/task.ts"],
       }),
     ]);
 
     const epic = createIssue({
       status: "closed",
+      description: "Goal: complete the integrated scope.",
       children: [createIssue({ id: "BW-101", type: "task", title: "Task", status: "closed" })],
     });
     const adapter = createAdapter({
       show: vi.fn(async (_cwd: string, id: string) =>
         id === "BW-100" ? epic : createIssue({ id: "BW-101", type: "task", status: "closed" }),
       ),
+      history: vi.fn(async () => []),
+      list: vi.fn(async () => []),
+      createIssue: vi.fn(),
       ready: vi.fn().mockResolvedValue([]),
     });
     const gitRunner = createGitRunner([
       { sha: "commit-sha", subject: "Implement task", paths: ["src/task.ts"] },
     ]);
+    let reviewerPrompt = "";
     const runner = vi.fn(async (command: string, args: string[]) => {
       if (command === "bash" && args.join(" ") === "-lc echo scope-ok") {
         return ok("scope-ok\n");
+      }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+        const promptFile = args[1].match(/\$\(cat ([^)]+)\)/)?.[1]?.replace(/^'|'$/g, "");
+        reviewerPrompt = promptFile ? await readFile(promptFile, "utf8") : "";
+        return ok(JSON.stringify({ summary: "scope complete", findings: [] }));
       }
       return gitRunner(command, args);
     });
@@ -4721,14 +4733,222 @@ describe("run loop", () => {
       runner,
     });
 
-    expect(summary.stopReason).toBe("attention");
+    expect(summary.stopReason).toBe("completed");
     expect(summary.workerSummary.verified).toBe(1);
-    expect(summary.workerSummary.successfulTerminal).toBe(1);
     expect(runner).toHaveBeenCalledWith("bash", ["-lc", "echo scope-ok"], expect.anything());
-    expect(summary.notes).toContain(
-      "Scope validation passed, but scope-completion review/fix-forward gating is pending. The orchestrator cannot mark the current-branch scope completed until Phase 4 scope review runs and has no unresolved fix findings.",
-    );
+    expect(reviewerPrompt).toContain("Goal: complete the integrated scope.");
+    expect(reviewerPrompt).toContain("BW-101");
+    expect(reviewerPrompt).toContain("commit-sha");
+    expect(reviewerPrompt).toContain("Implement task");
+    expect(reviewerPrompt).toContain("scope-ok");
+    expect(summary.notes.join("\n")).toContain("Scope review:");
     expect((await loadWorkerRegistry(registryPath))[0]).toMatchObject({ status: "verified" });
+  });
+
+  async function runScopeReviewScenario(options: {
+    reviewer: unknown;
+    existingIssues?: ReturnType<typeof createIssue>[];
+    maxCycles?: number;
+  }) {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-scope-review-case-"));
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [
+      await createCurrentBranchRuntimeWorker(repoRoot, {
+        status: "exited",
+        ticketStatus: "closed",
+        launchHead: "base-sha",
+        commitShas: ["commit-sha"],
+        touchedPaths: ["src/task.ts"],
+      }),
+    ]);
+    const existingIssues = options.existingIssues ?? [];
+    const createIssueMock = vi.fn(
+      async (_cwd: string, input: Parameters<BeadworkAdapter["createIssue"]>[1]) => ({
+        issue: createIssue({
+          id: `BW-FOLLOW-${createIssueMock.mock.calls.length}`,
+          title: input.title,
+          description: input.description ?? "",
+          parentId: input.parentId,
+        }),
+      }),
+    );
+    const adapter = createAdapter({
+      show: vi.fn(async (_cwd: string, id: string) =>
+        id === "BW-100"
+          ? createIssue({
+              status: "closed",
+              description: "Goal: complete the integrated scope.",
+              children: [createIssue({ id: "BW-101", type: "task", status: "closed" })],
+            })
+          : createIssue({ id: "BW-101", type: "task", status: "closed" }),
+      ),
+      history: vi.fn(async () => []),
+      list: vi.fn(async () => existingIssues),
+      createIssue: createIssueMock,
+      ready: vi.fn().mockResolvedValue([]),
+    });
+    const gitRunner = createGitRunner([
+      { sha: "commit-sha", subject: "Implement task", paths: ["src/task.ts"] },
+    ]);
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "bash" && args.join(" ") === "-lc echo scope-ok") {
+        return ok("scope-ok\n");
+      }
+      if (command === "bash" && args[0] === "-lc" && args[1]?.includes("$(cat ")) {
+        return ok(JSON.stringify(options.reviewer));
+      }
+      return gitRunner(command, args);
+    });
+
+    const summary = await runBoundedEpicLoop({
+      cwd: repoRoot,
+      repoRoot,
+      config: {
+        ...currentBranchVerificationConfig(false),
+        landing: { ...DEFAULT_CONFIG.landing, validateCommands: ["echo scope-ok"] },
+      },
+      adapter,
+      epicId: "BW-100",
+      options: {
+        workers: 1,
+        until: "blocked",
+        dryRun: false,
+        maxCycles: options.maxCycles ?? 1,
+        pollIntervalMs: 0,
+        noSpawn: false,
+      },
+      tmuxBackend: createMockTmuxBackend(),
+      runner,
+    });
+    return { summary, createIssueMock, registryPath };
+  }
+
+  it("creates blocking fix-forward child tasks and keeps verified workers verified", async () => {
+    const { summary, createIssueMock, registryPath } = await runScopeReviewScenario({
+      reviewer: {
+        summary: "needs fix",
+        findings: [
+          {
+            file: "src/task.ts",
+            issue: "Epic goal is still incomplete",
+            suggestion: "Add the missing scope behavior",
+            severity: "fix",
+          },
+        ],
+      },
+    });
+
+    expect(createIssueMock).toHaveBeenCalledTimes(1);
+    expect(createIssueMock.mock.calls[0]?.[1]).toMatchObject({ parentId: "BW-100", priority: 1 });
+    expect(createIssueMock.mock.calls[0]?.[1].description).toContain(
+      "scope-review-finding-signature:",
+    );
+    expect(summary.notes.join("\n")).toContain("blocking fix-forward task");
+    expect((await loadWorkerRegistry(registryPath))[0]).toMatchObject({ status: "verified" });
+  });
+
+  it("files non-blocking scope review findings without blocking completion", async () => {
+    const { summary, createIssueMock } = await runScopeReviewScenario({
+      reviewer: {
+        summary: "non-blocking follow-up",
+        findings: [
+          {
+            file: "docs/task.md",
+            issue: "Documentation should mention the new behavior",
+            suggestion: "File docs follow-up",
+            severity: "nit",
+          },
+        ],
+      },
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(createIssueMock).toHaveBeenCalledTimes(1);
+    expect(createIssueMock.mock.calls[0]?.[1]).toMatchObject({ parentId: "BW-100", priority: 3 });
+    expect(summary.notes.join("\n")).toContain("non-blocking follow-up");
+  });
+
+  it("rejects invalid scope review feedback and completes", async () => {
+    const { summary, createIssueMock } = await runScopeReviewScenario({
+      reviewer: {
+        summary: "false alarm",
+        findings: [
+          {
+            file: "src/task.ts",
+            issue: "False positive: reviewer confused old behavior",
+            suggestion: "No action",
+            severity: "fix",
+          },
+        ],
+      },
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(createIssueMock).not.toHaveBeenCalled();
+  });
+
+  it("routes to attention after two scope-review fix-forward rounds", async () => {
+    const existingIssues = [
+      createIssue({
+        id: "BW-FIX-1",
+        parentId: "BW-100",
+        description:
+          "scope-review-fix-round: 1\nscope-review-classification: fix\nscope-review-finding-signature: one",
+      }),
+      createIssue({
+        id: "BW-FIX-2",
+        parentId: "BW-100",
+        description:
+          "scope-review-fix-round: 2\nscope-review-classification: fix\nscope-review-finding-signature: two",
+      }),
+    ];
+    const { summary, createIssueMock } = await runScopeReviewScenario({
+      existingIssues,
+      reviewer: {
+        summary: "still broken",
+        findings: [
+          {
+            file: "src/task.ts",
+            issue: "Epic goal is still incomplete",
+            suggestion: "Escalate",
+            severity: "fix",
+          },
+        ],
+      },
+    });
+
+    expect(summary.stopReason).toBe("attention");
+    expect(createIssueMock).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated scope-review follow-up task creation", async () => {
+    const signature = "ba1f991f3b3c1d80";
+    const existingIssues = [
+      createIssue({
+        id: "BW-FIX-1",
+        parentId: "BW-100",
+        description: `scope-review-fix-round: 1\nscope-review-classification: fix\nscope-review-finding-signature: ${signature}`,
+      }),
+    ];
+    const { createIssueMock } = await runScopeReviewScenario({
+      existingIssues,
+      reviewer: {
+        summary: "same finding",
+        findings: [
+          {
+            file: "src/task.ts",
+            issue: "Epic goal is still incomplete",
+            suggestion: "Add the missing scope behavior",
+            severity: "fix",
+          },
+        ],
+      },
+    });
+
+    expect(createIssueMock).not.toHaveBeenCalled();
   });
 
   it("stops as attention when inline verification routes a worker to attention", async () => {

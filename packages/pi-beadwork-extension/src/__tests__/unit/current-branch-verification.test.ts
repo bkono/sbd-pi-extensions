@@ -347,6 +347,29 @@ describe("current-branch verification regression contract", () => {
     expect(inspected.landingVerification).toContain("Current-branch worker verified");
   });
 
+  it("1b. standalone current-branch delegate verification does not run scope-complete review", async () => {
+    const repoRoot = await repo();
+    const runner = makeRunner({
+      reviewOutput: '<review_report>{"summary":"approved","findings":[]}</review_report>',
+    });
+
+    const inspected = await verify({
+      worker: await currentWorker(repoRoot),
+      runner,
+      reviewEnabled: true,
+    });
+
+    const bashCommands = vi
+      .mocked(runner)
+      .mock.calls.filter((call) => call[0] === "bash")
+      .map((call) => call[1].join(" "));
+    expect(inspected.status).toBe("verified");
+    expect(bashCommands).toHaveLength(1);
+    expect(bashCommands[0]).toContain("current-branch-review-handoff");
+    expect(bashCommands[0]).not.toContain("scope-complete");
+    expect(bashCommands[0]).not.toContain("scope-review");
+  });
+
   it("2. skips rebase, merge-back, containment, and worktree cleanup steps", async () => {
     const repoRoot = await repo();
     const cleanupAwareTmux = tmux();
