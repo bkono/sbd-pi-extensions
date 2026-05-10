@@ -12,9 +12,15 @@
   "id": "sbdpi-qmd.5.3",
   "labels": [],
   "parent": "sbdpi-qmd.5",
+  "comments": [
+    {
+      "text": "Implemented worker execution mode labels across /bw workers, TUI dashboard/manager, worker detail, statusline, /bw status, worker notices, and aggregate summaries. Added mode-label regression coverage for badges, mixed counts, detail fields, statusline, and status config. Gates: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-10T00:56:49Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add UI/status labels showing worker execution mode",
   "type": "task",
-  "updated_at": "2026-05-10T00:56:18Z"
+  "updated_at": "2026-05-10T00:56:49Z"
 }
