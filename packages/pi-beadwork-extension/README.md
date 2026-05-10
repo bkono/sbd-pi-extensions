@@ -405,6 +405,7 @@ For the full config reference and all environment variables, see [docs/configura
 - [docs/current-branch-mode.md](./docs/current-branch-mode.md) — current-branch worker execution, attribution, detached HEAD behavior, and fallback
 - [docs/worker-conventions.md](./docs/worker-conventions.md) — commit, handoff, validation, and shared-checkout conventions
 - [docs/execution-modes.md](./docs/execution-modes.md) — comparison of current-branch and worktree execution modes
+- [docs/current-branch-e2e.md](./docs/current-branch-e2e.md) — deterministic smoke scripts, artifact layout, failure debugging, and current-branch/worktree coverage
 - [docs/configuration.md](./docs/configuration.md) — config keys, environment variables, examples, compatibility aliases
 - [docs/commands.md](./docs/commands.md) — slash command reference, dashboard controls, worker states, and tool surface
 - [docs/tui-proposal.md](./docs/tui-proposal.md) — design notes and follow-on TUI backlog beyond the shipped dashboard/workflow

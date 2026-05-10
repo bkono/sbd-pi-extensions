@@ -1,6 +1,19 @@
-# Current-branch swarm e2e smoke scripts
+# Current-branch e2e smoke scripts
 
-These scripts exercise deterministic current-branch swarm workflows without paid model calls. They build isolated temporary git repositories, use real `git` and `bw` commands when available, and simulate workers/reviewers/coordinators with fixture prompts and assertions.
+The smoke scripts exercise current-branch orchestration behavior in deterministic fixture
+repositories. They create timestamped throwaway git repos, run real `git` and `bw` commands, and
+simulate workers, reviewers, and coordinators with fake command records and captured prompts. The
+console stays short; the artifact directory is the source of truth for debugging.
+
+The default smoke path does **not** need LLM credentials. The scripts from `sbdpi-qmd.5.6` do not
+implement a real-agent mode, and `PI_BEADWORK_E2E_REAL_AGENT=1` is not read by these scripts today.
+Do not set it expecting real workers or reviewers to launch.
+
+For operator conventions that the fixtures assert, see
+[`current-branch-mode.md`](./current-branch-mode.md) and
+[`worker-conventions.md`](./worker-conventions.md).
+
+## Run deterministic fake-worker/fake-reviewer mode
 
 Run from the repository root:
 
@@ -11,8 +24,115 @@ npm run e2e:worktree-preservation -w @solvedbydev/pi-beadwork-extension
 npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension
 ```
 
-Artifact directories are timestamped under `packages/pi-beadwork-extension/tmp/`, for example `tmp/e2e-current-branch-swarm/<run-id>/`. Each run writes `summary.json`, `events.jsonl`, command logs, registry/BW/git snapshots, generated prompts, validation outputs, and `report.md`.
+The package scripts map exactly to:
 
-The deterministic swarm script covers current-branch two-worker completion, dirty checkout tolerance, commit attribution with and without ticket ids, review triage, crash replacement, validation fix-forward, idempotency, config overrides, and default-flip readiness through an explicit current-branch override. The worktree script proves `workerExecution.mode = "worktree"` still uses a linked worktree and reaches `landed`.
+| npm script | File | Coverage |
+| --- | --- | --- |
+| `e2e:current-branch-delegate` | `scripts/e2e-current-branch-delegate.mjs` | One delegated current-branch worker runs in the repo root, commits a ticket-scoped file, closes the ticket, and verifies attribution. |
+| `e2e:current-branch-swarm` | `scripts/e2e-current-branch-swarm.mjs` | Two current-branch workers share one checkout, tolerate unrelated dirty state, prove commit/comment attribution, run reviewer triage, replace a crashed worker, create fix-forward validation work, and prove idempotency. |
+| `e2e:worktree-preservation` | `scripts/e2e-worktree-preservation.mjs` | Explicit worktree mode still creates a linked worktree, validates there, merges back, and reaches `landed`. |
+| `e2e:current-branch-all` | `scripts/e2e-current-branch-all.mjs` | Runs the three deterministic scripts above in order. |
 
-On failure, the console prints the artifact directory and report path. Start with `report.md`, then inspect `events.jsonl` and `commands/*.json` for exact command stdout/stderr and timings.
+The scripts use the seed `sbdpi-qmd.5.6` by default. Override only when you need to label a run:
+
+```sh
+PI_BEADWORK_E2E_SEED=my-investigation \
+  npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension
+```
+
+## Pre-flip and post-flip current-branch checks
+
+The built-in package default is currently `workerExecution.mode = "worktree"`. The delegate and
+swarm smoke scripts are therefore **pre-flip explicit-current-branch** runs: each writes
+`.pi/beadwork-config.json` in its fixture repo with `workerExecution.mode: "current-branch"`.
+`scenario-result.json` records both the package default and the resolved mode.
+
+After the package default flips to current-branch, these same scripts should still pass. Treat that
+as a **post-flip compatibility** check: `scenario-result.json` should show `defaultMode` as
+`current-branch`, while `resolved` remains `current-branch`. There is no separate
+`default-current-branch` npm script in `sbdpi-qmd.5.6`; if one is added later, document it beside
+the four scripts listed above.
+
+The worktree-preservation script is the explicit fallback coverage. It writes
+`workerExecution.mode: "worktree"` and `worktrees.cleanup: "keep"`, then proves the worker checkout
+is not the repo root and the linked worktree appears in `git worktree list`.
+
+## Artifact directories
+
+Each run writes a timestamped artifact directory under the package `tmp/` directory:
+
+```text
+packages/pi-beadwork-extension/tmp/<artifact-group>/<run-id>/
+```
+
+Current artifact groups are:
+
+- `e2e-current-branch-delegate`
+- `e2e-current-branch-swarm`
+- `e2e-worktree-preservation`
+
+A run id looks like `YYYYMMDDhhmmss-<pid>-<scenario>`, for example:
+
+```text
+packages/pi-beadwork-extension/tmp/e2e-current-branch-swarm/20260509021139-12345-current-branch-swarm/
+```
+
+The fixture repository for that run is inside the artifact directory at `repo/`. Do not edit or
+clean it during failure analysis; it is preserved intentionally.
+
+## How to read artifacts
+
+Start with `report.md`, then use `summary.json` to jump to the exact files.
+
+| Artifact | Produced path | How to use it |
+| --- | --- | --- |
+| Markdown report | `report.md` | Human-readable status, run id, artifact dir, covered scenario ids, command list, failures, and top-level artifact locations. Attach this first in bug reports. |
+| Summary | `summary.json` | Machine-readable run record: `status`, `runId`, `seed`, `repoPath`, `coverage`, `commands`, `timings`, `artifacts`, `failures`, and optional `error`. Use command entries here to find stdout/stderr logs. |
+| Event stream | `events.jsonl` | Chronological JSON lines for `run.start`, `step`, `command`, `registry.snapshot`, `run.error`, and `run.finish`. Use it to reconstruct what happened before a failure. |
+| Command records | `commands/*.json` | One JSON record per real or fake command with `label`, `cwd`, command/args or fake kind, `exitCode`, duration, and stdout/stderr paths. |
+| Command stdout/stderr | `commands/*.stdout.log`, `commands/*.stderr.log` | Raw command output. For `bw` or `git` failures, these logs usually contain the actionable error. |
+| Registry snapshots | `snapshots/*-registry.json` | The simulated worker registry at named milestones such as `before-delegate`, `after-launch`, `after-verify`, `before-poll-1`, `after-poll-2`, `final`, or `after-landing`. Check worker ids, modes, checkout paths, launch heads, commits, and statuses. |
+| Beadwork snapshots | `commands/*bw-*.json` plus stdout logs | `snapshotBwCli()` records `bw ready --json`, `bw show <id> --json`, and `bw history <id> --json` as command logs. Read the matching stdout logs for ticket state and comments. |
+| Git snapshots | `commands/*-git-status.json`, `commands/*-git-log.json`, `commands/*-git-head.json`, `commands/*-git-show-stat.json` plus stdout logs | `snapshotGit()` records status, recent log, current HEAD, and stat output. Use these for dirty checkout, attribution, and landing assertions. |
+| Prompt artifacts | `prompts/*.md` | Captured fake worker/reviewer/coordinator prompts, including handoffs, attribution reviews, scope reviews, triage, crash recovery, validation fix-forward, and worktree landing review. |
+| Validation output | `validation/*.json` plus referenced command logs | Validation records for commands such as `delegate-npm-test`, `alpha-test`, `beta-test`, `final-npm-test`, `final-npm-lint`, and `worktree-npm-test`. Open the referenced stdout/stderr paths when validation fails. |
+| Scenario result | `scenario-result.json` | Scenario-specific data: defaults/resolved mode, ticket ids, workers, commits, dirty-state evidence, triage decisions, or worktree list output. |
+| Idempotency result | `idempotency-result.json` | Swarm-only proof that a repeated remediation key is not duplicated. |
+
+Some harness helpers can write `snapshots/*-bw-ready.json`, `snapshots/*-bw-show-<id>.json`, and
+`snapshots/*-bw-history-<id>.json`, but the current scripts use the real `bw` CLI snapshot helper.
+For the scripts listed above, beadwork snapshots are therefore found in `commands/` records and
+stdout logs, not standalone `snapshots/*-bw-*.json` files.
+
+## Failure preservation and bug reports
+
+On failure, the script sets a non-zero exit code and still writes `summary.json`, `report.md`,
+`events.jsonl`, and all artifacts produced before the failing step. The console prints the artifact
+directory plus the report path. Preserve that whole directory when filing an issue.
+
+Recommended bug report payload:
+
+1. `report.md`
+2. `summary.json`
+3. `events.jsonl`
+4. the failing `commands/*.json` record and its `.stdout.log` / `.stderr.log`
+5. relevant `snapshots/*-registry.json`, `prompts/*.md`, and `validation/*.json`
+6. the entire artifact directory as an archive when the failure involves ordering, attribution, or
+   checkout state
+
+## Troubleshooting guide
+
+| Symptom | Start here | Why |
+| --- | --- | --- |
+| Script exits before fixture setup completes | `summary.json`, `events.jsonl`, `commands/*git-init*.stderr.log`, `commands/*bw-init*.stderr.log` | Confirms whether `git` or `bw` was missing or failed during initialization. |
+| A `bw` command fails | failing `commands/*bw-*.json` and matching stdout/stderr logs | Shows the exact `bw` subcommand, exit code, and JSON/text output. |
+| Worker did not run in the expected checkout | `snapshots/*-registry.json`, `scenario-result.json`, `commands/*launch-head*.stdout.log` | Registry snapshots contain worker mode/path metadata; launch-head logs show the git head used for attribution. |
+| Dirty checkout assertion fails | `commands/*dirty-status-at-launch*.stdout.log`, `prompts/dirty-state-remediation.md` | Shows the intentionally dirty files and the remediation prompt. |
+| Commit attribution fails | `commands/*attribution-log*.stdout.log`, `commands/*history-attribution*.stdout.log`, `scenario-result.json` | Shows commit messages and beadwork comments used as attribution evidence. |
+| Reviewer triage or fix-forward behavior looks wrong | `prompts/reviewer-triage.md`, `prompts/validation-failure-fix-forward.md`, `scenario-result.json`, `idempotency-result.json` | Contains the deterministic triage decisions and remediation/idempotency data. |
+| Validation fails | `validation/*.json`, referenced `commands/*validation-*.stdout.log`, referenced `commands/*validation-*.stderr.log` | Validation JSON points at raw logs for the failing command. |
+| Worktree preservation fails | `commands/*git-worktree-add*.stderr.log`, `commands/*git-worktree-list*.stdout.log`, `snapshots/after-landing-registry.json`, `scenario-result.json` | Confirms linked worktree creation, checkout path, and landed status. |
+| The package default flip behaves unexpectedly | `scenario-result.json`, `summary.json`, `repo/.pi/beadwork-config.json` | Shows `defaultMode`, `resolved`, and the explicit fixture config used for the run. |
+
+Keep console output concise in CI logs. Link or upload the artifact directory for the exhaustive
+record.
