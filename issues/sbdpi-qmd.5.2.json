@@ -13,9 +13,15 @@
   "id": "sbdpi-qmd.5.2",
   "labels": [],
   "parent": "sbdpi-qmd.5",
+  "comments": [
+    {
+      "text": "Implemented default workerExecution.mode flip to current-branch in DEFAULT_CONFIG. Preserved explicit worktree via project config/env coverage, added launch regression proving default current-branch, and made existing worktree-dependent orchestrator tests explicit.\n\nGates run:\n- npm run lint -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension\n- npm run typecheck -w @solvedbydev/pi-beadwork-extension\n- npm run test -w @solvedbydev/pi-beadwork-extension -- config current-branch-launch\n\nCommit: f9fe235",
+      "timestamp": "2026-05-10T01:58:13Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Flip workerExecution.mode default to current-branch",
   "type": "task",
-  "updated_at": "2026-05-10T01:54:48Z"
+  "updated_at": "2026-05-10T01:58:13Z"
 }
