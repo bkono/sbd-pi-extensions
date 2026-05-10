@@ -40,18 +40,19 @@ PI_BEADWORK_E2E_SEED=my-investigation \
   npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension
 ```
 
-## Pre-flip and post-flip current-branch checks
+## Default-mode and explicit worktree checks
 
-The built-in package default is currently `workerExecution.mode = "worktree"`. The delegate and
-swarm smoke scripts are therefore **pre-flip explicit-current-branch** runs: each writes
-`.pi/beadwork-config.json` in its fixture repo with `workerExecution.mode: "current-branch"`.
-`scenario-result.json` records both the package default and the resolved mode.
+Since `f9fe235`, the built-in package default is `workerExecution.mode = "current-branch"`.
+The delegate and swarm smoke scripts assert that package default directly: they resolve worker
+mode without `PI_BEADWORK_WORKER_EXECUTION_MODE` and without a `workerExecution.mode` fixture
+override. In `scenario-result.json`, delegate records that resolved default under `resolvedMode`;
+swarm records it under `resolved`. In both cases, the value should resolve to `current-branch`
+with source `default`.
 
-After the package default flips to current-branch, these same scripts should still pass. Treat that
-as a **post-flip compatibility** check: `scenario-result.json` should show `defaultMode` as
-`current-branch`, while `resolved` remains `current-branch`. There is no separate
-`default-current-branch` npm script in `sbdpi-qmd.5.6`; if one is added later, document it beside
-the four scripts listed above.
+Earlier smoke runs used an explicit `.pi/beadwork-config.json` override with
+`workerExecution.mode: "current-branch"` to emulate this default. That pattern is no longer how
+the default-mode assertions run. The swarm scenario still includes a `configToCurrentBranch`
+diagnostic for that compatibility path.
 
 The worktree-preservation script is the explicit fallback coverage. It writes
 `workerExecution.mode: "worktree"` and `worktrees.cleanup: "keep"`, then proves the worker checkout
@@ -96,7 +97,7 @@ Start with `report.md`, then use `summary.json` to jump to the exact files.
 | Git snapshots | `commands/*-git-status.json`, `commands/*-git-log.json`, `commands/*-git-head.json`, `commands/*-git-show-stat.json` plus stdout logs | `snapshotGit()` records status, recent log, current HEAD, and stat output. Use these for dirty checkout, attribution, and landing assertions. |
 | Prompt artifacts | `prompts/*.md` | Captured fake worker/reviewer/coordinator prompts, including handoffs, attribution reviews, scope reviews, triage, crash recovery, validation fix-forward, and worktree landing review. |
 | Validation output | `validation/*.json` plus referenced command logs | Validation records for commands such as `delegate-npm-test`, `alpha-test`, `beta-test`, `final-npm-test`, `final-npm-lint`, and `worktree-npm-test`. Open the referenced stdout/stderr paths when validation fails. |
-| Scenario result | `scenario-result.json` | Scenario-specific data: defaults/resolved mode, ticket ids, workers, commits, dirty-state evidence, triage decisions, or worktree list output. |
+| Scenario result | `scenario-result.json` | Scenario-specific data: defaults/resolved mode (`resolvedMode` for delegate, `resolved` for swarm and worktree), ticket ids, workers, commits, dirty-state evidence, triage decisions, or worktree list output. |
 | Idempotency result | `idempotency-result.json` | Swarm-only proof that a repeated remediation key is not duplicated. |
 
 Some harness helpers can write `snapshots/*-bw-ready.json`, `snapshots/*-bw-show-<id>.json`, and
@@ -132,7 +133,7 @@ Recommended bug report payload:
 | Reviewer triage or fix-forward behavior looks wrong | `prompts/reviewer-triage.md`, `prompts/validation-failure-fix-forward.md`, `scenario-result.json`, `idempotency-result.json` | Contains the deterministic triage decisions and remediation/idempotency data. |
 | Validation fails | `validation/*.json`, referenced `commands/*validation-*.stdout.log`, referenced `commands/*validation-*.stderr.log` | Validation JSON points at raw logs for the failing command. |
 | Worktree preservation fails | `commands/*git-worktree-add*.stderr.log`, `commands/*git-worktree-list*.stdout.log`, `snapshots/after-landing-registry.json`, `scenario-result.json` | Confirms linked worktree creation, checkout path, and landed status. |
-| The package default flip behaves unexpectedly | `scenario-result.json`, `summary.json`, `repo/.pi/beadwork-config.json` | Shows `defaultMode`, `resolved`, and the explicit fixture config used for the run. |
+| Default-mode resolution behaves unexpectedly | `scenario-result.json`, `default-mode-resolution.json`, `summary.json`, and `repo/.pi/beadwork-config.json` when present | Shows `defaultMode`, delegate `resolvedMode` or swarm/worktree `resolved`, and any explicit fixture config used for the run. |
 
 Keep console output concise in CI logs. Link or upload the artifact directory for the exhaustive
 record.
