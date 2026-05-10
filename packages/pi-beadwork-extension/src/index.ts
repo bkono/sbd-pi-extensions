@@ -293,6 +293,17 @@ function buildSupervisorRunSummary(state: SessionState, config: BeadworkConfig):
   };
 }
 
+function ensureLifecycleModeLabel(event: WorkerLifecycleEvent): string {
+  const mode = `[${event.executionMode}]`;
+  if (event.message.includes(mode)) {
+    return event.message;
+  }
+  return event.message
+    .replace(`Delegated ticket ${event.ticketId}`, `Delegated ticket ${event.ticketId} ${mode}`)
+    .replace(`delegated ticket ${event.ticketId}`, `delegated ticket ${event.ticketId} ${mode}`)
+    .replace(`for ${event.ticketId}`, `for ${event.ticketId} ${mode}`);
+}
+
 function buildLifecycleEventNotice(event: WorkerLifecycleEvent): {
   level: "info" | "warning";
   message: string;
@@ -300,7 +311,7 @@ function buildLifecycleEventNotice(event: WorkerLifecycleEvent): {
   switch (event.type) {
     case "post-exit-started":
     case "remediation-started":
-      return { level: "info", message: event.message };
+      return { level: "info", message: ensureLifecycleModeLabel(event) };
   }
 }
 

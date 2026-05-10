@@ -96,8 +96,8 @@ export async function handleLandingAction(input: {
   await deps.trackWorkerForBackground(ctx, active.activation, active.config, active.state, worker);
   ctx.ui.notify(
     landed
-      ? `Delegated ticket ${worker.ticketId} landed successfully. ${inspection.followUp.action}`
-      : `Queued landing retry for ${worker.ticketId}. Background supervision will keep validating/reviewing/merging and notify when it finishes. ${inspection.followUp.action}`,
+      ? `Delegated ticket ${worker.ticketId} [${worker.executionMode}] landed successfully. ${inspection.followUp.action}`
+      : `Queued landing retry for ${worker.ticketId} [${worker.executionMode}]. Background supervision will keep validating/reviewing/merging and notify when it finishes. ${inspection.followUp.action}`,
     level,
   );
   return true;

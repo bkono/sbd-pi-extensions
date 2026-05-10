@@ -1056,6 +1056,7 @@ describe("pi beadwork extension", () => {
     );
     const message = ui.notifications.at(-1)?.message ?? "";
     expect(message).toContain("landed successfully");
+    expect(message).toContain("BW-101 [worktree]");
   });
 
   it("rejects landing requests while the worker is still active", async () => {
@@ -1128,7 +1129,7 @@ describe("pi beadwork extension", () => {
     await harness.invokeCommand("bw", "land BW-101", ctx);
 
     const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("Queued landing retry for BW-101");
+    expect(message).toContain("Queued landing retry for BW-101 [worktree]");
     expect(message).toContain("Background supervision will keep validating/reviewing/merging");
 
     const persisted = await loadSessionState(

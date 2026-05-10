@@ -331,6 +331,7 @@ describe("current-branch verification regression contract", () => {
     const repoRoot = await repo();
     const worker = await currentWorker(repoRoot);
     const runner = makeRunner();
+    const lifecycleEvents: string[] = [];
 
     const inspected = await inspectWorkerRuntime({
       cwd: repoRoot,
@@ -340,11 +341,15 @@ describe("current-branch verification regression contract", () => {
       config: config(false),
       tmuxBackend: tmux(),
       runner,
+      onLifecycleEvent: (event) => lifecycleEvents.push(event.message),
     });
 
     expect(inspected.status).toBe("verified");
     expect(inspected.executionMode).toBe("current-branch");
     expect(inspected.landingVerification).toContain("Current-branch worker verified");
+    expect(lifecycleEvents).toContain(
+      "Delegated ticket BW-101 [current-branch] exited closed. Starting current-branch verification.",
+    );
   });
 
   it("1b. standalone current-branch delegate verification does not run scope-complete review", async () => {

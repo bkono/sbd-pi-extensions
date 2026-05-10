@@ -70,6 +70,10 @@ function describeLaunchLocation(worker: WorkerRuntime): string {
   );
 }
 
+function workerModeLabel(worker: Pick<WorkerRuntime, "executionMode">): string {
+  return `[${worker.executionMode}]`;
+}
+
 function buildLaunchFailureMessage(worker: WorkerRuntime, error: unknown): string {
   return (
     `Failed to launch worker ${worker.workerId} for ${worker.ticketId} ` +
@@ -1068,11 +1072,13 @@ export type WorkerLifecycleEvent =
   | {
       type: "post-exit-started";
       ticketId: string;
+      executionMode: WorkerRuntime["executionMode"];
       message: string;
     }
   | {
       type: "remediation-started";
       ticketId: string;
+      executionMode: WorkerRuntime["executionMode"];
       message: string;
     };
 
@@ -1677,7 +1683,7 @@ async function handleCurrentBranchRemediationOperation(
     `launching current-branch remediation attempt ${attempts + 1}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}`,
   );
   await input.onLifecycleEvent?.(
-    `Coordinator approved ${fixDecisions.length} review finding(s) for ${input.worker.ticketId}. ` +
+    `Coordinator approved ${fixDecisions.length} review finding(s) for ${input.worker.ticketId} ${workerModeLabel(input.worker)}. ` +
       `Launching current-branch remediation attempt ${attempts + 1}/${MAX_CURRENT_BRANCH_REMEDIATION_ATTEMPTS}.`,
   );
 
@@ -2655,7 +2661,8 @@ async function autoLandCompletedWorker(input: {
     await input.onLifecycleEvent?.({
       type: "post-exit-started",
       ticketId: worker.ticketId,
-      message: `Delegated ticket ${worker.ticketId} exited. Starting validation and merge-back checks.`,
+      executionMode: worker.executionMode,
+      message: `Delegated ticket ${worker.ticketId} ${workerModeLabel(worker)} exited. Starting validation and merge-back checks.`,
     });
   }
 
@@ -2728,8 +2735,9 @@ async function autoLandCompletedWorker(input: {
           await input.onLifecycleEvent?.({
             type: "remediation-started",
             ticketId: worker.ticketId,
+            executionMode: worker.executionMode,
             message:
-              `Landing rebase failed for delegated ticket ${worker.ticketId}. ` +
+              `Landing rebase failed for delegated ticket ${worker.ticketId} ${workerModeLabel(worker)}. ` +
               `Launching remediation attempt ${remediationAttempt + 1}/${MAX_LANDING_REMEDIATION_ATTEMPTS} in the existing worktree.`,
           });
 
@@ -2804,8 +2812,9 @@ async function autoLandCompletedWorker(input: {
           await input.onLifecycleEvent?.({
             type: "remediation-started",
             ticketId: worker.ticketId,
+            executionMode: worker.executionMode,
             message:
-              `Validation failed for delegated ticket ${worker.ticketId}. ` +
+              `Validation failed for delegated ticket ${worker.ticketId} ${workerModeLabel(worker)}. ` +
               `Launching remediation attempt ${remediationAttempt + 1}/${MAX_VALIDATION_REMEDIATION_ATTEMPTS} in the existing worktree.`,
           });
 
@@ -3014,8 +3023,9 @@ async function autoLandCompletedWorker(input: {
             await input.onLifecycleEvent?.({
               type: "remediation-started",
               ticketId: worker.ticketId,
+              executionMode: worker.executionMode,
               message:
-                `Reviewer requested changes for delegated ticket ${worker.ticketId}. ` +
+                `Reviewer requested changes for delegated ticket ${worker.ticketId} ${workerModeLabel(worker)}. ` +
                 `Launching remediation attempt ${remediationAttempt + 1}/${maxReviewRemediationAttempts}.`,
             });
 
@@ -3200,7 +3210,7 @@ async function runCurrentBranchVerification(
     `starting current-branch verification for ${worker.ticketId}; skipping worktree landing`,
   );
   await input.onLifecycleEvent?.(
-    `Delegated ticket ${worker.ticketId} exited closed. Starting current-branch verification.`,
+    `Delegated ticket ${worker.ticketId} ${workerModeLabel(worker)} exited closed. Starting current-branch verification.`,
   );
 
   const pipeline = input.pipeline ?? DEFAULT_CURRENT_BRANCH_VERIFICATION_PIPELINE;
@@ -3606,6 +3616,7 @@ export async function inspectWorkerRuntime(input: {
           input.onLifecycleEvent?.({
             type: "post-exit-started",
             ticketId: orchestratedWorker.ticketId,
+            executionMode: orchestratedWorker.executionMode,
             message,
           }),
         onWorkerUpdate: (nextWorker) => {

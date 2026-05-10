@@ -2382,7 +2382,12 @@ describe("worker inspection", () => {
     expect(remediationStarted.reviewStatus).toBe("remediation-in-progress");
     expect(remediationStarted.reviewRemediationAttempts).toBe(1);
     expect(onLifecycleEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "remediation-started", ticketId: "BW-101" }),
+      expect.objectContaining({
+        type: "remediation-started",
+        ticketId: "BW-101",
+        executionMode: "worktree",
+        message: expect.stringContaining("BW-101 [worktree]"),
+      }),
     );
 
     const remediationPrompt = await readFile(initialWorker.promptFile, "utf8");
@@ -3001,7 +3006,12 @@ describe("worker inspection", () => {
     expect(remediationStarted.landingRemediationAttempts).toBe(1);
     expect(remediationStarted.reviewedWorkerHead).toBeUndefined();
     expect(onLifecycleEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "remediation-started", ticketId: "BW-101" }),
+      expect.objectContaining({
+        type: "remediation-started",
+        ticketId: "BW-101",
+        executionMode: "worktree",
+        message: expect.stringContaining("BW-101 [worktree]"),
+      }),
     );
 
     const remediationPrompt = await readFile(initialWorker.promptFile, "utf8");
@@ -4137,7 +4147,9 @@ describe("worker inspection", () => {
     expect(onLifecycleEvent).toHaveBeenCalledWith({
       type: "post-exit-started",
       ticketId: "BW-101",
-      message: "Delegated ticket BW-101 exited. Starting validation and merge-back checks.",
+      executionMode: "worktree",
+      message:
+        "Delegated ticket BW-101 [worktree] exited. Starting validation and merge-back checks.",
     });
 
     const log = await readFile(logFile, "utf8");
@@ -4229,8 +4241,9 @@ describe("worker inspection", () => {
     expect(onLifecycleEvent).toHaveBeenCalledWith({
       type: "remediation-started",
       ticketId: "BW-101",
+      executionMode: "worktree",
       message:
-        "Validation failed for delegated ticket BW-101. Launching remediation attempt 1/1 in the existing worktree.",
+        "Validation failed for delegated ticket BW-101 [worktree]. Launching remediation attempt 1/1 in the existing worktree.",
     });
   });
 
