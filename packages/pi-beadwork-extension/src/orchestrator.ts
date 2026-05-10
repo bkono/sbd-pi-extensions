@@ -3358,7 +3358,7 @@ export async function launchTicketWorker(input: {
     config: input.config,
     repoRoot: input.repoRoot,
     ticketId: ticket.id,
-    epicId: input.epicId ?? ticket.parentId,
+    epicId: input.epicId ?? ticket.id,
     title: ticket.title,
     processRunner: input.processRunner,
   });
@@ -3429,7 +3429,7 @@ export async function launchTicketWorker(input: {
   const commonWorker = {
     workerId,
     ticketId: ticket.id,
-    epicId: input.epicId ?? ticket.parentId,
+    epicId: input.epicId ?? ticket.id,
     ticketTitle: ticket.title,
     ticketStatus: ticket.status,
     backend: "tmux" as const,
@@ -5871,7 +5871,10 @@ export async function runBoundedEpicLoop(input: {
           break;
         }
 
-        if (requiresScopeCompletionReview({ config: input.config, workers })) {
+        if (
+          epic.type === "epic" &&
+          requiresScopeCompletionReview({ config: input.config, workers })
+        ) {
           const scopeReview = await handleScopeCompletionReview({
             cwd: input.cwd,
             repoRoot: input.repoRoot,
