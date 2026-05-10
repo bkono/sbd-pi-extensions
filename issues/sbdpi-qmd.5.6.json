@@ -19,11 +19,15 @@
     {
       "text": "Completed in commit 360d5fc (test(pi-beadwork): add current-branch swarm e2e smoke scripts).\n\nAdded deterministic e2e scripts and npm wiring:\n- e2e:current-branch-delegate\n- e2e:current-branch-swarm\n- e2e:worktree-preservation\n- e2e:current-branch-all\n\nValidated:\n- npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension\n- npm run lint\n- npm run test\n- npm run typecheck",
       "timestamp": "2026-05-10T01:52:47Z"
+    },
+    {
+      "text": "Implemented deterministic current-branch/worktree e2e smoke scripts in ee4e6011ce68. Added shared harness, package npm scripts, docs, and tmp artifact ignore. Gates run: npm run e2e:current-branch-all -w @solvedbydev/pi-beadwork-extension; npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension. Latest artifacts under packages/pi-beadwork-extension/tmp/e2e-current-branch-{delegate,swarm}/20260510015144-79518-current-branch-delegate and 20260510015145-80234-current-branch-swarm, plus tmp/e2e-worktree-preservation/20260510015147-81994-worktree-preservation.",
+      "timestamp": "2026-05-10T01:53:01Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Build current-branch swarm e2e smoke scripts with detailed logging",
   "type": "task",
-  "updated_at": "2026-05-10T01:52:47Z"
+  "updated_at": "2026-05-10T01:53:01Z"
 }
