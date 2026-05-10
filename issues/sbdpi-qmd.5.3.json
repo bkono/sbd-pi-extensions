@@ -18,11 +18,15 @@
     {
       "text": "Implemented worker execution mode labels across /bw workers, TUI dashboard/manager, worker detail, statusline, /bw status, worker notices, and aggregate summaries. Added mode-label regression coverage for badges, mixed counts, detail fields, statusline, and status config. Gates: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension.",
       "timestamp": "2026-05-10T00:56:49Z"
+    },
+    {
+      "text": "Remediated review blockers for db8d88b: lifecycle notices now include explicit [worktree]/[current-branch] labels, /bw land success and queued-retry notifications include mode labels, and regression coverage was added for worktree/current-branch notices. Gates run clean: npm run lint/test/typecheck -w @solvedbydev/pi-beadwork-extension. Commit e79063a.",
+      "timestamp": "2026-05-10T01:12:12Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Add UI/status labels showing worker execution mode",
   "type": "task",
-  "updated_at": "2026-05-10T00:56:52Z"
+  "updated_at": "2026-05-10T01:12:12Z"
 }
