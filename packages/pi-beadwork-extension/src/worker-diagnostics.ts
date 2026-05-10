@@ -79,6 +79,26 @@ function backgroundCheckLabel(worker: WorkerRuntime): string {
   return worker.executionMode === "worktree" ? "merge-back checks" : "current-branch verification";
 }
 
+function verificationBeginsDetail(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree"
+    ? "Landing verification begins after the ticket is closed."
+    : "Current-branch verification begins after the ticket is closed.";
+}
+
+function verificationUnavailableDetail(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree"
+    ? "Ticket is closed, but landing verification details are not available yet."
+    : "Ticket is closed, but current-branch verification details are not available yet.";
+}
+
+function verificationDetailLabel(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "Landing detail" : "Verification detail";
+}
+
+function verificationSummaryLabel(worker: WorkerRuntime): string {
+  return worker.executionMode === "worktree" ? "landing" : "verification";
+}
+
 function remediationCheckoutLabel(worker: WorkerRuntime): string {
   return worker.executionMode === "worktree" ? "the existing worktree" : "the current checkout";
 }
@@ -246,7 +266,7 @@ function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
         worker.ticketStatus && worker.ticketStatus.length > 0
           ? `waiting for ticket close (ticket:${worker.ticketStatus})`
           : "waiting for ticket close",
-      detail: "Landing verification begins after the ticket is closed.",
+      detail: verificationBeginsDetail(worker),
     };
   }
 
@@ -327,7 +347,7 @@ function describeLanding(worker: WorkerRuntime): WorkerInspection["landing"] {
   return {
     state: "pending-review",
     summary: "pending review",
-    detail: "Ticket is closed, but landing verification details are not available yet.",
+    detail: verificationUnavailableDetail(worker),
     aheadCount: worker.landingAheadCount,
     behindCount: worker.landingBehindCount,
   };
@@ -647,7 +667,7 @@ export function formatWorkerInspectionLines(inspection: WorkerInspection): strin
   const lines = [
     `- ${worker.ticketId} [${worker.executionMode}] · ${worker.status} · ${worker.ticketTitle}`,
     `  Worker: ${worker.workerId} · pane:${worker.tmuxPane}`,
-    `  Ticket: ${worker.ticketStatus ?? "unknown"} · validation:${inspection.validation.summary} · review:${inspection.review.summary} · landing:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
+    `  Ticket: ${worker.ticketStatus ?? "unknown"} · validation:${inspection.validation.summary} · review:${inspection.review.summary} · ${verificationSummaryLabel(worker)}:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
     `  Next: ${inspection.followUp.action}`,
   ];
 
@@ -670,7 +690,7 @@ export function formatWorkerInspectionLines(inspection: WorkerInspection): strin
   }
 
   if (inspection.landing.detail) {
-    lines.push(`  Landing detail: ${inspection.landing.detail}`);
+    lines.push(`  ${verificationDetailLabel(worker)}: ${inspection.landing.detail}`);
   }
 
   if (worker.lastError) {

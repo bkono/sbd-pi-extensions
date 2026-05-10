@@ -102,6 +102,7 @@ describe("worker diagnostics", () => {
     expect(action).toContain("Current-branch verification was requested");
     expect(action).not.toContain("merge-back");
     expect(action).not.toContain("worktree");
+    expect(action).not.toContain("Landing was requested");
   });
 
   it("keeps merge-back wording for queued worktree landing follow-up", () => {
@@ -137,11 +138,45 @@ describe("worker diagnostics", () => {
     expect(lines.join("\n")).not.toContain("worktreePath");
   });
 
+  it("uses verification detail wording for current-branch formatted inspections", () => {
+    const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...base } = createWorker();
+    const worker = {
+      ...base,
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      status: "exited",
+      ticketStatus: "closed",
+    } as WorkerRuntime;
+
+    const lines = formatWorkerInspectionLines(inspectWorker(worker));
+    const output = lines.join("\n");
+
+    expect(output).toContain(
+      "Verification detail: Ticket is closed, but current-branch verification details are not available yet.",
+    );
+    expect(output).not.toContain("Landing detail");
+    expect(output).not.toContain("landing verification details");
+    expect(output).not.toContain("· landing:");
+  });
+
   it("includes worktree launch metadata in formatted inspections", () => {
     const lines = formatWorkerInspectionLines(inspectWorker(createWorker()));
 
     expect(lines).toContain(
       "  Launch: executionMode=worktree · checkoutPath=/tmp/worktree · worktreePath=/tmp/worktree · branchName=BW-101/task",
+    );
+  });
+
+  it("preserves landing detail wording for worktree formatted inspections", () => {
+    const lines = formatWorkerInspectionLines(
+      inspectWorker(createWorker({ ticketStatus: "open" })),
+    );
+    const output = lines.join("\n");
+
+    expect(output).toContain(
+      "Landing detail: Landing verification begins after the ticket is closed.",
     );
   });
 
