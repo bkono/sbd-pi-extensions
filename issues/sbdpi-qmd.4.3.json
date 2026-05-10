@@ -18,11 +18,15 @@
     {
       "text": "Implemented scope-completion review gate for current-branch quiescent completion: builds evidence/prompt, launches reviewer via existing reviewer command path, triages fix/file/reject findings into fix-forward child tasks without mutating verified workers, deduplicates by finding signature, and routes to attention after two fix rounds. Validation passing: lint/test/typecheck for @solvedbydev/pi-beadwork-extension.",
       "timestamp": "2026-05-10T00:10:02Z"
+    },
+    {
+      "text": "Remediated review blocker for 7350296: scope-review `file` follow-ups are now created outside the epic child scope so they do not block terminal scope completion or become ready scoped work on restart. Dedupe now scans repo-wide scope-review markers tied to the parent epic marker so external follow-ups are still recognized. Added restart/re-poll coverage verifying an existing non-blocking follow-up does not create more work and verified workers remain verified.\n\nGates: `npm run lint -w @solvedbydev/pi-beadwork-extension`, `npm run test -w @solvedbydev/pi-beadwork-extension`, `npm run typecheck -w @solvedbydev/pi-beadwork-extension` all pass.",
+      "timestamp": "2026-05-10T00:21:08Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Implement scope-completion review with fix-forward work creation",
   "type": "task",
-  "updated_at": "2026-05-10T00:10:09Z"
+  "updated_at": "2026-05-10T00:21:08Z"
 }
