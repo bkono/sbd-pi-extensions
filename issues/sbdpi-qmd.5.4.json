@@ -7,6 +7,8 @@
     "sbdpi-qmd.5.5",
     "sbdpi-qmd.5.7"
   ],
+  "closed_at": "2026-05-10T01:05:48Z",
+  "close_reason": "Docs review blocker remediated in 95470f4; lint, test, and typecheck all pass.",
   "created": "2026-05-08T23:39:37Z",
   "description": "Document the commit-message, handoff-comment, and execution-mode conventions for current-branch workers.\n\n## What to document\n\n### In `packages/pi-beadwork-extension/README.md`:\n\nAdd a section on current-branch worker conventions:\n\n1. **Commit messages** — include the beadwork ticket id (e.g., `feat(widget): implement parser BW-123`).\n2. **Atomic commits** — `git commit \u003cspecific-files\u003e -m \"...\"` (explains why not `git add -A`).\n3. **Handoff comments** — leave a concise `bw comment` before exiting with status, commit SHAs, validation results, blockers.\n4. **No rigid format** — comments are LLM-readable context, not a schema to parse.\n5. **Fix-forward philosophy** — if attribution is imperfect, prefer adding clarifying comments/follow-up work over rewriting history.\n6. **Shared checkout etiquette** — do not stash/reset/clean unrelated files; unrelated dirty state may belong to another active worker.\n7. **Mode selection** — current-branch is default after this migration; worktree remains available explicitly.\n\n### In `packages/pi-beadwork-extension/docs/`:\n\n- `docs/current-branch-mode.md` — full explanation of current-branch execution.\n- `docs/worker-conventions.md` — detailed worker behavior expectations.\n- `docs/execution-modes.md` — comparison of current-branch vs worktree modes.\n- Update existing command/config docs to mention:\n  - `workerExecution.mode`\n  - `workerExecution.maxLifetime`\n  - `workerExecution.allowDetachedHead`\n  - `workerExecution.review.enabled`\n  - `PI_BEADWORK_WORKER_EXECUTION_MODE`\n  - `PI_BEADWORK_WORKER_MAX_LIFETIME`\n  - `PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD`\n  - `PI_BEADWORK_WORKER_REVIEW_ENABLED`\n  - explicit worktree fallback config/env examples\n\n### E2E script docs are separate\n\nDetailed e2e smoke-script usage and artifact interpretation are intentionally handled in `sbdpi-qmd.5.7` after the scripts exist. This issue should document current-branch conventions, mode selection, and config/env behavior without guessing final script names or artifact formats.\n\n## Design Rules\n\n- Documentation should match the actual implementation, not aspirational behavior.\n- Include examples of good commit messages and handoff comments.\n- Explain WHY `git commit \u003cfiles\u003e` instead of `git add` (shared-index safety).\n- Explain that current-branch review uses `workerExecution.review.enabled`, while worktree landing review uses `landing.review.enabled`.\n- Explain detached HEAD is rejected by default and only allowed with explicit opt-in.\n- Reference the proposal for broader context but keep docs self-sufficient.\n\n## Definition of Done\n\n- README updated with convention and mode-selection sections.\n- Docs directory has mode comparison and convention docs.\n- Config/env reference is complete for the new workerExecution block.\n- E2E script docs are left to `sbdpi-qmd.5.7` so they can match implemented scripts/artifacts.\n- Examples included.\n- lint pass clean (no broken markdown).",
   "id": "sbdpi-qmd.5.4",
@@ -19,8 +21,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Document commit-message and handoff-comment conventions",
   "type": "task",
-  "updated_at": "2026-05-10T01:05:44Z"
+  "updated_at": "2026-05-10T01:05:48Z"
 }
