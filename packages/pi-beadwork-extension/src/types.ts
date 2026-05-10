@@ -369,6 +369,14 @@ export type BaseWorkerRuntime = {
   lastError?: string;
   commitShas?: string[];
   touchedPaths?: string[];
+  replacesWorkerId?: string;
+  supersededByWorkerId?: string;
+  currentBranchCrashReason?: string;
+  currentBranchCrashEvidenceFile?: string;
+  currentBranchCrashJudgmentFile?: string;
+  currentBranchCrashJudgment?: string;
+  currentBranchCrashRawJudgment?: string;
+  currentBranchCrashReplacementAttempt?: number;
 };
 
 export type CurrentBranchWorkerRuntime = BaseWorkerRuntime & CurrentBranchCheckout;

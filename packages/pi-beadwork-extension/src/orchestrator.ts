@@ -1068,6 +1068,697 @@ async function resolveCurrentBranchHead(input: {
   }
 }
 
+const MAX_CURRENT_BRANCH_CRASH_ATTEMPTS = 3;
+
+type CurrentBranchCrashTrigger = {
+  reason: string;
+  exitCode?: number;
+  stateText?: string;
+  finishedAtText?: string;
+  pane: TmuxPaneInspection;
+};
+
+type CurrentBranchCrashJudgment = {
+  classification: "attention" | "replace";
+  rationale: string;
+  actionableBlocker?: string;
+  rawOutput: string;
+  evidenceFile: string;
+  judgmentFile: string;
+};
+
+function isTicketStillOpenForCrashRecovery(status: string | undefined): boolean {
+  return status !== "closed";
+}
+
+function currentBranchWorkerLifetimeExceeded(
+  worker: CurrentBranchWorkerRuntime,
+  maxLifetime: number | null | undefined,
+): boolean {
+  if (maxLifetime === null || maxLifetime === undefined || maxLifetime <= 0) {
+    return false;
+  }
+  const startedAt = Date.parse(worker.startedAt);
+  return Number.isFinite(startedAt) && Date.now() - startedAt > maxLifetime;
+}
+
+function detectCurrentBranchCrashTrigger(input: {
+  worker: CurrentBranchWorkerRuntime;
+  ticketStatus: string;
+  stateText?: string;
+  exitCode?: number;
+  finishedAtText?: string;
+  pane: TmuxPaneInspection;
+  maxLifetime?: number | null;
+}): CurrentBranchCrashTrigger | undefined {
+  if (!isTicketStillOpenForCrashRecovery(input.ticketStatus)) {
+    return undefined;
+  }
+
+  if (currentBranchWorkerLifetimeExceeded(input.worker, input.maxLifetime)) {
+    return {
+      reason: `Current-branch worker exceeded maxLifetime (${input.maxLifetime}ms) while ticket ${input.worker.ticketId} was ${input.ticketStatus}.`,
+      exitCode: input.exitCode,
+      stateText: input.stateText,
+      finishedAtText: input.finishedAtText,
+      pane: input.pane,
+    };
+  }
+
+  if (input.stateText === "exited" || input.stateText === "failed") {
+    return {
+      reason: `Current-branch worker state is ${input.stateText} while ticket ${input.worker.ticketId} is ${input.ticketStatus}.`,
+      exitCode: input.exitCode,
+      stateText: input.stateText,
+      finishedAtText: input.finishedAtText,
+      pane: input.pane,
+    };
+  }
+
+  if (input.exitCode !== undefined) {
+    return {
+      reason: `Current-branch worker wrote exit code ${input.exitCode} while ticket ${input.worker.ticketId} is ${input.ticketStatus}.`,
+      exitCode: input.exitCode,
+      stateText: input.stateText,
+      finishedAtText: input.finishedAtText,
+      pane: input.pane,
+    };
+  }
+
+  if (!input.pane.exists && input.worker.status !== "launching") {
+    return {
+      reason: `Current-branch worker tmux pane disappeared while ticket ${input.worker.ticketId} is ${input.ticketStatus}.`,
+      exitCode: input.exitCode,
+      stateText: input.stateText,
+      finishedAtText: input.finishedAtText,
+      pane: input.pane,
+    };
+  }
+
+  return undefined;
+}
+
+async function safeReadTail(filePath: string, maxChars: number): Promise<string> {
+  try {
+    const content = await readFile(filePath, "utf8");
+    return content.length <= maxChars ? content : content.slice(-maxChars);
+  } catch (error) {
+    return `<unavailable: ${humanizeError(error)}>`;
+  }
+}
+
+async function listExistingTicketCommits(input: {
+  repoRoot: string;
+  worker: CurrentBranchWorkerRuntime;
+  runner: ProcessRunner;
+}): Promise<string> {
+  try {
+    const result = await input.runner(
+      "git",
+      ["log", "--oneline", `${input.worker.launchHead}..HEAD`, `--grep=${input.worker.ticketId}`],
+      { cwd: input.repoRoot, timeout: 30_000 },
+    );
+    return result.stdout.trim() || "<none>";
+  } catch (error) {
+    return `<git log unavailable: ${humanizeError(error)}>`;
+  }
+}
+
+function hasActionableBlockerSignal(history: unknown[]): string | undefined {
+  const text = history.map((entry) => JSON.stringify(entry)).join("\n");
+  if (!text.trim()) {
+    return undefined;
+  }
+  const blockerMatch = text.match(
+    /(.{0,160}\b(?:blocked|blocker|cannot proceed|can't proceed|need(?:s|ed)? .{0,40}from|waiting for|handoff)\b.{0,240})/i,
+  );
+  return blockerMatch?.[1]?.trim();
+}
+
+function normalizeCrashJudgment(
+  value: unknown,
+  fallbackRationale: string,
+): {
+  classification: "attention" | "replace";
+  rationale: string;
+  actionableBlocker?: string;
+} {
+  if (!value || typeof value !== "object") {
+    return { classification: "replace", rationale: fallbackRationale };
+  }
+  const record = value as Record<string, unknown>;
+  const rawClassification = typeof record.classification === "string" ? record.classification : "";
+  const normalized = rawClassification
+    .trim()
+    .toLowerCase()
+    .replace(/[ _-]+/g, "-");
+  const classification =
+    normalized === "attention" || normalized === "blocked" || normalized === "handoff"
+      ? "attention"
+      : "replace";
+  const rationale =
+    typeof record.rationale === "string" && record.rationale.trim()
+      ? record.rationale.trim()
+      : fallbackRationale;
+  const actionableBlocker =
+    typeof record.actionableBlocker === "string" && record.actionableBlocker.trim()
+      ? record.actionableBlocker.trim()
+      : typeof record.blocker === "string" && record.blocker.trim()
+        ? record.blocker.trim()
+        : undefined;
+  return { classification, rationale, actionableBlocker };
+}
+
+function buildCrashJudgmentPrompt(evidencePack: string): string {
+  return [
+    "You are the coordinator for current-branch Beadwork worker crash recovery.",
+    "A current-branch worker stopped while its ticket remained open/in-progress.",
+    "Decide whether the stopped worker left an actionable blocker/handoff that needs operator attention, or whether it should be replaced automatically.",
+    "Choose attention only when the evidence includes a concrete blocker, explicit handoff, or unsafe ambiguity an operator must handle.",
+    "Choose replace when there is no actionable handoff/blocker and the ticket should continue with a replacement worker.",
+    "Do not suggest reset, stash, revert, amend, or broad staging.",
+    'Return strict JSON only: {"classification":"attention|replace","rationale":"why","actionableBlocker":"optional blocker/handoff"}',
+    "",
+    evidencePack,
+  ].join("\n");
+}
+
+async function buildCurrentBranchCrashEvidence(input: {
+  cwd: string;
+  repoRoot: string;
+  worker: CurrentBranchWorkerRuntime;
+  ticket: BeadworkIssueDetail;
+  history: unknown[];
+  trigger: CurrentBranchCrashTrigger;
+  runner: ProcessRunner;
+}): Promise<{ evidencePack: string; existingCommits: string; logTail: string }> {
+  const [existingCommits, logTail] = await Promise.all([
+    listExistingTicketCommits({
+      repoRoot: input.repoRoot,
+      worker: input.worker,
+      runner: input.runner,
+    }),
+    safeReadTail(input.worker.logFile, 8_000),
+  ]);
+  const evidencePack = [
+    "# Current-branch worker crash evidence",
+    "",
+    `Ticket: ${input.ticket.id} ${input.ticket.title}`,
+    `Ticket status: ${input.ticket.status}`,
+    `Worker: ${input.worker.workerId}`,
+    `Execution mode: ${input.worker.executionMode}`,
+    `Checkout: ${input.worker.checkoutPath}`,
+    `Branch: ${input.worker.branchName}`,
+    `Launch head: ${input.worker.launchHead}`,
+    `Started at: ${input.worker.startedAt}`,
+    `Trigger: ${input.trigger.reason}`,
+    `State file: ${input.trigger.stateText ?? "<missing>"}`,
+    `Exit code: ${input.trigger.exitCode ?? "<missing>"}`,
+    `Finished at: ${input.trigger.finishedAtText ?? input.worker.finishedAt ?? "<missing>"}`,
+    `Tmux pane: ${JSON.stringify(input.trigger.pane)}`,
+    "",
+    "## Ticket description",
+    input.ticket.description?.trim() || "<empty>",
+    "",
+    "## Existing attributed commits",
+    "```",
+    existingCommits,
+    "```",
+    "",
+    "## Beadwork history/comments",
+    "```json",
+    JSON.stringify(input.history, null, 2),
+    "```",
+    "",
+    "## Dead worker log tail",
+    "```",
+    logTail,
+    "```",
+  ].join("\n");
+  return { evidencePack, existingCommits, logTail };
+}
+
+async function judgeCurrentBranchCrash(input: {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  worker: CurrentBranchWorkerRuntime;
+  ticket: BeadworkIssueDetail;
+  history: unknown[];
+  trigger: CurrentBranchCrashTrigger;
+  runner: ProcessRunner;
+}): Promise<CurrentBranchCrashJudgment & { existingCommits: string; history: unknown[] }> {
+  const { evidencePack, existingCommits } = await buildCurrentBranchCrashEvidence({
+    cwd: input.cwd,
+    repoRoot: input.repoRoot,
+    worker: input.worker,
+    ticket: input.ticket,
+    history: input.history,
+    trigger: input.trigger,
+    runner: input.runner,
+  });
+  await mkdir(input.worker.runtimeDir, { recursive: true });
+  const evidenceFile = path.join(input.worker.runtimeDir, "current-branch-crash-evidence.md");
+  const promptFile = path.join(input.worker.runtimeDir, "current-branch-crash-judgment-prompt.md");
+  const judgmentFile = path.join(input.worker.runtimeDir, "current-branch-crash-judgment.json");
+  await writeFile(evidenceFile, `${evidencePack}\n`, "utf8");
+  const prompt = buildCrashJudgmentPrompt(evidencePack);
+  await writeFile(promptFile, `${prompt}\n`, "utf8");
+
+  let rawOutput = "";
+  let normalized: ReturnType<typeof normalizeCrashJudgment>;
+  try {
+    const command = buildReviewerAgentCommand(input.config, input.worker);
+    const invocation = `${command} "$(cat ${shellQuote(promptFile)})"`;
+    const result = await input.runner("bash", ["-lc", invocation], {
+      cwd: input.worker.checkoutPath,
+      timeout: input.config.landing.review.commandTimeoutMs,
+    });
+    rawOutput = `${result.stdout}\n${result.stderr}`.trim();
+    normalized = normalizeCrashJudgment(
+      extractJsonPayload(rawOutput),
+      "Coordinator did not provide a rationale; defaulting to replacement.",
+    );
+  } catch (error) {
+    const blockerSignal = hasActionableBlockerSignal(input.history);
+    rawOutput = `coordinator-judgment-error: ${humanizeError(error)}`;
+    normalized = blockerSignal
+      ? {
+          classification: "attention",
+          rationale:
+            "Deterministic fallback found blocker/handoff language after coordinator judgment failed.",
+          actionableBlocker: blockerSignal,
+        }
+      : {
+          classification: "replace",
+          rationale:
+            "Coordinator judgment failed and no actionable blocker/handoff signal was found; replacing crashed worker.",
+        };
+  }
+
+  const persisted = { ...normalized, rawOutput, evidenceFile, promptFile };
+  await writeFile(judgmentFile, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+  return {
+    ...normalized,
+    rawOutput,
+    evidenceFile,
+    judgmentFile,
+    existingCommits,
+    history: input.history,
+  };
+}
+
+function findReplacementForWorker(
+  worker: WorkerRuntime,
+  workers: WorkerRuntime[],
+): WorkerRuntime | undefined {
+  return workers.find((candidate) => candidate.replacesWorkerId === worker.workerId);
+}
+
+function countCurrentBranchCrashAttempts(ticketId: string, workers: WorkerRuntime[]): number {
+  return workers.filter(
+    (worker) =>
+      worker.ticketId === ticketId &&
+      worker.executionMode === "current-branch" &&
+      Boolean(worker.currentBranchCrashReason),
+  ).length;
+}
+
+function isWorkerSupersededByActiveOrSuccessful(
+  worker: WorkerRuntime,
+  workers: WorkerRuntime[],
+  seen = new Set<string>(),
+): boolean {
+  if (!worker.supersededByWorkerId || seen.has(worker.workerId)) {
+    return false;
+  }
+  seen.add(worker.workerId);
+  const replacement = workers.find(
+    (candidate) => candidate.workerId === worker.supersededByWorkerId,
+  );
+  if (!replacement) {
+    return false;
+  }
+  if (
+    replacement.status === "launching" ||
+    replacement.status === "running" ||
+    isSuccessfulTerminalWorker(replacement)
+  ) {
+    return true;
+  }
+  return isWorkerSupersededByActiveOrSuccessful(replacement, workers, seen);
+}
+
+function buildCurrentBranchCrashReplacementPrompt(input: {
+  basePrompt: string;
+  deadWorker: CurrentBranchWorkerRuntime;
+  trigger: CurrentBranchCrashTrigger;
+  judgment: CurrentBranchCrashJudgment & { existingCommits: string; history: unknown[] };
+  attempt: number;
+}): string {
+  return [
+    input.basePrompt,
+    "",
+    "# Current-branch crash recovery replacement",
+    "",
+    `You are replacing worker ${input.deadWorker.workerId} for ticket ${input.deadWorker.ticketId}.`,
+    `Crash-recovery attempt: ${input.attempt}/${MAX_CURRENT_BRANCH_CRASH_ATTEMPTS}.`,
+    `Original launch head (preserved for attribution): ${input.deadWorker.launchHead}`,
+    `Dead worker status: ${input.deadWorker.status}`,
+    `Dead worker state file: ${input.trigger.stateText ?? "<missing>"}`,
+    `Dead worker exit code: ${input.trigger.exitCode ?? "<missing>"}`,
+    `Dead worker finished at: ${input.trigger.finishedAtText ?? input.deadWorker.finishedAt ?? "<missing>"}`,
+    `Crash trigger: ${input.trigger.reason}`,
+    "",
+    "Coordinator crash judgment:",
+    `- Classification: ${input.judgment.classification}`,
+    `- Rationale: ${input.judgment.rationale}`,
+    input.judgment.actionableBlocker
+      ? `- Actionable blocker: ${input.judgment.actionableBlocker}`
+      : "- Actionable blocker: <none>",
+    `- Evidence: ${input.judgment.evidenceFile}`,
+    `- Raw judgment: ${input.judgment.judgmentFile}`,
+    "",
+    "Existing attributed commits already on the current branch:",
+    "```",
+    input.judgment.existingCommits,
+    "```",
+    "",
+    "Recent beadwork handoff/comment fragments:",
+    "```json",
+    JSON.stringify(input.judgment.history.slice(-8), null, 2),
+    "```",
+    "",
+    "Replacement rules:",
+    "- First verify the existing commits above and the current ticket state before changing files.",
+    "- Continue on the current branch only; do not create branches or worktrees.",
+    "- Do not reset, stash, revert, or amend partial work from the previous attempt.",
+    "- Do not pre-classify or clean dirty state before starting; inspect only what is needed for the ticket.",
+    "- If additional changes are needed, make focused atomic commits that reference the ticket ID.",
+    "- Stage only intentional files; never use broad staging like `git add .`.",
+    "- Update beadwork comments/handoff with commits and validation results, then close the ticket when complete.",
+    "- If you find a real blocker, leave an actionable comment and stop without destructive cleanup.",
+  ].join("\n");
+}
+
+async function launchCurrentBranchCrashReplacement(input: {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  deadWorker: CurrentBranchWorkerRuntime;
+  ticket: BeadworkIssueDetail;
+  trigger: CurrentBranchCrashTrigger;
+  judgment: CurrentBranchCrashJudgment & { existingCommits: string; history: unknown[] };
+  attempt: number;
+  tmuxBackend: TmuxBackend;
+}): Promise<CurrentBranchWorkerRuntime> {
+  const epic = input.ticket.parentId
+    ? await input.adapter.show(input.cwd, input.ticket.parentId)
+    : input.deadWorker.epicId
+      ? await input.adapter.show(input.cwd, input.deadWorker.epicId).catch(() => undefined)
+      : undefined;
+  const registryPath = resolveWorkerRegistryPath(
+    input.repoRoot,
+    input.config.storage.workerRegistryFile,
+  );
+  const runtimeRoot = resolveWorkerRuntimeDir(input.repoRoot, input.config.storage.runtimeDir);
+  const workerId = buildWorkerId(input.ticket.id);
+  const runtimeDir = path.join(runtimeRoot, workerId);
+  const runtimeScratchDir = path.join(runtimeDir, "scratch");
+  await mkdir(runtimeScratchDir, { recursive: true });
+
+  const basePrompt = buildCurrentBranchHandoffPrompt({
+    ticket: input.ticket,
+    epic,
+    branchName: input.deadWorker.branchName,
+    checkoutPath: input.deadWorker.checkoutPath,
+    runtimeScratchDir,
+  });
+  const prompt = buildCurrentBranchCrashReplacementPrompt({
+    basePrompt,
+    deadWorker: input.deadWorker,
+    trigger: input.trigger,
+    judgment: input.judgment,
+    attempt: input.attempt,
+  });
+  const promptFile = path.join(runtimeDir, "handoff.txt");
+  const logFile = path.join(runtimeDir, "worker.log");
+  const stateFile = path.join(runtimeDir, "state.txt");
+  const exitCodeFile = path.join(runtimeDir, "exit-code.txt");
+  const finishedAtFile = path.join(runtimeDir, "finished-at.txt");
+  const scriptFile = path.join(runtimeDir, "launch.sh");
+  const workerAgentCommand = buildWorkerAgentCommand(input.config, input.deadWorker);
+  await writeFile(promptFile, `${prompt}\n`, "utf8");
+  await writeFile(
+    scriptFile,
+    buildWorkerScript({
+      workerAgentCommand,
+      promptFile,
+      logFile,
+      stateFile,
+      exitCodeFile,
+      finishedAtFile,
+    }),
+    "utf8",
+  );
+  await chmod(scriptFile, 0o755);
+
+  const now = new Date().toISOString();
+  const launchCommand = `bash ${shellQuote(scriptFile)}`;
+  const pendingWorker: CurrentBranchWorkerRuntime = {
+    workerId,
+    ticketId: input.ticket.id,
+    epicId: input.deadWorker.epicId,
+    ticketTitle: input.ticket.title,
+    ticketStatus: input.ticket.status,
+    executionMode: "current-branch",
+    checkoutPath: input.deadWorker.checkoutPath,
+    branchName: input.deadWorker.branchName,
+    launchHead: input.deadWorker.launchHead,
+    backend: "tmux",
+    tmuxSession: input.deadWorker.tmuxSession,
+    tmuxWindow: workerId,
+    tmuxPane: "pending",
+    runtimeDir,
+    promptFile,
+    scriptFile,
+    logFile,
+    stateFile,
+    exitCodeFile,
+    finishedAtFile,
+    launchCommand,
+    workerCommand: input.deadWorker.workerCommand,
+    workerProvider: input.deadWorker.workerProvider,
+    workerModel: input.deadWorker.workerModel,
+    reviewerProvider: input.deadWorker.reviewerProvider,
+    reviewerModel: input.deadWorker.reviewerModel,
+    landingPolicy: input.deadWorker.landingPolicy,
+    reviewStatus: input.config.workerExecution.review.enabled ? "pending" : undefined,
+    status: "launching",
+    startedAt: now,
+    updatedAt: now,
+    replacesWorkerId: input.deadWorker.workerId,
+    currentBranchCrashReplacementAttempt: input.attempt,
+  };
+  await upsertWorkerRuntime(registryPath, pendingWorker);
+
+  let launched: Awaited<ReturnType<TmuxBackend["launchWorker"]>>;
+  try {
+    await input.tmuxBackend.ensureSession({ sessionName: pendingWorker.tmuxSession });
+    launched = await input.tmuxBackend.launchWorker({
+      sessionName: pendingWorker.tmuxSession,
+      workerId,
+      title: input.ticket.title,
+      worktreePath: pendingWorker.checkoutPath,
+      launchCommand,
+    });
+  } catch (error) {
+    const failedWorker: CurrentBranchWorkerRuntime = {
+      ...pendingWorker,
+      status: "failed",
+      lastError: buildLaunchFailureMessage(pendingWorker, error),
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertWorkerRuntime(registryPath, failedWorker);
+    throw new Error(failedWorker.lastError);
+  }
+
+  const runningWorker: CurrentBranchWorkerRuntime = {
+    ...pendingWorker,
+    tmuxSession: launched.sessionName,
+    tmuxWindow: launched.windowName,
+    tmuxPane: launched.paneId,
+    launchCommand: launched.launchCommand,
+    status: "running",
+    updatedAt: new Date().toISOString(),
+  };
+  await upsertWorkerRuntime(registryPath, runningWorker);
+  return runningWorker;
+}
+
+async function handleCurrentBranchCrashRecovery(input: {
+  cwd: string;
+  repoRoot: string;
+  config: BeadworkConfig;
+  adapter: BeadworkAdapter;
+  worker: CurrentBranchWorkerRuntime;
+  ticketStatus: string;
+  trigger: CurrentBranchCrashTrigger;
+  tmuxBackend: TmuxBackend;
+  runner: ProcessRunner;
+}): Promise<CurrentBranchWorkerRuntime> {
+  const registryPath = resolveWorkerRegistryPath(
+    input.repoRoot,
+    input.config.storage.workerRegistryFile,
+  );
+  const workers = await loadWorkerRegistry(registryPath);
+  if (input.worker.currentBranchCrashReason && input.worker.status === "attention") {
+    const alreadyHandledWorker: CurrentBranchWorkerRuntime = {
+      ...input.worker,
+      ticketStatus: input.ticketStatus,
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertWorkerRuntime(registryPath, alreadyHandledWorker);
+    return alreadyHandledWorker;
+  }
+  const existingReplacement = findReplacementForWorker(input.worker, workers);
+  if (existingReplacement) {
+    const alreadyReplacedWorker: CurrentBranchWorkerRuntime = {
+      ...input.worker,
+      status: input.worker.status === "attention" ? "attention" : "failed",
+      ticketStatus: input.ticketStatus,
+      supersededByWorkerId: existingReplacement.workerId,
+      currentBranchCrashReason: input.worker.currentBranchCrashReason ?? input.trigger.reason,
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertWorkerRuntime(registryPath, alreadyReplacedWorker);
+    return alreadyReplacedWorker;
+  }
+  if (input.worker.supersededByWorkerId) {
+    const alreadySupersededWorker: CurrentBranchWorkerRuntime = {
+      ...input.worker,
+      ticketStatus: input.ticketStatus,
+      currentBranchCrashReason: input.worker.currentBranchCrashReason ?? input.trigger.reason,
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertWorkerRuntime(registryPath, alreadySupersededWorker);
+    return alreadySupersededWorker;
+  }
+
+  const ticket = await input.adapter.show(input.cwd, input.worker.ticketId);
+  const history = await input.adapter.history(input.cwd, input.worker.ticketId, 20).catch(() => []);
+  const judgment = await judgeCurrentBranchCrash({
+    cwd: input.cwd,
+    repoRoot: input.repoRoot,
+    config: input.config,
+    worker: input.worker,
+    ticket,
+    history,
+    trigger: input.trigger,
+    runner: input.runner,
+  });
+  const crashAttempts = countCurrentBranchCrashAttempts(input.worker.ticketId, workers) + 1;
+  const baseDeadWorker: CurrentBranchWorkerRuntime = {
+    ...input.worker,
+    ticketStatus: ticket.status,
+    status: judgment.classification === "attention" ? "attention" : "failed",
+    finishedAt: input.trigger.finishedAtText ?? input.worker.finishedAt ?? new Date().toISOString(),
+    lastError:
+      judgment.classification === "attention"
+        ? `Current-branch worker stopped with actionable handoff/blocker: ${judgment.actionableBlocker ?? judgment.rationale}`
+        : `Current-branch worker stopped before ticket completion; replacement required. ${input.trigger.reason}`,
+    landingVerification:
+      judgment.classification === "attention"
+        ? `Crash recovery routed to operator attention. ${judgment.rationale}`
+        : input.worker.landingVerification,
+    currentBranchCrashReason: input.trigger.reason,
+    currentBranchCrashEvidenceFile: judgment.evidenceFile,
+    currentBranchCrashJudgmentFile: judgment.judgmentFile,
+    currentBranchCrashJudgment: `${judgment.classification}: ${judgment.rationale}`,
+    currentBranchCrashRawJudgment: judgment.rawOutput,
+    currentBranchCrashReplacementAttempt: crashAttempts,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (input.trigger.reason.includes("maxLifetime")) {
+    try {
+      await input.tmuxBackend.cleanupWorker({
+        paneId: input.worker.tmuxPane !== "pending" ? input.worker.tmuxPane : undefined,
+        sessionName: input.worker.tmuxSession,
+        windowName: input.worker.tmuxWindow,
+      });
+    } catch {
+      // best-effort timeout cleanup only; never touch git state for crash recovery
+    }
+  }
+
+  if (judgment.classification === "attention") {
+    await upsertWorkerRuntime(registryPath, baseDeadWorker);
+    await appendWorkerLog(
+      input.worker.logFile,
+      `current-branch crash recovery routed to attention: ${judgment.rationale}`,
+    );
+    return baseDeadWorker;
+  }
+
+  if (crashAttempts >= MAX_CURRENT_BRANCH_CRASH_ATTEMPTS) {
+    const cappedWorker: CurrentBranchWorkerRuntime = buildAttentionState(
+      baseDeadWorker,
+      `Current-branch worker crash cap reached for ${input.worker.ticketId} (${crashAttempts}/${MAX_CURRENT_BRANCH_CRASH_ATTEMPTS}); replacement not launched.`,
+      {
+        currentBranchCrashReplacementAttempt: crashAttempts,
+      },
+    ) as CurrentBranchWorkerRuntime;
+    await upsertWorkerRuntime(registryPath, cappedWorker);
+    await appendWorkerLog(
+      input.worker.logFile,
+      cappedWorker.lastError ?? "current-branch crash cap reached",
+    );
+    return cappedWorker;
+  }
+
+  await upsertWorkerRuntime(registryPath, baseDeadWorker);
+  let replacement: CurrentBranchWorkerRuntime;
+  try {
+    replacement = await launchCurrentBranchCrashReplacement({
+      cwd: input.cwd,
+      repoRoot: input.repoRoot,
+      config: input.config,
+      adapter: input.adapter,
+      deadWorker: baseDeadWorker,
+      ticket,
+      trigger: input.trigger,
+      judgment,
+      attempt: crashAttempts,
+      tmuxBackend: input.tmuxBackend,
+    });
+  } catch (error) {
+    const launchFailedWorker: CurrentBranchWorkerRuntime = buildAttentionState(
+      baseDeadWorker,
+      `Current-branch crash replacement launch failed: ${humanizeError(error)}`,
+      { currentBranchCrashReplacementAttempt: crashAttempts },
+    ) as CurrentBranchWorkerRuntime;
+    await upsertWorkerRuntime(registryPath, launchFailedWorker);
+    await appendWorkerLog(
+      input.worker.logFile,
+      launchFailedWorker.lastError ?? "current-branch crash replacement launch failed",
+    );
+    return launchFailedWorker;
+  }
+  const supersededWorker: CurrentBranchWorkerRuntime = {
+    ...baseDeadWorker,
+    supersededByWorkerId: replacement.workerId,
+    updatedAt: new Date().toISOString(),
+  };
+  await upsertWorkerRuntime(registryPath, supersededWorker);
+  await appendWorkerLog(
+    input.worker.logFile,
+    `current-branch crash recovery launched replacement ${replacement.workerId}`,
+  );
+  return supersededWorker;
+}
+
 export type WorkerLifecycleEvent =
   | {
       type: "post-exit-started";
@@ -3581,6 +4272,40 @@ export async function inspectWorkerRuntime(input: {
   } catch {
     ticketStatus = input.worker.ticketStatus;
   }
+  const effectiveTicketStatus = ticketStatus ?? "open";
+
+  if (config && input.worker.executionMode === "current-branch") {
+    const currentWorker: CurrentBranchWorkerRuntime = {
+      ...input.worker,
+      ticketStatus: effectiveTicketStatus,
+      tmuxSession: resolvedTmuxSession,
+      tmuxWindow: resolvedTmuxWindow,
+      tmuxPane: resolvedTmuxPane,
+      finishedAt: finishedAtText ?? input.worker.finishedAt,
+    };
+    const crashTrigger = detectCurrentBranchCrashTrigger({
+      worker: currentWorker,
+      ticketStatus: effectiveTicketStatus,
+      stateText,
+      exitCode,
+      finishedAtText,
+      pane,
+      maxLifetime: config.workerExecution.maxLifetime,
+    });
+    if (crashTrigger) {
+      return await handleCurrentBranchCrashRecovery({
+        cwd: input.cwd,
+        repoRoot: input.repoRoot,
+        config,
+        adapter: input.adapter,
+        worker: currentWorker,
+        ticketStatus: effectiveTicketStatus,
+        trigger: crashTrigger,
+        tmuxBackend,
+        runner,
+      });
+    }
+  }
 
   const workerFinished =
     stateText === "exited" ||
@@ -5744,9 +6469,11 @@ export async function runBoundedEpicLoop(input: {
       ),
     );
 
+    const refreshedWorkers = await loadWorkerRegistry(registryPath);
+    const inspectedWorkerIds = new Set(inspectedWorkers.map((worker) => worker.workerId));
     workers = await saveWorkerRegistry(registryPath, [
-      ...(await loadWorkerRegistry(registryPath)).filter(
-        (worker) => worker.epicId !== input.epicId,
+      ...refreshedWorkers.filter(
+        (worker) => worker.epicId !== input.epicId || !inspectedWorkerIds.has(worker.workerId),
       ),
       ...inspectedWorkers,
     ]);
@@ -5794,7 +6521,10 @@ export async function runBoundedEpicLoop(input: {
       }
     }
 
-    const summary = summarizeWorkers(workers);
+    const actionableWorkers = workers.filter(
+      (worker) => !isWorkerSupersededByActiveOrSuccessful(worker, workers),
+    );
+    const actionableSummary = summarizeWorkers(actionableWorkers);
     cycleSummaries.push({
       cycle,
       ready: ready.map((issue) => issue.id),
@@ -5821,9 +6551,11 @@ export async function runBoundedEpicLoop(input: {
     });
 
     if (await isScopeTicketTerminal({ cwd: input.cwd, adapter: input.adapter, issue: epic })) {
-      if (summary.active === 0) {
-        const nonTerminalWorkers = workers.filter((worker) => !isSuccessfulTerminalWorker(worker));
-        const unresolvedFixWorkers = workers.filter(hasUnresolvedFixFindings);
+      if (actionableSummary.active === 0) {
+        const nonTerminalWorkers = actionableWorkers.filter(
+          (worker) => !isSuccessfulTerminalWorker(worker),
+        );
+        const unresolvedFixWorkers = actionableWorkers.filter(hasUnresolvedFixFindings);
 
         if (nonTerminalWorkers.length > 0 || unresolvedFixWorkers.length > 0) {
           notes.push(
@@ -5913,10 +6645,10 @@ export async function runBoundedEpicLoop(input: {
     }
 
     if (
-      summary.failed > 0 ||
-      summary.attention > 0 ||
-      summary.held > 0 ||
-      workers.some((worker) => worker.status === "exited")
+      actionableSummary.failed > 0 ||
+      actionableSummary.attention > 0 ||
+      actionableSummary.held > 0 ||
+      actionableWorkers.some((worker) => worker.status === "exited")
     ) {
       notes.push(
         "At least one worker needs operator attention before the orchestrator can continue.",
@@ -5925,14 +6657,14 @@ export async function runBoundedEpicLoop(input: {
       break;
     }
 
-    if (ready.length === 0 && summary.active === 0) {
+    if (ready.length === 0 && actionableSummary.active === 0) {
       stopReason = input.options.until === "empty" ? "empty" : "blocked";
       break;
     }
 
     if (
       launchable.length === 0 &&
-      summary.active === 0 &&
+      actionableSummary.active === 0 &&
       ready.length > 0 &&
       ready.every((issue) =>
         workers.some(
@@ -5943,7 +6675,7 @@ export async function runBoundedEpicLoop(input: {
       stopReason = "blocked";
       break;
     }
-    if (launchable.length === 0 && summary.active === 0 && ready.length > 0) {
+    if (launchable.length === 0 && actionableSummary.active === 0 && ready.length > 0) {
       notes.push("Ready tickets remain, but all have already been attempted in this run.");
       stopReason = "attention";
       break;

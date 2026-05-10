@@ -77,6 +77,13 @@ const OPTIONAL_STRING_FIELDS = [
   "landingVerification",
   "finishedAt",
   "lastError",
+  "replacesWorkerId",
+  "supersededByWorkerId",
+  "currentBranchCrashReason",
+  "currentBranchCrashEvidenceFile",
+  "currentBranchCrashJudgmentFile",
+  "currentBranchCrashJudgment",
+  "currentBranchCrashRawJudgment",
 ] as const;
 
 const OPTIONAL_NUMBER_FIELDS = [
@@ -87,6 +94,7 @@ const OPTIONAL_NUMBER_FIELDS = [
   "landingRemediationAttempts",
   "landingAheadCount",
   "landingBehindCount",
+  "currentBranchCrashReplacementAttempt",
 ] as const;
 
 const OPTIONAL_STRING_ARRAY_FIELDS = ["reviewFeedback", "commitShas", "touchedPaths"] as const;

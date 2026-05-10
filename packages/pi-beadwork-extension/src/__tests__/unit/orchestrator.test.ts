@@ -714,6 +714,275 @@ describe("worker inspection", () => {
     );
   });
 
+  it("replaces crashed current-branch workers with inherited launch context and no duplicate relaunch", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-crash-replace-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      status: "running",
+      launchHead: "launch-base",
+      workerId: "bw-101-original",
+      tmuxPane: "%99",
+    });
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [worker]);
+
+    const ticket = createIssue({
+      id: "BW-101",
+      type: "task",
+      title: "Crash task",
+      status: "open",
+      parentId: "BW-100",
+    });
+    const adapter = createLaunchAdapter(ticket, createIssue({ id: "BW-100", type: "epic" }));
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "log") {
+        expect(args).toEqual(["log", "--oneline", "launch-base..HEAD", "--grep=BW-101"]);
+        return { stdout: "abc123 BW-101 partial commit\n", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[0] === "-lc") {
+        return {
+          stdout: JSON.stringify({ classification: "replace", rationale: "no handoff found" }),
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+    const tmuxBackend = createMockTmuxBackend();
+    tmuxBackend.inspectWorker = vi.fn().mockResolvedValue({ exists: false });
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("failed");
+    expect(inspected.currentBranchCrashReason).toContain("state is exited");
+    expect(inspected.supersededByWorkerId).toBeTruthy();
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledTimes(1);
+    const workersAfterFirstPoll = await loadWorkerRegistry(registryPath);
+    const replacement = workersAfterFirstPoll.find(
+      (candidate) => candidate.replacesWorkerId === worker.workerId,
+    );
+    expect(replacement).toMatchObject({
+      status: "running",
+      executionMode: "current-branch",
+      checkoutPath: repoRoot,
+      launchHead: "launch-base",
+      currentBranchCrashReplacementAttempt: 1,
+    });
+    expect(replacement?.workerId).toBe(inspected.supersededByWorkerId);
+    const prompt = await readFile(replacement?.promptFile ?? "", "utf8");
+    expect(prompt).toContain("Current-branch crash recovery replacement");
+    expect(prompt).toContain("abc123 BW-101 partial commit");
+    expect(prompt).toContain("Dead worker state file: exited");
+    expect(prompt).toContain("Original launch head (preserved for attribution): launch-base");
+    expect(prompt).toContain("First verify the existing commits");
+    expect(prompt).toContain("Do not reset, stash, revert, or amend");
+    expect(runner.mock.calls.flatMap((call) => call[1]).join(" ")).not.toMatch(
+      /\b(reset|stash|revert|amend)\b/,
+    );
+
+    const inspectedAgain = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspectedAgain.supersededByWorkerId).toBe(replacement?.workerId);
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledTimes(1);
+    expect(runner.mock.calls.filter((call) => call[0] === "bash")).toHaveLength(1);
+  });
+
+  it("routes crashed current-branch workers with actionable blocker handoffs to attention", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-crash-blocked-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      status: "running",
+      workerId: "bw-101-blocked",
+    });
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [worker]);
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "open" })),
+      history: vi
+        .fn()
+        .mockResolvedValue([
+          { type: "comment", text: "Handoff: blocked waiting for production credentials." },
+        ]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[0] === "-lc") {
+        return {
+          stdout: JSON.stringify({
+            classification: "attention",
+            rationale: "worker left an actionable blocker",
+            actionableBlocker: "waiting for production credentials",
+          }),
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+    const tmuxBackend = createMockTmuxBackend();
+    tmuxBackend.inspectWorker = vi.fn().mockResolvedValue({ exists: false });
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.lastError).toContain("waiting for production credentials");
+    expect(inspected.currentBranchCrashJudgment).toContain("attention");
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
+    expect(await loadWorkerRegistry(registryPath)).toHaveLength(1);
+  });
+
+  it("treats maxLifetime expiry as a bounded current-branch crash trigger", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-crash-timeout-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      status: "running",
+      workerId: "bw-101-timeout",
+      startedAt: "1970-01-01T00:00:00.000Z",
+    });
+    await writeFile(worker.stateFile, "running\n", "utf8");
+    await writeFile(worker.exitCodeFile, "", "utf8");
+    await writeFile(worker.finishedAtFile, "", "utf8");
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [worker]);
+    const adapter = createLaunchAdapter(
+      createIssue({ id: "BW-101", type: "task", status: "open", parentId: "BW-100" }),
+      createIssue({ id: "BW-100", type: "epic" }),
+    );
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[0] === "-lc") {
+        return {
+          stdout: JSON.stringify({ classification: "replace", rationale: "timed out" }),
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+    const tmuxBackend = createMockTmuxBackend();
+    tmuxBackend.inspectWorker = vi.fn().mockResolvedValue({
+      exists: true,
+      sessionName: "pi-bw",
+      windowName: "bw-101",
+      paneId: "%99",
+    });
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: {
+        ...DEFAULT_CONFIG,
+        workerExecution: { ...DEFAULT_CONFIG.workerExecution, maxLifetime: 1 },
+      },
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.currentBranchCrashReason).toContain("maxLifetime");
+    expect(inspected.status).toBe("failed");
+    expect(tmuxBackend.cleanupWorker).toHaveBeenCalledWith({
+      paneId: "%99",
+      sessionName: "pi-bw",
+      windowName: "bw-101",
+    });
+    expect(tmuxBackend.launchWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops replacing current-branch workers after the crash cap", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-crash-cap-"));
+    const worker = await createCurrentBranchRuntimeWorker(repoRoot, {
+      status: "running",
+      workerId: "bw-101-third-crash",
+    });
+    const priorOne = createCurrentBranchWorker({
+      ...worker,
+      workerId: "bw-101-first-crash",
+      currentBranchCrashReason: "first crash",
+      status: "failed",
+    });
+    const priorTwo = createCurrentBranchWorker({
+      ...worker,
+      workerId: "bw-101-second-crash",
+      currentBranchCrashReason: "second crash",
+      status: "failed",
+    });
+    const registryPath = resolveWorkerRegistryPath(
+      repoRoot,
+      DEFAULT_CONFIG.storage.workerRegistryFile,
+    );
+    await saveWorkerRegistry(registryPath, [priorOne, priorTwo, worker]);
+    const adapter = createAdapter({
+      show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "open" })),
+      history: vi.fn().mockResolvedValue([]),
+    });
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[0] === "-lc") {
+        return {
+          stdout: JSON.stringify({ classification: "replace", rationale: "third crash" }),
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+    });
+    const tmuxBackend = createMockTmuxBackend();
+    tmuxBackend.inspectWorker = vi.fn().mockResolvedValue({ exists: false });
+
+    const inspected = await inspectWorkerRuntime({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      tmuxBackend,
+      runner,
+    });
+
+    expect(inspected.status).toBe("attention");
+    expect(inspected.lastError).toContain("crash cap reached");
+    expect(inspected.currentBranchCrashReplacementAttempt).toBe(3);
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
+  });
+
   it("does not duplicate remediation relaunches while an active finding set is still running", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-no-duplicate-"));
     const finding = {
@@ -1323,7 +1592,7 @@ describe("worker inspection", () => {
     expect(inspected.lastError).toContain("Current-branch reviewer gate failed");
   });
 
-  it("leaves open-ticket exited current-branch workers on the existing attention path", async () => {
+  it("routes open-ticket exited current-branch workers through crash recovery", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-current-open-"));
     const runtimeDir = path.join(
       repoRoot,
@@ -1347,9 +1616,26 @@ describe("worker inspection", () => {
     });
     const adapter = createAdapter({
       show: vi.fn().mockResolvedValue(createIssue({ id: "BW-101", type: "task", status: "open" })),
+      history: vi
+        .fn()
+        .mockResolvedValue([{ type: "comment", text: "handoff: blocked by missing dependency" }]),
     });
-    const runner = vi.fn(async () => {
-      throw new Error("verification or landing should not run for open tickets");
+    const runner = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "log") {
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (command === "bash" && args[0] === "-lc") {
+        return {
+          stdout: JSON.stringify({
+            classification: "attention",
+            rationale: "actionable blocker",
+            actionableBlocker: "missing dependency",
+          }),
+          stderr: "",
+          code: 0,
+        };
+      }
+      throw new Error(`unexpected command ${command} ${args.join(" ")}`);
     });
     const tmuxBackend = {
       ensureSession: vi.fn(),
@@ -1368,10 +1654,11 @@ describe("worker inspection", () => {
       runner,
     });
 
-    expect(inspected.status).toBe("exited");
-    expect(inspected.lastError).toBeUndefined();
-    expect(inspected.landingVerification).toBeUndefined();
-    expect(runner).not.toHaveBeenCalled();
+    expect(inspected.status).toBe("attention");
+    expect(inspected.lastError).toContain("missing dependency");
+    expect(inspected.landingVerification).toContain("Crash recovery routed to operator attention");
+    expect(runner).toHaveBeenCalled();
+    expect(tmuxBackend.launchWorker).not.toHaveBeenCalled();
     expect(tmuxBackend.cleanupWorker).not.toHaveBeenCalled();
   });
 
