@@ -8,6 +8,8 @@
   "blocks": [
     "sbdpi-qmd.5.5"
   ],
+  "closed_at": "2026-05-10T01:58:16Z",
+  "close_reason": "Done in f9fe235. Default flips to current-branch; explicit worktree config/env paths preserved; focused and package gates pass.",
   "created": "2026-05-08T23:39:37Z",
   "description": "Flip the runtime default for `workerExecution.mode` from `\"worktree\"` to `\"current-branch\"` after the system is proven through pre-flip tests and scripted e2e smoke coverage.\n\n## What to implement\n\nIn `packages/pi-beadwork-extension/src/config.ts`:\n- Change the default value of `workerExecution.mode` from `\"worktree\"` to `\"current-branch\"`.\n\n## Why this happens after the e2e script work\n\nThe scripts from `sbdpi-qmd.5.6` should exist before the default flip. Before this task, they run current-branch scenarios using explicit config/env overrides. After this task, the final regression task (`sbdpi-qmd.5.5`) reruns the same e2e flows without an override to prove the default really changed.\n\nThis avoids flipping the product default before we have deterministic operator-level smoke coverage.\n\n## Prerequisites (must ALL be true before this change)\n\n- Phase 1: types, config, registry normalization implemented.\n- Phase 2: current-branch launch works.\n- Phase 3: current-branch verification works.\n- Phase 4: scope-completion validation/review works.\n- Phase 5 crash recovery works.\n- UI shows execution mode correctly enough that operators can distinguish current-branch and worktree workers.\n- Legacy worktree unit/regression tests still pass.\n- The deterministic e2e scripts from `sbdpi-qmd.5.6` exist and pass in explicit `workerExecution.mode=current-branch` mode.\n\n## Design Rules\n\n- This is the LAST behavior change before the final regression gate, not an early migration step.\n- `worktree` MUST remain accessible via config file (`workerExecution.mode: \"worktree\"`).\n- `worktree` MUST remain accessible via env (`PI_BEADWORK_WORKER_EXECUTION_MODE=worktree`).\n- Do NOT remove any worktree code paths.\n- Do NOT weaken e2e scenarios to make the flip pass; fix the product behavior instead.\n- Verify the change by running focused config/default tests here; the full post-flip e2e run belongs to `sbdpi-qmd.5.5`.\n\n## Tests\n\n- Default config resolves to `\"current-branch\"` without any override.\n- Explicit `\"worktree\"` config overrides the default.\n- Env var override still works in both directions.\n- Existing tests that assumed implicit worktree mode are updated to use explicit worktree config where needed.\n- Focused config and launch tests pass with the new default.\n\n## Definition of Done\n\n- Default is `\"current-branch\"`.\n- `worktree` mode preserved via explicit config/env.\n- Tests that require worktree mode are explicit and still pass.\n- Pre-flip e2e scripts remain available for the final post-flip regression run.\n- lint/test/typecheck pass clean.",
   "id": "sbdpi-qmd.5.2",
@@ -20,8 +22,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Flip workerExecution.mode default to current-branch",
   "type": "task",
-  "updated_at": "2026-05-10T01:58:13Z"
+  "updated_at": "2026-05-10T01:58:16Z"
 }
