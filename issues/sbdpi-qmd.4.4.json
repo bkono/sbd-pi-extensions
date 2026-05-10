@@ -13,9 +13,15 @@
   "id": "sbdpi-qmd.4.4",
   "labels": [],
   "parent": "sbdpi-qmd.4",
+  "comments": [
+    {
+      "text": "Implemented Phase 4 scope-completion regression coverage in packages/pi-beadwork-extension/src/__tests__/unit/scope-completion.test.ts, covering the 15 required scenarios with mocked beadwork/git/process/tmux. Also tightened standalone delegate scope behavior so /bw delegate \u003cticket\u003e tracks the ticket itself for scope validation and skips epic-only scope review for ticket scopes. Package gates passing: npm run lint -w @solvedbydev/pi-beadwork-extension; npm run test -w @solvedbydev/pi-beadwork-extension; npm run typecheck -w @solvedbydev/pi-beadwork-extension.",
+      "timestamp": "2026-05-10T00:35:31Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add Phase 4 scope-completion regression tests",
   "type": "task",
-  "updated_at": "2026-05-10T00:25:09Z"
+  "updated_at": "2026-05-10T00:35:31Z"
 }
