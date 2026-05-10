@@ -12,9 +12,15 @@
   "id": "sbdpi-qmd.5.4",
   "labels": [],
   "parent": "sbdpi-qmd.5",
+  "comments": [
+    {
+      "text": "Remediated docs review blocker for commit c000fe8 in commit 95470f4.\n\nChanges:\n- Corrected configuration docs to state workerExecution.review.enabled controls current-branch review and landing.review.enabled controls worktree landing review.\n- Clarified reviewer provider/model/timeout settings may be shared, but landing.review.maxArtifactChars only caps worktree landing review artifacts and is not used for current-branch review.\n- Updated execution mode docs with the same mode-specific artifact budget distinction.\n\nGates:\n- npm run lint ✅\n- npm run test ✅\n- npm run typecheck ✅",
+      "timestamp": "2026-05-10T01:05:44Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Document commit-message and handoff-comment conventions",
   "type": "task",
-  "updated_at": "2026-05-10T00:44:38Z"
+  "updated_at": "2026-05-10T01:05:44Z"
 }
