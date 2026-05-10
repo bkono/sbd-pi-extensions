@@ -30,11 +30,15 @@
     {
       "text": "## Plan-space polish update (pass 3)\n\nFresh AGENTS.md reread and full `sbdpi-qmd` audit focused on self-containment, parallel-ready safety, and user-operability. Adjustments made:\n\n1. Tightened substrate typing so worktree cleanup policy is legacy/worktree-only and current-branch records do not populate or consult it.\n2. Made current-branch reviewer output self-contained with a parseable `ReviewFinding` shape plus raw-output preservation and attention routing on parse failure.\n3. Tightened crash recovery so superseded crashed-worker records do not falsely stop a run once a replacement is active/verified, and duplicate replacements are forbidden across polls/restarts.\n4. Split e2e script documentation into `sbdpi-qmd.5.7`, blocked by script creation and general docs, so docs can be accurate without serializing all convention documentation behind the scripts.\n\nNo planned features were removed; the changes add detail and improve dependency-driven concurrency.\n",
       "timestamp": "2026-05-09T02:11:39Z"
+    },
+    {
+      "text": "All child phases are closed and final regression gates passed in sbdpi-qmd.5.5. Closing root migration epic.",
+      "timestamp": "2026-05-10T02:11:53Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Migrate pi-beadwork-extension to current-branch swarm execution",
   "type": "epic",
-  "updated_at": "2026-05-09T02:11:39Z"
+  "updated_at": "2026-05-10T02:11:53Z"
 }
