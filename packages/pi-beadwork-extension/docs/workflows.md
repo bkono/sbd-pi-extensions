@@ -5,8 +5,9 @@ This extension is designed around a **human-led beadwork session** with optional
 The important split is:
 
 - you drive planning, scoping, and operator decisions
-- delegated workers execute one ticket at a time in isolated worktrees
-- the orchestrator owns the post-worker lifecycle: validation, review, merge-back, and cleanup
+- delegated workers execute one ticket at a time in the configured execution mode
+- worktree workers get isolated worktrees; current-branch workers share the parent checkout
+- the orchestrator owns the mode-specific post-worker lifecycle
 
 ## Session modes
 
@@ -69,7 +70,7 @@ Use `multi` when the markdown describes the intent but the graph still benefits 
 
 ## Delegated worker lifecycle
 
-`/bw delegate <ticket-id>` launches one ticket into its own worktree-backed tmux worker.
+`/bw delegate <ticket-id>` launches one ticket into a tmux worker using `workerExecution.mode`.
 Add `--model provider/model` when one delegated pass should run on a different
 worker model without changing shared defaults.
 
@@ -77,22 +78,23 @@ worker model without changing shared defaults.
 
 1. resolves ticket + optional epic context
 2. ensures `bw prime` context is available
-3. creates or reuses the ticket worktree
-4. applies configured file copies and setup commands
-5. launches a tmux-backed worker in the background
-6. writes worker output to `worker.log`
-7. tracks the worker in the local registry and session state
-8. lets the parent session continue while supervision runs on the configured interval
+3. prepares the configured checkout target
+   - `worktree`: creates or reuses the ticket worktree and applies configured file copies/setup commands
+   - `current-branch`: uses the repo root/current branch without creating a worktree
+4. launches a tmux-backed worker in the background
+5. writes worker output to `worker.log`
+6. tracks the worker in the local registry and session state
+7. lets the parent session continue while supervision runs on the configured interval
 
 ### What the operator should expect
 
 Immediately after `/bw delegate`, the extension tells you:
 
 - which worker ID was launched
-- where the worktree lives
+- where the worktree lives, or which current checkout was used
 - where `worker.log` lives
 - how often supervision checks the worker
-- whether completion will mean automatic landing or a held deferred state
+- whether completion will mean automatic landing, a held deferred state, or current-branch verification
 
 Use these as your primary inspection paths:
 
@@ -117,7 +119,8 @@ Important interpretation:
 - `running` means the delegated process still exists
 - `exited` means the worker process finished, but landing is not yet complete
 - `held` means deferred landing intentionally stopped before merge-back
-- `landed` means the parent branch actually contains the worker head and validation/review conditions are satisfied
+- `landed` means the parent branch actually contains the worktree worker head and validation/review conditions are satisfied
+- `verified` means a current-branch worker passed attribution/review/ticket-closure verification
 - `attention` means operator involvement is needed
 
 ## Validation, remediation, review, and merge-back
@@ -126,7 +129,7 @@ After a worker exits and the ticket is closed, the orchestrator handles post-wor
 
 ### Validation
 
-The orchestrator runs `landing.validateCommands` inside the delegated worktree.
+For worktree workers, the orchestrator runs `landing.validateCommands` inside the delegated worktree. Current-branch workers are expected to run relevant validation before handoff; the current-branch post-exit pipeline verifies attribution/review/ticket closure rather than running worktree landing validation.
 
 Default commands:
 
@@ -146,7 +149,7 @@ That means:
 
 ### Reviewer gating
 
-If `landing.review.enabled` is true, the orchestrator runs a reviewer-agent pass before merge-back or before declaring a deferred worker ready to land.
+If `landing.review.enabled` is true, the orchestrator runs a reviewer-agent pass before worktree merge-back or before declaring a deferred worktree worker ready to land. Current-branch per-worker review is controlled separately by `workerExecution.review.enabled`.
 
 Reviewer runs are exploratory by default: they can inspect the worktree, follow downstream code paths, and run the mandatory validation commands before handing back a result. The expected final handoff is a parseable `<review_report>` block with one of these verdicts:
 
@@ -166,7 +169,7 @@ Operator-visible review states include:
 
 ### Merge-back truthfulness
 
-A worker is only treated as landed when the parent branch truly contains the worker head.
+A worktree worker is only treated as landed when the parent branch truly contains the worker head. Current-branch workers use `verified` instead of `landed` because there is no worker branch to merge back.
 
 That means the extension avoids claiming success just because:
 

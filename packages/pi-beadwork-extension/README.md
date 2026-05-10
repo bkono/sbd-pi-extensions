@@ -7,7 +7,7 @@ This package is meant to make the real beadwork workflow usable inside pi:
 - engage a session around a repo, epic, or ticket
 - inspect and mutate beadwork issues without leaving pi
 - turn an explicit markdown plan into an epic/task graph
-- delegate one ticket into an isolated worktree-backed worker
+- delegate one ticket into either a worktree-backed or current-branch worker
 - let the orchestrator supervise worker exit, validation, review, merge-back, and cleanup
 - optionally hold validated work for later `/bw land` instead of merging immediately
 
@@ -18,6 +18,7 @@ This extension is now in a practical dogfooding state for:
 - human-led beadwork sessions
 - explicit markdown-plan adoption
 - delegated `/bw delegate` worker flows with streamed logs + notifications
+- configurable worktree/current-branch worker execution modes
 - orchestrator-owned validation / remediation / merge-back
 - deferred landing and reviewer-gated landing modes
 - bounded `/bw run` orchestration over an epic
@@ -116,13 +117,59 @@ repo or global beadwork defaults.
 
 What happens:
 
-1. the extension creates or reuses a per-ticket worktree
+1. the extension prepares the configured worker checkout (`workerExecution.mode`)
 2. it launches a tmux-backed worker in the background
 3. the worker writes streamed activity to `worker.log`
 4. the parent session stays in place and polls on the configured supervisor interval
-5. after worker exit, the orchestrator handles validation / review / merge-back / cleanup
+5. after worker exit, the orchestrator handles the mode-specific verification or landing flow
 
 Use `/bw workers` any time for the full breakdown.
+
+### Current-branch worker conventions
+
+Current-branch mode runs a worker in the same checkout and branch as the parent session:
+
+```json
+{
+  "workerExecution": {
+    "mode": "current-branch"
+  }
+}
+```
+
+The built-in package default is currently `worktree`, but repos can make current-branch their local
+default with project config or `PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch`. In current-branch
+mode the target is the current checkout/current branch; no ticket branch or worktree is created.
+Use explicit worktree fallback when a task needs isolation:
+
+```json
+{
+  "workerExecution": {
+    "mode": "worktree"
+  }
+}
+```
+
+Current-branch workers must be easy to attribute:
+
+- include the beadwork ticket id in commit messages, for example
+  `docs(pi-beadwork): document worker conventions sbdpi-qmd.5.4`
+- make atomic commits with exact paths:
+  `git commit <specific-files> -m "docs(pi-beadwork): ... sbdpi-qmd.5.4"`
+- avoid broad shared-index operations such as `git add -A`, `git add .`, and `git commit -a`
+- leave a final `bw comment <ticket-id> ...` handoff with status, commit SHAs when known,
+  validation results, blockers, and useful follow-up
+- keep the handoff natural; it is LLM-readable context, not a rigid schema
+- fix forward with clarifying comments or follow-up tickets when attribution is imperfect instead
+  of rewriting shared history
+- never stash, reset, clean, or discard unrelated checkout state because it may belong to another
+  active worker
+
+Detached HEAD is rejected for current-branch launch unless
+`workerExecution.allowDetachedHead: true` (or `PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD=1`) is set.
+See [docs/current-branch-mode.md](./docs/current-branch-mode.md),
+[docs/worker-conventions.md](./docs/worker-conventions.md), and
+[docs/execution-modes.md](./docs/execution-modes.md) for the full details.
 
 ### 5. Choose your landing policy
 
@@ -138,7 +185,7 @@ With the default policy:
 }
 ```
 
-A validated worker is merged back automatically once review/remediation is satisfied.
+In worktree mode, a validated worker is merged back automatically once review/remediation is satisfied. Current-branch workers are verified in place instead of merged back.
 
 #### Deferred landing
 
@@ -150,7 +197,7 @@ A validated worker is merged back automatically once review/remediation is satis
 }
 ```
 
-In deferred mode, the orchestrator validates the work, confirms current mergeability, then holds it unmerged until you explicitly say:
+In deferred worktree mode, the orchestrator validates the work, confirms current mergeability, then holds it unmerged until you explicitly say:
 
 ```text
 /bw land sbdpi-swx.6.4.1
@@ -341,10 +388,13 @@ Important behavior notes:
 - if `tmux.workerCommand` includes `--print`, that flag is stripped so worker output still uses JSON mode cleanly
 - `tmux.workerProvider` / `tmux.workerModel` only affect delegated workers, not the current parent session
 - reviewer provider/model fall back to the worker provider/model when not set explicitly
+- `workerExecution.mode` selects `worktree` (built-in default) or `current-branch` execution
+- `workerExecution.maxLifetime` accepts `null` or non-negative milliseconds; it is parsed/stored, while current supervision still primarily follows tmux/runtime exit state
+- `workerExecution.allowDetachedHead` is false by default and must be explicitly enabled for current-branch launch from detached HEAD
 - `workerExecution.review.enabled` controls current-branch per-worker review and is on by default; set it to `false` to skip that pass
 - `landing.review.enabled` only controls worktree landing review and does not disable current-branch worker review
 - `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after successful orchestrator landing
-- a worker only counts as `landed` when the parent branch actually contains the worker head; equivalent diff heuristics alone do not count as landed
+- a worktree worker only counts as `landed` when the parent branch actually contains the worker head; equivalent diff heuristics alone do not count as landed
 
 For the full config reference and all environment variables, see [docs/configuration.md](./docs/configuration.md).
 
@@ -352,6 +402,9 @@ For the full config reference and all environment variables, see [docs/configura
 
 - [docs/README.md](./docs/README.md) — docs index
 - [docs/workflows.md](./docs/workflows.md) — dashboard-first operator workflow, delegated worker lifecycle, deferred landing, reviewer gating, `/bw run`
+- [docs/current-branch-mode.md](./docs/current-branch-mode.md) — current-branch worker execution, attribution, detached HEAD behavior, and fallback
+- [docs/worker-conventions.md](./docs/worker-conventions.md) — commit, handoff, validation, and shared-checkout conventions
+- [docs/execution-modes.md](./docs/execution-modes.md) — comparison of current-branch and worktree execution modes
 - [docs/configuration.md](./docs/configuration.md) — config keys, environment variables, examples, compatibility aliases
 - [docs/commands.md](./docs/commands.md) — slash command reference, dashboard controls, worker states, and tool surface
 - [docs/tui-proposal.md](./docs/tui-proposal.md) — design notes and follow-on TUI backlog beyond the shipped dashboard/workflow

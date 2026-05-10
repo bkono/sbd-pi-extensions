@@ -16,7 +16,7 @@ Bare `/bw` opens the dashboard when beadwork is active or available in the repo.
 | `/bw ready [scope]` / `/bw:ready [scope]`                                                             | Show ready work, optionally scoped.                                                                     |
 | `/bw blocked`                                                                                         | List currently blocked work.                                                                            |
 | `/bw workers [epic-id]` / `/bw:workers [epic-id]`                                                     | Show delegated worker diagnostics and next actions; with no explicit epic id and UI available, open the worker console overlay. |
-| `/bw delegate <ticket-id> [--model provider/model]` / `/bw:delegate ...`                             | Launch one ticket into a tmux-backed delegated worker, optionally with a one-off worker model override. |
+| `/bw delegate <ticket-id> [--model provider/model]` / `/bw:delegate ...`                             | Launch one ticket into a tmux-backed delegated worker using `workerExecution.mode`, optionally with a one-off worker model override. |
 | `/bw land <ticket-id\|worker-id>` / `/bw:land ...`                                                   | Resume merge-back for a deferred worker.                                                                |
 | `/bw cancel <ticket-id\|worker-id>` / `/bw:cancel ...`                                               | Stop an active worker by ticket id or worker id.                                                        |
 | `/bw cleanup <ticket-id\|worker-id>` / `/bw:cleanup ...`                                             | Remove landed worker worktree/runtime artifacts when cleanup is safe.                                   |
@@ -75,8 +75,9 @@ Notes:
 
 What it does:
 
-- creates or reuses the ticket worktree
-- applies worktree bootstrap config
+- prepares the configured execution target:
+  - `workerExecution.mode: "worktree"` creates or reuses the ticket worktree and applies worktree bootstrap config
+  - `workerExecution.mode: "current-branch"` uses the repo root/current branch and creates no worktree
 - launches the worker in tmux without stealing operator focus
 - records registry + runtime state
 - tracks the worker in the parent session for later notifications
@@ -84,10 +85,52 @@ What it does:
 The launch notice includes:
 
 - worker ID
-- worktree path
+- execution mode
+- worktree path for worktree workers, or checkout path for current-branch workers
 - `worker.log` path
 - supervisor cadence
-- whether completion means automatic landing or deferred hold
+- whether completion means automatic landing/deferred hold (worktree) or current-branch verification
+
+### Execution-mode config
+
+`/bw delegate` does not take a mode flag. Select mode through config or environment:
+
+```json
+{
+  "workerExecution": {
+    "mode": "current-branch",
+    "allowDetachedHead": false,
+    "review": {
+      "enabled": true
+    }
+  }
+}
+```
+
+Explicit worktree fallback:
+
+```json
+{
+  "workerExecution": {
+    "mode": "worktree"
+  },
+  "worktrees": {
+    "baseDir": "../sbd-pi-extensions-worktrees"
+  }
+}
+```
+
+One-shell fallback:
+
+```sh
+PI_BEADWORK_WORKER_EXECUTION_MODE=worktree \
+PI_BEADWORK_WORKTREE_BASE_DIR=../sbd-pi-extensions-worktrees \
+pi
+```
+
+`workerExecution.review.enabled` controls current-branch per-worker review.
+`landing.review.enabled` controls worktree landing review; it does not disable current-branch review.
+Current-branch launch rejects detached HEAD unless `workerExecution.allowDetachedHead` is true.
 
 ## `/bw workers`
 
@@ -167,7 +210,8 @@ Important behavior:
 | `running`   | Worker process is still alive.                                        |
 | `exited`    | Worker finished, but landing is not complete yet.                     |
 | `held`      | Deferred landing intentionally stopped before merge-back.             |
-| `landed`    | Parent branch contains the worker head and post-worker checks passed. |
+| `landed`    | Parent branch contains the worktree worker head and post-worker checks passed. |
+| `verified`  | Current-branch worker passed attribution/review/ticket-closure verification. |
 | `failed`    | Worker process failed outright.                                       |
 | `attention` | Operator action is required before the worker can finish landing.     |
 
@@ -246,7 +290,8 @@ The extension also exposes beadwork-aware tools to the model.
 
 A few semantics are intentionally strict:
 
-- `landed` means actual parent-branch containment, not just a clean worktree or equivalent diff
+- `landed` means actual parent-branch containment for worktree workers, not just a clean worktree or equivalent diff
+- current-branch workers verify attribution/review/ticket closure and do not run worktree merge-back
 - deferred workers are not abandoned; `/bw land` re-enters orchestrator-owned landing
 - reviewer feedback is filtered against ticket intent rather than treated as absolute truth
 - `/bw workers` is the durable source of truth when notifications and logs are not enough

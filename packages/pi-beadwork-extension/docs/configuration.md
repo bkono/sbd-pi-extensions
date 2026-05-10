@@ -36,6 +36,14 @@ Config is merged in this order:
     "setupCommands": ["mise trust", "npm install"],
     "rerunSetupOnReuse": false
   },
+  "workerExecution": {
+    "mode": "worktree",
+    "maxLifetime": null,
+    "allowDetachedHead": false,
+    "review": {
+      "enabled": true
+    }
+  },
   "run": {
     "defaultWorkers": 2,
     "defaultUntil": "blocked",
@@ -151,6 +159,102 @@ Common examples:
 - default: `false`
 - when true, `copyFiles` and `setupCommands` run again even when an existing worktree is reused
 
+### `workerExecution.*`
+
+Controls where delegated workers run and which review gate applies after current-branch workers exit.
+
+#### `workerExecution.mode`
+
+Values:
+
+- `worktree` — built-in default; creates or reuses a per-ticket worktree/branch.
+- `current-branch` — launches the worker in the repo root/current branch and does not create a
+  worktree or merge-back branch.
+
+Current-branch project default example:
+
+```json
+{
+  "workerExecution": {
+    "mode": "current-branch"
+  }
+}
+```
+
+Environment override:
+
+```sh
+PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch pi
+```
+
+Explicit worktree fallback example:
+
+```json
+{
+  "workerExecution": {
+    "mode": "worktree"
+  },
+  "worktrees": {
+    "baseDir": "../sbd-pi-extensions-worktrees"
+  }
+}
+```
+
+Or:
+
+```sh
+PI_BEADWORK_WORKER_EXECUTION_MODE=worktree \
+PI_BEADWORK_WORKTREE_BASE_DIR=../sbd-pi-extensions-worktrees \
+pi
+```
+
+#### `workerExecution.maxLifetime`
+
+Default: `null`.
+
+Accepts `null` or a non-negative millisecond value. Environment values use
+`PI_BEADWORK_WORKER_MAX_LIFETIME`; an empty string maps to `null`.
+
+The current implementation parses and stores this config, but worker supervision still primarily
+uses tmux/runtime exit state. Do not rely on it as an enforced kill switch unless the runtime
+implementation changes.
+
+#### `workerExecution.allowDetachedHead`
+
+Default: `false`.
+
+Current-branch mode rejects detached HEAD by default with an explicit error. Set this only when you
+want to allow `branchName=HEAD` launches and accept weaker branch-drift assumptions:
+
+```json
+{
+  "workerExecution": {
+    "mode": "current-branch",
+    "allowDetachedHead": true
+  }
+}
+```
+
+Environment:
+
+```sh
+PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch \
+PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD=1 \
+pi
+```
+
+#### `workerExecution.review.enabled`
+
+Default: `true`.
+
+Controls the per-worker current-branch reviewer gate. It is separate from `landing.review.enabled`:
+
+- `workerExecution.review.enabled` affects current-branch worker verification.
+- `landing.review.enabled` affects worktree landing review before merge-back or deferred hold.
+
+Disabling one does not disable the other. Reviewer provider/model/timeout/artifact settings are still
+configured under `landing.review.*` and are reused by the current-branch reviewer pass.
+
 ### `run.*`
 
 These control bounded `/bw run` behavior.
@@ -197,7 +301,7 @@ How many times the orchestrator will try to refresh a drifted worker through reb
 
 #### `enabled`
 
-Turns on reviewer-agent gating before merge-back or before declaring a deferred worker ready to land.
+Turns on reviewer-agent gating before worktree merge-back or before declaring a deferred worktree worker ready to land. It does not control current-branch per-worker review; use `workerExecution.review.enabled` for that.
 
 Reviewer runs are exploratory by default. When the base command is `pi`, the orchestrator keeps the normal tool/extension/skill surface instead of forcing reviewer isolation flags.
 
@@ -277,6 +381,10 @@ Supported environment overrides:
 - `PI_BEADWORK_WORKER_PROVIDER`
 - `PI_BEADWORK_WORKER_MODEL`
 - `PI_BEADWORK_WORKTREE_BASE_DIR`
+- `PI_BEADWORK_WORKER_EXECUTION_MODE`
+- `PI_BEADWORK_WORKER_MAX_LIFETIME`
+- `PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD`
+- `PI_BEADWORK_WORKER_REVIEW_ENABLED`
 - `PI_BEADWORK_DEFAULT_WORKERS`
 - `PI_BEADWORK_DEFAULT_MAX_CYCLES`
 - `PI_BEADWORK_POLL_INTERVAL_MS`
@@ -309,6 +417,42 @@ Legacy compatibility alias:
     "validateCommands": ["npm run lint", "npm run test", "npm run typecheck"]
   }
 }
+```
+
+### Current-branch workers by repo default
+
+```json
+{
+  "workerExecution": {
+    "mode": "current-branch",
+    "allowDetachedHead": false,
+    "review": {
+      "enabled": true
+    }
+  }
+}
+```
+
+### Explicit worktree fallback
+
+```json
+{
+  "workerExecution": {
+    "mode": "worktree"
+  },
+  "worktrees": {
+    "baseDir": "../sbd-pi-extensions-worktrees",
+    "cleanup": "keep"
+  }
+}
+```
+
+One-shell fallback:
+
+```sh
+PI_BEADWORK_WORKER_EXECUTION_MODE=worktree \
+PI_BEADWORK_WORKTREE_BASE_DIR=../sbd-pi-extensions-worktrees \
+pi
 ```
 
 ### Deferred landing + human testing gate
