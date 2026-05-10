@@ -7,6 +7,8 @@
   "blocks": [
     "sbdpi-qmd.4.4"
   ],
+  "closed_at": "2026-05-10T00:10:09Z",
+  "close_reason": "Implemented and committed as 7350296. DoD met: scope review gate, fix-forward child task creation/dedup/cap, standalone coverage, and package lint/test/typecheck pass.",
   "created": "2026-05-08T23:38:33Z",
   "description": "Implement the scope-completion review pass that runs after integrated validation passes.\n\n## What to implement\n\nAfter validation passes at quiescent scope completion:\n1. Build a scope-review prompt containing:\n   - Epic/scope description and goal\n   - List of all verified tickets with their attributed commit SHAs and one-line messages\n   - Validation output (pass confirmation)\n   - Any coordination notes from the run\n2. Launch a scope-complete reviewer (same agent infrastructure as per-worker review)\n3. Reviewer uses its own tools to inspect code — prompt stays small\n4. Findings are triaged by coordinator:\n   - **`fix`**: Create a follow-up beadwork task (child of epic), with finding/rationale/related tickets/commits; launch a new worker when safe\n   - **`file`**: Create follow-up work without blocking the completed scope\n   - **`reject`**: Discard as invalid feedback\n5. Previously verified worker records STAY verified — scope-level findings create NEW work\n6. If `fix` work is created, scope is not complete — loop continues\n7. Cap scope-level fix iterations at 2 rounds; if not converged → `attention`\n\n## Design Rules\n\n- This is NOT a re-review of every patch — it's a goal-verification gate\n- Reviewer checks: epic goals met? attribution gaps? clean integrated validation? orphaned/contradictory changes?\n- `fix` findings become beadwork children, NOT worker-level remediation re-openings\n- Scope review is fix-forward: verified workers stay verified\n- For standalone `/bw delegate \u003cticket\u003e`: NO scope review beyond normal worker-completion review\n- Same provider/model/timeout config as per-worker review\n\n## Tests\n\n- Scope review runs after validation passes at quiescence\n- Scope review findings create beadwork child tasks (fix-forward)\n- `fix` findings launch new workers and loop continues\n- `file` findings create tasks without blocking\n- `reject` findings discarded\n- Previously verified workers NOT reopened\n- 2-round cap enforced; not converged → `attention`\n- Standalone delegate does NOT trigger scope review\n- Scope review prompt contains epic context and all verified ticket summaries\n\n## Definition of Done\n\n- Scope-completion review pass implemented\n- Fix-forward work creation works\n- Loop correctly continues/stops based on scope findings\n- lint/test/typecheck pass clean",
   "id": "sbdpi-qmd.4.3",
@@ -19,8 +21,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Implement scope-completion review with fix-forward work creation",
   "type": "task",
-  "updated_at": "2026-05-10T00:10:02Z"
+  "updated_at": "2026-05-10T00:10:09Z"
 }
