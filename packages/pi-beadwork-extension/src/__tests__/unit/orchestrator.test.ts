@@ -4749,6 +4749,7 @@ describe("run loop", () => {
     reviewer: unknown;
     existingIssues?: ReturnType<typeof createIssue>[];
     maxCycles?: number;
+    ready?: BeadworkAdapter["ready"];
   }) {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-scope-review-case-"));
     const registryPath = resolveWorkerRegistryPath(
@@ -4788,7 +4789,7 @@ describe("run loop", () => {
       history: vi.fn(async () => []),
       list: vi.fn(async () => existingIssues),
       createIssue: createIssueMock,
-      ready: vi.fn().mockResolvedValue([]),
+      ready: options.ready ?? vi.fn().mockResolvedValue([]),
     });
     const gitRunner = createGitRunner([
       { sha: "commit-sha", subject: "Implement task", paths: ["src/task.ts"] },
@@ -4867,8 +4868,49 @@ describe("run loop", () => {
 
     expect(summary.stopReason).toBe("completed");
     expect(createIssueMock).toHaveBeenCalledTimes(1);
-    expect(createIssueMock.mock.calls[0]?.[1]).toMatchObject({ parentId: "BW-100", priority: 3 });
+    const createdInput = createIssueMock.mock.calls[0]?.[1];
+    expect(createdInput).toMatchObject({ priority: 3 });
+    expect(createdInput).not.toHaveProperty("parentId");
     expect(summary.notes.join("\n")).toContain("non-blocking follow-up");
+  });
+
+  it("completes on restart with an existing non-blocking scope review follow-up outside the epic", async () => {
+    const signature = "2c714a51200b9efb";
+    const existingFileFollowUp = createIssue({
+      id: "BW-FILE-1",
+      type: "task",
+      status: "open",
+      title: `Follow up scope review: Documentation should mention the new behavior (${signature})`,
+      description: `Parent epic: BW-100 Epic\nscope-review-classification: file\nscope-review-finding-signature: ${signature}`,
+      parentId: undefined,
+    });
+    const readyMock = vi.fn(async (_cwd: string, scopeId?: string) =>
+      scopeId === "BW-100" && existingFileFollowUp.parentId === "BW-100"
+        ? [stripChildren(existingFileFollowUp)]
+        : [],
+    );
+    const { summary, createIssueMock, registryPath } = await runScopeReviewScenario({
+      existingIssues: [existingFileFollowUp],
+      ready: readyMock,
+      reviewer: {
+        summary: "same non-blocking follow-up",
+        findings: [
+          {
+            file: "docs/task.md",
+            issue: "Documentation should mention the new behavior",
+            suggestion: "File docs follow-up",
+            severity: "nit",
+          },
+        ],
+      },
+    });
+
+    expect(summary.stopReason).toBe("completed");
+    expect(createIssueMock).not.toHaveBeenCalled();
+    expect(readyMock).toHaveBeenCalledWith(expect.any(String), "BW-100");
+    const registry = await loadWorkerRegistry(registryPath);
+    expect(registry).toHaveLength(1);
+    expect(registry[0]).toMatchObject({ status: "verified" });
   });
 
   it("rejects invalid scope review feedback and completes", async () => {

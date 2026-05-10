@@ -5098,11 +5098,35 @@ async function listScopeReviewTasks(input: {
   adapter: BeadworkAdapter;
   epicId: string;
 }): Promise<BeadworkIssue[]> {
+  const parentMarker = `Parent epic: ${input.epicId}`;
+  const belongsToEpic = (issue: BeadworkIssue): boolean =>
+    issue.parentId === input.epicId ||
+    issue.description
+      .split(/\r?\n/)
+      .some((line) => line === parentMarker || line.startsWith(`${parentMarker} `));
+  const byId = new Map<string, BeadworkIssue>();
+
   try {
-    return await input.adapter.list(input.cwd, { parent: input.epicId, all: true });
+    for (const issue of await input.adapter.list(input.cwd, { parent: input.epicId, all: true })) {
+      if (belongsToEpic(issue)) {
+        byId.set(issue.id, issue);
+      }
+    }
   } catch {
-    return [];
+    // Fall through to the repo-wide lookup below. Older or mocked adapters may not support parent filters.
   }
+
+  try {
+    for (const issue of await input.adapter.list(input.cwd, { all: true })) {
+      if (issue.description.includes("scope-review-finding-signature:") && belongsToEpic(issue)) {
+        byId.set(issue.id, issue);
+      }
+    }
+  } catch {
+    // If the repo-wide lookup fails, return any scoped children we already collected.
+  }
+
+  return [...byId.values()];
 }
 
 function findScopeReviewTaskBySignature(
@@ -5347,7 +5371,7 @@ async function handleScopeCompletionReview(input: {
       }),
       type: "task",
       priority: task.blocking ? 1 : 3,
-      parentId: input.epic.id,
+      ...(task.blocking ? { parentId: input.epic.id } : {}),
     });
     createdIssueIds.push(created.issue.id);
   }
