@@ -9,9 +9,15 @@
   "id": "sbdpi-qmd.5",
   "labels": [],
   "parent": "sbdpi-qmd",
+  "comments": [
+    {
+      "text": "All Phase 5 children are closed and final regression gates passed in sbdpi-qmd.5.5. Closing Phase 5.",
+      "timestamp": "2026-05-10T02:11:16Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Phase 5: Hardening — default flip, UI, docs, crash recovery, final regression",
   "type": "epic",
-  "updated_at": "2026-05-08T23:33:38Z"
+  "updated_at": "2026-05-10T02:11:16Z"
 }
