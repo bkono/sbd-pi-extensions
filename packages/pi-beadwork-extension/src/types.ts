@@ -405,6 +405,10 @@ export type WorkerSummary = {
   failed: number;
   attention: number;
   cleaned: number;
+  worktree?: number;
+  currentBranch?: number;
+  activeWorktree?: number;
+  activeCurrentBranch?: number;
 };
 
 export type RunOptions = {

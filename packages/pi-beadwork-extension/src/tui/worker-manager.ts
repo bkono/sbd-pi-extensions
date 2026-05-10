@@ -5,6 +5,7 @@ import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { summarizeWorkers } from "../registry.js";
 import {
   type ActivationState,
+  isCurrentBranchWorker,
   isSuccessfulTerminalWorker,
   isWorktreeWorker,
   type SessionState,
@@ -119,6 +120,14 @@ function formatTmuxTarget(worker: WorkerRuntime): string {
 function clamp(text: string, width: number): string {
   return truncateToWidth(text, Math.max(14, width), "…");
 }
+
+function modeBadge(theme: Theme, worker: WorkerRuntime): string {
+  return styledDim(theme, `[${worker.executionMode}]`);
+}
+
+function formatModeCounts(summary: ReturnType<typeof summarizeWorkers>): string {
+  return `current-branch=${summary.currentBranch ?? 0} worktree=${summary.worktree ?? 0}`;
+}
 function formatWorkerListEntry(
   theme: Theme,
   entry: WorkerManagerEntry,
@@ -127,7 +136,7 @@ function formatWorkerListEntry(
 ): string[] {
   const marker = selectionMarker(theme, selected);
   return [
-    `${marker} ${styledLabel(theme, entry.worker.ticketId)} · ${workerStatusStyle(theme, entry.worker.status)}`,
+    `${marker} ${styledLabel(theme, entry.worker.ticketId)} ${modeBadge(theme, entry.worker)} · ${workerStatusStyle(theme, entry.worker.status)}`,
     `  ${clamp(entry.worker.ticketTitle, Math.max(18, width - 4))}`,
   ];
 }
@@ -366,7 +375,7 @@ function buildGroupSummaryLines(
           : group.label;
       return [
         `${marker} ${label}`,
-        `  ${group.summary.total} total · ${group.summary.active > 0 ? styledAccent(theme, `${group.summary.active} active`) : styledDim(theme, "0 active")} · ${group.summary.successfulTerminal > 0 ? styledAccent(theme, `${group.summary.successfulTerminal} done`) : styledDim(theme, "0 done")} · ${group.attention > 0 ? styledWarning(theme, `${group.attention} attention`) : styledDim(theme, "0 attention")}`,
+        `  ${group.summary.total} total · ${group.summary.active > 0 ? styledAccent(theme, `${group.summary.active} active`) : styledDim(theme, "0 active")} · ${group.summary.successfulTerminal > 0 ? styledAccent(theme, `${group.summary.successfulTerminal} done`) : styledDim(theme, "0 done")} · ${group.attention > 0 ? styledWarning(theme, `${group.attention} attention`) : styledDim(theme, "0 attention")} · ${formatModeCounts(group.summary)}`,
         "",
       ];
     }),
@@ -415,7 +424,7 @@ export function buildWorkerDetailLines(
   const { worker, inspection } = entry;
   return [
     sectionTitle(theme, "Selected worker"),
-    `${styledLabel(theme, worker.ticketId)} · ${workerStatusStyle(theme, worker.status)} · ticket ${worker.ticketStatus ?? "unknown"}`,
+    `${styledLabel(theme, worker.ticketId)} ${modeBadge(theme, worker)} · ${workerStatusStyle(theme, worker.status)} · ticket ${worker.ticketStatus ?? "unknown"}`,
     clamp(worker.ticketTitle, width),
     "",
     sectionTitle(theme, "Checks"),
@@ -425,11 +434,17 @@ export function buildWorkerDetailLines(
     kv(theme, "Next", inspection.followUp.action),
     "",
     sectionTitle(theme, "Refs"),
+    kv(theme, "executionMode", worker.executionMode),
     kv(theme, "tmux", clamp(formatTmuxTarget(worker), width - 5)),
     kv(theme, "log", path.basename(worker.logFile) || worker.logFile),
-    isWorktreeWorker(worker)
-      ? kv(theme, "worktree", path.basename(worker.worktreePath) || worker.worktreePath)
-      : kv(theme, "checkout", path.basename(worker.checkoutPath) || worker.checkoutPath),
+    kv(theme, "checkoutPath", clamp(worker.checkoutPath, width - 14)),
+    kv(theme, "branchName", worker.branchName),
+    ...(isCurrentBranchWorker(worker)
+      ? [kv(theme, "launchHead", worker.launchHead)]
+      : [
+          kv(theme, "worktree", path.basename(worker.worktreePath) || worker.worktreePath),
+          kv(theme, "worktreePath", clamp(worker.worktreePath, width - 13)),
+        ]),
   ];
 }
 
@@ -539,7 +554,7 @@ class WorkerManagerComponent implements Component {
         this.model.epicId
           ? kv(this.theme, "Filter", `epic ${styledAccent(this.theme, this.model.epicId)}`)
           : kv(this.theme, "Filter", styledDim(this.theme, "all workers")),
-        `${kv(this.theme, "Summary", `total=${summary.total}`)} active=${summary.active} held=${summary.held} done=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} failed=${summary.failed}`,
+        `${kv(this.theme, "Summary", `total=${summary.total}`)} active=${summary.active} held=${summary.held} done=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} failed=${summary.failed} modes=${formatModeCounts(summary)}`,
       ],
       sections: [{ lines: bodyLines }],
       footer: buildWorkerFooterHint(this.entries[this.selectedIndex]),

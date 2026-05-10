@@ -940,6 +940,7 @@ describe("pi beadwork extension", () => {
     expect(message).toContain(
       "Launched worktree worker bw-101-worker for BW-101 in the background",
     );
+    expect(message).toContain("[worktree]");
     expect(message).toContain("at worktreePath");
     expect(message).toContain("stay in the current pane");
     expect(message).toContain("background supervision keeps checking every 30s");
@@ -980,6 +981,7 @@ describe("pi beadwork extension", () => {
     expect(message).toContain(
       "Launched current-branch worker bw-101-worker for BW-101 in the background",
     );
+    expect(message).toContain("[current-branch]");
     expect(message).toContain(`checkoutPath ${tempDir} (repo root)`);
     expect(message).not.toContain("worktreePath");
   });
@@ -1257,6 +1259,7 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications.at(-1)?.message).toContain(
       "Delegated ticket BW-101 completed successfully",
     );
+    expect(ui.notifications.at(-1)?.message).toContain("[worktree]");
 
     const persisted = await loadSessionState(stateDir, "session-worker-tracking");
     expect(persisted.trackedWorkerIds).toBeUndefined();
@@ -1365,6 +1368,7 @@ describe("pi beadwork extension", () => {
         entry.message.includes("Delegated ticket BW-101 completed successfully"),
       ),
     ).toBe(true);
+    expect(ui.notifications.some((entry) => entry.message.includes("[worktree]"))).toBe(true);
 
     const persisted = await loadSessionState(stateDir, "session-background-worker-tracking");
     expect(persisted.trackedWorkerIds).toBeUndefined();

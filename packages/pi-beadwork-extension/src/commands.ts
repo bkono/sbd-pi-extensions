@@ -3,6 +3,7 @@ import { summarizeWorkers } from "./registry.js";
 import type {
   ActivationState,
   AdoptionPlan,
+  BeadworkConfig,
   BeadworkCounts,
   BeadworkHistoryEntry,
   BeadworkIssue,
@@ -44,12 +45,19 @@ function formatIssueLine(issue: BeadworkIssue): string {
   return `- ${bits.join(" · ")}`;
 }
 
+function formatWorkerModeSummary(summary: WorkerSummary): string {
+  const currentBranch = summary.currentBranch ?? 0;
+  const worktree = summary.worktree ?? 0;
+  return `modes current-branch=${currentBranch} worktree=${worktree}`;
+}
+
 export function formatStatusLines(input: {
   activation: ActivationState;
   state: SessionState;
   counts?: BeadworkCounts;
   scopeDetail?: BeadworkIssueDetail;
   workerSummary?: WorkerSummary;
+  config?: BeadworkConfig;
 }): string[] {
   const { activation, state, counts, scopeDetail, workerSummary } = input;
 
@@ -59,6 +67,9 @@ export function formatStatusLines(input: {
     `Scope: ${describeScope(state)}`,
     `Updated: ${state.updatedAt}`,
   ];
+  if (input.config) {
+    lines.push(`Default execution mode: ${input.config.workerExecution.mode}`);
+  }
 
   if (state.engagedAt) {
     lines.push(`Engaged: ${state.engagedAt}`);
@@ -79,7 +90,7 @@ export function formatStatusLines(input: {
 
   if (workerSummary && workerSummary.total > 0) {
     lines.push(
-      `Workers: total=${workerSummary.total} active=${workerSummary.active} held=${workerSummary.held} completed=${workerSummary.successfulTerminal} landed=${workerSummary.landed} verified=${workerSummary.verified} cleaned=${workerSummary.cleaned} failed=${workerSummary.failed} attention=${workerSummary.attention} exited=${workerSummary.exited}`,
+      `Workers: total=${workerSummary.total} active=${workerSummary.active} held=${workerSummary.held} completed=${workerSummary.successfulTerminal} landed=${workerSummary.landed} verified=${workerSummary.verified} cleaned=${workerSummary.cleaned} failed=${workerSummary.failed} attention=${workerSummary.attention} exited=${workerSummary.exited} · ${formatWorkerModeSummary(workerSummary)}`,
     );
   }
 
@@ -110,6 +121,7 @@ export async function showStatus(
     counts?: BeadworkCounts;
     scopeDetail?: BeadworkIssueDetail;
     workerSummary?: WorkerSummary;
+    config?: BeadworkConfig;
   },
 ): Promise<void> {
   ctx.ui.notify(formatStatusLines(input).join("\n"), "info");
@@ -267,7 +279,7 @@ export async function showWorkers(
 
   const lines = [
     epicId ? `Workers for ${epicId}:` : "Workers:",
-    `Summary: total=${summary.total} active=${summary.active} launching=${summary.launching} running=${summary.running} held=${summary.held} completed=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} exited=${summary.exited} failed=${summary.failed} attention=${attention} cleaned=${summary.cleaned}`,
+    `Summary: total=${summary.total} active=${summary.active} launching=${summary.launching} running=${summary.running} held=${summary.held} completed=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} exited=${summary.exited} failed=${summary.failed} attention=${attention} cleaned=${summary.cleaned} · ${formatWorkerModeSummary(summary)}`,
     "",
   ];
 
@@ -287,7 +299,7 @@ export async function showRunSummary(
     `Stop reason: ${summary.stopReason}`,
     `Cycles: ${summary.cycles}`,
     `Launched: ${summary.launched.length > 0 ? summary.launched.join(", ") : "none"}`,
-    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} held=${summary.workerSummary.held} completed=${summary.workerSummary.successfulTerminal} landed=${summary.workerSummary.landed} verified=${summary.workerSummary.verified} cleaned=${summary.workerSummary.cleaned} failed=${summary.workerSummary.failed} attention=${summary.workerSummary.attention} exited=${summary.workerSummary.exited}`,
+    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} held=${summary.workerSummary.held} completed=${summary.workerSummary.successfulTerminal} landed=${summary.workerSummary.landed} verified=${summary.workerSummary.verified} cleaned=${summary.workerSummary.cleaned} failed=${summary.workerSummary.failed} attention=${summary.workerSummary.attention} exited=${summary.workerSummary.exited} · ${formatWorkerModeSummary(summary.workerSummary)}`,
   ];
 
   for (const note of summary.notes) {

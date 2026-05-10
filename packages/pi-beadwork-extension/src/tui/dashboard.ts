@@ -5,6 +5,7 @@ import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { IssueExplorerFilter } from "../actions/issues.js";
 import type {
   ActivationState,
+  BeadworkConfig,
   BeadworkCounts,
   BeadworkIssueDetail,
   SessionState,
@@ -48,6 +49,7 @@ export type DashboardStatusSnapshot = {
   scopeDetail?: BeadworkIssueDetail;
   workerSummary?: WorkerSummary;
   workers?: WorkerRuntime[];
+  config?: BeadworkConfig;
 };
 
 export type DashboardModel = DashboardStatusSnapshot & {
@@ -144,6 +146,13 @@ function describeCounts(theme: Theme, counts?: BeadworkCounts): string | undefin
   ].join(" · ");
 }
 
+function describeWorkerModes(theme: Theme, workerSummary?: WorkerSummary): string | undefined {
+  if (!workerSummary || workerSummary.total === 0) {
+    return undefined;
+  }
+  return `${styledLabel(theme, "modes")} ${styledDim(theme, "current-branch")} ${styledAccent(theme, String(workerSummary.currentBranch ?? 0))} ${styledDim(theme, "worktree")} ${styledAccent(theme, String(workerSummary.worktree ?? 0))}`;
+}
+
 function describeWorkerSummary(theme: Theme, workerSummary?: WorkerSummary): string | undefined {
   if (!workerSummary || workerSummary.total === 0) {
     return undefined;
@@ -160,7 +169,10 @@ function describeWorkerSummary(theme: Theme, workerSummary?: WorkerSummary): str
     sw(workerSummary.verified, "verified", styledSuccess),
     sw(workerSummary.failed, "failed", styledError),
     sw(workerSummary.attention, "attention", styledWarning),
-  ].join(" · ");
+    describeWorkerModes(theme, workerSummary),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
 }
 
 function buildFooterHint(

@@ -304,11 +304,16 @@ function buildLifecycleEventNotice(event: WorkerLifecycleEvent): {
   }
 }
 
+function workerModeNotice(worker: WorkerRuntime): string {
+  return `[${worker.executionMode}]`;
+}
+
 function buildWorkerNotice(input: {
   worker: WorkerRuntime;
   inspection: ReturnType<typeof inspectWorker>;
 }): { key: string; level: "info" | "warning"; message: string } | undefined {
   const { worker, inspection } = input;
+  const mode = workerModeNotice(worker);
   const key = [
     worker.status,
     worker.ticketStatus ?? "",
@@ -340,7 +345,7 @@ function buildWorkerNotice(input: {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} has an explicit landing request in flight. ${inspection.followUp.action}${detail}`.trim(),
+        `Delegated ticket ${worker.ticketId} ${mode} has an explicit landing request in flight. ${inspection.followUp.action}${detail}`.trim(),
     };
   }
 
@@ -349,7 +354,7 @@ function buildWorkerNotice(input: {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} failed validation, and an automatic remediation pass is now running in the existing worktree. ` +
+        `Delegated ticket ${worker.ticketId} ${mode} failed validation, and an automatic remediation pass is now running in the existing worktree. ` +
         `Follow streamed worker activity in ${worker.logFile}.`,
     };
   }
@@ -359,7 +364,7 @@ function buildWorkerNotice(input: {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} is remediating reviewer-requested changes before merge-back. ` +
+        `Delegated ticket ${worker.ticketId} ${mode} is remediating reviewer-requested changes before merge-back. ` +
         `Follow streamed worker activity in ${worker.logFile}.`,
     };
   }
@@ -368,7 +373,7 @@ function buildWorkerNotice(input: {
     return {
       key,
       level: "info",
-      message: `Delegated ticket ${worker.ticketId} was closed in the worker and is waiting for process exit so landing can be verified.`,
+      message: `Delegated ticket ${worker.ticketId} ${mode} was closed in the worker and is waiting for process exit so landing can be verified.`,
     };
   }
 
@@ -376,7 +381,7 @@ function buildWorkerNotice(input: {
     return {
       key,
       level: "warning",
-      message: `Delegated ticket ${worker.ticketId} failed. ${inspection.followUp.action}`,
+      message: `Delegated ticket ${worker.ticketId} ${mode} failed. ${inspection.followUp.action}`,
     };
   }
 
@@ -384,7 +389,7 @@ function buildWorkerNotice(input: {
     return {
       key,
       level: "warning",
-      message: `Delegated ticket ${worker.ticketId} needs attention. ${inspection.followUp.action}`,
+      message: `Delegated ticket ${worker.ticketId} ${mode} needs attention. ${inspection.followUp.action}`,
     };
   }
 
@@ -393,7 +398,7 @@ function buildWorkerNotice(input: {
       return {
         key,
         level: "warning",
-        message: `Delegated ticket ${worker.ticketId} exited before the ticket was closed. ${inspection.followUp.action}`,
+        message: `Delegated ticket ${worker.ticketId} ${mode} exited before the ticket was closed. ${inspection.followUp.action}`,
       };
     }
 
@@ -402,7 +407,7 @@ function buildWorkerNotice(input: {
       key,
       level: "warning",
       message:
-        `Delegated ticket ${worker.ticketId} finished, but landing still needs review. ${inspection.followUp.action}${detail}`.trim(),
+        `Delegated ticket ${worker.ticketId} ${mode} finished, but landing still needs review. ${inspection.followUp.action}${detail}`.trim(),
     };
   }
 
@@ -418,7 +423,7 @@ function buildWorkerNotice(input: {
         key,
         level: "info",
         message:
-          `Delegated ticket ${worker.ticketId} is validated and held in deferred-landing mode.${review} ` +
+          `Delegated ticket ${worker.ticketId} ${mode} is validated and held in deferred-landing mode.${review} ` +
           `It is ready to land when requested with /bw land ${worker.ticketId}.`,
       };
     }
@@ -428,7 +433,7 @@ function buildWorkerNotice(input: {
         key,
         level: "warning",
         message:
-          `Delegated ticket ${worker.ticketId} is validated and held, but repo drift means it needs refresh before merge-back. ` +
+          `Delegated ticket ${worker.ticketId} ${mode} is validated and held, but repo drift means it needs refresh before merge-back. ` +
           inspection.followUp.action,
       };
     }
@@ -436,7 +441,7 @@ function buildWorkerNotice(input: {
     return {
       key,
       level: "warning",
-      message: `Delegated ticket ${worker.ticketId} is held and needs attention. ${inspection.followUp.action}`,
+      message: `Delegated ticket ${worker.ticketId} ${mode} is held and needs attention. ${inspection.followUp.action}`,
     };
   }
 
@@ -444,7 +449,7 @@ function buildWorkerNotice(input: {
     return {
       key,
       level: "info",
-      message: `Delegated ticket ${worker.ticketId} completed successfully: current branch verified. ${inspection.followUp.action}`,
+      message: `Delegated ticket ${worker.ticketId} completed successfully ${mode}: current branch verified. ${inspection.followUp.action}`,
     };
   }
   if (worker.status === "landed") {
@@ -452,7 +457,7 @@ function buildWorkerNotice(input: {
       return {
         key,
         level: "warning",
-        message: `Delegated ticket ${worker.ticketId} appears integrated, but validation is still pending. ${inspection.followUp.action}`,
+        message: `Delegated ticket ${worker.ticketId} ${mode} appears integrated, but validation is still pending. ${inspection.followUp.action}`,
       };
     }
 
@@ -460,7 +465,7 @@ function buildWorkerNotice(input: {
       return {
         key,
         level: "warning",
-        message: `Delegated ticket ${worker.ticketId} appears integrated, but validation failed. ${inspection.followUp.action}`,
+        message: `Delegated ticket ${worker.ticketId} ${mode} appears integrated, but validation failed. ${inspection.followUp.action}`,
       };
     }
 
@@ -469,7 +474,7 @@ function buildWorkerNotice(input: {
         key,
         level: "info",
         message:
-          `Delegated ticket ${worker.ticketId} completed successfully: validation passed, ` +
+          `Delegated ticket ${worker.ticketId} completed successfully ${mode}: validation passed, ` +
           "changes were merged back into the repo branch, and cleanup completed.",
       };
     }
@@ -478,7 +483,7 @@ function buildWorkerNotice(input: {
       return {
         key,
         level: "warning",
-        message: `Delegated ticket ${worker.ticketId} landed, but cleanup failed. ${inspection.followUp.action}`,
+        message: `Delegated ticket ${worker.ticketId} ${mode} landed, but cleanup failed. ${inspection.followUp.action}`,
       };
     }
 
@@ -494,7 +499,7 @@ function buildWorkerNotice(input: {
       key,
       level: "info",
       message:
-        `Delegated ticket ${worker.ticketId} completed successfully: changes were merged back into the repo branch.${validation}${review} ${inspection.followUp.action}`.trim(),
+        `Delegated ticket ${worker.ticketId} completed successfully ${mode}: changes were merged back into the repo branch.${validation}${review} ${inspection.followUp.action}`.trim(),
     };
   }
 
@@ -792,6 +797,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     scopeDetail?: BeadworkIssueDetail;
     workerSummary?: WorkerSummary;
     workers?: WorkerRuntime[];
+    config?: BeadworkConfig;
   }> {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
@@ -828,7 +834,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
 
     updateStatusline(ctx, activation, state, config, workerSummary);
 
-    return { activation, state, counts, scopeDetail, workerSummary, workers };
+    return { activation, state, counts, scopeDetail, workerSummary, workers, config };
   }
 
   async function resetState(ctx: ExtensionCommandContext): Promise<SessionState> {

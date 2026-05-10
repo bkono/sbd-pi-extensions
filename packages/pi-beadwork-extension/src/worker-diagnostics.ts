@@ -620,7 +620,7 @@ export function inspectWorker(worker: WorkerRuntime): WorkerInspection {
 export function formatWorkerInspectionLines(inspection: WorkerInspection): string[] {
   const worker = inspection.runtime;
   const lines = [
-    `- ${worker.ticketId} · ${worker.status} · ${worker.ticketTitle}`,
+    `- ${worker.ticketId} [${worker.executionMode}] · ${worker.status} · ${worker.ticketTitle}`,
     `  Worker: ${worker.workerId} · pane:${worker.tmuxPane}`,
     `  Ticket: ${worker.ticketStatus ?? "unknown"} · validation:${inspection.validation.summary} · review:${inspection.review.summary} · landing:${inspection.landing.summary} · cleanup:${inspection.cleanup.summary}`,
     `  Next: ${inspection.followUp.action}`,

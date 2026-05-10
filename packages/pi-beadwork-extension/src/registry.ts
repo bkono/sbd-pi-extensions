@@ -356,9 +356,24 @@ export function summarizeWorkers(workers: WorkerRuntime[]): WorkerSummary {
     failed: 0,
     attention: 0,
     cleaned: 0,
+    worktree: 0,
+    currentBranch: 0,
+    activeWorktree: 0,
+    activeCurrentBranch: 0,
   };
 
   for (const worker of workers) {
+    if (worker.executionMode === "worktree") {
+      summary.worktree = (summary.worktree ?? 0) + 1;
+      if (worker.status === "launching" || worker.status === "running") {
+        summary.activeWorktree = (summary.activeWorktree ?? 0) + 1;
+      }
+    } else {
+      summary.currentBranch = (summary.currentBranch ?? 0) + 1;
+      if (worker.status === "launching" || worker.status === "running") {
+        summary.activeCurrentBranch = (summary.activeCurrentBranch ?? 0) + 1;
+      }
+    }
     if (isSuccessfulTerminalWorker(worker)) {
       summary.successfulTerminal += 1;
       if (worker.cleanupStatus === "cleaned") {

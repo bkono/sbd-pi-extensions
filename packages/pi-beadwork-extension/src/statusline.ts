@@ -10,6 +10,25 @@ function renderScope(scope: SessionState["scope"]): string | undefined {
   return `${scope.kind} ${scope.id}`;
 }
 
+function renderWorkerModeIndicator(workerSummary?: WorkerSummary): string | undefined {
+  if (!workerSummary || workerSummary.active <= 0) {
+    return undefined;
+  }
+
+  const currentBranch = workerSummary.activeCurrentBranch ?? 0;
+  const worktree = workerSummary.activeWorktree ?? 0;
+  if (currentBranch > 0 && worktree > 0) {
+    return `current-branch ${currentBranch} worktree ${worktree}`;
+  }
+  if (currentBranch > 0) {
+    return `current-branch ${currentBranch}`;
+  }
+  if (worktree > 0) {
+    return `worktree ${worktree}`;
+  }
+  return undefined;
+}
+
 export function renderStatusText(
   ctx: ExtensionContext,
   activation: ActivationState,
@@ -31,6 +50,10 @@ export function renderStatusText(
     }
     if (workerSummary && workerSummary.active > 0) {
       parts.push(theme.fg("muted", `· workers ${workerSummary.active}`));
+    }
+    const modeIndicator = renderWorkerModeIndicator(workerSummary);
+    if (modeIndicator) {
+      parts.push(theme.fg("muted", `· ${modeIndicator}`));
     }
     if (workerSummary && workerSummary.successfulTerminal > 0) {
       parts.push(theme.fg("success", `· done ${workerSummary.successfulTerminal}`));

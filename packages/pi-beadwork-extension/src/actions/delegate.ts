@@ -38,13 +38,13 @@ export type DelegateActionDeps = {
 function describeDelegateLaunch(worker: WorkerRuntime): string {
   if (worker.executionMode === "worktree") {
     return (
-      `Launched worktree worker ${worker.workerId} for ${worker.ticketId} in the background ` +
+      `Launched worktree worker ${worker.workerId} for ${worker.ticketId} in the background [worktree] ` +
       `at worktreePath ${worker.worktreePath}.`
     );
   }
 
   return (
-    `Launched current-branch worker ${worker.workerId} for ${worker.ticketId} in the background ` +
+    `Launched current-branch worker ${worker.workerId} for ${worker.ticketId} in the background [current-branch] ` +
     `in the current branch checkout at checkoutPath ${worker.checkoutPath} (repo root).`
   );
 }
