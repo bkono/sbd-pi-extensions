@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-12T18:10:22Z",
+  "close_reason": "Implemented beadwork_worker_done with same-session self-review, final ctx.shutdown terminal flow, launch env wiring, config/docs/tests, and full validation passing.",
   "created": "2026-05-12T17:32:13Z",
   "description": "Implement a deterministic worker-done/self-review flow that reuses the existing worker pane/process lifecycle: first completion triggers an in-context self-review prompt, final completion lets the worker exit normally so the pane closes as it already does.",
   "id": "sbdpi-5nx",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add in-worker completion self-review handoff",
   "type": "task",
-  "updated_at": "2026-05-12T17:32:16Z"
+  "updated_at": "2026-05-12T18:10:22Z"
 }
