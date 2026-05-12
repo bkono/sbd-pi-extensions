@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-12T17:32:13Z",
+  "description": "Implement a deterministic worker-done/self-review flow that reuses the existing worker pane/process lifecycle: first completion triggers an in-context self-review prompt, final completion lets the worker exit normally so the pane closes as it already does.",
+  "id": "sbdpi-5nx",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Add in-worker completion self-review handoff",
+  "type": "task",
+  "updated_at": "2026-05-12T17:32:13Z"
+}
