@@ -102,7 +102,9 @@ The launch notice includes:
     "allowDetachedHead": false,
     "review": {
       "enabled": true
-    }
+    },
+    "selfReview": {
+      "enabled": true
   }
 }
 ```
@@ -130,6 +132,7 @@ pi
 
 `workerExecution.review.enabled` controls current-branch per-worker review.
 `landing.review.enabled` controls worktree landing review; it does not disable current-branch review.
+`workerExecution.selfReview.enabled` controls the same-worker completion review gate; set `PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED=0` to disable it.
 Current-branch launch rejects detached HEAD unless `workerExecution.allowDetachedHead` is true.
 
 ## `/bw workers`

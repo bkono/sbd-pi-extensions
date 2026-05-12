@@ -263,7 +263,11 @@ function buildWorkerScript(input: {
   stateFile: string;
   exitCodeFile: string;
   finishedAtFile: string;
+  env?: Record<string, string>;
 }): string {
+  const environmentLines = Object.entries(input.env ?? {})
+    .map(([key, value]) => `export ${key}=${shellQuote(value)}`)
+    .join("\n");
   return `#!/usr/bin/env bash
 set -uo pipefail
 exec > >(tee -a ${shellQuote(input.logFile)}) 2>&1
@@ -272,6 +276,7 @@ printf '[beadwork worker] cwd: %s\n' "$PWD"
 printf '[beadwork worker] handoff: %s\n' ${shellQuote(input.promptFile)}
 printf '[beadwork worker] command: %s\n' ${shellQuote(input.workerAgentCommand)}
 printf 'running\n' > ${shellQuote(input.stateFile)}
+${environmentLines}
 ${input.workerAgentCommand} "$(cat ${shellQuote(input.promptFile)})"
 status=$?
 printf '%s\n' "$status" > ${shellQuote(input.exitCodeFile)}
@@ -285,6 +290,22 @@ printf '[beadwork worker] finished %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 printf '[beadwork worker exited with code %s]\n' "$status"
 exit "$status"
 `;
+}
+
+function buildWorkerEnvironment(input: {
+  workerId: string;
+  ticketId: string;
+  runtimeDir: string;
+  registryPath: string;
+  selfReviewEnabled: boolean;
+}): Record<string, string> {
+  return {
+    PI_BEADWORK_WORKER_ID: input.workerId,
+    PI_BEADWORK_TICKET_ID: input.ticketId,
+    PI_BEADWORK_WORKER_RUNTIME_DIR: input.runtimeDir,
+    PI_BEADWORK_WORKER_REGISTRY_FILE: input.registryPath,
+    PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED: input.selfReviewEnabled ? "1" : "0",
+  };
 }
 
 async function appendWorkerLog(logFile: string, message: string): Promise<void> {
@@ -1549,6 +1570,13 @@ async function launchCurrentBranchCrashReplacement(input: {
   const finishedAtFile = path.join(runtimeDir, "finished-at.txt");
   const scriptFile = path.join(runtimeDir, "launch.sh");
   const workerAgentCommand = buildWorkerAgentCommand(input.config, input.deadWorker);
+  const workerEnv = buildWorkerEnvironment({
+    workerId,
+    ticketId: input.ticket.id,
+    runtimeDir,
+    registryPath,
+    selfReviewEnabled: input.config.workerExecution.selfReview.enabled,
+  });
   await writeFile(promptFile, `${prompt}\n`, "utf8");
   await writeFile(
     scriptFile,
@@ -1559,6 +1587,7 @@ async function launchCurrentBranchCrashReplacement(input: {
       stateFile,
       exitCodeFile,
       finishedAtFile,
+      env: workerEnv,
     }),
     "utf8",
   );
@@ -1595,6 +1624,7 @@ async function launchCurrentBranchCrashReplacement(input: {
     reviewerModel: input.deadWorker.reviewerModel,
     landingPolicy: input.deadWorker.landingPolicy,
     reviewStatus: input.config.workerExecution.review.enabled ? "pending" : undefined,
+    selfReviewStatus: input.config.workerExecution.selfReview.enabled ? "pending" : "skipped",
     status: "launching",
     startedAt: now,
     updatedAt: now,
@@ -2306,6 +2336,16 @@ async function relaunchCurrentBranchWorkerForCoordinatorFixes(input: {
       stateFile: worker.stateFile,
       exitCodeFile: worker.exitCodeFile,
       finishedAtFile: worker.finishedAtFile,
+      env: buildWorkerEnvironment({
+        workerId: worker.workerId,
+        ticketId: worker.ticketId,
+        runtimeDir: worker.runtimeDir,
+        registryPath: resolveWorkerRegistryPath(
+          context.repoRoot ?? context.cwd,
+          context.config.storage.workerRegistryFile,
+        ),
+        selfReviewEnabled: context.config.workerExecution.selfReview.enabled,
+      }),
     }),
     "utf8",
   );
@@ -2707,6 +2747,7 @@ async function relaunchWorkerForValidationFailure(input: {
   config: BeadworkConfig;
   tmuxBackend: TmuxBackend;
   validationDetail: string;
+  registryPath: string;
 }): Promise<WorkerRuntime> {
   const remediationAttempt = (input.worker.remediationAttempts ?? 0) + 1;
   const remediationPrompt = buildValidationRemediationPrompt({
@@ -2726,6 +2767,13 @@ async function relaunchWorkerForValidationFailure(input: {
       stateFile: input.worker.stateFile,
       exitCodeFile: input.worker.exitCodeFile,
       finishedAtFile: input.worker.finishedAtFile,
+      env: buildWorkerEnvironment({
+        workerId: input.worker.workerId,
+        ticketId: input.worker.ticketId,
+        runtimeDir: input.worker.runtimeDir,
+        registryPath: input.registryPath,
+        selfReviewEnabled: input.config.workerExecution.selfReview.enabled,
+      }),
     }),
     "utf8",
   );
@@ -2785,6 +2833,7 @@ async function relaunchWorkerForLandingFailure(input: {
   config: BeadworkConfig;
   tmuxBackend: TmuxBackend;
   rebaseDetail: string;
+  registryPath: string;
 }): Promise<WorkerRuntime> {
   const remediationAttempt = (input.worker.landingRemediationAttempts ?? 0) + 1;
   const remediationPrompt = buildLandingRemediationPrompt({
@@ -2804,6 +2853,13 @@ async function relaunchWorkerForLandingFailure(input: {
       stateFile: input.worker.stateFile,
       exitCodeFile: input.worker.exitCodeFile,
       finishedAtFile: input.worker.finishedAtFile,
+      env: buildWorkerEnvironment({
+        workerId: input.worker.workerId,
+        ticketId: input.worker.ticketId,
+        runtimeDir: input.worker.runtimeDir,
+        registryPath: input.registryPath,
+        selfReviewEnabled: input.config.workerExecution.selfReview.enabled,
+      }),
     }),
     "utf8",
   );
@@ -2879,6 +2935,7 @@ async function relaunchWorkerForReviewFeedback(input: {
   tmuxBackend: TmuxBackend;
   reviewSummary: string;
   validFeedback: ReviewFeedbackItem[];
+  registryPath: string;
 }): Promise<WorkerRuntime> {
   const remediationAttempt = (input.worker.reviewRemediationAttempts ?? 0) + 1;
   const remediationPrompt = buildReviewRemediationPrompt({
@@ -2900,6 +2957,13 @@ async function relaunchWorkerForReviewFeedback(input: {
       stateFile: input.worker.stateFile,
       exitCodeFile: input.worker.exitCodeFile,
       finishedAtFile: input.worker.finishedAtFile,
+      env: buildWorkerEnvironment({
+        workerId: input.worker.workerId,
+        ticketId: input.worker.ticketId,
+        runtimeDir: input.worker.runtimeDir,
+        registryPath: input.registryPath,
+        selfReviewEnabled: input.config.workerExecution.selfReview.enabled,
+      }),
     }),
     "utf8",
   );
@@ -3341,6 +3405,10 @@ async function autoLandCompletedWorker(input: {
   const attempts = Math.max(1, input.config.landing.maxRebaseAttempts);
   const validationRequired = input.config.landing.validateCommands.length > 0;
   const landingPolicy = resolveLandingPolicy(input.config, input.worker);
+  const registryPath = resolveWorkerRegistryPath(
+    input.repoRoot,
+    input.config.storage.workerRegistryFile,
+  );
   const deferLanding = landingPolicy === "deferred" && input.requestLanding !== true;
 
   if (deferLanding && input.worker.status === "held") {
@@ -3478,6 +3546,7 @@ async function autoLandCompletedWorker(input: {
               config: input.config,
               tmuxBackend: input.tmuxBackend,
               rebaseDetail: rebase.detail,
+              registryPath,
             });
           } catch (error) {
             return buildAttentionState(
@@ -3560,6 +3629,7 @@ async function autoLandCompletedWorker(input: {
               config: input.config,
               tmuxBackend: input.tmuxBackend,
               validationDetail: validation.detail,
+              registryPath,
             });
           } catch (error) {
             return buildAttentionState(
@@ -3767,6 +3837,7 @@ async function autoLandCompletedWorker(input: {
                 tmuxBackend: input.tmuxBackend,
                 reviewSummary: worker.reviewSummary ?? normalizedSummary,
                 validFeedback,
+                registryPath,
               });
             } catch (error) {
               return buildAttentionState(
@@ -4145,6 +4216,13 @@ export async function launchTicketWorker(input: {
   });
   const reviewerAgent = resolveReviewerAgentSettings(input.config, workerAgent);
   const workerAgentCommand = buildWorkerAgentCommand(input.config, workerAgent);
+  const workerEnv = buildWorkerEnvironment({
+    workerId,
+    ticketId: ticket.id,
+    runtimeDir,
+    registryPath,
+    selfReviewEnabled: input.config.workerExecution.selfReview.enabled,
+  });
 
   await writeFile(promptFile, `${prompt}\n`, "utf8");
   await writeFile(
@@ -4156,6 +4234,7 @@ export async function launchTicketWorker(input: {
       stateFile,
       exitCodeFile,
       finishedAtFile,
+      env: workerEnv,
     }),
     "utf8",
   );
@@ -4192,6 +4271,9 @@ export async function launchTicketWorker(input: {
     reviewerModel: reviewerAgent.workerModel,
     landingPolicy: input.config.landing.policy,
     reviewStatus: launchReviewEnabled ? ("pending" as const) : undefined,
+    selfReviewStatus: input.config.workerExecution.selfReview.enabled
+      ? ("pending" as const)
+      : ("skipped" as const),
     status: "launching" as const,
     startedAt: now,
     updatedAt: now,

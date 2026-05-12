@@ -34,6 +34,23 @@ function appendSharedHandoffContext(lines: string[], input: SharedHandoffContext
   }
 }
 
+export function buildWorkerSelfReviewPrompt(input: { ticketId: string }): string {
+  return [
+    "Before the coordinator accepts this worker as done, do one focused self-review pass in this same session.",
+    "You keep your first-pass context; use it, but verify the final result with fresh eyes.",
+    "",
+    "Self-review checklist:",
+    "- Re-read the ticket goal and compare it to the committed changes.",
+    "- Inspect the final diff/commits for bugs, missed files, accidental broad changes, stale docs, and weak tests.",
+    "- Run the relevant validation you can reasonably run from this checkout.",
+    "- Fix anything you find with focused commits that still reference the ticket.",
+    "- Leave or update the handoff comment with commits and validation results.",
+    "",
+    `After that pass is complete, call \`beadwork_worker_done\` again for ticket ${input.ticketId} with \`self_review_completed: true\`.`,
+    "Do not exit before making that second completion call.",
+  ].join("\n");
+}
+
 export function buildWorkerHandoff(input: {
   ticket: BeadworkIssueDetail;
   epic?: BeadworkIssueDetail;
@@ -60,7 +77,7 @@ export function buildWorkerHandoff(input: {
     "Rules:",
     "- Stay scoped to this ticket.",
     "- Do not expand into unrelated cleanup unless required to land this ticket.",
-    `- Land the work completely: commit your changes, run \`bw close ${input.ticket.id}\`, then \`bw sync\`.`,
+    `- Land the work completely: commit your changes, leave a concise \`bw comment ${input.ticket.id}\` handoff, then call \`beadwork_worker_done\` for ticket ${input.ticket.id}.`,
     "- If you need scratch notes or generated context files, keep them out of git-tracked worktree paths.",
     "- If blocked, stop and report the blocker clearly.",
   );
@@ -112,7 +129,7 @@ export function buildCurrentBranchHandoffPrompt(input: {
     "- Do not stash, reset, clean, discard, or otherwise manipulate unrelated checkout state; it may belong to another active worker.",
     "- Inspect `git diff -- <specific-files>` and `git status --short` before committing so each commit contains only ticket-scoped work.",
     `- Before exiting, leave a concise, natural handoff comment with \`bw comment ${input.ticket.id}\` that names status, commit SHAs when known, validation run/results, blockers, and useful follow-up recommendations.`,
-    `- When done, run \`bw close ${input.ticket.id}\`, then \`bw sync\`.`,
+    `- When done, call \`beadwork_worker_done\` for ticket ${input.ticket.id}; it will close/sync and either request one same-session self-review pass or shut this worker down.`,
     `- If blocked, explain the blocker in a \`bw comment ${input.ticket.id}\`, leave the ticket open, and exit so the coordinator can respond.`,
   );
 

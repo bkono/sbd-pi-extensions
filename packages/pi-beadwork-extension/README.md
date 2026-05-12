@@ -357,6 +357,9 @@ Current built-in defaults:
     "allowDetachedHead": false,
     "review": {
       "enabled": true
+    },
+    "selfReview": {
+      "enabled": true
     }
   },
   "run": {
@@ -394,6 +397,7 @@ Important behavior notes:
 - `workerExecution.maxLifetime` accepts `null` or non-negative milliseconds; it is parsed/stored, while current supervision still primarily follows tmux/runtime exit state
 - `workerExecution.allowDetachedHead` is false by default and must be explicitly enabled for current-branch launch from detached HEAD
 - `workerExecution.review.enabled` controls current-branch per-worker review and is on by default; set it to `false` to skip that pass
+- `workerExecution.selfReview.enabled` controls the in-worker completion gate; when on, the first `beadwork_worker_done` call returns a same-session self-review prompt and the second call closes/syncs and shuts the worker down
 - `landing.review.enabled` only controls worktree landing review and does not disable current-branch worker review
 - `worktrees.cleanup: "cleanup-after-landing"` removes the worktree and tmux window after successful orchestrator landing
 - a worktree worker only counts as `landed` when the parent branch actually contains the worker head; equivalent diff heuristics alone do not count as landed

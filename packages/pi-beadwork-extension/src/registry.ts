@@ -31,6 +31,7 @@ const REVIEW_STATUSES = [
   "review-blocked",
 ] as const;
 const REVIEW_VERDICTS = ["approve", "approve-with-nits", "request-changes"] as const;
+const SELF_REVIEW_STATUSES = ["pending", "requested", "completed", "skipped"] as const;
 
 const REQUIRED_STRING_FIELDS = [
   "workerId",
@@ -84,8 +85,10 @@ const OPTIONAL_STRING_FIELDS = [
   "currentBranchCrashJudgmentFile",
   "currentBranchCrashJudgment",
   "currentBranchCrashRawJudgment",
+  "selfReviewRequestedAt",
+  "selfReviewCompletedAt",
+  "selfReviewSummary",
 ] as const;
-
 const OPTIONAL_NUMBER_FIELDS = [
   "remediationAttempts",
   "reviewValidFeedbackCount",
@@ -238,6 +241,7 @@ function validateWorkerRecord(record: WorkerRecord): void {
   validateOptionalEnum(record, "remediationStatus", REMEDIATION_STATUSES);
   validateOptionalEnum(record, "reviewStatus", REVIEW_STATUSES);
   validateOptionalEnum(record, "reviewVerdict", REVIEW_VERDICTS);
+  validateOptionalEnum(record, "selfReviewStatus", SELF_REVIEW_STATUSES);
 }
 
 export function normalizeWorkerRecord(raw: unknown): WorkerRuntime {

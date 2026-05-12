@@ -84,7 +84,10 @@ worker model without changing shared defaults.
 4. launches a tmux-backed worker in the background
 5. writes worker output to `worker.log`
 6. tracks the worker in the local registry and session state
-7. lets the parent session continue while supervision runs on the configured interval
+7. asks the worker to finish through `beadwork_worker_done`; the first done call can trigger a
+   same-session self-review pass, and the final accepted done call closes/syncs then shuts Pi down
+   so the tmux pane exits normally
+8. lets the parent session continue while supervision runs on the configured interval
 
 ### What the operator should expect
 

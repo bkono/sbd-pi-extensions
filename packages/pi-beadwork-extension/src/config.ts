@@ -20,6 +20,9 @@ type PartialWorkerExecutionConfig = {
   review?: {
     enabled?: unknown;
   };
+  selfReview?: {
+    enabled?: unknown;
+  };
 };
 
 type PartialConfig = {
@@ -182,6 +185,10 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
     override.workerExecution?.review?.enabled,
     "workerExecution.review.enabled",
   );
+  const workerSelfReviewEnabled = normalizeBooleanOrThrow(
+    override.workerExecution?.selfReview?.enabled,
+    "workerExecution.selfReview.enabled",
+  );
 
   return {
     ui: {
@@ -213,6 +220,9 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
       allowDetachedHead: workerAllowDetachedHead ?? base.workerExecution.allowDetachedHead,
       review: {
         enabled: workerReviewEnabled ?? base.workerExecution.review.enabled,
+      },
+      selfReview: {
+        enabled: workerSelfReviewEnabled ?? base.workerExecution.selfReview.enabled,
       },
     },
     run: {
@@ -291,6 +301,7 @@ export function loadConfig(cwd: string): BeadworkConfig {
   const workerMaxLifetime = process.env.PI_BEADWORK_WORKER_MAX_LIFETIME;
   const workerAllowDetachedHead = process.env.PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD;
   const workerExecutionReviewEnabled = process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED;
+  const workerExecutionSelfReviewEnabled = process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED;
   const defaultWorkers = process.env.PI_BEADWORK_DEFAULT_WORKERS;
   const defaultMaxCycles = process.env.PI_BEADWORK_DEFAULT_MAX_CYCLES;
   const pollIntervalMs = process.env.PI_BEADWORK_POLL_INTERVAL_MS;
@@ -334,6 +345,9 @@ export function loadConfig(cwd: string): BeadworkConfig {
       allowDetachedHead: workerAllowDetachedHead,
       review: {
         enabled: workerExecutionReviewEnabled,
+      },
+      selfReview: {
+        enabled: workerExecutionSelfReviewEnabled,
       },
     },
     run: {

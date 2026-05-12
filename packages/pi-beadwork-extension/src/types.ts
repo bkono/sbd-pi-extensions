@@ -55,6 +55,8 @@ export type LandingPolicy = "auto" | "deferred";
 
 export type WorkerExecutionMode = "current-branch" | "worktree";
 
+export type WorkerSelfReviewStatus = "pending" | "requested" | "completed" | "skipped";
+
 export type WorkerStatus =
   | "launching"
   | "running"
@@ -133,6 +135,9 @@ export type BeadworkConfig = {
     maxLifetime: number | null;
     allowDetachedHead: boolean;
     review: {
+      enabled: boolean;
+    };
+    selfReview: {
       enabled: boolean;
     };
   };
@@ -369,6 +374,10 @@ export type BaseWorkerRuntime = {
   lastError?: string;
   commitShas?: string[];
   touchedPaths?: string[];
+  selfReviewStatus?: WorkerSelfReviewStatus;
+  selfReviewRequestedAt?: string;
+  selfReviewCompletedAt?: string;
+  selfReviewSummary?: string;
   replacesWorkerId?: string;
   supersededByWorkerId?: string;
   currentBranchCrashReason?: string;

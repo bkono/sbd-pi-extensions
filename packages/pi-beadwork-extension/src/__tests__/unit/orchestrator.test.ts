@@ -657,7 +657,6 @@ describe("worker inspection", () => {
       tmuxBackend,
       runner,
     });
-
     expect(inspected.status).toBe("running");
     expect(inspected.reviewStatus).toBe("remediation-in-progress");
     expect(inspected.reviewSummary).toContain("coordinator-approved fix");
@@ -1203,7 +1202,6 @@ describe("worker inspection", () => {
         { sha: "abc123", subject: "BW-101 implement", paths: ["src/task.ts"] },
       ]),
     });
-
     expect(inspected.status).toBe("running");
     expect(inspected.reviewStatus).toBe("remediation-in-progress");
     expect(inspected.reviewRemediationAttempts).toBe(2);

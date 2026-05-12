@@ -38,6 +38,9 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     review: {
       enabled: true,
     },
+    selfReview: {
+      enabled: true,
+    },
   },
   run: {
     defaultWorkers: 2,

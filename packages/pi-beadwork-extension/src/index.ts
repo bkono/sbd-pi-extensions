@@ -16,12 +16,13 @@ import { handleStatusAction } from "./actions/status.js";
 import { handleWorkersAction } from "./actions/workers.js";
 import { detectActivation } from "./activation.js";
 import { parseArgv, parseModelOverride } from "./argv.js";
-import { createBeadworkAdapter } from "./bw.js";
+import { type BeadworkAdapter, createBeadworkAdapter } from "./bw.js";
 import { registerBeadworkCommandAliases } from "./command-aliases.js";
 import { createBeadworkCommandCompletionFactory } from "./command-completions.js";
 import { showAdoptionPreview, showAdoptionResult, showStatus } from "./commands.js";
 import { loadConfig } from "./config.js";
 import { COMMAND_NAME, DEFAULT_SESSION_STATE } from "./constants.js";
+import { buildWorkerSelfReviewPrompt } from "./handoff.js";
 import {
   inspectWorkerRuntime,
   launchTicketWorker,
@@ -544,6 +545,123 @@ function buildWorkerNotice(input: {
   }
 
   return undefined;
+}
+
+type WorkerDoneParams = {
+  ticket_id?: string;
+  summary?: string;
+  validation?: string;
+  self_review_completed?: boolean;
+};
+
+type WorkerDoneContext = {
+  registryPath: string;
+  worker: WorkerRuntime;
+  ticketId: string;
+  selfReviewEnabled: boolean;
+};
+
+function parseEnvBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") return true;
+  if (normalized === "0" || normalized === "false") return false;
+  return undefined;
+}
+
+async function resolveWorkerDoneContext(
+  params: WorkerDoneParams,
+  ctx: ExtensionContext,
+): Promise<WorkerDoneContext> {
+  const config = loadConfig(ctx.cwd);
+  const registryPathFromEnv = process.env.PI_BEADWORK_WORKER_REGISTRY_FILE;
+  const activation = registryPathFromEnv ? undefined : await detectActivation(ctx.cwd);
+  const registryPath =
+    registryPathFromEnv ??
+    (activation?.kind === "active" && activation.repoRoot
+      ? resolveWorkerRegistryPath(activation.repoRoot, config.storage.workerRegistryFile)
+      : undefined);
+
+  if (!registryPath) {
+    throw new Error("beadwork_worker_done requires an active beadwork worker registry.");
+  }
+
+  const workers = await loadWorkerRegistry(registryPath);
+  const workerId = process.env.PI_BEADWORK_WORKER_ID;
+  const envTicketId = process.env.PI_BEADWORK_TICKET_ID;
+  const ticketId = params.ticket_id ?? envTicketId;
+
+  const worker = workerId
+    ? workers.find((entry) => entry.workerId === workerId)
+    : ticketId
+      ? [...workers]
+          .reverse()
+          .find((entry) => entry.ticketId === ticketId && entry.status === "running")
+      : undefined;
+
+  if (!worker) {
+    throw new Error("beadwork_worker_done could not identify the active worker runtime.");
+  }
+
+  const resolvedTicketId = ticketId ?? worker.ticketId;
+  if (resolvedTicketId !== worker.ticketId) {
+    throw new Error(
+      `beadwork_worker_done ticket mismatch: got ${resolvedTicketId}, worker owns ${worker.ticketId}.`,
+    );
+  }
+
+  return {
+    registryPath,
+    worker,
+    ticketId: resolvedTicketId,
+    selfReviewEnabled:
+      parseEnvBoolean(process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED) ??
+      config.workerExecution.selfReview.enabled,
+  };
+}
+
+async function recordWorkerDoneSelfReviewRequest(
+  doneContext: WorkerDoneContext,
+  params: WorkerDoneParams,
+): Promise<WorkerRuntime> {
+  const now = new Date().toISOString();
+  const updatedWorker: WorkerRuntime = {
+    ...doneContext.worker,
+    selfReviewStatus: "requested",
+    selfReviewRequestedAt: doneContext.worker.selfReviewRequestedAt ?? now,
+    selfReviewSummary: params.summary ?? doneContext.worker.selfReviewSummary,
+    updatedAt: now,
+  };
+  await upsertWorkerRuntime(doneContext.registryPath, updatedWorker);
+  return updatedWorker;
+}
+
+async function acceptWorkerDone(
+  doneContext: WorkerDoneContext,
+  params: WorkerDoneParams,
+  adapter: BeadworkAdapter,
+  ctx: ExtensionContext,
+): Promise<WorkerRuntime> {
+  const issue = await adapter.show(ctx.cwd, doneContext.ticketId);
+  if (issue.status !== "closed") {
+    await adapter.close(ctx.cwd, doneContext.ticketId, params.summary);
+  }
+  await adapter.sync(ctx.cwd);
+
+  const now = new Date().toISOString();
+  const updatedWorker: WorkerRuntime = {
+    ...doneContext.worker,
+    selfReviewStatus: doneContext.selfReviewEnabled ? "completed" : "skipped",
+    selfReviewCompletedAt: doneContext.selfReviewEnabled
+      ? (doneContext.worker.selfReviewCompletedAt ?? now)
+      : doneContext.worker.selfReviewCompletedAt,
+    selfReviewSummary: params.summary ?? doneContext.worker.selfReviewSummary,
+    updatedAt: now,
+  };
+
+  await upsertWorkerRuntime(doneContext.registryPath, updatedWorker);
+
+  return updatedWorker;
 }
 
 export default function piBeadworkExtension(pi: ExtensionAPI): void {
@@ -1952,6 +2070,63 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(worker, null, 2) }],
         details: worker,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_worker_done",
+    label: "Beadwork Worker Done",
+    description:
+      "Mark this beadwork worker complete. May request one same-session self-review pass before final close/sync/shutdown.",
+    promptSnippet:
+      "Finish a delegated beadwork worker and trigger the required self-review/exit protocol",
+    promptGuidelines: [
+      "Use beadwork_worker_done as the final action when a delegated beadwork worker believes its ticket is complete.",
+      "If beadwork_worker_done asks for self-review, perform that review in the same session and call beadwork_worker_done again with self_review_completed=true.",
+    ],
+    parameters: Type.Object({
+      ticket_id: Type.Optional(Type.String({ description: "Ticket id this worker completed." })),
+      summary: Type.Optional(
+        Type.String({ description: "Concise completion summary and useful handoff details." }),
+      ),
+      validation: Type.Optional(Type.String({ description: "Validation commands and results." })),
+      self_review_completed: Type.Optional(
+        Type.Boolean({ description: "Set true after completing the requested self-review pass." }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const doneContext = await resolveWorkerDoneContext(params, ctx);
+      const needsSelfReview =
+        doneContext.selfReviewEnabled &&
+        doneContext.worker.selfReviewStatus !== "completed" &&
+        params.self_review_completed !== true;
+
+      if (needsSelfReview) {
+        const worker = await recordWorkerDoneSelfReviewRequest(doneContext, params);
+        const prompt = buildWorkerSelfReviewPrompt({ ticketId: doneContext.ticketId });
+        return {
+          content: [{ type: "text" as const, text: prompt }],
+          details: {
+            action: "self-review-requested",
+            workerId: worker.workerId,
+            ticketId: doneContext.ticketId,
+            selfReviewStatus: worker.selfReviewStatus,
+          },
+        };
+      }
+
+      const worker = await acceptWorkerDone(doneContext, params, adapter, ctx);
+      ctx.shutdown();
+      return {
+        content: [{ type: "text" as const, text: "Worker completion accepted; shutting down." }],
+        details: {
+          action: "completion-accepted",
+          workerId: worker.workerId,
+          ticketId: doneContext.ticketId,
+          selfReviewStatus: worker.selfReviewStatus,
+        },
+        terminate: true,
       };
     },
   });

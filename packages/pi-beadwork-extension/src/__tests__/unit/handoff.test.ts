@@ -58,8 +58,8 @@ describe("buildCurrentBranchHandoffPrompt", () => {
     expect(prompt).toContain("git diff -- <specific-files>");
     expect(prompt).toContain("git status --short");
     expect(prompt).toContain("status, commit SHAs when known, validation run/results, blockers");
-    expect(prompt).toContain("bw close BW-123");
-    expect(prompt).toContain("bw sync");
+    expect(prompt).toContain("beadwork_worker_done");
+    expect(prompt).toContain("close/sync");
     expect(prompt).toContain("If blocked, explain the blocker in a `bw comment BW-123`");
     expect(prompt).toContain("Blocked by: BW-100");
     expect(prompt).toContain("Ticket context:\nBuild the shared-checkout handoff prompt.");

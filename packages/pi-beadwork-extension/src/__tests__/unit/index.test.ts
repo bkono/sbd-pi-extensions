@@ -288,6 +288,10 @@ describe("pi beadwork extension", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
+    delete process.env.PI_BEADWORK_WORKER_ID;
+    delete process.env.PI_BEADWORK_TICKET_ID;
+    delete process.env.PI_BEADWORK_WORKER_REGISTRY_FILE;
+    delete process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED;
   });
 
   it("registers the /bw command", async () => {
@@ -342,6 +346,112 @@ describe("pi beadwork extension", () => {
     });
     expect(JSON.stringify(landTool?.parameters)).not.toContain("Ticket id to land");
     expect(JSON.stringify(landTool?.parameters)).not.toContain("Worker id to land");
+  });
+
+  it("registers beadwork_worker_done as the terminal worker protocol tool", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const doneTool = harness.tools.get("beadwork_worker_done");
+
+    expect(doneTool?.description).toContain("same-session self-review");
+    expect(doneTool?.parameters).toMatchObject({
+      ticket_id: { description: "Ticket id this worker completed." },
+      self_review_completed: {
+        description: "Set true after completing the requested self-review pass.",
+      },
+    });
+  });
+
+  it("asks the same worker for self-review on the first done call", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-worker-done-"));
+    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
+    const worker = createWorkerRuntime(tempDir) as WorkerRuntime;
+    await saveWorkerRegistry(registryPath, [
+      { ...worker, status: "running", selfReviewStatus: "pending" },
+    ]);
+    process.env.PI_BEADWORK_WORKER_ID = worker.workerId;
+    process.env.PI_BEADWORK_TICKET_ID = worker.ticketId;
+    process.env.PI_BEADWORK_WORKER_REGISTRY_FILE = registryPath;
+    process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED = "1";
+
+    const tool = harness.tools.get("beadwork_worker_done") as {
+      execute: (
+        id: string,
+        params: Record<string, unknown>,
+        signal: unknown,
+        onUpdate: unknown,
+        ctx: unknown,
+      ) => Promise<{
+        content: Array<{ type: string; text: string }>;
+        details: Record<string, unknown>;
+      }>;
+    };
+    const ctx = createFakeExtensionContext({ cwd: tempDir });
+
+    const result = await tool.execute(
+      "tool-call",
+      { ticket_id: worker.ticketId, summary: "implemented" },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result.content[0]?.text).toContain("one focused self-review pass");
+    expect(result.content[0]?.text).toContain("self_review_completed: true");
+    expect(result.details.action).toBe("self-review-requested");
+    expect(adapterMock.close).not.toHaveBeenCalled();
+    expect(adapterMock.sync).not.toHaveBeenCalled();
+
+    const [updated] = await loadWorkerRegistry(registryPath);
+    expect(updated?.selfReviewStatus).toBe("requested");
+    expect(updated?.selfReviewSummary).toBe("implemented");
+  });
+
+  it("closes, syncs, and shuts down on the final worker done call", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-worker-done-"));
+    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
+    const worker = createWorkerRuntime(tempDir) as WorkerRuntime;
+    await saveWorkerRegistry(registryPath, [
+      { ...worker, status: "running", selfReviewStatus: "requested" },
+    ]);
+    process.env.PI_BEADWORK_WORKER_ID = worker.workerId;
+    process.env.PI_BEADWORK_TICKET_ID = worker.ticketId;
+    process.env.PI_BEADWORK_WORKER_REGISTRY_FILE = registryPath;
+    process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED = "1";
+
+    const shutdown = vi.fn();
+    const ctx = createFakeExtensionContext({ cwd: tempDir }) as ReturnType<
+      typeof createFakeExtensionContext
+    > & { shutdown: () => void };
+    ctx.shutdown = shutdown;
+    const tool = harness.tools.get("beadwork_worker_done") as {
+      execute: (
+        id: string,
+        params: Record<string, unknown>,
+        signal: unknown,
+        onUpdate: unknown,
+        ctx: unknown,
+      ) => Promise<{ terminate?: boolean; details: Record<string, unknown> }>;
+    };
+
+    const result = await tool.execute(
+      "tool-call",
+      { ticket_id: worker.ticketId, summary: "self-reviewed", self_review_completed: true },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(adapterMock.close).toHaveBeenCalledWith(tempDir, worker.ticketId, "self-reviewed");
+    expect(adapterMock.sync).toHaveBeenCalledWith(tempDir);
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(result.terminate).toBe(true);
+    expect(result.details.action).toBe("completion-accepted");
+
+    const [updated] = await loadWorkerRegistry(registryPath);
+    expect(updated?.selfReviewStatus).toBe("completed");
+    expect(updated?.selfReviewSummary).toBe("self-reviewed");
   });
 
   it("opens the dashboard from bare /bw in a neutral active session", async () => {

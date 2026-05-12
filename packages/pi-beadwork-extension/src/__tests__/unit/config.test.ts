@@ -12,6 +12,7 @@ afterEach(() => {
   delete process.env.PI_BEADWORK_WORKER_MAX_LIFETIME;
   delete process.env.PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD;
   delete process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED;
+  delete process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED;
 });
 
 async function writeProjectConfig(repoRoot: string, config: unknown): Promise<void> {
@@ -87,6 +88,9 @@ describe("worker execution config", () => {
       review: {
         enabled: true,
       },
+      selfReview: {
+        enabled: true,
+      },
     });
     expect(DEFAULT_CONFIG.landing.review.enabled).toBe(false);
   });
@@ -101,6 +105,9 @@ describe("worker execution config", () => {
         review: {
           enabled: false,
         },
+        selfReview: {
+          enabled: false,
+        },
       },
     });
 
@@ -110,6 +117,9 @@ describe("worker execution config", () => {
       maxLifetime: 300_000,
       allowDetachedHead: true,
       review: {
+        enabled: false,
+      },
+      selfReview: {
         enabled: false,
       },
     });
@@ -136,6 +146,9 @@ describe("worker execution config", () => {
         review: {
           enabled: true,
         },
+        selfReview: {
+          enabled: false,
+        },
       },
     });
 
@@ -143,12 +156,14 @@ describe("worker execution config", () => {
     process.env.PI_BEADWORK_WORKER_MAX_LIFETIME = "200";
     process.env.PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD = "1";
     process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED = "false";
+    process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED = "true";
 
     const config = loadConfig(repoRoot);
     expect(config.workerExecution.mode).toBe("current-branch");
     expect(config.workerExecution.maxLifetime).toBe(200);
     expect(config.workerExecution.allowDetachedHead).toBe(true);
     expect(config.workerExecution.review.enabled).toBe(false);
+    expect(config.workerExecution.selfReview.enabled).toBe(true);
   });
 
   it("lets env force worktree over current-branch config", async () => {
@@ -204,6 +219,8 @@ describe("worker execution config", () => {
     process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED = "0";
     expect(loadConfig(repoRoot).workerExecution.review.enabled).toBe(false);
     expect(loadConfig(repoRoot).landing.review.enabled).toBe(false);
+    process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED = "0";
+    expect(loadConfig(repoRoot).workerExecution.selfReview.enabled).toBe(false);
   });
 
   it("does not use worktree settings to resolve current-branch execution", async () => {
@@ -243,5 +260,9 @@ describe("worker execution config", () => {
 
     process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED = "maybe";
     expect(() => loadConfig(repoRoot)).toThrow(/workerExecution\.review\.enabled.*boolean/);
+    delete process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED;
+
+    process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED = "maybe";
+    expect(() => loadConfig(repoRoot)).toThrow(/workerExecution\.selfReview\.enabled.*boolean/);
   });
 });

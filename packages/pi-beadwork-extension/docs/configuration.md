@@ -42,6 +42,9 @@ Config is merged in this order:
     "allowDetachedHead": false,
     "review": {
       "enabled": true
+    },
+    "selfReview": {
+      "enabled": true
     }
   },
   "run": {
@@ -255,6 +258,22 @@ Controls the per-worker current-branch reviewer gate. It is separate from `landi
 Disabling one does not disable the other. Current-branch review shares the reviewer
 provider/model/timeout settings from `landing.review.*`, but it does not use
 `landing.review.maxArtifactChars`; that artifact budget only caps worktree landing review artifacts.
+
+#### `workerExecution.selfReview.enabled`
+
+Default: `true`.
+
+Controls the in-worker completion protocol. When enabled, a worker's first
+`beadwork_worker_done` call records a self-review request and returns a focused review prompt in the
+same session. The worker then fixes anything it finds and calls `beadwork_worker_done` again with
+`self_review_completed: true`; that final call closes/syncs the ticket and requests Pi shutdown so the
+same tmux pane exits through the normal worker script lifecycle.
+
+Disable with:
+
+```sh
+PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED=0 pi
+```
 
 ### `run.*`
 
