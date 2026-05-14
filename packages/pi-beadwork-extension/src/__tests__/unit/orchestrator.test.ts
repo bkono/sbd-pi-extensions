@@ -591,6 +591,9 @@ describe("worker inspection", () => {
     );
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(path.join(runtimeDir, "worker.log"), "worker output\n", "utf8");
+    await writeFile(path.join(runtimeDir, "state.txt"), "exited\n", "utf8");
+    await writeFile(path.join(runtimeDir, "exit-code.txt"), "0\n", "utf8");
+    await writeFile(path.join(runtimeDir, "finished-at.txt"), "2026-05-14T00:27:18Z\n", "utf8");
 
     const worker = createCurrentBranchWorker({
       checkoutPath: repoRoot,
@@ -602,7 +605,7 @@ describe("worker inspection", () => {
       exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
       finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
       ticketStatus: "closed",
-      status: "exited",
+      status: "running",
     });
     const adapter = createAdapter({
       show: vi

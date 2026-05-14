@@ -2060,6 +2060,40 @@ function isActiveWorkerProcess(worker: WorkerRuntime): boolean {
   return worker.status === "running" || worker.status === "launching";
 }
 
+function observedWorkerStatus(input: {
+  worker: WorkerRuntime;
+  stateText?: string;
+  exitCode?: number;
+  pane: TmuxPaneInspection;
+}): WorkerRuntime["status"] {
+  if (input.stateText === "failed" || (input.exitCode !== undefined && input.exitCode !== 0)) {
+    return "failed";
+  }
+
+  if (
+    input.stateText === "exited" ||
+    (!input.pane.exists && input.worker.status !== "launching") ||
+    input.worker.status === "exited" ||
+    input.worker.status === "held" ||
+    input.worker.status === "attention" ||
+    input.worker.status === "landed" ||
+    input.worker.status === "verified"
+  ) {
+    return input.worker.status === "held" ||
+      input.worker.status === "attention" ||
+      input.worker.status === "landed" ||
+      input.worker.status === "verified"
+      ? input.worker.status
+      : "exited";
+  }
+
+  if (input.stateText === "running" || (input.pane.exists && input.pane.dead !== true)) {
+    return "running";
+  }
+
+  return input.worker.status;
+}
+
 async function runCurrentBranchReviewOperation(
   input: CurrentBranchVerificationContext,
 ): Promise<CurrentBranchWorkerRuntime> {
@@ -4440,9 +4474,17 @@ export async function inspectWorkerRuntime(input: {
     input.worker.status === "landed" ||
     input.worker.status === "verified";
 
+  const observedStatus = observedWorkerStatus({
+    worker: input.worker,
+    stateText,
+    exitCode,
+    pane,
+  });
+
   if (ticketStatus === "closed" && workerFinished && config) {
     const orchestratedWorker = {
       ...input.worker,
+      status: observedStatus,
       ticketStatus,
       tmuxSession: resolvedTmuxSession,
       tmuxWindow: resolvedTmuxWindow,
