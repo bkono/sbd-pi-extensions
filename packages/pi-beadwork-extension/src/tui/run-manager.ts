@@ -91,7 +91,7 @@ export function formatRunManagerLines(snapshot: DashboardStatusSnapshot, theme?:
       ? kv(t, "Scoped ready", String(snapshot.counts.scopedReady ?? 0))
       : kv(t, "Scoped ready", styledDim(t, "unavailable until an epic is selected.")),
     snapshot.workerSummary
-      ? `${kv(t, "Workers", `total=${snapshot.workerSummary.total} active=${snapshot.workerSummary.active} held=${snapshot.workerSummary.held} done=${snapshot.workerSummary.successfulTerminal} landed=${snapshot.workerSummary.landed} verified=${snapshot.workerSummary.verified} attention=${snapshot.workerSummary.attention} failed=${snapshot.workerSummary.failed}`)}`
+      ? `${kv(t, "Tracked workers", `total=${snapshot.workerSummary.total} active=${snapshot.workerSummary.active} held=${snapshot.workerSummary.held} done=${snapshot.workerSummary.successfulTerminal} landed=${snapshot.workerSummary.landed} verified=${snapshot.workerSummary.verified} attention=${snapshot.workerSummary.attention} failed=${snapshot.workerSummary.failed}`)}`
       : kv(t, "Workers", styledDim(t, "no scoped worker summary yet.")),
   ];
   if (!summary) {

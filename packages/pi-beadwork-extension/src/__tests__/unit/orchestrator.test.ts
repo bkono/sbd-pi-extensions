@@ -1749,6 +1749,21 @@ describe("worker inspection", () => {
       tmuxBackend,
       pipeline: { markVerified },
     });
+    const inFlight = await verifyCurrentBranchWorker({
+      cwd: repoRoot,
+      repoRoot,
+      worker,
+      adapter,
+      config: DEFAULT_CONFIG,
+      runner,
+      tmuxBackend,
+      pipeline: { markVerified },
+      awaitOrchestration: false,
+    });
+
+    expect(inFlight.status).toBe("exited");
+    expect(inFlight.landingRequestedAt).toBeDefined();
+    expect(inFlight.landingVerification).toContain("Current-branch verification started");
 
     releaseVerification();
     const [firstResult, secondResult] = await Promise.all([first, second]);
@@ -4968,6 +4983,76 @@ describe("run loop", () => {
     expect(summary.workerSummary.successfulTerminal).toBe(1);
     expect(summary.cycleSummaries[0]?.verified).toEqual(["BW-101"]);
   });
+
+  itInTmuxSession(
+    "launches the next ready ticket after prior current-branch workers are verified",
+    async () => {
+      const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-next-after-verified-"));
+      const registryPath = resolveWorkerRegistryPath(
+        repoRoot,
+        DEFAULT_CONFIG.storage.workerRegistryFile,
+      );
+      await saveWorkerRegistry(registryPath, [
+        await createCurrentBranchRuntimeWorker(repoRoot, {
+          status: "verified",
+          ticketStatus: "closed",
+          validationStatus: "passed",
+          landingVerifiedAt: "2026-04-14T00:10:00.000Z",
+          landingVerification: "Current branch verified.",
+          workerId: "BW-101-verified",
+          ticketId: "BW-101",
+          epicId: "BW-100",
+        }),
+      ]);
+
+      const nextTicket = createIssue({ id: "BW-102", type: "task", title: "Next task" });
+      const epic = createIssue({
+        id: "BW-100",
+        type: "epic",
+        title: "Epic",
+        children: [
+          createIssue({ id: "BW-101", type: "task", title: "Done", status: "closed" }),
+          nextTicket,
+        ],
+      });
+      const adapter = createAdapter({
+        show: vi.fn(async (_cwd: string, id: string) => (id === "BW-102" ? nextTicket : epic)),
+        ready: vi.fn().mockResolvedValue([nextTicket]),
+      });
+      const tmuxBackend = createMockTmuxBackend();
+      const runner = vi.fn(async (command: string, args: string[]) => {
+        if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref HEAD") {
+          return ok("main\n");
+        }
+        if (command === "git" && args.join(" ") === "rev-parse HEAD") {
+          return ok("head123\n");
+        }
+        throw new Error(`unexpected process call: ${command} ${args.join(" ")}`);
+      });
+
+      const summary = await runBoundedEpicLoop({
+        cwd: repoRoot,
+        repoRoot,
+        config: DEFAULT_CONFIG,
+        adapter,
+        epicId: "BW-100",
+        options: {
+          workers: 1,
+          until: "blocked",
+          dryRun: false,
+          maxCycles: 1,
+          pollIntervalMs: 0,
+          noSpawn: false,
+        },
+        tmuxBackend,
+        runner,
+      });
+
+      expect(summary.stopReason).toBe("max-cycles");
+      expect(summary.launched).toEqual(["BW-102"]);
+      expect(tmuxBackend.launchWorker).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("runs scope-completion review after validation passes at quiescence", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-run-inline-review-"));

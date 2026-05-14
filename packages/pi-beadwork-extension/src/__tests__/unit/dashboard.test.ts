@@ -255,7 +255,7 @@ describe("dashboard", () => {
     const runRendered = renderComponent(dashboard);
     expect(runRendered).toContain("Run state: idle");
     expect(runRendered).toContain(
-      "Workers: total=1 active=1 held=0 done=0 landed=0 verified=0 attention=0 failed=0",
+      "Tracked workers: total=1 active=1 held=0 done=0 landed=0 verified=0 attention=0 failed=0",
     );
   });
   it("applies run follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {

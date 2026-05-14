@@ -3154,9 +3154,7 @@ async function launchReadyWorkersWithinConcurrencyLimit(input: {
       (worker) => worker.epicId === input.epicId,
     );
     const attemptedTicketIds = new Set(workers.map((worker) => worker.ticketId));
-    const activeWorkers = workers.filter(
-      (worker) => worker.status === "launching" || worker.status === "running",
-    );
+    const activeWorkers = workers.filter(isWorkerActiveForRun);
     const launchable = input.ready.filter(
       (issue) => !attemptedTicketIds.has(issue.id) && issue.type !== "epic",
     );
@@ -3189,6 +3187,49 @@ async function launchReadyWorkersWithinConcurrencyLimit(input: {
       launchNotices,
     };
   });
+}
+
+function isCurrentBranchVerificationInProgress(worker: WorkerRuntime): boolean {
+  if (isWorktreeWorker(worker) || worker.ticketStatus !== "closed" || worker.landingVerifiedAt) {
+    return false;
+  }
+
+  if (worker.status !== "exited") {
+    return false;
+  }
+
+  if (worker.lastError) {
+    return false;
+  }
+
+  return (
+    Boolean(worker.landingRequestedAt) ||
+    worker.reviewStatus === "pending" ||
+    worker.validationStatus === "pending" ||
+    /current-branch verification (?:started|is running|requested)|reviewer gate is running|background verification is in progress/i.test(
+      worker.landingVerification ?? "",
+    )
+  );
+}
+
+function isWorkerActiveForRun(worker: WorkerRuntime): boolean {
+  return (
+    worker.status === "launching" ||
+    worker.status === "running" ||
+    isCurrentBranchVerificationInProgress(worker)
+  );
+}
+
+function isWorkerBlockingRun(worker: WorkerRuntime): boolean {
+  if (worker.status === "failed" || worker.status === "attention" || worker.status === "held") {
+    return true;
+  }
+
+  if (worker.status === "exited") {
+    return !isCurrentBranchVerificationInProgress(worker);
+  }
+
+  return false;
 }
 
 function resolveLandingPolicy(config: BeadworkConfig, worker: WorkerRuntime): "auto" | "deferred" {
@@ -4031,6 +4072,7 @@ async function runCurrentBranchVerification(
     landingVerification:
       input.worker.landingVerification ??
       "Current-branch verification started; worktree landing is intentionally skipped.",
+    landingRequestedAt: input.worker.landingRequestedAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
@@ -4125,12 +4167,15 @@ export async function verifyCurrentBranchWorker(
     return input.awaitOrchestration === false ? existingLock.snapshot : await existingLock.promise;
   }
 
-  let snapshot: WorkerRuntime = {
-    ...input.worker,
-    updatedAt: new Date().toISOString(),
+  const lockState: WorkerOrchestrationLock = {
+    promise: Promise.resolve(input.worker),
+    snapshot: {
+      ...input.worker,
+      updatedAt: new Date().toISOString(),
+    },
   };
   const publishSnapshot = (nextWorker: WorkerRuntime): void => {
-    snapshot = nextWorker;
+    lockState.snapshot = nextWorker;
     input.onWorkerUpdate?.(nextWorker);
   };
   const promise = runCurrentBranchVerification({
@@ -4138,16 +4183,17 @@ export async function verifyCurrentBranchWorker(
     onWorkerUpdate: publishSnapshot,
   })
     .then((nextWorker) => {
-      snapshot = nextWorker;
+      lockState.snapshot = nextWorker;
       return nextWorker;
     })
     .finally(() => {
       workerOrchestrationLocks.delete(input.worker.workerId);
     });
 
-  workerOrchestrationLocks.set(input.worker.workerId, { promise, snapshot });
+  lockState.promise = promise;
+  workerOrchestrationLocks.set(input.worker.workerId, lockState);
 
-  return input.awaitOrchestration === false ? snapshot : await promise;
+  return input.awaitOrchestration === false ? lockState.snapshot : await promise;
 }
 
 export function buildRunOptions(
@@ -6688,14 +6734,13 @@ export async function runBoundedEpicLoop(input: {
     const actionableWorkers = workers.filter(
       (worker) => !isWorkerSupersededByActiveOrSuccessful(worker, workers),
     );
-    const actionableSummary = summarizeWorkers(actionableWorkers);
+    const activeRunWorkers = actionableWorkers.filter(isWorkerActiveForRun);
+    const blockingWorkers = actionableWorkers.filter(isWorkerBlockingRun);
     cycleSummaries.push({
       cycle,
       ready: ready.map((issue) => issue.id),
       launched: launchedThisCycle,
-      running: workers
-        .filter((worker) => worker.status === "launching" || worker.status === "running")
-        .map((worker) => worker.ticketId),
+      running: workers.filter(isWorkerActiveForRun).map((worker) => worker.ticketId),
       held: workers.filter((worker) => worker.status === "held").map((worker) => worker.ticketId),
       landed: workers
         .filter((worker) => worker.status === "landed")
@@ -6715,7 +6760,7 @@ export async function runBoundedEpicLoop(input: {
     });
 
     if (await isScopeTicketTerminal({ cwd: input.cwd, adapter: input.adapter, issue: epic })) {
-      if (actionableSummary.active === 0) {
+      if (activeRunWorkers.length === 0) {
         const nonTerminalWorkers = actionableWorkers.filter(
           (worker) => !isSuccessfulTerminalWorker(worker),
         );
@@ -6812,12 +6857,7 @@ export async function runBoundedEpicLoop(input: {
       }
     }
 
-    if (
-      actionableSummary.failed > 0 ||
-      actionableSummary.attention > 0 ||
-      actionableSummary.held > 0 ||
-      actionableWorkers.some((worker) => worker.status === "exited")
-    ) {
+    if (blockingWorkers.length > 0) {
       notes.push(
         "At least one worker needs operator attention before the orchestrator can continue.",
       );
@@ -6825,14 +6865,14 @@ export async function runBoundedEpicLoop(input: {
       break;
     }
 
-    if (ready.length === 0 && actionableSummary.active === 0) {
+    if (ready.length === 0 && activeRunWorkers.length === 0) {
       stopReason = input.options.until === "empty" ? "empty" : "blocked";
       break;
     }
 
     if (
       launchable.length === 0 &&
-      actionableSummary.active === 0 &&
+      activeRunWorkers.length === 0 &&
       ready.length > 0 &&
       ready.every((issue) =>
         workers.some(
@@ -6843,7 +6883,7 @@ export async function runBoundedEpicLoop(input: {
       stopReason = "blocked";
       break;
     }
-    if (launchable.length === 0 && actionableSummary.active === 0 && ready.length > 0) {
+    if (launchable.length === 0 && activeRunWorkers.length === 0 && ready.length > 0) {
       notes.push("Ready tickets remain, but all have already been attempted in this run.");
       stopReason = "attention";
       break;
@@ -6863,9 +6903,7 @@ export async function runBoundedEpicLoop(input: {
     stopReason,
     cycles: cycleSummaries.length,
     launched: [...launched],
-    activeWorkerIds: finalWorkers
-      .filter((worker) => worker.status === "launching" || worker.status === "running")
-      .map((worker) => worker.workerId),
+    activeWorkerIds: finalWorkers.filter(isWorkerActiveForRun).map((worker) => worker.workerId),
     workerSummary: summarizeWorkers(finalWorkers),
     notes,
     cycleSummaries,
