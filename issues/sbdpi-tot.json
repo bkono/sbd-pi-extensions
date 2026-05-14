@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "pi",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-14T00:50:22Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-tot",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Filter beadwork metadata SHAs from current-branch attribution",
   "type": "task",
-  "updated_at": "2026-05-14T00:50:22Z"
+  "updated_at": "2026-05-14T00:50:25Z"
 }
