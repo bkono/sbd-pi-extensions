@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-14T00:40:37Z",
+  "description": "Current-branch workers that call beadwork_worker_done exit normally, but the registry can still have status=running. inspectWorkerRuntime routes closed tickets into verification without first reflecting the observed exited state, so the review gate sees an active worker and returns immediately. Also investigate tmux session naming default pi-bw vs current session/project naming.",
+  "id": "sbdpi-dqs",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Fix current-branch verification stuck after worker self-shutdown",
+  "type": "task",
+  "updated_at": "2026-05-14T00:40:37Z"
+}
