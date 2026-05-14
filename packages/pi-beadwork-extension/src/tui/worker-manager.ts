@@ -213,6 +213,13 @@ export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerAction
     inspection.review.state === "review-blocked"
   ) {
     land.reason = inspection.review.detail ?? "review requested additional changes";
+  } else if (
+    worker.executionMode === "current-branch" &&
+    worker.status === "attention" &&
+    worker.ticketStatus === "closed"
+  ) {
+    land.enabled = true;
+    land.reason = "rerun current-branch verification for this worker";
   } else if (worker.status === "attention" && inspection.landing.state === "needs-attention") {
     land.reason = inspection.followUp.action;
   } else {

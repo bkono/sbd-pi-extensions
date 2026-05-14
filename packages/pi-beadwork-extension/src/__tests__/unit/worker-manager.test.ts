@@ -169,6 +169,20 @@ describe("worker manager", () => {
       cleanupPolicy: undefined,
       worktreePath: undefined,
     } as unknown as WorkerRuntime;
+    const currentBranchAttentionWorker = {
+      ...createWorker({
+        status: "attention",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        lastError: "Stale attribution attention from a previous verifier run.",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
 
     expect(getWorkerActionAvailability(heldWorker).land).toMatchObject({
       enabled: true,
@@ -181,6 +195,10 @@ describe("worker manager", () => {
     expect(getWorkerActionAvailability(currentBranchPendingWorker).land.reason).not.toContain(
       "merge-back",
     );
+    expect(getWorkerActionAvailability(currentBranchAttentionWorker).land).toMatchObject({
+      enabled: true,
+      reason: "rerun current-branch verification for this worker",
+    });
     expect(getWorkerActionAvailability(worktreeQueuedWorker).land).toMatchObject({
       enabled: false,
       reason: "landing already queued",
