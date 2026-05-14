@@ -147,6 +147,16 @@ function extractShas(value: string): string[] {
   return uniq(value.match(SHA_PATTERN) ?? []).map((sha) => sha.toLowerCase());
 }
 
+function extractHistoryMentionedShas(history: BeadworkHistoryEntry[]): string[] {
+  const mentionText = history
+    .map((entry) => {
+      const searchable = Object.entries(entry).filter(([key]) => key !== "hash");
+      return JSON.stringify(Object.fromEntries(searchable));
+    })
+    .join("\n");
+  return extractShas(mentionText);
+}
+
 function shasReferToSameCommit(left: string, right: string): boolean {
   const normalizedLeft = left.toLowerCase();
   const normalizedRight = right.toLowerCase();
@@ -338,8 +348,8 @@ export async function buildAttributionEvidencePack(opts: {
     attention.push(`Unable to gather bounded post-launch commit context: ${contextResult.stderr}`);
   }
 
-  const historyText = history.map((entry, index) => renderHistoryEntry(entry, index)).join("\n\n");
-  const mentionedShas = uniq([...extractShas(historyText), ...(worker.commitShas ?? [])]);
+  const historyMentionedShas = extractHistoryMentionedShas(history);
+  const mentionedShas = uniq([...historyMentionedShas, ...(worker.commitShas ?? [])]);
   const commitMap = new Map<string, AttributionCommitEvidence>();
   const contextMap = new Map<string, AttributionCommitEvidence>();
 
@@ -357,18 +367,14 @@ export async function buildAttributionEvidencePack(opts: {
     }
   }
 
-  for (const sha of mentionedShas) {
+  for (const sha of historyMentionedShas) {
     if (hasCommitForSha(commitMap, sha)) {
       continue;
     }
     addOrMergeCommit(commitMap, {
       sha,
       subject: (await getCommitSubject(processRunner, cwd, sha)) ?? "subject unavailable",
-      sources: [
-        worker.commitShas?.some((workerSha) => shasReferToSameCommit(workerSha, sha))
-          ? "worker runtime commitShas"
-          : "beadwork history/comment SHA mention",
-      ],
+      sources: ["beadwork history/comment SHA mention"],
       ancestry: "unknown",
       touchedPaths: [],
     });

@@ -239,6 +239,41 @@ describe("buildAttributionEvidencePack", () => {
     expect(pack.renderedText).toContain("Missing ticket ids are not an automatic failure");
   });
 
+  it("does not treat beadwork history entry hashes as code commit attribution", async () => {
+    const metadataHash = "21c854fdde465a05c246ff7a04e1020572b43341";
+    const runner = createRunner({
+      "log --format=%H%x09%s launch-head..HEAD --grep=BW-101": ok(""),
+      "log --max-count=20 --format=%H%x09%s launch-head..HEAD": ok(
+        "bbbbbbb\timplement attribution helper without ticket id\n",
+      ),
+      "merge-base --is-ancestor bbbbbbb HEAD": ok(),
+      "show --name-only --format= bbbbbbb": ok("src/attribution.ts\n"),
+    });
+
+    const pack = await buildAttributionEvidencePack({
+      worker: createWorker({ commitShas: [metadataHash] }),
+      adapter: createAdapter({
+        issues: createDefaultIssues(),
+        history: [
+          {
+            hash: metadataHash,
+            intent: 'comment BW-101 "Done in commit bbbbbbb"',
+            message: "Done in commit bbbbbbb",
+          },
+        ],
+      }),
+      processRunner: runner,
+    });
+
+    expect(pack.candidateCommits.map((commit) => commit.sha)).toEqual(["bbbbbbb"]);
+    expect(pack.attention.join("\n")).not.toContain(metadataHash);
+    expect(runner).not.toHaveBeenCalledWith(
+      "git",
+      ["merge-base", "--is-ancestor", metadataHash, "HEAD"],
+      expect.anything(),
+    );
+  });
+
   it("detects branch drift from the recorded launch branch", async () => {
     const pack = await buildAttributionEvidencePack({
       worker: createWorker(),
