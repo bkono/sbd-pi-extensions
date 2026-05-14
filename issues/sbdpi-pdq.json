@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-14T04:28:46Z",
+  "close_reason": "Fixed current-branch verification in-flight snapshots and run-loop accounting so background /bw run does not pause on transient exited/closed workers, and verified prior workers no longer block launching the next ready ticket. Added regression coverage and validated lint/test/typecheck.",
   "created": "2026-05-14T04:17:45Z",
   "description": "Bug from pi-plugin-test-repo run: after a current-branch worker exits closed, `/bw run` prints repeated 'verification still needs review' warnings while verification is already in progress, eventually verifies the worker, but then does not launch the next ready ticket. The dashboard also shows stale worker count (e.g. 4 workers even though prior workers are verified/committed and no live panes remain). Investigate bounded run/current-branch verification completion accounting, ready frontier refresh, and worker summary/count filtering after verified workers. Ensure closed current-branch verification does not emit unnecessary transient warnings and that `/bw run` continues to the next ready ticket once active verification finishes.",
   "id": "sbdpi-pdq",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix current-branch run completion and worker count after verification",
   "type": "task",
-  "updated_at": "2026-05-14T04:17:49Z"
+  "updated_at": "2026-05-14T04:28:46Z"
 }
