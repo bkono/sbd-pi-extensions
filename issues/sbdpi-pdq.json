@@ -8,9 +8,15 @@
   "description": "Bug from pi-plugin-test-repo run: after a current-branch worker exits closed, `/bw run` prints repeated 'verification still needs review' warnings while verification is already in progress, eventually verifies the worker, but then does not launch the next ready ticket. The dashboard also shows stale worker count (e.g. 4 workers even though prior workers are verified/committed and no live panes remain). Investigate bounded run/current-branch verification completion accounting, ready frontier refresh, and worker summary/count filtering after verified workers. Ensure closed current-branch verification does not emit unnecessary transient warnings and that `/bw run` continues to the next ready ticket once active verification finishes.",
   "id": "sbdpi-pdq",
   "labels": [],
+  "comments": [
+    {
+      "text": "Follow-up included in amended commit 7528b09: clarified the run dashboard label from `Workers` to `Tracked workers` so historical verified worker records are not confused with live active workers.",
+      "timestamp": "2026-05-14T04:30:34Z"
+    }
+  ],
   "priority": 1,
   "status": "closed",
   "title": "Fix current-branch run completion and worker count after verification",
   "type": "task",
-  "updated_at": "2026-05-14T04:28:46Z"
+  "updated_at": "2026-05-14T04:30:34Z"
 }
