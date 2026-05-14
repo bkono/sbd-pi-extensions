@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-14T02:00:16Z",
+  "close_reason": "Fixed follow-up: current-branch attention workers can be explicitly re-landed to rerun verification after attribution fixes. Added worker-manager regression coverage and reran lint/test/typecheck.",
   "created": "2026-05-14T00:50:22Z",
   "description": "Current-branch attribution currently extracts SHA-looking values from full beadwork history JSON, including history entry hashes from the beadwork metadata branch. Those commits are intentionally not ancestors of the worker checkout HEAD, so verified workers are routed to attention even when the code commits are present. Restrict attributed commit candidates to worker runtime code commits and explicit SHA mentions in history intent/comment text, excluding beadwork history entry hashes, and add regression coverage.",
   "id": "sbdpi-tot",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Filter beadwork metadata SHAs from current-branch attribution",
   "type": "task",
-  "updated_at": "2026-05-14T01:53:54Z"
+  "updated_at": "2026-05-14T02:00:16Z"
 }
