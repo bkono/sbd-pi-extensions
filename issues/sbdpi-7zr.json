@@ -6,9 +6,15 @@
   "description": "User request: deeply evaluate https://github.com/kalindudc/pi-minions, port its MIT-licensed implementation into this monorepo as packages/pi-minions, carry forward useful fixes from latest main, and restore/customize the createDelegationHint tool-call based harness steering that was removed around commit 77d2ff522c420451ccf768b5c9cf34320fc497c4.\n\nAcceptance criteria:\n- New workspace package packages/pi-minions builds with tsdown and pi runtime deps externalized.\n- Ported extension exposes pi-minions tools/commands equivalent to upstream latest main where useful.\n- Tool-call-count based delegation hint is present, configurable, tested, and injected into harness context at the intended cadence.\n- Tests cover delegation hint behavior and key core paths.\n- Repo lint, tests, typecheck pass.\n- Atomic conventional commit is created for the package.",
   "id": "sbdpi-7zr",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented in commit 1d103fb.\n\nResearch/evaluation notes:\n- Upstream latest main is 5e4844d (v0.18.0) after migration to @earendil-works packages and foreground-only minions.\n- Commit 77d2ff522c420451ccf768b5c9cf34320fc497c4 removed background minions, queue/interaction/changelog plumbing, and the context-time delegation reminder (`createDelegationHint`) that had been triggered by tool-call counts and complex prompts.\n- Port keeps the latest foreground-focused tool surface (`spawn`, batch tasks, list/show/halt, learn_minions, footer/status/observability) while adapting imports back to this repo's @mariozechner pi packages.\n- Restored delegation-conscience behavior in `packages/pi-minions/src/delegation.ts` and wired it through `src/index.ts` via `tool_call` counting plus `context` injection.\n- Added config under `pi-minions.delegation`: enabled, toolCallThreshold, promptLengthThreshold, hintIntervalMinutes, acknowledgementRequired, complexTaskKeywords, message.\n\nValidation:\n- npm run lint\n- npm run test\n- npm run typecheck\n- npm run build",
+      "timestamp": "2026-06-02T06:48:18Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Port pi-minions into packages/pi-minions with tool-call delegation hints",
   "type": "task",
-  "updated_at": "2026-06-02T06:36:24Z"
+  "updated_at": "2026-06-02T06:48:18Z"
 }
