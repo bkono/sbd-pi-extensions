@@ -2,10 +2,11 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ResolvedDelegationConfig } from "./config.js";
 
 const DEFAULT_HINT_TEMPLATE =
-  "\n\nDELEGATION REMINDER: You have made {toolCallCount} tool calls. " +
+  "\n\nDELEGATION REMINDER: You have made: {toolCallCount} tool calls. " +
   "The pi-minions extension is active and provides tools for parallel execution and work delegation." +
-  "\nDELEGATE independent subtasks to minions for faster, isolated processing using the `spawn` tool." +
-  "\nUSE any delegation skills you have available through the system.\n";
+  "\nDELEGATE independent subtasks to minions for faster, isolated processing using the `spawn` and `spawn_bg` tools." +
+  "\nUSE any delegation skills you have available through the system.\n" +
+  "\nALWAYS acknowledge this reminder when you receive it and review your delegation strategy before making further tool calls.\n";
 
 export function createDelegationHint(
   toolCallCount: number,
@@ -14,7 +15,9 @@ export function createDelegationHint(
   const template = config.message?.trim() ? config.message : DEFAULT_HINT_TEMPLATE;
   const hint = template.replaceAll("{toolCallCount}", String(toolCallCount));
 
-  if (!config.acknowledgementRequired) return hint;
+  if (!config.acknowledgementRequired || hint.includes("ALWAYS acknowledge this reminder")) {
+    return hint;
+  }
 
   return `${hint}\nALWAYS acknowledge this reminder when you receive it and review your delegation strategy before making further tool calls.\n`;
 }

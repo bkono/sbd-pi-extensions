@@ -15,18 +15,23 @@ const delegationConfig = {
 };
 
 describe("delegation hint", () => {
-  it("includes the current tool call count in the default reminder", () => {
+  it("uses the original delegation reminder wording by default", () => {
     const hint = createDelegationHint(17, { acknowledgementRequired: false });
 
-    expect(hint).toContain("17 tool calls");
+    expect(hint).toContain("DELEGATION REMINDER: You have made: 17 tool calls");
     expect(hint).toContain("pi-minions extension is active");
-    expect(hint).toContain("`spawn` tool");
-    expect(hint).not.toContain("ALWAYS acknowledge");
+    expect(hint).toContain("`spawn` and `spawn_bg` tools");
+    expect(hint).toContain("USE any delegation skills you have available");
+    expect(hint).toContain("ALWAYS acknowledge this reminder");
   });
 
-  it("can opt back into acknowledgement-oriented reminders", () => {
-    const hint = createDelegationHint(8, { acknowledgementRequired: true });
+  it("can append acknowledgement-oriented reminders to custom messages", () => {
+    const hint = createDelegationHint(8, {
+      acknowledgementRequired: true,
+      message: "You are at {toolCallCount}; split the work.",
+    });
 
+    expect(hint).toContain("You are at 8; split the work.");
     expect(hint).toContain("ALWAYS acknowledge this reminder");
   });
 
