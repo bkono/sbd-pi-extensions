@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-06-02T06:36:22Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-7zr",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Port pi-minions into packages/pi-minions with tool-call delegation hints",
   "type": "task",
-  "updated_at": "2026-06-02T06:36:22Z"
+  "updated_at": "2026-06-02T06:36:24Z"
 }
