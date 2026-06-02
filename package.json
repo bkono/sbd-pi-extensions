@@ -30,7 +30,8 @@
       "packages/pi-files-extension/src/index.ts",
       "packages/pi-answer-extension/src/index.ts",
       "packages/pi-beadwork-extension/src/index.ts",
-      "packages/pi-exa-extension/src/index.ts"
+      "packages/pi-exa-extension/src/index.ts",
+      "packages/pi-minions/src/index.ts"
     ],
     "skills": [
       "skills"
