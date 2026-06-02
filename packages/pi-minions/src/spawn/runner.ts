@@ -1,3 +1,4 @@
+import type { Api, Model } from "@mariozechner/pi-ai";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { discoverAgents } from "../agents.js";
 import { logger } from "../logger.js";
@@ -24,6 +25,51 @@ function resolveAgentConfig(agentName: string, cwd: string): AgentConfig {
   }
 
   return found;
+}
+
+function formatModelReference(model: Model<Api>): string {
+  return `${model.provider}/${model.id}`;
+}
+
+function resolveModelReference(
+  modelReference: string | undefined,
+  ctx: ExtensionContext,
+): Model<Api> | undefined {
+  if (!modelReference?.trim()) return ctx.model;
+
+  const requested = modelReference.trim();
+  const availableModels = ctx.modelRegistry.getAll();
+
+  if (requested.includes("/")) {
+    const [provider, ...idParts] = requested.split("/");
+    const modelId = idParts.join("/");
+    const found = provider ? ctx.modelRegistry.find(provider, modelId) : undefined;
+    if (found) return found;
+  }
+
+  const exactMatches = availableModels.filter(
+    (model) =>
+      model.id === requested ||
+      model.name === requested ||
+      formatModelReference(model) === requested,
+  );
+
+  if (exactMatches.length === 1) return exactMatches[0];
+  if (exactMatches.length > 1) {
+    throw new Error(
+      `Model reference "${requested}" is ambiguous. Use provider/model, e.g. ${exactMatches
+        .slice(0, 5)
+        .map(formatModelReference)
+        .join(", ")}.`,
+    );
+  }
+
+  const available = availableModels.slice(0, 20).map(formatModelReference).join(", ");
+  throw new Error(
+    `Model "${requested}" not found. Use a known provider/model reference. Available examples: ${
+      available || "none"
+    }`,
+  );
 }
 
 export async function runSingleMinion(opts: {
@@ -59,19 +105,25 @@ export async function runSingleMinion(opts: {
     coordinator,
   } = opts;
 
-  const config = spec.agent
-    ? resolveAgentConfig(spec.agent, ctx.cwd)
-    : defaultMinionTemplate(m.name, { model: spec.model });
-
-  coordinator.emit(true);
-
   try {
+    const config = spec.agent
+      ? resolveAgentConfig(spec.agent, ctx.cwd)
+      : defaultMinionTemplate(m.name, { model: spec.model });
+
+    const requestedModel = spec.model ?? config.model;
+    const selectedModel = resolveModelReference(requestedModel, ctx);
+    if (requestedModel && selectedModel) {
+      m.model = formatModelReference(selectedModel);
+    }
+
+    coordinator.emit(true);
+
     const result = await runMinionSession(config, spec.task, {
       id: m.id,
       name: m.name,
       signal: controller.signal,
       modelRegistry: ctx.modelRegistry,
-      parentModel: ctx.model,
+      parentModel: selectedModel,
       cwd: ctx.cwd,
       subsessionManager,
       spawnedBy: toolCallId,
@@ -120,20 +172,13 @@ export async function runSingleMinion(opts: {
       },
     });
 
-    const currentStatus = tree.get(m.id)?.status;
-    if (currentStatus !== "aborted") {
-      m.status = result.exitCode === 0 ? "completed" : "failed";
-      m.finalOutput = result.finalOutput;
-      m.usage = result.usage;
-      const errorMsg = result.error;
-      tree.updateStatus(m.id, m.status, result.exitCode, errorMsg);
-      tree.updateUsage(m.id, result.usage);
-      coordinator.emit(true);
-    } else {
-      m.status = "aborted";
-      m.finalOutput = result.finalOutput;
-      coordinator.emit(true);
-    }
+    const resultStatus = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
+    m.status = resultStatus;
+    m.finalOutput = result.finalOutput;
+    m.usage = result.usage;
+    tree.updateStatus(m.id, resultStatus, result.exitCode, result.error);
+    tree.updateUsage(m.id, result.usage);
+    coordinator.emit(true);
 
     if (!isSingleMinion) {
       logger.debug("spawn:tool", "batch-minion-finished", {

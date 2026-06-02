@@ -78,7 +78,8 @@ export function renderCall(args: Record<string, unknown>, theme: Theme, _ctx: un
 
   let task = String(args.task ?? "");
   if (args.tasks && Array.isArray(args.tasks) && args.tasks.length === 1) {
-    task = String(args.tasks[0]);
+    const [singleTask] = args.tasks as Array<{ task?: unknown }>;
+    task = String(singleTask?.task ?? "");
   }
 
   const firstTaskLine = task.split("\n")[0];

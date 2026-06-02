@@ -42,6 +42,7 @@ export function emptyUsage(): UsageStats {
 
 export interface SpawnResult {
   exitCode: number;
+  status?: AgentStatus;
   finalOutput: string;
   usage: UsageStats;
   error?: string;

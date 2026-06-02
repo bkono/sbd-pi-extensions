@@ -3,7 +3,7 @@ import { Type } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createHaltHandler } from "./commands/halt.js";
 import { createMinionsHandler } from "./commands/minions.js";
-import { createSpawnHandler } from "./commands/spawn.js";
+import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";
 import { getConfig } from "./config.js";
 import {
   buildPromptFromContext,
@@ -69,7 +69,12 @@ export default function (pi: ExtensionAPI): void {
     parameters: SpawnToolParams,
     execute: (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      usedMinionsThisSession = true;
+      const params = args[1] as { task?: unknown; tasks?: unknown } | undefined;
+      const hasTask = typeof params?.task === "string" && params.task.trim().length > 0;
+      const hasTasks = Array.isArray(params?.tasks) && params.tasks.length > 0;
+      if ((hasTask || hasTasks) && !(hasTask && hasTasks)) {
+        usedMinionsThisSession = true;
+      }
       return spawn(tree, pi, subsessionManager)(...args);
     },
     renderCall,
@@ -144,7 +149,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("spawn", {
     description: "Spawn a foreground minion: /spawn <task> [--model <model>]",
     handler: async (args, ctx) => {
-      usedMinionsThisSession = true;
+      const parsed = parseSpawnArgs(args);
+      if (!("error" in parsed)) usedMinionsThisSession = true;
       return createSpawnHandler(pi)(args, ctx);
     },
   });
@@ -226,6 +232,7 @@ export default function (pi: ExtensionAPI): void {
     usedMinionsThisSession = false;
     toolCallCount = 0;
     lastHintTime = 0;
+    statusTracker?.destroy();
 
     const parentSessionPath = ctx.sessionManager?.getSessionFile() ?? getTempSessionPath(ctx.cwd);
     subsessionManager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);

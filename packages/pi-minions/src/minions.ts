@@ -29,15 +29,16 @@ export function pickMinionName(
     return candidate;
   }
 
-  const names = ctx ? getConfig(ctx).minionNames : DEFAULT_MINION_NAMES;
+  const configuredNames = ctx ? getConfig(ctx).minionNames : DEFAULT_MINION_NAMES;
+  const names = configuredNames.length > 0 ? configuredNames : DEFAULT_MINION_NAMES;
   const available = names.filter((n) => !inUse.has(n));
-  const useFallback = available.length === 0;
-  const availableLength = available.length === 0 ? names.length : available.length;
 
-  let name = available[Math.floor(Math.random() * availableLength)];
-  if (useFallback) {
-    name = `${name}-${fallbackId}`;
+  if (available.length === 0) {
+    const fallbackBase = names[0] ?? "minion";
+    return `${fallbackBase}-${fallbackId}`;
   }
+
+  const name = available[Math.floor(Math.random() * available.length)] ?? `minion-${fallbackId}`;
 
   return name;
 }

@@ -51,5 +51,10 @@ export interface CreateMinionSessionOptions {
     cacheWrite: number;
     cost: number;
   }) => void;
-  onComplete?: (result: { exitCode: number; output: string }) => void;
+  onComplete?: (result: {
+    exitCode: number;
+    output: string;
+    status?: MinionSessionMetadata["status"];
+    error?: string;
+  }) => void;
 }

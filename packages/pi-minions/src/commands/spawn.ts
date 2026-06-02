@@ -13,11 +13,6 @@ export function parseSpawnArgs(args: string): { task: string; model?: string } |
     return { error: `Background spawning is not available. ${USAGE}` };
   }
 
-  const unsupported = tokens.find((token) => token.startsWith("--") && token !== "--model");
-  if (unsupported) {
-    return { error: `Unsupported flag: ${unsupported}. ${USAGE}` };
-  }
-
   const modelFlagIdx = tokens.indexOf("--model");
   let model: string | undefined;
   const remaining: string[] = [];

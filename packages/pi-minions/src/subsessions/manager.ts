@@ -188,7 +188,7 @@ export class SubsessionManager {
         completed = true;
         const exitCode = 0; // Success - agent_end without error
         this.updateStatus(id, "completed", exitCode);
-        options.onComplete?.({ exitCode, output: currentFullText });
+        options.onComplete?.({ exitCode, output: currentFullText, status: "completed" });
         this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
           id,
           exitCode,
@@ -209,7 +209,7 @@ export class SubsessionManager {
         completed = true;
         session.abort();
         this.updateStatus(id, "aborted");
-        options.onComplete?.({ exitCode: 1, output: currentFullText });
+        options.onComplete?.({ exitCode: 1, output: currentFullText, status: "aborted" });
         this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
           id,
           exitCode: 1,
@@ -217,10 +217,10 @@ export class SubsessionManager {
         });
       };
       if (signal.aborted) {
+        completed = true;
         session.abort();
         this.updateStatus(id, "aborted");
-        completed = true;
-        options.onComplete?.({ exitCode: 1, output: currentFullText });
+        options.onComplete?.({ exitCode: 1, output: currentFullText, status: "aborted" });
         this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
           id,
           exitCode: 1,
@@ -253,7 +253,7 @@ export class SubsessionManager {
         if (!completed) {
           completed = true;
           this.updateStatus(id, "aborted");
-          options.onComplete?.({ exitCode: 1, output: currentFullText });
+          options.onComplete?.({ exitCode: 1, output: currentFullText, status: "aborted" });
           this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
             id,
             exitCode: 1,
@@ -266,6 +266,12 @@ export class SubsessionManager {
 
     this.activeHandles.set(id, handle);
 
+    if (signal?.aborted) {
+      cleanup();
+      logger.debug("subsession", "created-aborted", { id, name, path: actualPath });
+      return handle;
+    }
+
     // Start the session with the initial task
     session
       .prompt(task)
@@ -276,7 +282,7 @@ export class SubsessionManager {
           const exitCode = signal?.aborted ? 1 : 0;
           const status = signal?.aborted ? "aborted" : "completed";
           this.updateStatus(id, status, exitCode);
-          options.onComplete?.({ exitCode, output: currentFullText });
+          options.onComplete?.({ exitCode, output: currentFullText, status });
           this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
             id,
             exitCode,
@@ -291,7 +297,7 @@ export class SubsessionManager {
           completed = true;
           const error = err instanceof Error ? err.message : String(err);
           this.updateStatus(id, "failed", 1, error);
-          options.onComplete?.({ exitCode: 1, output: currentFullText });
+          options.onComplete?.({ exitCode: 1, output: currentFullText, status: "failed", error });
           this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
             id,
             exitCode: 1,

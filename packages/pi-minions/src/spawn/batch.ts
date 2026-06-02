@@ -5,7 +5,7 @@ import { emptyUsage } from "../types.js";
 
 export function formatBatchOutput(minions: BatchMinionItem[], isSingleMinion: boolean): string {
   if (isSingleMinion && minions.length === 1) {
-    return minions[0]?.finalOutput;
+    return minions[0]?.finalOutput ?? "";
   }
   return minions.map((m) => `=== ${m.name} ===\n${m.finalOutput}`).join("\n\n");
 }
