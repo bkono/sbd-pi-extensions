@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-02T06:36:22Z",
+  "description": "User request: deeply evaluate https://github.com/kalindudc/pi-minions, port its MIT-licensed implementation into this monorepo as packages/pi-minions, carry forward useful fixes from latest main, and restore/customize the createDelegationHint tool-call based harness steering that was removed around commit 77d2ff522c420451ccf768b5c9cf34320fc497c4.\n\nAcceptance criteria:\n- New workspace package packages/pi-minions builds with tsdown and pi runtime deps externalized.\n- Ported extension exposes pi-minions tools/commands equivalent to upstream latest main where useful.\n- Tool-call-count based delegation hint is present, configurable, tested, and injected into harness context at the intended cadence.\n- Tests cover delegation hint behavior and key core paths.\n- Repo lint, tests, typecheck pass.\n- Atomic conventional commit is created for the package.",
+  "id": "sbdpi-7zr",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Port pi-minions into packages/pi-minions with tool-call delegation hints",
+  "type": "task",
+  "updated_at": "2026-06-02T06:36:22Z"
+}
