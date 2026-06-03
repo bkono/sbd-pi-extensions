@@ -19,6 +19,12 @@ import type {
   MinionSessionMetadata,
 } from "./types.js";
 
+const MINION_EXTENSION_EXCLUDE_FRAGMENTS = ["pi-minions", "pi-om-extension"];
+
+export function shouldLoadExtensionInMinion(resolvedPath: string): boolean {
+  return !MINION_EXTENSION_EXCLUDE_FRAGMENTS.some((fragment) => resolvedPath.includes(fragment));
+}
+
 export class SubsessionManager {
   private activeSessions = new Map<string, AgentSession>();
   private activeHandles = new Map<string, MinionSessionHandle>();
@@ -95,7 +101,7 @@ export class SubsessionManager {
           : undefined,
       extensionsOverride: (base) => ({
         ...base,
-        extensions: base.extensions.filter((ext) => !ext.resolvedPath.includes("pi-minions")),
+        extensions: base.extensions.filter((ext) => shouldLoadExtensionInMinion(ext.resolvedPath)),
       }),
     });
     await loader.reload();

@@ -2,11 +2,10 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ResolvedDelegationConfig } from "./config.js";
 
 const DEFAULT_HINT_TEMPLATE =
-  "\n\nDELEGATION REMINDER: You have made: {toolCallCount} tool calls. " +
-  "The pi-minions extension is active and provides tools for parallel execution and work delegation." +
-  "\nDELEGATE independent subtasks to minions for faster, isolated processing using the `spawn` and `spawn_bg` tools." +
-  "\nUSE any delegation skills you have available through the system.\n" +
-  "\nALWAYS acknowledge this reminder when you receive it and review your delegation strategy before making further tool calls.\n";
+  "\n\nDELEGATION REMINDER: You have made {toolCallCount} tool calls. " +
+  "The pi-minions extension is active for isolated foreground delegation." +
+  "\nDelegate independent subtasks with the `spawn` tool. For parallel work, pass a `tasks` array to `spawn`." +
+  "\nUse any delegation skills available through the system, then continue the user's task normally.\n";
 
 export function createDelegationHint(
   toolCallCount: number,
@@ -15,18 +14,18 @@ export function createDelegationHint(
   const template = config.message?.trim() ? config.message : DEFAULT_HINT_TEMPLATE;
   const hint = template.replaceAll("{toolCallCount}", String(toolCallCount));
 
-  if (!config.acknowledgementRequired || hint.includes("ALWAYS acknowledge this reminder")) {
-    return hint;
-  }
-
-  return `${hint}\nALWAYS acknowledge this reminder when you receive it and review your delegation strategy before making further tool calls.\n`;
+  return hint;
 }
 
 export function buildPromptFromContext(messages: AgentMessage[]): string {
-  return messages
-    .filter((msg) => msg.role === "user")
-    .map((msg) => (typeof msg.content === "string" ? msg.content : ""))
-    .join("\n");
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg?.role === "user" && typeof msg.content === "string") {
+      return msg.content;
+    }
+  }
+
+  return "";
 }
 
 export function isComplexDelegationTask(opts: {
@@ -39,14 +38,20 @@ export function isComplexDelegationTask(opts: {
 }): boolean {
   const { toolCallCount, prompt, config } = opts;
   if (toolCallCount >= config.toolCallThreshold) return true;
-  if (prompt.length >= config.promptLengthThreshold) return true;
+  if (
+    Number.isFinite(config.promptLengthThreshold) &&
+    config.promptLengthThreshold > 0 &&
+    prompt.length >= config.promptLengthThreshold
+  ) {
+    return true;
+  }
 
   const escapedKeywords = config.complexTaskKeywords
     .map((keyword) => keyword.trim())
     .filter(Boolean)
     .map((keyword) => keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
-  if (escapedKeywords.length === 0) return false;
+  if (escapedKeywords.length === 0 || !prompt.trim()) return false;
 
   return new RegExp(`\\b(${escapedKeywords.join("|")})\\b`, "i").test(prompt);
 }

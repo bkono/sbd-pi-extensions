@@ -4,9 +4,11 @@ import {
   buildObservationContext,
   buildStoredObservationBlock,
   buildStoredObservationSegments,
+  getPublishedObservationState,
 } from "../../engine.js";
 import { OBSERVATION_CONTEXT_INSTRUCTIONS, OBSERVATION_CONTEXT_PROMPT } from "../../prompts.js";
 import type { SessionState } from "../../types.js";
+import { assistantMsg, userMsg } from "../helpers/fixtures.js";
 
 function state(partial: Partial<SessionState>): SessionState {
   const observations = partial.observations ?? "";
@@ -48,6 +50,51 @@ function extractObservationPrefixBeforeGuidance(source: string): string {
 
   return source.slice(start, guidance);
 }
+
+describe("getPublishedObservationState", () => {
+  it("omits active guidance when the published cursor is older than the latest user task", () => {
+    const messages = [
+      userMsg("old task", 1_700_000_000_000),
+      assistantMsg("old answer", 1_700_000_001_000),
+      userMsg("new task", 1_700_000_002_000),
+    ];
+
+    const published = getPublishedObservationState(
+      state({
+        observations: "* durable fact",
+        lastObservedTimestamp: 1_700_000_001_000,
+        currentTask: "old task",
+        suggestedResponse: "old response",
+      }),
+      messages,
+    );
+
+    expect(published.observations).toContain("durable fact");
+    expect(published.currentTask).toBeUndefined();
+    expect(published.suggestedResponse).toBeUndefined();
+  });
+
+  it("keeps active guidance when the published cursor covers the latest user task", () => {
+    const messages = [
+      userMsg("old task", 1_700_000_000_000),
+      userMsg("new task", 1_700_000_002_000),
+      assistantMsg("new answer", 1_700_000_003_000),
+    ];
+
+    const published = getPublishedObservationState(
+      state({
+        observations: "* durable fact",
+        lastObservedTimestamp: 1_700_000_003_000,
+        currentTask: "new task",
+        suggestedResponse: "new response",
+      }),
+      messages,
+    );
+
+    expect(published.currentTask).toBe("new task");
+    expect(published.suggestedResponse).toBe("new response");
+  });
+});
 
 describe("buildObservationContext", () => {
   it("returns undefined when observations is empty", () => {
@@ -113,7 +160,7 @@ describe("buildObservationContext", () => {
     expect(result).toContain("</observations>");
     expect(result).toContain("<om-active>");
     expect(result).toContain("<om-current-task>");
-    expect(result).toContain("<om-suggested-response>");
+    expect(result).not.toContain("<om-suggested-response>");
     expect(result).toContain("<om-guidance>");
     expect(result).toContain("<system-reminder>");
   });
@@ -162,26 +209,21 @@ Secondary:
       - Keep the fallback layout ready for future multi-message injection.
       </current-task>
       </om-current-task>
-      
-      <om-suggested-response>
-      <suggested-response>
-      Confirm the durable history is stable, then explain that only the active segment changed.
-      </suggested-response>
-      </om-suggested-response>
       </om-active>"
     `);
     expect(prefix).toBe(["<observational-memory>", ...segments!].join("\n"));
-    expect(storedBlock).toBe(`${prefix}\n</observational-memory>`);
+    expect(storedBlock).toContain("<om-suggested-response>");
+    expect(storedBlock).toContain(
+      "Confirm the durable history is stable, then explain that only the active segment changed.",
+    );
   });
 
-  it("keeps empty active subsegments even when no task state is stored", () => {
+  it("keeps the empty current-task subsegment when no task state is stored", () => {
     const result = buildObservationContext(state({ observations: "* obs" }))!;
     expect(result).toContain(
       "<om-current-task>\n<current-task>\n</current-task>\n</om-current-task>",
     );
-    expect(result).toContain(
-      "<om-suggested-response>\n<suggested-response>\n</suggested-response>\n</om-suggested-response>",
-    );
+    expect(result).not.toContain("<om-suggested-response>");
   });
   it("includes current-task section when set", () => {
     const result = buildObservationContext(
@@ -192,14 +234,12 @@ Secondary:
     expect(result).toContain("Do the thing");
     expect(result).toContain("</current-task>");
   });
-  it("includes suggested-response section when set", () => {
+  it("does not inject suggested-response section even when set", () => {
     const result = buildObservationContext(
       state({ observations: "* obs", suggestedResponse: "Ask about X" }),
     )!;
-    expect(result).toContain("<om-suggested-response>");
-    expect(result).toContain("<suggested-response>");
-    expect(result).toContain("Ask about X");
-    expect(result).toContain("</suggested-response>");
+    expect(result).not.toContain("<om-suggested-response>");
+    expect(result).not.toContain("Ask about X");
   });
 
   it("normalizes legacy line endings and trailing whitespace inside sections", () => {
@@ -214,7 +254,7 @@ Secondary:
     expect(result).not.toContain("\r");
     expect(result).toContain("Date: Apr 18, 2026\n* 🔴 content");
     expect(result).toContain("<current-task>\nKeep working\n- step 1\n</current-task>");
-    expect(result).toContain("<suggested-response>\nMention the next step.\n</suggested-response>");
+    expect(result).not.toContain("<suggested-response>");
   });
 
   it("keeps the durable segment byte-stable when only active task state changes", () => {
@@ -253,9 +293,8 @@ Secondary:
 
     expect(first).not.toBe(second);
     expect(extractTagBlock(first, "om-durable")).toBe(extractTagBlock(second, "om-durable"));
-    expect(extractTagBlock(first, "om-suggested-response")).toBe(
-      extractTagBlock(second, "om-suggested-response"),
-    );
+    expect(first).not.toContain("<om-suggested-response>");
+    expect(second).not.toContain("<om-suggested-response>");
     expect(extractTagBlock(first, "om-guidance")).toBe(extractTagBlock(second, "om-guidance"));
     expect(extractTagBlock(first, "om-current-task")).not.toBe(
       extractTagBlock(second, "om-current-task"),
@@ -275,8 +314,6 @@ Secondary:
     const activeIdx = result.indexOf("<om-active>");
     const currentSegmentIdx = result.indexOf("<om-current-task>");
     const taskIdx = result.indexOf("<current-task>");
-    const suggestedSegmentIdx = result.indexOf("<om-suggested-response>");
-    const respIdx = result.indexOf("<suggested-response>");
     const guidanceIdx = result.indexOf("<om-guidance>");
     const instructionsIdx = result.indexOf(OBSERVATION_CONTEXT_INSTRUCTIONS);
     const reminderIdx = result.indexOf("<system-reminder>");
@@ -286,9 +323,7 @@ Secondary:
     expect(activeIdx).toBeGreaterThan(obsIdx);
     expect(currentSegmentIdx).toBeGreaterThan(activeIdx);
     expect(taskIdx).toBeGreaterThan(currentSegmentIdx);
-    expect(suggestedSegmentIdx).toBeGreaterThan(taskIdx);
-    expect(respIdx).toBeGreaterThan(suggestedSegmentIdx);
-    expect(guidanceIdx).toBeGreaterThan(respIdx);
+    expect(guidanceIdx).toBeGreaterThan(taskIdx);
     expect(instructionsIdx).toBeGreaterThan(guidanceIdx);
     expect(reminderIdx).toBeGreaterThan(instructionsIdx);
   });
@@ -434,7 +469,7 @@ Secondary:
     expect(result).toContain(
       "- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.",
     );
-    expect(result).toContain(
+    expect(result).not.toContain(
       "Summarize the remaining active step without reopening completed work.",
     );
     expect(result).not.toContain("Active again: redo the completion-marker parser from scratch.");
@@ -489,9 +524,9 @@ Secondary:
     expect(result).toContain(
       "- Rejected: do not flatten Option A and Option B into one generic fix",
     );
-    expect(result).toContain("1. Confirm Option B remains selected.");
-    expect(result).toContain("2. Mention the 2 preserved constraints and exact count of 3.");
-    expect(result).toContain(
+    expect(result).not.toContain("1. Confirm Option B remains selected.");
+    expect(result).not.toContain("2. Mention the 2 preserved constraints and exact count of 3.");
+    expect(result).not.toContain(
       "3. Say that `bw close sbdpi-f51.5.3` waits for the targeted test command.",
     );
     const optionBIndex = result.indexOf(

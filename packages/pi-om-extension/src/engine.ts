@@ -255,6 +255,51 @@ export function getMessagesBetweenCursors(
   };
 }
 
+function hasUserMessage(messages: Message[]): boolean {
+  return messages.some((message) => getMessageRole(message) === "user");
+}
+
+function findLatestUserMessage(messages: Message[]): Message | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (getMessageRole(message) === "user") {
+      return message;
+    }
+  }
+
+  return undefined;
+}
+
+function cursorCoversLatestUserMessage(
+  messages: Message[],
+  cursorEntryId?: string,
+  cursorTimestamp?: number,
+): boolean {
+  const latestUser = findLatestUserMessage(messages);
+  if (!latestUser) {
+    return true;
+  }
+
+  if (cursorEntryId) {
+    const latestUserIndex = findMessageIndex(messages, latestUser);
+    const cursorIndex = findMessageIndexById(messages, cursorEntryId);
+    if (latestUserIndex >= 0 && cursorIndex >= 0) {
+      return cursorIndex >= latestUserIndex;
+    }
+  }
+
+  const latestUserTimestamp = getMessageTimestamp(latestUser);
+  if (
+    typeof latestUserTimestamp === "number" &&
+    typeof cursorTimestamp === "number" &&
+    Number.isFinite(cursorTimestamp)
+  ) {
+    return cursorTimestamp >= latestUserTimestamp;
+  }
+
+  return false;
+}
+
 /**
  * Published observation snapshot that is safe to inject into prompts, expose in
  * slash-command output, and use for pruning decisions on the next turn.
@@ -280,12 +325,23 @@ function getDraftObservationState(state: SessionState): DraftObservationState {
   };
 }
 
-export function getPublishedObservationState(state: SessionState): PublishedObservationState {
+export function getPublishedObservationState(
+  state: SessionState,
+  messages?: Message[],
+): PublishedObservationState {
+  const activeStateIsCurrent = messages
+    ? cursorCoversLatestUserMessage(
+        messages,
+        state.lastObservedEntryId,
+        state.lastObservedTimestamp,
+      )
+    : true;
+
   return {
     observations: state.observations,
     observationEntries: cloneObservationEntries(state.observationEntries),
-    currentTask: state.currentTask,
-    suggestedResponse: state.suggestedResponse,
+    currentTask: activeStateIsCurrent ? state.currentTask : undefined,
+    suggestedResponse: activeStateIsCurrent ? state.suggestedResponse : undefined,
   };
 }
 
@@ -305,7 +361,15 @@ function applyDraftObservationState(
   };
 }
 
-export function publishDraftState(state: SessionState): SessionState {
+export function publishDraftState(state: SessionState, messages?: Message[]): SessionState {
+  const activeStateIsCurrent = messages
+    ? cursorCoversLatestUserMessage(
+        messages,
+        state.draftLastObservedEntryId,
+        state.draftLastObservedTimestamp,
+      )
+    : true;
+
   return {
     ...state,
     observations: state.draftObservations,
@@ -313,8 +377,8 @@ export function publishDraftState(state: SessionState): SessionState {
     observationTokens: state.draftObservationTokens,
     lastObservedEntryId: state.draftLastObservedEntryId,
     lastObservedTimestamp: state.draftLastObservedTimestamp,
-    currentTask: state.draftCurrentTask,
-    suggestedResponse: state.draftSuggestedResponse,
+    currentTask: activeStateIsCurrent ? state.draftCurrentTask : undefined,
+    suggestedResponse: activeStateIsCurrent ? state.draftSuggestedResponse : undefined,
   };
 }
 
@@ -512,8 +576,12 @@ export async function runObservationCycle(
           ? renderObservationEntries(observationEntries)
           : appendObservations(nextDraft.observations, observed.observations);
         let observationTokens = countTokens(observations);
-        let currentTask = observed.currentTask ?? nextDraft.currentTask;
-        let suggestedResponse = observed.suggestedResponse ?? nextDraft.suggestedResponse;
+        const chunkContainsUserMessage = hasUserMessage(chunkMessages);
+        let currentTask =
+          observed.currentTask ?? (chunkContainsUserMessage ? undefined : nextDraft.currentTask);
+        let suggestedResponse =
+          observed.suggestedResponse ??
+          (chunkContainsUserMessage ? undefined : nextDraft.suggestedResponse);
         if (observationTokens >= config.reflection.observationTokens) {
           reflectTriggered = true;
           debugLog(config, "reflection triggered", {
@@ -605,7 +673,7 @@ export async function runObservationCycle(
       };
       await saveSessionState(
         config.storage.stateDir,
-        shouldPublish ? publishDraftState(nextState) : nextState,
+        shouldPublish ? publishDraftState(nextState, allMessages) : nextState,
       );
     } catch (error) {
       // Always log observation failures — these are operational errors, not debug traces
@@ -656,27 +724,39 @@ function buildContextSegment(outerTag: string, innerTag?: string, content?: stri
 
 export function buildStoredObservationSegments(
   state: StoredObservationContextState,
+  options?: { includeSuggestedResponse?: boolean },
 ): string[] | undefined {
   const observations = normalizeContextSection(renderStoredObservations(state));
   if (!observations) {
     return undefined;
   }
 
-  return [
+  const segments = [
     ...buildContextSegment("om-durable", "observations", observations),
     "",
     "<om-active>",
     ...buildContextSegment("om-current-task", "current-task", state.currentTask),
-    "",
-    ...buildContextSegment("om-suggested-response", "suggested-response", state.suggestedResponse),
-    "</om-active>",
   ];
+
+  if (options?.includeSuggestedResponse) {
+    segments.push(
+      "",
+      ...buildContextSegment(
+        "om-suggested-response",
+        "suggested-response",
+        state.suggestedResponse,
+      ),
+    );
+  }
+
+  segments.push("</om-active>");
+  return segments;
 }
 
 export function buildStoredObservationBlock(
   state: StoredObservationContextState,
 ): string | undefined {
-  const segments = buildStoredObservationSegments(state);
+  const segments = buildStoredObservationSegments(state, { includeSuggestedResponse: true });
   if (!segments) {
     return undefined;
   }

@@ -174,7 +174,7 @@ The extension registers user-facing slash commands so OM data is visible and con
 
 ### `/om`
 
-- `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, message-count/tool-output heuristics, chunk limits, unobserved/unpublished windows, and any tracked current task / suggested response.
+- `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, message-count/tool-output heuristics, chunk limits, unobserved/unpublished windows, and diagnostic current task / suggested response fields.
 - `/om observations` — show the published observations for the current session in a human-friendly layout.
 
 ### `/om:toggle`
@@ -192,11 +192,11 @@ Useful for planning phases where you want the full raw context visible to the LL
 
 ### `om_status`
 
-Returns current session memory metrics as JSON: published and staged observation token counts, token/message/tool-result thresholds, next-chunk limits, cursor/window details, cycle history, current task, and suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
+Returns current session memory metrics as JSON: published and staged observation token counts, token/message/tool-result thresholds, next-chunk limits, cursor/window details, cycle history, current task, and diagnostic suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
 
 ### `om_observations`
 
-Returns the stored observation block for the current session as XML-wrapped text, organized into `<observational-memory>`, `<om-durable>`, and `<om-active>` segments with nested `<observations>`, `<current-task>`, and `<suggested-response>` sections when present.
+Returns the stored observation block for the current session as XML-wrapped text, organized into `<observational-memory>`, `<om-durable>`, and `<om-active>` segments with nested `<observations>`, `<current-task>`, and diagnostic `<suggested-response>` sections when present. Suggested-response is not injected into the assistant system prompt.
 
 ## Lifecycle Hooks
 

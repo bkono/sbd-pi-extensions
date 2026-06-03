@@ -112,7 +112,7 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result!.systemPrompt).toContain("<observational-memory>");
     expect(result!.systemPrompt).toContain("<om-durable>");
     expect(result!.systemPrompt).toContain("<om-current-task>");
-    expect(result!.systemPrompt).toContain("<om-suggested-response>");
+    expect(result!.systemPrompt).not.toContain("<om-suggested-response>");
     expect(result!.systemPrompt).toContain("🔴 user likes X");
     expect(result!.systemPrompt).toContain("<om-guidance>");
     expect(result!.systemPrompt).toContain("<system-reminder>");
@@ -140,13 +140,13 @@ describe("extension: before_agent_start lifecycle", () => {
 
     expect(result.systemPrompt).toContain("published snapshot");
     expect(result.systemPrompt).toContain("Published task");
-    expect(result.systemPrompt).toContain("Published response");
+    expect(result.systemPrompt).not.toContain("Published response");
     expect(result.systemPrompt).not.toContain("staged draft only");
     expect(result.systemPrompt).not.toContain("Draft task");
     expect(result.systemPrompt).not.toContain("Draft response");
   });
 
-  it("includes currentTask and suggestedResponse in the appendix", async () => {
+  it("includes currentTask but omits suggestedResponse from the appendix", async () => {
     preloadState({
       observations: "* 🔴 ongoing work",
       currentTask: "Fix bug X",
@@ -165,10 +165,10 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result.systemPrompt).toContain("<current-task>");
     expect(result.systemPrompt).toContain("<om-current-task>");
     expect(result.systemPrompt).toContain("Fix bug X");
-    expect(result.systemPrompt).toContain("<suggested-response>");
-    expect(result.systemPrompt).toContain("<om-suggested-response>");
+    expect(result.systemPrompt).not.toContain("<suggested-response>");
+    expect(result.systemPrompt).not.toContain("<om-suggested-response>");
     expect(result.systemPrompt).toContain("<om-active>");
-    expect(result.systemPrompt).toContain("Continue from where we left off");
+    expect(result.systemPrompt).not.toContain("Continue from where we left off");
   });
 
   it("keeps injected durable and guidance regions stable when only the active task changes", async () => {
@@ -222,12 +222,6 @@ describe("extension: before_agent_start lifecycle", () => {
       - First active task
       </current-task>
       </om-current-task>
-      
-      <om-suggested-response>
-      <suggested-response>
-      Keep the same reply guidance.
-      </suggested-response>
-      </om-suggested-response>
       </om-active>
       
       <om-guidance>
@@ -255,9 +249,8 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(extractTagBlock(firstInjected, "om-durable")).toBe(
       extractTagBlock(secondInjected, "om-durable"),
     );
-    expect(extractTagBlock(firstInjected, "om-suggested-response")).toBe(
-      extractTagBlock(secondInjected, "om-suggested-response"),
-    );
+    expect(firstInjected).not.toContain("<om-suggested-response>");
+    expect(secondInjected).not.toContain("<om-suggested-response>");
     expect(extractTagBlock(firstInjected, "om-guidance")).toBe(
       extractTagBlock(secondInjected, "om-guidance"),
     );
@@ -318,7 +311,7 @@ Secondary:
     expect(result.systemPrompt).toContain(
       "- Resolved blocker: sbdpi-f51.2.3 temporal regressions landed, so no active wait remains.",
     );
-    expect(result.systemPrompt).toContain(
+    expect(result.systemPrompt).not.toContain(
       "Summarize the remaining active step without reopening completed work.",
     );
     expect(result.systemPrompt).not.toContain(

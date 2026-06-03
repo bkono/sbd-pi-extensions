@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ObservationAgents } from "../../agents.js";
 import { runObservationCycle } from "../../engine.js";
 import { loadSessionState } from "../../state.js";
-import { conversation, messageId, resetMessageCounter } from "../helpers/fixtures.js";
+import {
+  assistantMsg,
+  conversation,
+  messageId,
+  resetMessageCounter,
+  userMsg,
+} from "../helpers/fixtures.js";
 import { MockObservationAgents } from "../helpers/mock-agents.js";
 import {
   createTempStateDir,
@@ -166,5 +172,90 @@ describe("runObservationCycle — cursor advancement", () => {
     );
 
     expect(mock.observeCalls[1]!.existingObservations).toContain("first");
+  });
+  it("clears active guidance when a newer user task is observed without replacements", async () => {
+    const config = createTestConfig({ stateDir: temp.stateDir, observationTokens: 50 });
+    const mock = new MockObservationAgents({
+      observeResponses: [
+        {
+          observations: "* first obs",
+          raw: "",
+          currentTask: "answer the old task",
+          suggestedResponse: "old answer",
+        },
+        { observations: "* second obs", raw: "" },
+      ],
+    });
+    const inflight = new Map<string, Promise<void>>();
+
+    resetMessageCounter();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      [userMsg("old task", 1_700_000_000_000), assistantMsg("old answer", 1_700_000_001_000)],
+      inflight,
+      { reason: "turn_end" },
+    );
+
+    resetMessageCounter();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      [
+        userMsg("old task", 1_700_000_000_000),
+        assistantMsg("old answer", 1_700_000_001_000),
+        userMsg("new task", 1_700_000_002_000),
+      ],
+      inflight,
+      { reason: "turn_end", forceObserve: true },
+    );
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("second obs");
+    expect(state.currentTask).toBeUndefined();
+    expect(state.suggestedResponse).toBeUndefined();
+  });
+
+  it("keeps active guidance unpublished when the draft cursor is behind the latest user", async () => {
+    const config = createTestConfig({
+      stateDir: temp.stateDir,
+      stagingMessageCount: 1,
+      publishMessageCount: 1,
+      maxChunkMessages: 2,
+    });
+    const mock = new MockObservationAgents({
+      observeResponses: [
+        {
+          observations: "* chunk obs",
+          raw: "",
+          currentTask: "older task only",
+          suggestedResponse: "older response only",
+        },
+      ],
+    });
+    const inflight = new Map<string, Promise<void>>();
+
+    resetMessageCounter();
+    await runObservationCycle(
+      config,
+      mock as unknown as ObservationAgents,
+      sessionId,
+      [
+        userMsg("older task", 1_700_000_000_000),
+        assistantMsg("older answer", 1_700_000_001_000),
+        userMsg("latest task outside chunk", 1_700_000_002_000),
+      ],
+      inflight,
+      { reason: "turn_end" },
+    );
+
+    const state = await loadSessionState(temp.stateDir, sessionId);
+    expect(state.observations).toContain("chunk obs");
+    expect(state.currentTask).toBeUndefined();
+    expect(state.suggestedResponse).toBeUndefined();
+    expect(state.draftCurrentTask).toBe("older task only");
+    expect(state.draftSuggestedResponse).toBe("older response only");
   });
 });

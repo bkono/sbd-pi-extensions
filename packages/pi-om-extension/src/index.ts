@@ -96,7 +96,9 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
-    const observationContext = buildObservationContext(getPublishedObservationState(state));
+    const observationContext = buildObservationContext(
+      getPublishedObservationState(state, getBranchMessages(ctx)),
+    );
     if (!observationContext) return;
 
     // Append the segmented observation context to the system prompt. The chaining
@@ -256,7 +258,9 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     // matching the original opencode behavior where observations were injected
     // into the compaction context.
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    const observationContext = buildObservationContext(getPublishedObservationState(state));
+    const observationContext = buildObservationContext(
+      getPublishedObservationState(state, messages),
+    );
 
     if (observationContext) {
       const { preparation } = event;

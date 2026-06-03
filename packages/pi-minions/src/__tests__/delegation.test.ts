@@ -8,31 +8,32 @@ import {
 
 const delegationConfig = {
   toolCallThreshold: 16,
-  promptLengthThreshold: 200,
+  promptLengthThreshold: 4_000,
   hintIntervalMinutes: 8,
   acknowledgementRequired: false,
   complexTaskKeywords: ["audit", "refactor"],
 };
 
 describe("delegation hint", () => {
-  it("uses the original delegation reminder wording by default", () => {
+  it("uses non-blocking delegation reminder wording by default", () => {
     const hint = createDelegationHint(17, { acknowledgementRequired: false });
 
-    expect(hint).toContain("DELEGATION REMINDER: You have made: 17 tool calls");
+    expect(hint).toContain("DELEGATION REMINDER: You have made 17 tool calls");
     expect(hint).toContain("pi-minions extension is active");
-    expect(hint).toContain("`spawn` and `spawn_bg` tools");
-    expect(hint).toContain("USE any delegation skills you have available");
-    expect(hint).toContain("ALWAYS acknowledge this reminder");
+    expect(hint).toContain("`spawn` tool");
+    expect(hint).toContain("pass a `tasks` array to `spawn`");
+    expect(hint).not.toContain("spawn_bg");
+    expect(hint).not.toContain("ALWAYS acknowledge this reminder");
+    expect(hint.toLowerCase()).not.toContain("acknowledge");
   });
 
-  it("can append acknowledgement-oriented reminders to custom messages", () => {
+  it("does not add acknowledgement instructions to custom messages", () => {
     const hint = createDelegationHint(8, {
       acknowledgementRequired: true,
       message: "You are at {toolCallCount}; split the work.",
     });
 
-    expect(hint).toContain("You are at 8; split the work.");
-    expect(hint).toContain("ALWAYS acknowledge this reminder");
+    expect(hint).toBe("You are at 8; split the work.");
   });
 
   it("supports custom message templates", () => {
@@ -102,14 +103,27 @@ describe("delegation injection gating", () => {
     ).toBe(false);
   });
 
-  it("extracts user prompts from context messages", () => {
+  it("extracts only the current user prompt from context messages", () => {
     const prompt = buildPromptFromContext([
       { role: "system", content: "ignore", timestamp: 1 },
-      { role: "user", content: "first", timestamp: 2 },
+      { role: "user", content: "historical long task", timestamp: 2 },
       { role: "assistant", content: "ignored", timestamp: 3 },
-      { role: "user", content: "second", timestamp: 4 },
+      { role: "user", content: "current task", timestamp: 4 },
     ]);
 
-    expect(prompt).toBe("first\nsecond");
+    expect(prompt).toBe("current task");
+  });
+
+  it("does not treat historical prompt length as current-task complexity", () => {
+    const prompt = buildPromptFromContext([
+      { role: "user", content: "audit ".repeat(1_000), timestamp: 1 },
+      { role: "assistant", content: "done", timestamp: 2 },
+      { role: "user", content: "thanks", timestamp: 3 },
+    ]);
+
+    expect(prompt).toBe("thanks");
+    expect(isComplexDelegationTask({ toolCallCount: 0, prompt, config: delegationConfig })).toBe(
+      false,
+    );
   });
 });

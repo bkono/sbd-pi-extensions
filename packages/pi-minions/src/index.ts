@@ -6,7 +6,6 @@ import { createMinionsHandler } from "./commands/minions.js";
 import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";
 import { getConfig } from "./config.js";
 import {
-  buildPromptFromContext,
   createDelegationHint,
   isComplexDelegationTask,
   shouldInjectDelegationHint,
@@ -177,11 +176,11 @@ export default function (pi: ExtensionAPI): void {
     toolCallCount++;
   });
 
-  pi.on("context", async (event, ctx) => {
+  pi.on("before_agent_start", (event, ctx) => {
     const config = getConfig(ctx);
-    if (!config.delegation.enabled) return { messages: event.messages };
+    if (!config.delegation.enabled) return;
 
-    const prompt = buildPromptFromContext(event.messages);
+    const prompt = event.prompt;
     const now = Date.now();
     const isComplexTask = isComplexDelegationTask({
       toolCallCount,
@@ -198,7 +197,7 @@ export default function (pi: ExtensionAPI): void {
         hintIntervalMinutes: config.delegation.hintIntervalMinutes,
       })
     ) {
-      return { messages: event.messages };
+      return;
     }
 
     logger.debug("delegation", "injecting_hint", {
@@ -213,16 +212,7 @@ export default function (pi: ExtensionAPI): void {
     const hint = createDelegationHint(toolCallCount, config.delegation);
     toolCallCount = 0;
 
-    return {
-      messages: [
-        ...event.messages,
-        {
-          role: "user" as const,
-          content: hint,
-          timestamp: now,
-        },
-      ],
-    };
+    return { systemPrompt: `${event.systemPrompt}\n\n${hint}` };
   });
 
   pi.on("session_start", (_event, ctx) => {

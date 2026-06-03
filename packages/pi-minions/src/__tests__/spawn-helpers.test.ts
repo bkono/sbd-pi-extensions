@@ -7,6 +7,7 @@ import { parseSpawnArgs } from "../commands/spawn.js";
 import { DEFAULT_MINION_NAMES } from "../config.js";
 import { pickMinionName } from "../minions.js";
 import { formatToolCall } from "../render.js";
+import { shouldLoadExtensionInMinion } from "../subsessions/manager.js";
 import { AgentTree } from "../tree.js";
 
 function createSettingsCwd(settings: unknown): string {
@@ -37,5 +38,11 @@ describe("spawn helper regressions", () => {
 
     expect(name).not.toContain("undefined");
     expect(DEFAULT_MINION_NAMES).toContain(name);
+  });
+
+  it("filters memory and recursive minion extensions out of minion sessions", () => {
+    expect(shouldLoadExtensionInMinion("/repo/packages/pi-minions/src/index.ts")).toBe(false);
+    expect(shouldLoadExtensionInMinion("/repo/packages/pi-om-extension/src/index.ts")).toBe(false);
+    expect(shouldLoadExtensionInMinion("/repo/packages/pi-exa-extension/src/index.ts")).toBe(true);
   });
 });

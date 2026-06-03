@@ -195,7 +195,7 @@ export function getConfig(ctx: ExtensionContext): ResolvedConfig {
     delegation: {
       enabled: user.delegation?.enabled ?? true,
       toolCallThreshold: user.delegation?.toolCallThreshold ?? 16,
-      promptLengthThreshold: user.delegation?.promptLengthThreshold ?? 200,
+      promptLengthThreshold: user.delegation?.promptLengthThreshold ?? 4_000,
       hintIntervalMinutes: user.delegation?.hintIntervalMinutes ?? 8,
       acknowledgementRequired: user.delegation?.acknowledgementRequired ?? false,
       complexTaskKeywords: [

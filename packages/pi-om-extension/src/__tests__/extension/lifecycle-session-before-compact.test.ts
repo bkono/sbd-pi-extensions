@@ -170,12 +170,6 @@ describe("extension: session_before_compact lifecycle", () => {
       - First compaction task
       </current-task>
       </om-current-task>
-      
-      <om-suggested-response>
-      <suggested-response>
-      Keep the same follow-up guidance.
-      </suggested-response>
-      </om-suggested-response>
       </om-active>
       
       <om-guidance>
@@ -202,9 +196,8 @@ describe("extension: session_before_compact lifecycle", () => {
     expect(extractTagBlock(firstContext, "om-durable")).toBe(
       extractTagBlock(secondContext, "om-durable"),
     );
-    expect(extractTagBlock(firstContext, "om-suggested-response")).toBe(
-      extractTagBlock(secondContext, "om-suggested-response"),
-    );
+    expect(firstContext).not.toContain("<om-suggested-response>");
+    expect(secondContext).not.toContain("<om-suggested-response>");
     expect(extractTagBlock(firstContext, "om-guidance")).toBe(
       extractTagBlock(secondContext, "om-guidance"),
     );

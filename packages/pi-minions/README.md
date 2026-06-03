@@ -2,7 +2,7 @@
 
 A Solved By Dev fork/port of the MIT-licensed [`pi-minions`](https://github.com/kalindudc/pi-minions) extension.
 
-It keeps the newer foreground minion workflow from upstream while restoring the delegation-conscience behavior we missed: after enough parent-session tool calls, pi gets a contextual reminder to delegate independent work to minions.
+It keeps the newer foreground minion workflow from upstream while restoring the delegation-conscience behavior we missed: after enough parent-session tool calls, pi gets a system-prompt reminder to delegate independent work to minions.
 
 ## Tools
 
@@ -21,6 +21,7 @@ It keeps the newer foreground minion workflow from upstream while restoring the 
     "delegation": {
       "enabled": true,
       "toolCallThreshold": 16,
+      "promptLengthThreshold": 4000,
       "hintIntervalMinutes": 8,
       "acknowledgementRequired": false,
       "complexTaskKeywords": ["investigate", "audit", "review", "refactor", "analyze", "implement"],
@@ -40,3 +41,5 @@ It keeps the newer foreground minion workflow from upstream while restoring the 
 ```
 
 Global settings come from `getAgentDir()/settings.json`; project settings in `<cwd>/.pi/settings.json` override them.
+
+Delegation reminders are injected into the system prompt, never as synthetic user messages. The `acknowledgementRequired` setting is kept for backward compatibility but no longer adds mandatory acknowledgement text; custom `message` values are used verbatim.
