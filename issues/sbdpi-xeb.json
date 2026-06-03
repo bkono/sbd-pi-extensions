@@ -6,9 +6,15 @@
   "description": "Implement fixes to prevent stale prior-task answers: make minion delegation reminders non-user context without mandatory acknowledgement, gate hints on current prompt/tool count, raise/disable prompt length default, fix spawn_bg wording, stop OM suggested-response injection/stickiness, add recency guard for active guidance publication, and filter OM out of minion subsessions. Add regression tests and run lint/test/typecheck.",
   "id": "sbdpi-xeb",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented and committed as 79695c4 (`fix: prevent stale delegation and OM guidance`).\n\nChanges:\n- Minions delegation reminders now append to `before_agent_start` system prompt, not synthetic user messages.\n- Removed mandatory acknowledgement wording and fixed default wording to use `spawn` with `tasks` arrays; raised default prompt length threshold to 4000 and gated length against current prompt only.\n- Filtered `pi-om-extension` out of minion subsessions alongside recursive `pi-minions` filtering.\n- OM no longer injects `\u003com-suggested-response\u003e` into system prompt or compaction context; suggested response remains diagnostic in status/observations.\n- OM clears stale active guidance when a newly observed user task lacks replacement active fields, and guards published active guidance against cursors older than the latest user task.\n\nValidation:\n- `npm run test -w @solvedbydev/pi-minions -- --run` passed.\n- `npm run test -w @solvedbydev/pi-om-extension -- --run` passed.\n- `npm run typecheck -w @solvedbydev/pi-minions` passed.\n- `npm run typecheck -w @solvedbydev/pi-om-extension` passed.\n- `npm run lint -w @solvedbydev/pi-minions` passed.\n- `npm run lint -w @solvedbydev/pi-om-extension` passed.\n- Full `npm run typecheck` passed.\n- Full `npm run lint` and `npm run test` are blocked by pre-existing/unrelated `packages/pi-hashline-readmap` workspace problems from the dirty tree (`package.json` modified and untracked `packages/pi-hashline-readmap/`), not by this change.",
+      "timestamp": "2026-06-03T21:33:39Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Harden minions delegation hints and OM active guidance",
   "type": "task",
-  "updated_at": "2026-06-03T21:15:09Z"
+  "updated_at": "2026-06-03T21:33:39Z"
 }
