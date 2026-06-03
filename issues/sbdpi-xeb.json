@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-06-03T21:15:07Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-xeb",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Harden minions delegation hints and OM active guidance",
   "type": "task",
-  "updated_at": "2026-06-03T21:15:07Z"
+  "updated_at": "2026-06-03T21:15:09Z"
 }
