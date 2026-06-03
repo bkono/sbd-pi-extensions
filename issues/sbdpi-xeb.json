@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-03T21:15:07Z",
+  "description": "Implement fixes to prevent stale prior-task answers: make minion delegation reminders non-user context without mandatory acknowledgement, gate hints on current prompt/tool count, raise/disable prompt length default, fix spawn_bg wording, stop OM suggested-response injection/stickiness, add recency guard for active guidance publication, and filter OM out of minion subsessions. Add regression tests and run lint/test/typecheck.",
+  "id": "sbdpi-xeb",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Harden minions delegation hints and OM active guidance",
+  "type": "task",
+  "updated_at": "2026-06-03T21:15:07Z"
+}
