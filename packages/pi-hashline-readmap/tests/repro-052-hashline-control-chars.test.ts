@@ -1,0 +1,19 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { computeLineHash, ensureHashInit, hashLine } from "../src/hashline.js";
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: test asserts control characters are escaped.
+const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f]/;
+
+describe("Bug #052: hashLine output escapes control characters", () => {
+  beforeAll(async () => {
+    await ensureHashInit();
+  });
+
+  it("hashLine renders escaped display text while preserving raw hashes", () => {
+    const rawLine = "line with \x07 bell";
+    const output = hashLine(12, rawLine);
+
+    expect(output).toBe(`12:${computeLineHash(12, rawLine)}|line with \\u0007 bell`);
+    expect(CONTROL_CHAR_RE.test(output)).toBe(false);
+  });
+});

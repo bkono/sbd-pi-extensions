@@ -1,0 +1,67 @@
+{
+  "name": "@solvedbydev/pi-hashline-readmap",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Pi extension: hash-anchored read/edit/grep, structural code maps, AST-grep, file exploration, and bash output compression",
+  "license": "MIT",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write ."
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./dist/src/index.mjs"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@ast-grep/cli": "0.42.2",
+    "diff": "^8.0.3",
+    "ignore": "^7.0.5",
+    "picomatch": "^4.0.4",
+    "tree-sitter-wasms": "0.1.13",
+    "ts-morph": "^27.0.2",
+    "web-tree-sitter": "0.25.10",
+    "xxhash-wasm": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "^0.34.48",
+    "@types/node": "^24.12.2",
+    "jiti": "^2.6.1",
+    "tsdown": "^0.21.7",
+    "typescript": "^6",
+    "vitest": "^4"
+  }
+}

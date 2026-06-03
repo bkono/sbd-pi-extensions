@@ -1,0 +1,26 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest"; // AC11
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const root = resolve(__dirname, "..");
+
+describe("required read-map mapper files (AC11)", () => {
+  const required = [
+    "typescript.ts",
+    "python.ts",
+    "go.ts",
+    "gdscript.ts",
+    "rust.ts",
+    "json.ts",
+    "markdown.ts",
+    "fallback.ts",
+  ];
+
+  for (const mapper of required) {
+    it(`src/readmap/mappers/${mapper} exists`, () => {
+      expect(existsSync(resolve(root, `src/readmap/mappers/${mapper}`))).toBe(true);
+    });
+  }
+});
