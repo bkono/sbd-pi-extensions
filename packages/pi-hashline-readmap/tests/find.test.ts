@@ -543,11 +543,11 @@ describe("find TUI renderers", () => {
 
 import { readFileSync } from "node:fs";
 
-describe("find index.ts registration", () => {
-  it("index.ts imports and calls registerFindTool", () => {
+describe("find src/index.ts registration", () => {
+  it("src/index.ts imports and calls registerFindTool", () => {
     const root = resolve(__dirname, "..");
-    const source = readFileSync(resolve(root, "index.ts"), "utf8");
-    expect(source).toContain('import { registerFindTool } from "./src/find.js"');
+    const source = readFileSync(resolve(root, "src/index.ts"), "utf8");
+    expect(source).toContain('import { registerFindTool } from "./find.js"');
     expect(source).toContain("registerFindTool(pi)");
   });
 

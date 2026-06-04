@@ -286,11 +286,11 @@ describe("ls TUI renderers", () => {
 
 import { readFileSync } from "node:fs";
 
-describe("ls index.ts registration", () => {
-  it("index.ts imports and calls registerLsTool", () => {
+describe("ls src/index.ts registration", () => {
+  it("src/index.ts imports and calls registerLsTool", () => {
     const root = resolve(__dirname, "..");
-    const source = readFileSync(resolve(root, "index.ts"), "utf8");
-    expect(source).toContain('import { registerLsTool } from "./src/ls.js"');
+    const source = readFileSync(resolve(root, "src/index.ts"), "utf8");
+    expect(source).toContain('import { registerLsTool } from "./ls.js"');
     expect(source).toContain("registerLsTool(pi)");
   });
 
