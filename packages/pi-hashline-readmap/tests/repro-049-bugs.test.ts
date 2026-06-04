@@ -17,20 +17,20 @@ import { compressTransferOutput } from "../src/rtk/transfer.js";
 describe("Issue 042: compressBuildToolsOutput empty string on all-noise input", () => {
   it("cmake progress-only output returns null (not empty string)", () => {
     // 15 lines, all cmake progress noise — no signal lines
-    const cmakeOut =
-      Array.from({ length: 15 }, (_, i) => `[ ${String(i + 1).padStart(2)}%] Building ...`).join(
-        "\n",
-      ) + "\n";
+    const cmakeOut = `${Array.from(
+      { length: 15 },
+      (_, i) => `[ ${String(i + 1).padStart(2)}%] Building ...`,
+    ).join("\n")}\n`;
     const result = compressBuildToolsOutput(cmakeOut);
     // Fixed: returns null instead of "" — filterBashOutput falls through to stripped original
     expect(result).toBeNull();
   });
 
   it("filterBashOutput output is not blank for cmake progress-only", () => {
-    const cmakeOut =
-      Array.from({ length: 15 }, (_, i) => `[ ${String(i + 1).padStart(2)}%] Building ...`).join(
-        "\n",
-      ) + "\n";
+    const cmakeOut = `${Array.from(
+      { length: 15 },
+      (_, i) => `[ ${String(i + 1).padStart(2)}%] Building ...`,
+    ).join("\n")}\n`;
     const result = filterBashOutput("cmake --build .", cmakeOut);
     // Fixed: output is the stripped original, not blank
     expect(result.output).not.toBe("");
@@ -39,7 +39,7 @@ describe("Issue 042: compressBuildToolsOutput empty string on all-noise input", 
 
   it("all-noise Gradle task output returns null (not empty string)", () => {
     // 15 lines, all Gradle task noise — no signal lines
-    const gradleOut = Array.from({ length: 15 }, (_, i) => `> Task :compile${i}`).join("\n") + "\n";
+    const gradleOut = `${Array.from({ length: 15 }, (_, i) => `> Task :compile${i}`).join("\n")}\n`;
     const result = compressBuildToolsOutput(gradleOut);
     // Fixed: returns null instead of ""
     expect(result).toBeNull();
@@ -118,7 +118,7 @@ describe("Issue 043: compressTransferOutput strips rsync -av per-file listing", 
   it("uppercase KB/s scp lines ARE stripped (regression guard)", () => {
     // This worked before and must continue to work
     const progressLine = "file.txt                    100%  1234   1.2KB/s   00:00";
-    const scpOutput = Array(15).fill(progressLine).join("\n") + "\nsent 50000 bytes";
+    const scpOutput = `${Array(15).fill(progressLine).join("\n")}\nsent 50000 bytes`;
     const before = scpOutput.length;
     const result = compressTransferOutput(scpOutput)!;
     const savedChars = before - result.length;
@@ -133,7 +133,7 @@ describe("Issue 044: compressTransferOutput matches lowercase scp unit variants"
   it("scp progress line with lowercase kB/s is stripped", () => {
     // SCP_PROGRESS_RE now uses [KMGkmg] — lowercase k matched
     const progressLine = "file.txt                    100%  1234   1.2kB/s   00:00";
-    const scpOutput = Array(15).fill(progressLine).join("\n") + "\ntransfer complete";
+    const scpOutput = `${Array(15).fill(progressLine).join("\n")}\ntransfer complete`;
 
     const result = compressTransferOutput(scpOutput)!;
     // Fixed: noise line stripped, not present in output
@@ -142,7 +142,7 @@ describe("Issue 044: compressTransferOutput matches lowercase scp unit variants"
 
   it("uppercase KB/s IS stripped (regression guard)", () => {
     const progressLine = "file.txt                    100%  1234   1.2KB/s   00:00";
-    const scpOutput = Array(15).fill(progressLine).join("\n") + "\ntransfer complete";
+    const scpOutput = `${Array(15).fill(progressLine).join("\n")}\ntransfer complete`;
 
     const result = compressTransferOutput(scpOutput)!;
     expect(result).not.toContain("1.2KB/s"); // uppercase still works
@@ -150,7 +150,7 @@ describe("Issue 044: compressTransferOutput matches lowercase scp unit variants"
 
   it("lowercase mB/s is stripped", () => {
     const progressLine = "bigfile.tar                 100%  51200   5.0mB/s   00:10";
-    const scpOutput = Array(15).fill(progressLine).join("\n") + "\ntransfer complete";
+    const scpOutput = `${Array(15).fill(progressLine).join("\n")}\ntransfer complete`;
 
     const result = compressTransferOutput(scpOutput)!;
     // Fixed: lowercase mB/s now matched by [KMGkmg]

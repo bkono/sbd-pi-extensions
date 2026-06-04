@@ -196,7 +196,7 @@ function collectFieldNames(node: SyntaxNode, source: string): string[] {
   const identifiers = collectDescendants(node, "identifier");
   for (const ident of identifiers) {
     const { parent } = ident;
-    if (parent && parent.type.includes("declarator")) {
+    if (parent?.type.includes("declarator")) {
       fallback.push(normalizeWhitespace(getNodeText(ident, source)));
     }
   }

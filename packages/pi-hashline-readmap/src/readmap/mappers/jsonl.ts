@@ -49,11 +49,11 @@ function parsePiSessionHeader(line: string): PiSessionHeader | null {
   try {
     const parsed = JSON.parse(line) as Record<string, unknown>;
     if (
-      parsed["type"] === "session" &&
-      typeof parsed["version"] === "number" &&
-      typeof parsed["id"] === "string" &&
-      typeof parsed["timestamp"] === "string" &&
-      typeof parsed["cwd"] === "string"
+      parsed.type === "session" &&
+      typeof parsed.version === "number" &&
+      typeof parsed.id === "string" &&
+      typeof parsed.timestamp === "string" &&
+      typeof parsed.cwd === "string"
     ) {
       return parsed as unknown as PiSessionHeader;
     }
@@ -95,10 +95,10 @@ function extractUserPreview(content: unknown, maxLength = 80): string {
       if (
         typeof block === "object" &&
         block !== null &&
-        (block as Record<string, unknown>)["type"] === "text" &&
-        typeof (block as Record<string, unknown>)["text"] === "string"
+        (block as Record<string, unknown>).type === "text" &&
+        typeof (block as Record<string, unknown>).text === "string"
       ) {
-        text = (block as Record<string, unknown>)["text"] as string;
+        text = (block as Record<string, unknown>).text as string;
         break;
       }
     }
@@ -159,8 +159,8 @@ function countEntryType(
   entryType: string | undefined,
 ): void {
   if (entryType === "message") {
-    const msg = entry["message"] as Record<string, unknown> | undefined;
-    const role = msg?.["role"] as string | undefined;
+    const msg = entry.message as Record<string, unknown> | undefined;
+    const role = msg?.role as string | undefined;
     if (role === "user") {
       counts.user++;
     } else if (role === "assistant") {
@@ -244,14 +244,14 @@ async function parsePiSession(
       continue;
     }
 
-    const entryType = entry["type"] as string | undefined;
+    const entryType = entry.type as string | undefined;
 
     countEntryType(counts, entry, entryType);
 
     // Collect structural symbols
     if (entryType === "message") {
-      const msg = entry["message"] as Record<string, unknown> | undefined;
-      const role = msg?.["role"] as string | undefined;
+      const msg = entry.message as Record<string, unknown> | undefined;
+      const role = msg?.role as string | undefined;
 
       if (role === "user") {
         // Close previous user turn
@@ -259,7 +259,7 @@ async function parsePiSession(
           openUserTurn.symbol.endLine = lineCount - 1;
         }
 
-        const preview = extractUserPreview(msg?.["content"]);
+        const preview = extractUserPreview(msg?.content);
         const record: SessionSymbolRecord = {
           symbol: {
             name: `[User] ${preview}`,
@@ -292,8 +292,8 @@ async function parsePiSession(
         spanStart: lineCount,
       });
     } else if (entryType === "model_change") {
-      const provider = entry["provider"] as string | undefined;
-      const modelId = entry["modelId"] as string | undefined;
+      const provider = entry.provider as string | undefined;
+      const modelId = entry.modelId as string | undefined;
       const label =
         provider && modelId ? `${provider}/${modelId}` : (provider ?? modelId ?? "unknown");
 
@@ -307,7 +307,7 @@ async function parsePiSession(
         spanStart: lineCount,
       });
     } else if (entryType === "session_info") {
-      const name = entry["name"] as string | undefined;
+      const name = entry.name as string | undefined;
       if (name) {
         records.push({
           symbol: {

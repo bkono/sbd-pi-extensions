@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -32,7 +33,7 @@ describe("issue 144 — live-read hash-mismatch path is unchanged", () => {
     const filePath = resolve(dir, "small.ts");
     writeFileSync(
       filePath,
-      ["alpha", "beta", "gamma", "delta", "epsilon"].join("\n") + "\n",
+      `${["alpha", "beta", "gamma", "delta", "epsilon"].join("\n")}\n`,
       "utf-8",
     );
 
@@ -82,7 +83,7 @@ describe("issue 144 — live-read hash-mismatch path is unchanged", () => {
     expect(text).toContain(">>>");
     expect(text).not.toContain("You must get fresh anchors");
     expect(readFileSync(filePath, "utf-8")).toBe(
-      ["alpha", "beta", "gamma", "delta", "epsilon"].join("\n") + "\n",
+      `${["alpha", "beta", "gamma", "delta", "epsilon"].join("\n")}\n`,
     );
   });
 });

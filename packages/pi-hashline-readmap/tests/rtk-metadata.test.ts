@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -16,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 
 async function loadHandlers(tag: string) {
-  const modUrl = pathToFileURL(resolve(root, "index.ts")).href + "?t=" + tag + "-" + Date.now();
+  const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?t=${tag}-${Date.now()}`;
   const handlers: Record<string, Function> = {};
   const mockPi = {
     registerTool() {},
@@ -229,7 +230,7 @@ describe("RTK notice prepended when thresholds met", () => {
     const raw = "x".repeat(8400);
     const spy = vi.spyOn(gitModule, "compactGitOutput").mockReturnValue("tiny compressed");
     try {
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "n-1",
@@ -253,7 +254,7 @@ describe("RTK notice format", () => {
     const raw = "x".repeat(8400); // 8400 B = 8.203125 KB → "8.2 KB"
     const spy = vi.spyOn(gitModule, "compactGitOutput").mockReturnValue("y".repeat(1200)); // 1200 B = "1.2 KB"
     try {
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "n-fmt",
@@ -279,7 +280,7 @@ describe("RTK notice format", () => {
     const raw = "x".repeat(2100);
     const spy = vi.spyOn(gitModule, "compactGitOutput").mockReturnValue("z".repeat(512));
     try {
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "n-bytes",
@@ -302,7 +303,7 @@ describe("RTK notice absent at boundaries", () => {
     const raw = "x".repeat(2000); // exactly 2000 B → fails "> 2000"
     const spy = vi.spyOn(gitModule, "compactGitOutput").mockReturnValue("tiny");
     try {
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "b-1",
@@ -322,7 +323,7 @@ describe("RTK notice absent at boundaries", () => {
     const half = "y".repeat(1500); // exactly ratio 0.5 → fails "< 0.5"
     const spy = vi.spyOn(gitModule, "compactGitOutput").mockReturnValue(half);
     try {
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "b-2",
@@ -338,7 +339,7 @@ describe("RTK notice absent at boundaries", () => {
 
   it("omits notice when output is empty", async () => {
     const handlers = await loadHandlers("bdry-empty");
-    const result = await handlers["tool_result"]({
+    const result = await handlers.tool_result({
       type: "tool_result",
       toolName: "bash",
       toolCallId: "b-3",
@@ -366,7 +367,7 @@ describe("RTK notice absent under bypass", () => {
     });
     const handlers = await loadHandlers("bypass-notice");
     try {
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "bp-1",
@@ -392,14 +393,14 @@ describe("RTK notice composes with doom-loop prefix", () => {
     const command = "git diff";
     try {
       for (const id of ["c-1", "c-2", "c-3"]) {
-        await handlers["tool_call"]({
+        await handlers.tool_call({
           type: "tool_call",
           toolName: "bash",
           toolCallId: id,
           input: { command },
         });
       }
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "c-3",

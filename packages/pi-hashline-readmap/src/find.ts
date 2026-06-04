@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: find renderer and filesystem metadata consume dynamic Pi/tool payload shapes. */
 import { execFile, execFileSync } from "node:child_process";
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -136,7 +137,7 @@ async function findWithNodeFallback(
       let ignored = false;
       for (const { ig, base } of localIgnores) {
         const relFromBase = normalizePath(relative(base, fullPath));
-        const checkPath = dirent.isDirectory() ? relFromBase + "/" : relFromBase;
+        const checkPath = dirent.isDirectory() ? `${relFromBase}/` : relFromBase;
         if (ig.ignores(checkPath)) {
           ignored = true;
           break;
@@ -294,7 +295,7 @@ function formatOutput(
   if (entries.length === 0 && !truncated) {
     const text = `No files found matching pattern: ${pattern}`;
     return showFdHint
-      ? text + "\nHint: Install fd for faster file discovery: brew install fd"
+      ? `${text}\nHint: Install fd for faster file discovery: brew install fd`
       : text;
   }
 
@@ -614,7 +615,7 @@ export function registerFindTool(pi: ExtensionAPI) {
       return new Text(clampLineToWidth(`${label} ${target}`, context.width), 0, 0);
     },
 
-    renderResult(result: any, options: any, theme: any, context: any = {}) {
+    renderResult(result: any, options: any, _theme: any, context: any = {}) {
       const expanded = isRendererExpanded(options, context);
       const width = context.width ?? options?.width;
       const output =

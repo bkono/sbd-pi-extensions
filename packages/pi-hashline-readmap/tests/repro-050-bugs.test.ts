@@ -8,10 +8,10 @@
  * All tests below FAIL (assert the *buggy* behavior) and should PASS after the fix.
  */
 
-import { execFileSync } from "child_process";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { registerGrepTool } from "../src/grep.js";
 import { registerReadTool } from "../src/read.js";
@@ -243,8 +243,8 @@ describe("Issue #048: .js import specifiers block node --experimental-strip-type
   });
 
   it(".ts specifiers are used in rtk source files (no .js imports)", async () => {
-    const { readFileSync } = await import("fs");
-    const { join } = await import("path");
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
     const bashFilterSrc = readFileSync(join(packageRoot, "src/rtk/bash-filter.ts"), "utf8");
     // After fix: .js specifiers gone, .ts specifiers present
     expect(bashFilterSrc).not.toMatch(/from "\.\/.*\.js"/);

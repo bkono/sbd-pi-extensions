@@ -1,8 +1,8 @@
+import { readFileSync } from "node:fs";
+import { mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "fs";
-import { mkdtemp, readFile } from "fs/promises";
-import os from "os";
-import path from "path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ensureHashInit } from "../src/hashline";
 

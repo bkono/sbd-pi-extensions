@@ -61,7 +61,7 @@ function extractMarkdownStructure(content: string): MarkdownStructure {
     }
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch && headingMatch[1] && headingMatch[2]) {
+    if (headingMatch?.[1] && headingMatch[2]) {
       headings.push({
         level: headingMatch[1].length,
         text: headingMatch[2].trim(),

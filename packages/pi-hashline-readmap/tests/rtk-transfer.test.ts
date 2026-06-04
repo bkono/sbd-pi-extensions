@@ -23,7 +23,7 @@ describe("compressTransferOutput", () => {
   it("strips rsync per-file progress lines", () => {
     // rsync progress: "      1,234 100%    1.00MB/s    0:00:00 (xfr#1, to-chk=5/7)"
     const progressLine = "      1,234 100%    1.00MB/s    0:00:00 (xfr#1, to-chk=5/7)\n";
-    const lines = Array(15).fill(progressLine).join("") + "sent 50000 bytes  received 100 bytes\n";
+    const lines = `${Array(15).fill(progressLine).join("")}sent 50000 bytes  received 100 bytes\n`;
     const result = compressTransferOutput(lines)!;
     expect(result).not.toContain("xfr#");
     expect(result).toContain("sent 50000 bytes");
@@ -32,14 +32,14 @@ describe("compressTransferOutput", () => {
   it("strips scp progress bar lines", () => {
     // scp progress: "file.txt                    100%  1234   1.2KB/s   00:00"
     const progressLine = "file.txt                    100%  1234   1.2KB/s   00:00\n";
-    const lines = Array(15).fill(progressLine).join("") + "total: 15000 bytes\n";
+    const lines = `${Array(15).fill(progressLine).join("")}total: 15000 bytes\n`;
     const result = compressTransferOutput(lines)!;
     expect(result).not.toContain("1.2KB/s");
   });
 
   it("returns null for scp progress-only output with a trailing newline", () => {
     const progress = "file.txt                    100%  1234   1.2KB/s   00:00";
-    const input = Array.from({ length: 10 }, () => progress).join("\n") + "\n";
+    const input = `${Array.from({ length: 10 }, () => progress).join("\n")}\n`;
 
     expect(compressTransferOutput(input)).toBeNull();
   });
@@ -53,7 +53,7 @@ describe("compressTransferOutput", () => {
   });
 
   it("preserves Permission denied lines", () => {
-    const lines = Array(10).fill("progress\n").join("") + "Permission denied (publickey).\n";
+    const lines = `${Array(10).fill("progress\n").join("")}Permission denied (publickey).\n`;
     const result = compressTransferOutput(lines)!;
     expect(result).toContain("Permission denied");
   });
@@ -67,8 +67,7 @@ describe("compressTransferOutput", () => {
   });
 
   it("preserves No such file lines", () => {
-    const lines =
-      Array(10).fill("progress\n").join("") + "scp: /remote/path: No such file or directory\n";
+    const lines = `${Array(10).fill("progress\n").join("")}scp: /remote/path: No such file or directory\n`;
     const result = compressTransferOutput(lines)!;
     expect(result).toContain("No such file");
   });

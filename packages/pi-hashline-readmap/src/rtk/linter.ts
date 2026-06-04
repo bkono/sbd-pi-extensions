@@ -41,7 +41,7 @@ function parseIssues(output: string, linterType: string): Issue[] {
   return issues;
 }
 
-function parseLine(line: string, linterType: string): Issue | null {
+function parseLine(line: string, _linterType: string): Issue | null {
   // ESLint: /path/to/file.js:10:5: Error message [rule-id]
   // Ruff: /path/to/file.py:10:5: E501 Error message
   // Pylint: /path/to/file.py:10:5: E0001: Error message (rule-id)

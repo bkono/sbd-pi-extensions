@@ -141,7 +141,7 @@ export function findSymbol(map: FileMap, query: string): SymbolLookupResult {
           .slice(0, 5)
           .map(
             (c) =>
-              `${c.parentName ? c.parentName + "." : ""}${c.symbol.name}@${c.symbol.startLine}`,
+              `${c.parentName ? `${c.parentName}.` : ""}${c.symbol.name}@${c.symbol.startLine}`,
           )
           .join(", ");
         return {

@@ -1,5 +1,5 @@
-import * as os from "os";
-import { isAbsolute, resolve as resolvePath } from "path";
+import * as os from "node:os";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 

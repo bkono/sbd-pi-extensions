@@ -1,8 +1,8 @@
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { mkdtemp } from "fs/promises";
-import os from "os";
-import path from "path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ensureHashInit } from "../src/hashline";
 
@@ -28,7 +28,7 @@ describe("read.ts syscall reduction", () => {
   });
 
   it("reading a nonexistent path returns error containing 'not found'", async () => {
-    const { readFile } = await import("fs/promises");
+    const { readFile } = await import("node:fs/promises");
 
     try {
       await readFile(path.join(tmpDir, "nonexistent.txt"));
@@ -45,7 +45,7 @@ describe("read.ts syscall reduction", () => {
   });
 
   it("reading a directory path triggers EISDIR handling with 'directory' message", async () => {
-    const { readFile } = await import("fs/promises");
+    const { readFile } = await import("node:fs/promises");
 
     try {
       await readFile(path.join(tmpDir, "subdir"));

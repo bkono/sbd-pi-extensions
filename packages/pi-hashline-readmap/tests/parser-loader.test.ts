@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noStaticOnlyClass: web-tree-sitter exposes Language as a static factory shape. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {

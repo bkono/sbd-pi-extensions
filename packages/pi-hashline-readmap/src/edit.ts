@@ -1,3 +1,5 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: edit tool inputs/results cross Pi's dynamic tool boundary and are narrowed internally. */
+import { readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
 import {
   type EditToolDetails,
   type ExtensionAPI,
@@ -8,7 +10,6 @@ import { Text } from "@mariozechner/pi-tui";
 import type { Static } from "@sinclair/typebox";
 import { Type } from "@sinclair/typebox";
 import { createPatch } from "diff";
-import { readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import {
   buildContextHygieneMetadata,
   buildFileResource,
@@ -709,7 +710,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             semanticSummary,
           });
 
-          const warn = warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : "";
+          const _warn = warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : "";
           return {
             content: [{ type: "text", text: builtOutput.text }],
             details: {

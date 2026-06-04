@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 // Regression test for issue 144.
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -32,7 +33,7 @@ describe("issue 144 — stale-masked read must not satisfy edit's must-read guar
 
     const dir = mkdtempSync(resolve(tmpdir(), "pi-issue-144-"));
     const filePath = resolve(dir, "small.ts");
-    writeFileSync(filePath, ["a", "b", "uniqueLine", "d", "e"].join("\n") + "\n", "utf-8");
+    writeFileSync(filePath, `${["a", "b", "uniqueLine", "d", "e"].join("\n")}\n`, "utf-8");
 
     const { tools, handlers } = createHarness();
 
@@ -128,7 +129,7 @@ describe("issue 144 — stale-masked read must not satisfy edit's must-read guar
       `You must get fresh anchors for ${filePath} before editing it.`,
     );
     expect(readFileSync(filePath, "utf-8")).toBe(
-      ["a", "b", "uniqueLineV2", "d", "e"].join("\n") + "\n",
+      `${["a", "b", "uniqueLineV2", "d", "e"].join("\n")}\n`,
     );
   });
 });

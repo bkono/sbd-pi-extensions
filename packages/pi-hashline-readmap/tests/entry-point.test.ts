@@ -14,11 +14,16 @@ describe("extension entry point (AC8)", () => {
     expect(typeof mod.default).toBe("function");
     expect(mod.default.length).toBe(1);
   });
-  it("index.ts imports read/edit/grep with .js specifiers", () => {
-    const source = readFileSync(resolve(root, "index.ts"), "utf8");
-    expect(source).toContain('import { registerReadTool } from "./src/read.js";');
-    expect(source).toContain('import { registerEditTool } from "./src/edit.js";');
-    expect(source).toContain('import { registerGrepTool } from "./src/grep.js";');
+  it("src/index.ts imports read/edit/grep with .js specifiers", () => {
+    const source = readFileSync(resolve(root, "src/index.ts"), "utf8");
+    expect(source).toContain('import { registerReadTool } from "./read.js";');
+    expect(source).toContain('import { registerEditTool } from "./edit.js";');
+    expect(source).toContain('import { registerGrepTool } from "./grep.js";');
+  });
+  it("src/index.ts default export is the extension function", async () => {
+    const mod = await import(pathToFileURL(resolve(root, "src/index.ts")).href);
+    expect(typeof mod.default).toBe("function");
+    expect(mod.default.length).toBe(1);
   });
   it("registers ast_search tool", async () => {
     const mod = await import(pathToFileURL(resolve(root, "index.ts")).href);

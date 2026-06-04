@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -36,23 +37,21 @@ describe("bash filter integration", () => {
 
     mod.default(mockPi as any);
 
-    expect(handlers["tool_result"]).toBeDefined();
+    expect(handlers.tool_result).toBeDefined();
 
     const hashlineText = "1:ab|some hashline content";
 
     expect(
-      await handlers["tool_result"](makeEvent("read", "t-read", { path: "foo.ts" }, hashlineText)),
+      await handlers.tool_result(makeEvent("read", "t-read", { path: "foo.ts" }, hashlineText)),
     ).toBeUndefined();
     expect(
-      await handlers["tool_result"](makeEvent("grep", "t-grep", { pattern: "x" }, hashlineText)),
+      await handlers.tool_result(makeEvent("grep", "t-grep", { pattern: "x" }, hashlineText)),
     ).toBeUndefined();
     expect(
-      await handlers["tool_result"](makeEvent("edit", "t-edit", { path: "foo.ts" }, hashlineText)),
+      await handlers.tool_result(makeEvent("edit", "t-edit", { path: "foo.ts" }, hashlineText)),
     ).toBeUndefined();
     expect(
-      await handlers["tool_result"](
-        makeEvent("ast_search", "t-ast", { pattern: "$X" }, hashlineText),
-      ),
+      await handlers.tool_result(makeEvent("ast_search", "t-ast", { pattern: "$X" }, hashlineText)),
     ).toBeUndefined();
 
     const bashEvent = makeEvent(
@@ -62,7 +61,7 @@ describe("bash filter integration", () => {
       "\x1b[32mhello\x1b[0m",
     );
 
-    const result = await handlers["tool_result"](bashEvent);
+    const result = await handlers.tool_result(bashEvent);
     expect(result).toBeDefined();
     expect(result.content[0].type).toBe("text");
     expect(result.content[0].text).toBe("hello");
@@ -71,7 +70,7 @@ describe("bash filter integration", () => {
 describe("savings logging", () => {
   it("logs savings to stderr when PI_RTK_SAVINGS=1 and is silent when unset", async () => {
     // Cache-bust imports so env changes are observed.
-    const modUrl = pathToFileURL(resolve(root, "index.ts")).href + "?t=" + Date.now();
+    const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?t=${Date.now()}`;
     const handlers: Record<string, Function> = {};
     const mockPi = {
       registerTool() {},
@@ -86,9 +85,9 @@ describe("savings logging", () => {
     // No [RTK] output when savings logging is off
     delete process.env.PI_RTK_SAVINGS;
     const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-    const mod = await import(modUrl + "-v2");
+    const mod = await import(`${modUrl}-v2`);
     mod.default(mockPi as any);
-    await handlers["tool_result"](bashEvent);
+    await handlers.tool_result(bashEvent);
     const rtkCalls = stderrSpy.mock.calls.filter((c) => String(c[0]).includes("[RTK]"));
     expect(rtkCalls).toHaveLength(0);
     stderrSpy.mockRestore();

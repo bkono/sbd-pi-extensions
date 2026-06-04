@@ -80,8 +80,8 @@ export async function replaceSymbol(input: ReplaceSymbolInput): Promise<ReplaceS
   }
   const before = lines.slice(0, sym.startLine - 1).join("\n");
   const after = lines.slice(sym.endLine).join("\n");
-  const beforePart = before.length ? before + "\n" : "";
-  const afterPart = after.length ? "\n" + after : "";
+  const beforePart = before.length ? `${before}\n` : "";
+  const afterPart = after.length ? `\n${after}` : "";
   const newContent = beforePart + reindented + afterPart;
   return {
     type: "ok",

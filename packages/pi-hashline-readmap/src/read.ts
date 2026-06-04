@@ -1,3 +1,5 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: read renderer and symbol lookup parse dynamic Pi payloads. */
+import { readFile as fsReadFile } from "node:fs/promises";
 import type {
   AgentToolResult,
   ExtensionAPI,
@@ -12,7 +14,6 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { readFile as fsReadFile } from "fs/promises";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildReadRehydrateDescriptor } from "./context-hygiene.js";
@@ -550,7 +551,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       }
 
       const selected = allLines.slice(startLine - 1, endIdx);
-      const ptcLines = buildPtcLines(startLine, selected);
+      const _ptcLines = buildPtcLines(startLine, selected);
 
       const formatted = selected
         .map((line, i) => {
@@ -581,7 +582,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
           const fileMap = await getOrGenerateMap(absolutePath);
           if (fileMap) {
             const formattedMap = formatFileMapWithBudget(fileMap);
-            text += "\n\n" + formattedMap;
+            text += `\n\n${formattedMap}`;
             mapText = formattedMap;
             appendedMap = true;
           }
@@ -684,7 +685,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       if (!rangeSuffix && suffix) text += ` ${theme.fg("dim", suffix)}`;
       return new Text(clampLineToWidth(text, context.width), 0, 0);
     },
-    renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
+    renderResult(result: any, options: ToolRenderResultOptions, _theme: any, ...rest: any[]) {
       const context: {
         isPartial?: boolean;
         isError?: boolean;
@@ -749,7 +750,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       for (const badge of info.badges) summaryParts.push(badge);
       const summary = summaryParts.join(" • ");
       let text = summaryLine(summary, { hidden: !!textContent && !expanded });
-      if (expanded && textContent) text += "\n" + wrapReadHashlinesForWidth(textContent, width);
+      if (expanded && textContent) text += `\n${wrapReadHashlinesForWidth(textContent, width)}`;
       return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
     },
   } satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof ptc };

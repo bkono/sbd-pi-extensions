@@ -78,7 +78,7 @@ function schemaToSymbols(
       lineEstimate++;
     } else if (typeof value === "object" && value !== null) {
       // Nested object
-      const count = (schema["_count"] as number) || 1;
+      const count = (schema._count as number) || 1;
       const countSuffix = count > 1 ? ` (${count} items)` : "";
 
       if (key === "[]") {

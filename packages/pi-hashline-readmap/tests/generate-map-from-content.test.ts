@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateMap, generateMapFromContent } from "../src/readmap/mapper.js";
 

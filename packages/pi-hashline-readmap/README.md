@@ -40,14 +40,14 @@ pi install npm:@solvedbydev/pi-hashline-readmap
 ### From GitHub
 
 ```bash
-pi install git:github.com/coctostan/pi-hashline-readmap
+pi install git:github.com/bkono/sbd-pi-extensions
 ```
 
 ### From a local checkout
 
 ```bash
-git clone https://github.com/coctostan/pi-hashline-readmap.git
-cd pi-hashline-readmap
+git clone https://github.com/bkono/sbd-pi-extensions.git
+cd sbd-pi-extensions
 npm install
 pi install .
 ```
@@ -346,11 +346,11 @@ After, in `<repo>/.pi/hashline-readmap/settings.json`:
 
 ## Advanced documentation
 
-- [docs/bash-output.md](https://github.com/coctostan/pi-hashline-readmap/blob/main/docs/bash-output.md) — Bash compression, original-output restoration, context-guard trimming, and bypass behavior.
-- [docs/structured-output.md](https://github.com/coctostan/pi-hashline-readmap/blob/main/docs/structured-output.md) — `details.ptcValue`, structured error envelopes, and the exported PTC policy contract.
-- [docs/context-hygiene.md](https://github.com/coctostan/pi-hashline-readmap/blob/main/docs/context-hygiene.md) — context-hygiene metadata, stale-context placeholders, and the debug report tool.
-- [docs/integrations.md](https://github.com/coctostan/pi-hashline-readmap/blob/main/docs/integrations.md) — EventBus/global executor exposure for downstream integrations.
-- [exploratory functional testing](https://github.com/coctostan/pi-hashline-readmap/blob/main/docs/exploratory-functional-testing.md) — exploratory testing notes.
+- [docs/bash-output.md](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/docs/bash-output.md) — Bash compression, original-output restoration, context-guard trimming, and bypass behavior.
+- [docs/structured-output.md](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/docs/structured-output.md) — `details.ptcValue`, structured error envelopes, and the exported PTC policy contract.
+- [docs/context-hygiene.md](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/docs/context-hygiene.md) — context-hygiene metadata, stale-context placeholders, and the debug report tool.
+- [docs/integrations.md](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/docs/integrations.md) — EventBus/global executor exposure for downstream integrations.
+- [exploratory functional testing](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/docs/exploratory-functional-testing.md) — exploratory testing notes.
 - [prompts/](prompts/) — tool prompt and schema documentation.
 - [CHANGELOG.md](CHANGELOG.md) — release history.
 
@@ -407,7 +407,7 @@ Before publishing or opening a PR, run the workspace checks above from a clean c
 
 This repository is intended to be used as a pi extension workspace. New agent sessions pick up local extension edits from the checkout, but running sessions do not hot-reload the module graph. Restart the agent session after changing extension code.
 
-For project-specific development workflow details, see [AGENTS.md](https://github.com/coctostan/pi-hashline-readmap/blob/main/AGENTS.md).
+For project-specific development workflow details, see [AGENTS.md](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/AGENTS.md).
 
 ## Contributing
 
@@ -416,7 +416,7 @@ PRs are welcome. If you change tool behavior or output contracts:
 - update the relevant tests in `tests/`
 - update prompt docs in `prompts/` when user-visible contracts change
 - update `README.md` when installation, usage, or output semantics change materially
-- follow repository workflow notes in [AGENTS.md](https://github.com/coctostan/pi-hashline-readmap/blob/main/AGENTS.md)
+- follow repository workflow notes in [AGENTS.md](https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/AGENTS.md)
 
 ## Credits
 

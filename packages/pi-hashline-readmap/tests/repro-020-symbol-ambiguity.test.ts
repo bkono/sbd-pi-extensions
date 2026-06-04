@@ -55,8 +55,8 @@ describe("Bug #020: symbol ambiguity message misleads with dot notation for top-
     // But for top-level overloads, there is NO dot notation that disambiguates.
     // This test shows the suggestion is unusable.
 
-    const dotResult = findSymbol(fileMapWithOverloads, "add.0");
-    const hashResult = findSymbol(fileMapWithOverloads, "add#1");
+    const _dotResult = findSymbol(fileMapWithOverloads, "add.0");
+    const _hashResult = findSymbol(fileMapWithOverloads, "add#1");
     const lineResult = findSymbol(fileMapWithOverloads, "add@1");
 
     // Current behavior: all return not-found — there is NO supported syntax

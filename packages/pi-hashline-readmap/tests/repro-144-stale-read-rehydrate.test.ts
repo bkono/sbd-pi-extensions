@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -30,7 +31,7 @@ describe("issue 144 — fresh re-read survives a subsequent context turn", () =>
 
     const dir = mkdtempSync(resolve(tmpdir(), "pi-issue-144-rehydrate-"));
     const filePath = resolve(dir, "small.ts");
-    writeFileSync(filePath, ["a", "b", "uniqueLine", "d", "e"].join("\n") + "\n", "utf-8");
+    writeFileSync(filePath, `${["a", "b", "uniqueLine", "d", "e"].join("\n")}\n`, "utf-8");
 
     const { tools, handlers } = createHarness();
 
@@ -179,7 +180,7 @@ describe("issue 144 — fresh re-read survives a subsequent context turn", () =>
     expect(editResult2.isError).not.toBe(true);
     expect(getTextContent(editResult2)).toContain(`Edited ${filePath}`);
     expect(readFileSync(filePath, "utf-8")).toBe(
-      ["a", "b", "uniqueLineV3", "d", "e"].join("\n") + "\n",
+      `${["a", "b", "uniqueLineV3", "d", "e"].join("\n")}\n`,
     );
   });
 });

@@ -1,7 +1,7 @@
-import { randomBytes } from "crypto";
-import { stat, unlink, utimes, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
+import { randomBytes } from "node:crypto";
+import { stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -43,7 +43,7 @@ describe("map-cache", () => {
     tempFiles.length = 0;
   });
 
-  function createTempFile(content: string, ext = ".ts"): string {
+  function createTempFile(_content: string, ext = ".ts"): string {
     const p = tmpPath(ext);
     tempFiles.push(p);
     return p;

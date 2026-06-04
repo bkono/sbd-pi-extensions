@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: difftastic JSON is runtime-shaped and narrowed defensively before use. */
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

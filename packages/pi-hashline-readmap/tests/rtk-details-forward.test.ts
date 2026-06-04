@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -19,7 +20,7 @@ function makeEvent(toolCallId: string, command: string, text: string, details?: 
 
 describe("index.ts forwards info to details.compressionInfo", () => {
   it("includes compressionInfo on bash tool_result details", async () => {
-    const modUrl = pathToFileURL(resolve(root, "index.ts")).href + "?t=details-" + Date.now();
+    const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?t=details-${Date.now()}`;
     const handlers: Record<string, Function> = {};
     const mockPi = {
       registerTool() {},
@@ -31,7 +32,7 @@ describe("index.ts forwards info to details.compressionInfo", () => {
     const mod = await import(modUrl);
     mod.default(mockPi as any);
 
-    const result = await handlers["tool_result"](
+    const result = await handlers.tool_result(
       makeEvent("t-fwd", "echo hi", "\x1b[32mhi\x1b[0m\n", { existing: "keep" }),
     );
 
@@ -46,7 +47,7 @@ describe("index.ts forwards info to details.compressionInfo", () => {
   });
 
   it("serializes compressionInfo via JSON.stringify without throwing", async () => {
-    const modUrl = pathToFileURL(resolve(root, "index.ts")).href + "?t=json-" + Date.now();
+    const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?t=json-${Date.now()}`;
     const handlers: Record<string, Function> = {};
     const mockPi = {
       registerTool() {},
@@ -58,7 +59,7 @@ describe("index.ts forwards info to details.compressionInfo", () => {
     const mod = await import(modUrl);
     mod.default(mockPi as any);
 
-    const result = await handlers["tool_result"](makeEvent("t-json", "echo hi", "hi\n"));
+    const result = await handlers.tool_result(makeEvent("t-json", "echo hi", "hi\n"));
     expect(() => JSON.stringify(result.details.compressionInfo)).not.toThrow();
   });
 });

@@ -12,7 +12,7 @@ function getText(result: any): string {
 async function runBoth() {
   const dir = mkdtempSync(join(tmpdir(), "pi-grep-line-truncation-"));
   const filePath = join(dir, "big.txt");
-  const line = "needle " + "x".repeat(20000);
+  const line = `needle ${"x".repeat(20000)}`;
   writeFileSync(filePath, line, "utf8");
 
   const builtin = createGrepTool(process.cwd());

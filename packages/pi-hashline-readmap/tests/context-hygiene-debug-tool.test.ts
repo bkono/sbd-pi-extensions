@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { afterEach, describe, expect, it } from "vitest";
 import init from "../index.js";
 import {

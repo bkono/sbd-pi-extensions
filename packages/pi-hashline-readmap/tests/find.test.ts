@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { _testable, isFdAvailable } from "../src/find.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: write tool inputs/results cross Pi's dynamic tool boundary and are narrowed internally. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { type ExtensionAPI, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
@@ -316,7 +317,7 @@ export async function executeWrite(opts: {
       if (fileMap) {
         const mapText = formatFileMapWithBudget(fileMap);
         if (mapText) {
-          text += "\n\n" + mapText;
+          text += `\n\n${mapText}`;
           mapAppended = true;
         }
       }

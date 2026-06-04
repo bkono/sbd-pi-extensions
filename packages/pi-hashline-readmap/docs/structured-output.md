@@ -58,7 +58,7 @@ The extension exports a static PTC policy for downstream integrations:
 import {
   HASHLINE_TOOL_PTC_POLICY,
   getHashlineToolPtcPolicy,
-} from "pi-hashline-readmap";
+} from "@solvedbydev/pi-hashline-readmap";
 ```
 
 Policy entries describe:

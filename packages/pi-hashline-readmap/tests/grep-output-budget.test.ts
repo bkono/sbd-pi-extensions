@@ -29,7 +29,7 @@ async function callWrapped(params: {
 describe("grep post-transform budgeting", () => {
   it("adds a truncation notice when rendered hashline output exceeds the final budget", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-grep-budget-"));
-    const line = "needle " + "x".repeat(20000);
+    const line = `needle ${"x".repeat(20000)}`;
 
     for (let i = 0; i < 12; i++) {
       const filePath = join(dir, `file-${String(i + 1).padStart(2, "0")}.txt`);

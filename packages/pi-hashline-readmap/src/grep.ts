@@ -1,9 +1,10 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: grep renderer and tool output parse dynamic Pi payloads. */
+import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import path from "node:path";
 import type { ExtensionAPI, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { createGrepTool } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { readFile as fsReadFile, stat as fsStat } from "fs/promises";
-import path from "path";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildGrepRehydrateDescriptor } from "./context-hygiene.js";
@@ -819,10 +820,10 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
           .sort((a, b) => b[1] - a[1])
           .slice(0, 20)) {
           const display = path.relative(cwd, filePath) || filePath;
-          text += "\n" + theme.fg("dim", `  ${display} (${count})`);
+          text += `\n${theme.fg("dim", `  ${display} (${count})`)}`;
         }
         if (fileCounts.size > 20)
-          text += "\n" + theme.fg("muted", `  … and ${fileCounts.size - 20} more files`);
+          text += `\n${theme.fg("muted", `  … and ${fileCounts.size - 20} more files`)}`;
       }
       return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
     },

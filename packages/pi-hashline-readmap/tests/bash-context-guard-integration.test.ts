@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,8 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 
 async function loadHandlers(tag: string) {
-  const modUrl =
-    pathToFileURL(resolve(root, "index.ts")).href + `?bash-context-guard=${tag}-${Date.now()}`;
+  const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?bash-context-guard=${tag}-${Date.now()}`;
   const handlers: Record<string, Function> = {};
   const mockPi = {
     registerTool() {},
@@ -87,7 +87,7 @@ describe("bash context guard integration", () => {
       toolName: "bash",
       toolCallId: "bash-guard-after-rtk",
       input,
-      content: [{ type: "text", text: "raw git diff\n" + "x".repeat(3000) }, nonText],
+      content: [{ type: "text", text: `raw git diff\n${"x".repeat(3000)}` }, nonText],
       details: { existing: "kept" },
       isError: false,
     });

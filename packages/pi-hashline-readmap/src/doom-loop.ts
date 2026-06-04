@@ -153,7 +153,7 @@ function renderCompactStep(toolName: string, input: Record<string, unknown>): st
     const part = ` ${key}=${rendered}`;
     const candidate = line + part;
     if (candidate.length > COMPACT_LINE_BUDGET) {
-      const remaining = COMPACT_LINE_BUDGET - (line + ` ${key}=`).length;
+      const remaining = COMPACT_LINE_BUDGET - `${line} ${key}=`.length;
       line = `${line} ${key}=${truncate(rendered, Math.max(1, remaining))}`;
       return line;
     }

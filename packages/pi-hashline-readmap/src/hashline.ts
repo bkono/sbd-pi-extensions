@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: hashline validation exposes generic runtime type guards. */
 /**
  * Hashline engine — hash-anchored line editing.
  *

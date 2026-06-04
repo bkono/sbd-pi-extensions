@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { computeLineHash, ensureHashInit } from "../src/hashline.js";
+import { ensureHashInit } from "../src/hashline.js";
 import { PTC_ERROR_CODES } from "../src/ptc-error-codes.js";
 
 async function callTool(

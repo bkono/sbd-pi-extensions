@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: cache persistence validates unknown JSON records before use. */
 import { stat } from "node:fs/promises";
 import {
   computeKey,

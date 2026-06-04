@@ -41,7 +41,7 @@ function extractTomlStructure(content: string): TomlSection[] {
 
     // Match [[array.section]]
     const arrayMatch = trimmed.match(/^\[\[([^\]]+)\]\]\s*(?:#.*)?$/);
-    if (arrayMatch && arrayMatch[1]) {
+    if (arrayMatch?.[1]) {
       // Push previous section if it has content
       if (currentSection.name !== "" || currentSection.keys.length > 0) {
         sections.push(currentSection);
@@ -57,7 +57,7 @@ function extractTomlStructure(content: string): TomlSection[] {
 
     // Match [section.name]
     const sectionMatch = trimmed.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (sectionMatch && sectionMatch[1]) {
+    if (sectionMatch?.[1]) {
       // Push previous section if it has content
       if (currentSection.name !== "" || currentSection.keys.length > 0) {
         sections.push(currentSection);
@@ -73,7 +73,7 @@ function extractTomlStructure(content: string): TomlSection[] {
 
     // Match key = value
     const keyMatch = trimmed.match(/^([a-zA-Z_][\w.-]*)\s*=/);
-    if (keyMatch && keyMatch[1]) {
+    if (keyMatch?.[1]) {
       currentSection.keys.push({
         name: keyMatch[1],
         line: lineNum,

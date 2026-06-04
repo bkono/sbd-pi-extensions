@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: pending diff preview stores heterogeneous dynamic edit preview state. */
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { generateDiffString, normalizeToLF, replaceText } from "./edit-diff.js";
@@ -30,7 +31,7 @@ function isInsidePath(parent: string, child: string): boolean {
     (rel !== "" &&
       !rel.startsWith("..") &&
       !rel.startsWith(sep) &&
-      !resolve(rel).startsWith(".." + sep))
+      !resolve(rel).startsWith(`..${sep}`))
   );
 }
 

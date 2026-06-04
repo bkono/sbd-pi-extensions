@@ -1,5 +1,5 @@
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { formatGrepOutput, type GrepIR, type GrepIRLine } from "../src/grep";
 import { registerGrepTool } from "../src/grep.js";

@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: ls renderer consumes dynamic Pi/tool result payloads. */
 import type { Stats } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -284,7 +285,7 @@ export function registerLsTool(pi: ExtensionAPI) {
       );
     },
 
-    renderResult(result: any, options: any, theme: any, context: any = {}) {
+    renderResult(result: any, options: any, _theme: any, context: any = {}) {
       const expanded = isRendererExpanded(options, context);
       const width = context.width ?? options?.width;
       const output =

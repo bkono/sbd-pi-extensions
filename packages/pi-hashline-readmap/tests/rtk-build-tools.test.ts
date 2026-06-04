@@ -25,8 +25,7 @@ describe("compressBuildToolsOutput", () => {
   });
 
   it("strips make enter/leave directory lines", () => {
-    const lines =
-      Array(15).fill("make[1]: Entering directory '/src'\n").join("") + "build output\n";
+    const lines = `${Array(15).fill("make[1]: Entering directory '/src'\n").join("")}build output\n`;
     const result = compressBuildToolsOutput(lines)!;
     expect(result).not.toContain("Entering directory");
   });
@@ -40,7 +39,7 @@ describe("compressBuildToolsOutput", () => {
   });
 
   it("strips Gradle task progress lines", () => {
-    const lines = Array(15).fill("> Task :compileJava\n").join("") + "BUILD SUCCESSFUL\n";
+    const lines = `${Array(15).fill("> Task :compileJava\n").join("")}BUILD SUCCESSFUL\n`;
     const result = compressBuildToolsOutput(lines)!;
     expect(result).not.toContain("> Task :compileJava");
     expect(result).toContain("BUILD SUCCESSFUL");
@@ -64,26 +63,25 @@ describe("compressBuildToolsOutput", () => {
   });
 
   it("preserves warning: lines", () => {
-    const lines =
-      Array(10).fill("noise\n").join("") + "src/main.cpp:5:3: warning: unused variable\n";
+    const lines = `${Array(10).fill("noise\n").join("")}src/main.cpp:5:3: warning: unused variable\n`;
     const result = compressBuildToolsOutput(lines)!;
     expect(result).toContain("warning:");
   });
 
   it("preserves [ERROR] Maven lines", () => {
-    const lines = Array(10).fill("[INFO] noise\n").join("") + "[ERROR] Failed to execute goal\n";
+    const lines = `${Array(10).fill("[INFO] noise\n").join("")}[ERROR] Failed to execute goal\n`;
     const result = compressBuildToolsOutput(lines)!;
     expect(result).toContain("[ERROR]");
   });
 
   it("preserves make: *** error lines", () => {
-    const lines = Array(10).fill("recipe\n").join("") + "make: *** [all] Error 1\n";
+    const lines = `${Array(10).fill("recipe\n").join("")}make: *** [all] Error 1\n`;
     const result = compressBuildToolsOutput(lines)!;
     expect(result).toContain("make: ***");
   });
 
   it("preserves BUILD SUCCESSFUL", () => {
-    const lines = Array(10).fill("> Task :compileJava\n").join("") + "BUILD SUCCESSFUL in 3s\n";
+    const lines = `${Array(10).fill("> Task :compileJava\n").join("")}BUILD SUCCESSFUL in 3s\n`;
     const result = compressBuildToolsOutput(lines)!;
     expect(result).toContain("BUILD SUCCESSFUL");
   });

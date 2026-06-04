@@ -44,10 +44,10 @@ describe("README.md content (AC-1, AC-2)", () => {
       "https://raw.githubusercontent.com/coctostan/pi-hashline-readmap/main/banner.png",
     );
     expect(readme).toContain(
-      "https://github.com/coctostan/pi-hashline-readmap/blob/main/AGENTS.md",
+      "https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/AGENTS.md",
     );
     expect(readme).toContain(
-      "https://github.com/coctostan/pi-hashline-readmap/blob/main/docs/exploratory-functional-testing.md",
+      "https://github.com/bkono/sbd-pi-extensions/blob/main/packages/pi-hashline-readmap/docs/exploratory-functional-testing.md",
     );
   });
 

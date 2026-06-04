@@ -1,3 +1,5 @@
+/* biome-ignore-all lint/correctness/noUnusedPrivateClassMembers: fixture intentionally contains unused members to exercise large-file maps. */
+/* biome-ignore-all lint/complexity/noBannedTypes: fixture intentionally uses broad callback placeholders. */
 /**
  * Large module for testing map generation on truncated files.
  * Contains multiple classes, interfaces, enums, and functions.

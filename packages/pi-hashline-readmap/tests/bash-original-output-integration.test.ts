@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 
 async function loadHandlers(tag: string) {
-  const modUrl = pathToFileURL(resolve(root, "index.ts")).href + `?t=${tag}-${Date.now()}`;
+  const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?t=${tag}-${Date.now()}`;
   const handlers: Record<string, Function> = {};
   const mockPi = {
     registerTool() {},
@@ -36,7 +37,7 @@ describe("bash original output integration", () => {
 
     try {
       const handlers = await loadHandlers("restored-full");
-      const result = await handlers["tool_result"]({
+      const result = await handlers.tool_result({
         type: "tool_result",
         toolName: "bash",
         toolCallId: "bash-full-1",
@@ -44,7 +45,7 @@ describe("bash original output integration", () => {
         content: [
           {
             type: "text",
-            text: "VISIBLE TAIL\n[Showing lines 10-20 of 20. Full output: " + fullPath + "]",
+            text: `VISIBLE TAIL\n[Showing lines 10-20 of 20. Full output: ${fullPath}]`,
           },
         ],
         details: { fullOutputPath: fullPath, existing: "keep" },
@@ -69,7 +70,7 @@ describe("bash original output integration", () => {
 
   it("keeps source-selection metadata when PI_RTK_BYPASS skips compression", async () => {
     const handlers = await loadHandlers("bypass-source");
-    const result = await handlers["tool_result"]({
+    const result = await handlers.tool_result({
       type: "tool_result",
       toolName: "bash",
       toolCallId: "bash-bypass-1",
@@ -94,7 +95,7 @@ describe("bash original output integration", () => {
   it("joins multiple text chunks and preserves non-text chunks for ordinary output", async () => {
     const handlers = await loadHandlers("chunks");
     const nonText = { type: "image", data: "opaque-test-data" };
-    const result = await handlers["tool_result"]({
+    const result = await handlers.tool_result({
       type: "tool_result",
       toolName: "bash",
       toolCallId: "bash-chunks-1",

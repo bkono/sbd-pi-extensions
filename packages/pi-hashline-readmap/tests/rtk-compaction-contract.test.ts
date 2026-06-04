@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -19,7 +20,7 @@ function makeBashEvent(toolCallId: string, command: string, text: string, detail
 }
 
 async function loadHandler(tag: string) {
-  const modUrl = pathToFileURL(resolve(root, "index.ts")).href + "?t=" + tag + "-" + Date.now();
+  const modUrl = `${pathToFileURL(resolve(root, "index.ts")).href}?t=${tag}-${Date.now()}`;
   const handlers: Record<string, Function> = {};
   const mockPi = {
     registerTool() {},
@@ -30,7 +31,7 @@ async function loadHandler(tag: string) {
   };
   const mod = await import(modUrl);
   mod.default(mockPi as any);
-  return handlers["tool_result"];
+  return handlers.tool_result;
 }
 
 describe("details.rtkCompaction — main RTK path (single technique)", () => {
@@ -124,20 +125,19 @@ describe("details.rtkCompaction — test-output short-circuit", () => {
 
 describe("details.rtkCompaction — truncated end-to-end", () => {
   it("sets truncated=true when the route emits the '... N lines omitted ...' marker", async () => {
-    const truncatedRouteOutput =
-      [
-        "M file1.ts",
-        "M file2.ts",
-        "",
-        "... 12 lines omitted ...",
-        "",
-        "M file19.ts",
-        "M file20.ts",
-      ].join("\n") + "\n";
+    const truncatedRouteOutput = `${[
+      "M file1.ts",
+      "M file2.ts",
+      "",
+      "... 12 lines omitted ...",
+      "",
+      "M file19.ts",
+      "M file20.ts",
+    ].join("\n")}\n`;
     const gitSpy = vi.spyOn(git, "compactGitOutput").mockReturnValue(truncatedRouteOutput);
     const handler = await loadHandler("truncated");
     try {
-      const rawInput = Array.from({ length: 25 }, (_, i) => `M file${i + 1}.ts`).join("\n") + "\n";
+      const rawInput = `${Array.from({ length: 25 }, (_, i) => `M file${i + 1}.ts`).join("\n")}\n`;
       const result = await handler(makeBashEvent("t-trunc", "git status", rawInput));
       expect(result.details.rtkCompaction.applied).toBe(true);
       expect(result.details.rtkCompaction.techniques).toEqual(["git"]);

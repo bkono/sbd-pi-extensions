@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: edit request variants are validated from dynamic tool payloads. */
 import {
   buildContextHygieneMetadata,
   buildFileResource,

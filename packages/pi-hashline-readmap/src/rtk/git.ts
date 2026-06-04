@@ -306,7 +306,7 @@ export function compactLog(output: string, limit: number = 20): string {
 
   for (const line of lines.slice(0, limit)) {
     if (line.length > 80) {
-      result.push(line.slice(0, 77) + "...");
+      result.push(`${line.slice(0, 77)}...`);
     } else {
       result.push(line);
     }

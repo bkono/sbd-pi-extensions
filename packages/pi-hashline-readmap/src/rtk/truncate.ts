@@ -7,7 +7,7 @@ export function truncate(text: string, maxLength: number): string {
     return "...";
   }
 
-  return text.slice(0, maxLength - 3) + "...";
+  return `${text.slice(0, maxLength - 3)}...`;
 }
 
 export function truncateLines(text: string, maxLines: number): string {

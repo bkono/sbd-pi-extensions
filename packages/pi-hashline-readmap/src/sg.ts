@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/suspicious/noExplicitAny: ast-grep renderer bridges dynamic Pi/tool and CLI payloads. */
 import * as cp from "node:child_process";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import path from "node:path";
@@ -468,10 +469,10 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       if (expanded) {
         for (const file of files.slice(0, 20)) {
           const display = path.relative(cwd, file.path) || file.path;
-          text += "\n" + theme.fg("dim", `  ${display} (${file.lines.length})`);
+          text += `\n${theme.fg("dim", `  ${display} (${file.lines.length})`)}`;
         }
         if (files.length > 20)
-          text += "\n" + theme.fg("muted", `  … and ${files.length - 20} more files`);
+          text += `\n${theme.fg("muted", `  … and ${files.length - 20} more files`)}`;
       }
       return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
     },

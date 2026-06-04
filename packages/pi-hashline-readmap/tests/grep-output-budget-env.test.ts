@@ -31,7 +31,7 @@ function makeFixture(): string {
   // Sized below default budgets (2000 lines / 50 KiB) so truncation can only
   // fire via the env knob.
   const dir = mkdtempSync(join(tmpdir(), "pi-grep-budget-env-"));
-  const line = "needle " + "x".repeat(60);
+  const line = `needle ${"x".repeat(60)}`;
   for (let i = 0; i < 12; i++) {
     const filePath = join(dir, `file-${String(i + 1).padStart(2, "0")}.txt`);
     writeFileSync(filePath, Array.from({ length: 10 }, () => line).join("\n"), "utf8");

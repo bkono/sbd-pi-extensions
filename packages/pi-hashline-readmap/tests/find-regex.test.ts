@@ -88,7 +88,7 @@ describe("find regex backend parity", () => {
     const tool = await getFindTool();
 
     _testable.isFdAvailable = () => true;
-    const fdSpy = installExecFileMock(((
+    const _fdSpy = installExecFileMock(((
       _cmd: string,
       _args: string[],
       _opts: unknown,

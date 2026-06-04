@@ -22,9 +22,9 @@ describe("gdscriptMapper", () => {
   it("invokes the Python helper with execFile args and maps helper JSON", async () => {
     const execFile = vi.fn(
       (
-        file: string,
-        args: readonly string[],
-        options: unknown,
+        _file: string,
+        _args: readonly string[],
+        _options: unknown,
         callback: (error: Error | null, stdout: string, stderr: string) => void,
       ) => {
         callback(

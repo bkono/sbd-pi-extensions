@@ -120,7 +120,7 @@ describe("buildRtkCompaction — line counts", () => {
 
 describe("buildRtkCompaction — truncated", () => {
   it("sets truncated=true when output contains the truncateLines marker", () => {
-    const rawInput = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    const rawInput = `${Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
     const output =
       ["line 1", "line 2", "", "... 16 lines omitted ...", "", "line 19", "line 20"].join("\n") +
       "\n";

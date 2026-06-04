@@ -1,8 +1,8 @@
 // tests/read-symbol-at-line-java.test.ts
 
-import { mkdtempSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registerReadTool } from "../src/read.js";
 

@@ -22,7 +22,7 @@ describe("guarded Bash preview protected notices", () => {
       "body-4",
     ].join("\n");
     const longCommand = `node ${"x".repeat(200)}`;
-    const expectedCommand = longCommand.slice(0, 117) + "...";
+    const expectedCommand = `${longCommand.slice(0, 117)}...`;
 
     const result = applyBashContextGuard({
       text,
