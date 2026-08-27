@@ -1,80 +1,70 @@
-# Initial Proposal: Beadwork Mission Control on a Minion Runtime
+# Revised Proposal: Minions Orchestration Core with a Beadwork Goal Adapter
 
 **Date:** 2026-08-27
-**Status:** Initial repo-grounded proposal for review
+**Status:** Revised repo-grounded proposal for review
 **Scope:** `packages/pi-minions` + `packages/pi-beadwork-extension`
-**Working name:** Mission Control
+**Supersedes:** The earlier tmux-migration and detached Mission Control design in this file
 
 ## Executive recommendation
 
-Do not merge beadwork and minions into one large extension, and do not port Oh My Pi's harness or MCP Agent Mail wholesale.
+Move orchestration mechanics into `pi-minions` and reduce `pi-beadwork-extension` to a domain adapter for goals, tickets, metadata, and beadwork-specific interactions.
 
-Instead:
+The design rests on two contracts:
 
-1. Evolve `pi-minions` from a foreground delegation tool into a small, reusable agent runtime with foreground and detached modes, versioned lifecycle events, steering, cancellation, settled-state completion, and parent-safe result delivery.
-2. Refactor `pi-beadwork-extension` into a client of that runtime. Beadwork remains the durable work graph and semantic source of truth; minions owns live agent sessions.
-3. Replace periodic prompt reminders and UI-only worker notices with an event-driven **obligation engine**. Each meaningful event creates a typed next action for the orchestrator: assess completion, answer a worker, adjudicate review findings, dispatch remediation, create follow-up work, launch newly ready tickets, or escalate.
-4. Use frontier models for judgment, not mechanics. Deterministic code owns lifecycle, ancestry, schemas, idempotency, concurrency limits, and safety invariants. Models own decomposition, review, attribution ambiguity, `fix | file | reject` decisions, and recovery choices.
-5. Add **advisory workspace claims**, not mandatory locks: declared edit intent, observed paths, overlap warnings, scheduler bias, and optional tool/commit guards. Worktrees remain the explicit isolation option.
-6. Keep the current tmux worker path as a migration fallback until the minion runtime proves restart, cancellation, and completion delivery under fault tests.
+> **The task type makes the next instruction deterministic; the parent model still judges the evidence and chooses the action.**
 
-The result should feel autonomous without becoming a daemon-heavy distributed system: the parent remains available to the user, workers finish into a reliable inbox, guidance is derived from current state, and every review or failure naturally creates the right next orchestrator action.
+> **Role selects behavior; task type selects workflow; beadwork supplies domain context; minions owns orchestration mechanics.**
+
+Concretely:
+
+1. Replace beadwork's tmux worker runtime with non-blocking, in-process Pi child sessions managed by `pi-minions`. Do not improve, preserve, or require the tmux path.
+2. Keep child lifetime tied to the parent Pi process. If the parent exits, its children may exit too. Do not build detached execution, restart recovery, controller leases, or a durable orchestration journal for V1.
+3. Extend minion spawning with orchestration metadata: a dynamic `role`, an optional closed `taskType`, a short task description, and optional domain metadata.
+4. Let `taskType` select deterministic lifecycle guidance. When no task type is present, use the role template's best-effort guidance if available, then fall back to generic guidance.
+5. Deliver each meaningful child lifecycle change to the parent as one model-visible orchestration update containing the changed child, a snapshot of all still-running children, and the applicable nudge.
+6. Add direct agent-to-agent messaging and parent-visible communication metadata to minions. Agents should not need to route messages through the parent.
+7. Treat path intent, TTL reservations, and overlap detection as advisory communication only. Never block writes, pause workers, or claim conflict elimination.
+8. Keep the shared checkout as the normal execution environment. A worktree or alternate checkout is an explicit user-selected workspace and must never be chosen dynamically by the runtime.
+9. Make per-ticket independent review the beadwork default, while allowing explicit scope-level or disabled review policies.
+10. Start review adjudication autonomously and collect consequential decisions for the final handoff instead of interrupting ordinary execution for approval.
+11. Prove one epic end to end first, while using a scope representation that can naturally expand to multiple epics later.
+
+This is intentionally smaller than the previous proposal. The durable source of truth remains beadwork; the live orchestration runtime remains process-local.
 
 ---
 
 ## 1. Normalized feature intent
 
-### What we want
+### Desired workflow
 
-A user should be able to point a Pi session at one or more beadwork epics and say, in effect:
+A parent Pi session should be able to delegate several related tasks without blocking, continue interacting with the user, and receive enough structured context to make the next orchestration decision whenever a child changes state.
 
-> Drive this work to a verified outcome. Decompose or refine the graph when needed, dispatch independent work, monitor it, review it, fix or file valid findings, reject bad findings, avoid workers trampling one another, and bring me in only for real decisions.
+For every completion, failure, blocker, or explicit handoff, the parent should immediately know:
 
-The parent/orchestrator session must remain usable while agents run. It should:
+- which child changed;
+- what that child was asked to do;
+- which role/prompt it used;
+- whether it participated in a known workflow;
+- what result or handoff it produced;
+- which other children are still running;
+- what workflow-specific judgment should happen next.
 
-- keep talking with the user;
-- receive timely worker completion and blocker signals;
-- know the correct next orchestration action without the user restating the workflow;
-- inspect and steer workers;
-- coordinate overlapping work;
-- review outcomes in the context of the ticket, epic, and project;
-- drive bounded remediation and re-review loops;
-- preserve durable state across compaction, session boundaries, and partial failures.
+The mechanism must work whether work originated from beadwork, a one-off code task, a review workflow, or another future domain adapter.
 
-### Why now
+### Hard constraints
 
-The original beadwork extension was designed when model judgment was less reliable and Pi lacked several current primitives. The repository now has:
+- **No tmux dependency.** Beadwork is currently unusable on machines where tmux is absent. The first integrated replacement must use Pi child sessions directly.
+- **No automatic worktrees.** Worktrees are a per-scenario, user-selected opt-in. The runtime must never infer, recommend through enforcement, or dynamically move feature work into one.
+- **Shared checkout is normal.** Most work occurs on one branch shared by many agents. The system should improve awareness and communication without pretending it can eliminate conflicts.
+- **Coordination is advisory.** TTL intent and overlap detection may generate messages, but cannot reject edits, pause workers, or impose locks.
+- **Parent and children share a lifetime.** A parent process crash may terminate its children. Durable child-process continuation is not a requirement.
+- **Models retain judgment.** Deterministic code selects context and guidance; the parent model evaluates evidence and chooses actions.
+- **Roles remain open.** Agent prompt/template names evolve independently of the orchestration protocol.
+- **Task types remain closed.** A task type opts a child into a known workflow contract with deterministic lifecycle nudges.
 
-- frontier models capable of strong decomposition, review, and adjudication;
-- Pi 0.84.3 lifecycle events including `agent_settled`;
-- `pi.sendMessage(..., { deliverAs, triggerTurn })` for safe-boundary delivery;
-- in-process child `AgentSession`s;
-- a shared extension event bus;
-- a local `pi-minions` implementation;
-- a mature, but very large, beadwork orchestration prototype.
+### Desired outcome
 
-The opportunity is to move policy back toward model judgment while giving that judgment reliable runtime primitives and state-derived guidance.
-
-### Source ideas to adapt, not copy
-
-| Source | Principle to adapt | Literal interpretation to reject |
-| --- | --- | --- |
-| Beadwork | Durable graph, `ready` as scheduler, ticket-scoped completion | Treating the issue graph as a live process manager |
-| Current beadwork extension | Full lifecycle, verification, remediation, scope review | Keeping tmux polling and a 6,900-line orchestrator as the permanent center |
-| `pi-minions` | In-process isolated contexts and persistent child sessions | Foreground-only, tool-blocking execution |
-| Oh My Pi | Strong orchestration prompts, background task delivery, agent hub, typed yield, reviewer/advisor roles | Forking or recreating its full harness |
-| MCP Agent Mail | Explicit identities, threaded coordination, TTL claims, durable delivery cursors | A second server, SQLite/Git mail archive, contacts, 40 tools, and a web console |
-| Pi subagent ecosystem | Background handles, steering, event RPC, completion consumption, fleet UI | Depending directly on another extension's private runtime |
-| Gas Town | Observe → nudge → escalate, dedicated merge/verification responsibility | Mayor/Witness/Deacon/Refinery role hierarchy for a local Pi extension |
-
-### Key assumptions
-
-- Beadwork remains the durable task graph.
-- A worker attempt settling is not the same as the ticket being accepted.
-- The normal scale is a handful of concurrent agents, not hundreds.
-- Current-branch concurrency remains valuable, but it should become better informed and observable.
-- A parent Pi process may disappear; durable work meaning must survive even if the live child process does not.
-- User input outranks autonomous continuation.
+There is one reusable orchestration implementation in `pi-minions`. Beadwork no longer maintains a competing process runtime, worker registry, completion notification system, or supervision loop. Instead, beadwork behaves like a domain-specific goal mode: it supplies an epic's intent and work graph while the parent model and minions runtime drive the live work.
 
 ---
 
@@ -82,1533 +72,1010 @@ The opportunity is to move policy back toward model judgment while giving that j
 
 ### Current problem
 
-The project has two complementary but disconnected systems:
+The repository contains two overlapping approaches:
 
-- `pi-minions` has the right in-process session primitive but blocks the parent until every child finishes.
-- `pi-beadwork-extension` can run epics in the background, but it owns its own tmux/process/runtime layer, relies heavily on polling, and often notifies only the UI rather than waking the orchestrator model with the right obligation.
+- `pi-minions` creates real in-process child `AgentSession`s, tracks them in `AgentTree`, exposes steer/abort handles, and persists child session transcripts, but its `spawn` tool waits for all children before returning.
+- `pi-beadwork-extension` can launch work without blocking the parent, but does so through tmux, runtime marker files, polling, a separate worker registry, and beadwork-owned lifecycle logic.
 
-This produces several concrete gaps.
+The split produces several problems:
 
-1. **The parent does not reliably react to completion.** Beadwork supervision emits `ctx.ui.notify()` messages, not model-visible completion obligations.
-2. **Model-initiated delegation can be under-supervised.** The `beadwork_delegate` tool launches a worker but does not call the session tracking path used by the slash-command delegate action.
-3. **Minion completion is detected too early.** `SubsessionManager` treats the first `agent_end` as terminal even though Pi 0.84.3 documents `agent_settled` as the no-more-retry/compaction/continuation event.
-4. **Review adjudication is less agentic than the design claims.** Current-branch `fix | file | reject` is selected by keyword regexes in `classifyReviewFinding()`.
-5. **Runtime truth is fragmented.** Ticket state, git commits, tmux, runtime marker files, a flat worker registry, per-session tracking, and UI notices can disagree.
-6. **Shared-checkout conflicts are accepted but not coordinated.** Current tests prohibit reservation, lock, or clean-checkout prerequisites for launch; the implementation has no advisory overlap observation or supported exact-write ownership boundary after launch.
-7. **The orchestrator's next step is implicit.** Prompt guidance describes modes, but no typed, durable obligation says “this review now requires adjudication” or “this blocker needs a user decision.”
+1. Beadwork requires an external terminal multiplexer that is not available on every target machine.
+2. Foreground minions cannot be used as the shared orchestration backend because the current tool call blocks.
+3. Beadwork and minions maintain different worker identities, status models, inspection surfaces, and completion paths.
+4. UI notifications tell the user that something changed but do not reliably give the parent model the state and guidance needed for its next decision.
+5. Existing minion completion can be marked on `agent_end`; Pi's settled lifecycle should be used so retries, continuation, or compaction do not produce premature terminal updates.
+6. The current worker runtime carries worktree, landing, process, and tmux assumptions into ordinary shared-branch execution.
+7. Review behavior is encoded in beadwork orchestration rather than represented as a generic workflow that can be reused outside beadwork.
 
 ### V1 success criteria
 
-A successful first coherent release should make this workflow reliable:
+V1 succeeds when all of the following are true:
 
-1. `/bw run <epic>` or a model tool starts a mission and returns control immediately.
-2. The parent remains available for user messages and unrelated work.
-3. Workers launch through minions, report progress, ask blocking questions, and settle without polling as the primary mechanism.
-4. Each worker completion produces an evidence-bearing attempt result, not an automatic claim of success.
-5. The parent receives a deduplicated, model-visible next-action nudge at a safe boundary.
-6. Independent review produces structured findings with evidence.
-7. A model adjudicates each finding against ticket + epic + project intent as `fix`, `file`, or `reject`.
-8. `fix` resumes or remediates the original context when possible; `file` creates a real deduplicated ticket; `reject` records rationale.
-9. Newly ready tickets launch up to capacity without requiring manual polling.
-10. A stalled or vanished worker follows a bounded observe → nudge → resume/replace → attention ladder.
-11. Replaying duplicate events or restarting the parent does not duplicate launches, remediation, follow-up tickets, or model-visible completion delivery.
-12. Full lint, test, typecheck, and configured scope validation still gate mission completion.
+1. An orchestrated minion spawn returns a stable handle without waiting for child completion.
+2. The parent remains available for user input and further tool calls while children run.
+3. A child is terminal only after the underlying Pi session is settled, aborted, or failed.
+4. Each meaningful lifecycle change yields one safe-boundary parent update, not merely a UI toast.
+5. The update includes the changed child and a fresh snapshot of all still-running orchestrated children.
+6. An optional typed task type deterministically selects the parent nudge.
+7. Without a task type, a dynamic role may supply best-effort guidance.
+8. Direct peer messages reach the addressed child without requiring a parent turn.
+9. The parent can inspect peer identities and communication metadata.
+10. Beadwork can run one epic to completion using minions, with no tmux runtime or fallback.
+11. Shared-checkout execution remains the default, and no worktree is created or selected without explicit user input.
+12. Overlap notices remain informational; agents can communicate and sort out conflicts themselves.
+13. Ticket review defaults to occurring before close, and review findings are judged by the parent model rather than a keyword classifier.
+14. Lint, tests, typecheck, and configured validation continue to gate accepted outcomes.
 
 ### Failure criteria
 
-The design is not successful if:
+The proposal has failed if implementation:
 
-- background work blocks the parent tool call;
-- a worker can be reported complete before `agent_settled`;
-- a completion can wake the wrong/replaced parent session;
-- duplicate completion messages cost extra model turns;
-- two orchestrators can launch the same ticket without detection;
-- a restart loses results or repeats irreversible actions;
-- reviewers inspect a moving, unattributed `HEAD` range;
-- path coordination becomes a mandatory lock system that deadlocks ordinary work;
-- the new system retains both full beadwork worker orchestration and full minion orchestration indefinitely.
+- keeps tmux as a required dependency, fallback backend, or first migration milestone;
+- adds detached children or requires workers to survive parent-process death;
+- automatically creates, selects, or routes work to worktrees;
+- blocks editing because of reservations or overlap detection;
+- encodes role names as a closed union;
+- lets role guidance override a provided task type;
+- automatically accepts evidence merely because a typed workflow completed;
+- leaves beadwork and minions with separate live worker registries or model-visible completion messages;
+- wakes the parent once per child when several updates could safely be coalesced;
+- makes peer communication depend on parent mediation.
 
 ---
 
-## 3. Program scope, first-release boundary, non-goals, and deferred scope
+## 3. V1 scope, non-goals, and deferred scope
 
-### Target program scope, delivered incrementally
+### In scope
 
-- detached/background minion sessions;
-- foreground mode preserved;
-- versioned cross-extension lifecycle/RPC protocol;
-- reliable settled completion and consumption receipts;
-- parent-safe completion and blocker delivery;
-- single-epic mission controller;
-- model-driven review adjudication;
-- context-preserving remediation;
-- typed orchestration obligations and dynamic nudges;
-- advisory path intent and overlap warnings;
-- event-driven quiescence with polling as reconciliation fallback;
-- migration from tmux workers without removing the tmux fallback immediately;
-- failure-injection and real in-process integration tests.
+- process-local, non-blocking minion execution;
+- settled-state lifecycle tracking;
+- orchestration groups and fleet snapshots;
+- dynamic role metadata;
+- optional closed task-type enum;
+- deterministic task-type lifecycle nudges;
+- role-level fallback completion nudges;
+- safe-boundary parent updates and coalescing;
+- direct addressed peer messaging;
+- parent-visible peer and message metadata;
+- advisory TTL path intent and overlap notices;
+- explicit workspace/cwd selection only;
+- one-epic beadwork goal mode;
+- worker completion evidence and independent review;
+- autonomous `fix | file | reject` adjudication;
+- notable-decision collection for final handoff;
+- removal of beadwork's tmux execution path.
 
-These items describe the target Mission Control program, not one indivisible release. Section 12 begins with two small improvements on the existing tmux path, then introduces minions and mission control through independently useful vertical slices.
+### Explicit non-goals
 
-### Explicit non-goals for V1
-
-- no MCP server;
-- no SQLite mail database;
-- no Git-backed inbox/outbox archive;
-- no general peer chat room;
-- no cross-machine agent network;
-- no Gas Town-style permanent role hierarchy;
-- no speculative execution of blocked tickets;
-- no automatic branch/PR fleet manager;
-- no mandatory file locks;
-- no second issue/dependency graph;
-- no rewrite of the `bw` CLI;
-- no multi-epic portfolio scheduler in the first implementation slice unless the user makes it a release requirement.
+- detached or daemonized child execution;
+- child survival after parent exit;
+- restart-resumable orchestration;
+- cross-process controller leases;
+- durable message delivery guarantees;
+- a mission event journal or exactly-once effects;
+- mandatory reservations, file locks, or edit guards;
+- automatic conflict remediation;
+- automatic worktree selection or creation;
+- a second issue/dependency graph inside minions;
+- a mail server, IRC server, SQLite coordination database, or web console;
+- deterministic scripts that replace parent-model judgment;
+- multi-host or cross-machine agent networking;
+- a closed list of agent roles.
 
 ### Deferred
 
-- multi-epic missions and fairness across epics;
-- cross-project/product missions;
-- first-class ticket-to-commit metadata in beadwork itself;
-- tool-layer hard enforcement of workspace claims;
-- scheduler ranking by dependency unlock value and learned path conflict risk;
-- reusable deterministic workflow scripts beyond the beadwork graph;
+- multiple epic scopes in one goal;
+- custom task-type registration by third-party domain adapters;
+- typed handoff schemas per task type;
+- richer communication threads or broadcast channels;
+- long-lived orchestration resumption after `/new` or process restart;
+- historical analytics across orchestration groups;
+- automated ranking by dependency unlock value;
 - remote or process-isolated minion backends.
 
 ---
 
 ## 4. Current repository context
 
-### Confirmed architecture
+### Confirmed `pi-minions` behavior
 
-#### `packages/pi-minions`
+- `packages/pi-minions/src/tools/spawn.ts` accepts `task`, optional `agent`, optional `model`, or a batch `tasks` array.
+- `executeSpawn()` starts child sessions concurrently but awaits `Promise.allSettled()`, making the tool foreground/blocking.
+- `packages/pi-minions/src/subsessions/manager.ts` creates file-backed child `AgentSession`s and retains active session handles for steer and abort.
+- `SubsessionManager` emits progress and completion through a local event bus.
+- Completion is currently observed on `agent_end` as well as the `session.prompt()` promise, which is too early for the proposed settled contract.
+- `packages/pi-minions/src/tree.ts` already provides the basis of a process-local fleet registry: identity, agent name, task, status, activity, usage, model, and parent/child relationships.
+- Agent prompt definitions are discovered dynamically from project and user directories. `AgentConfig.name` is therefore already an open, data-driven role identity rather than a TypeScript enum.
+- `list_minions`, `show_minion`, and `halt` already expose useful inspection and cancellation surfaces.
 
-The package currently provides:
+### Confirmed beadwork behavior
 
-- named and ephemeral agent discovery;
-- foreground single and batch spawning;
-- in-process `AgentSession` creation;
-- file-based child session persistence plus metadata sidecars;
-- live activity, usage, footer, and management UI;
-- steering and abort handles internally;
-- delegation reminders through `before_agent_start`.
-
-Key boundaries:
-
-- `src/tools/spawn.ts` awaits `Promise.allSettled()` for all children, so the parent model is blocked.
-- `src/subsessions/manager.ts` owns child sessions but completes on `agent_end` rather than true settled state.
-- `src/subsessions/event-bus.ts` is private and separate from `pi.events`; `MINION_COMPLETE_CHANNEL` has no parent completion-delivery consumer.
-- `src/index.ts` exports only the extension entrypoint, not a stable runtime API.
-- child session shutdown/disposal and replaced-parent recovery are incomplete.
-- restored `running` metadata does not prove a live session exists.
-- automated tests currently focus on delegation hints and helper behavior, not real child-session lifecycle.
-
-#### `packages/pi-beadwork-extension`
-
-The package currently provides:
-
-- activation, session mode, scope, and cached `bw prime` context;
-- issue CRUD and plan adoption;
-- current-branch and worktree workers;
-- tmux launch and runtime marker files;
-- bounded epic scheduling;
-- crash replacement;
-- current-branch attribution/review/remediation/verification;
-- worktree validation/rebase/review/landing/cleanup;
-- quiescent dirty-state remediation;
-- scope validation and scope review;
-- dashboard and worker diagnostics.
-
-Key boundaries:
-
-- `src/index.ts` is about 2,200 lines and owns tools, commands, session state, polling, tracking, notices, and prompt enrichment.
-- `src/orchestrator.ts` is about 6,900 lines and owns launch, runtime inspection, review, remediation, crash recovery, landing, scope validation, and scheduling.
-- `BaseWorkerRuntime` has dozens of optional lifecycle fields; legal state combinations are mostly implicit.
-- background supervision is a session-local interval that runs only while the parent is alive and idle.
-- worker transition notifications are UI toasts; they do not automatically create a model turn.
-- current-branch attribution is mechanically assembled, while finding disposition is deterministic keyword classification.
-- a `file` disposition currently adds a comment to the same ticket rather than reliably creating a follow-up issue.
-- standalone tool delegation does not join the same session-tracking path as slash-command delegation.
-- process-local launch and registry queues do not provide cross-process compare-and-swap.
+- `packages/pi-beadwork-extension/src/orchestrator.ts` owns tmux launch, polling, landing, review, remediation, and worker lifecycle orchestration.
+- `packages/pi-beadwork-extension/src/types.ts` embeds tmux session/window/pane fields in every worker runtime and maintains a second worker status model.
+- `packages/pi-beadwork-extension/src/config.ts` carries tmux, worktree setup, landing, worker execution, and supervisor polling configuration.
+- `packages/pi-beadwork-extension/src/index.ts` is currently a large combined command, tool, session-mode, supervisor, and worker runtime entry point.
+- `beadwork_delegate` explicitly launches a tmux-backed worker.
+- `beadwork_worker_done` currently combines worker evidence, self-review, close/sync, and shutdown behavior.
+- Beadwork already has the correct durable domain primitives: tickets, dependencies, readiness, comments, labels, history, scope, and issue status transitions.
 
 ### Existing patterns to preserve
 
-- activation is quiet in non-beadwork repositories;
-- beadwork graph is canonical, runtime registry is not;
-- current-branch and worktree outcomes remain semantically different (`verified` vs `landed`);
-- current-branch commits are fix-forward;
-- worktree landing requires truthful containment, not equivalent-diff heuristics;
-- integrated validation occurs at a quiescent scope boundary;
-- worktree mode remains available for risky or strongly overlapping work;
-- worker and reviewer models remain independently configurable;
-- all significant logic requires tests and full quality gates.
+- Use child `AgentSession`s rather than shelling out to another agent process.
+- Keep agent role definitions in user/project prompt files.
+- Reuse `AgentTree` as the canonical process-local fleet registry.
+- Reuse Pi safe-boundary message delivery rather than injecting into an active model turn.
+- Keep `bw` as the durable work graph and ticket source of truth.
+- Preserve explicit user-selected current-checkout or alternate-cwd execution.
+- Preserve model judgment for decomposition, review, and finding adjudication.
 
-### Stale assumptions to remove
+### Stale patterns to remove
 
-- “tmux is the runtime” should become “tmux is one fallback runtime.”
-- “worker completion is process exit + closed ticket” should become “an attempt settled and submitted evidence.”
-- “review triage can be inferred from keywords” should become model adjudication with deterministic constraints.
-- “current-branch safety must have no reservation concept” should narrow to “current-branch launch must not require mandatory locking.” Advisory claims are compatible with that premise.
-- “notifications are enough” should distinguish user-visible status from model-visible obligations.
-
----
-
-## 5. Research findings and repo-native adaptations
-
-### Oh My Pi v18.0.8
-
-**Repository:** `can1357/oh-my-pi`
-**Tag/commit:** `v18.0.8` / `caefa610239e9611e7a8920e91b38b30a58efa73`
-**Release:** 2026-08-27
-
-OMP's success comes from a combination of prompt policy and harness primitives.
-
-#### Prompt policy that matters
-
-`orchestrate-notice.md` supplies a strong closure contract:
-
-- enumerate the entire work surface;
-- dispatch disjoint work in parallel;
-- give self-contained target/change/acceptance prompts;
-- verify each phase centrally;
-- dispatch corrective workers instead of silently fixing their work;
-- do not yield between phases;
-- run integrated format/lint/test once across the union.
-
-`workflow-notice.md` adds useful patterns:
-
-- adversarial verification;
-- judge panels;
-- completeness critics;
-- loop-until-dry discovery;
-- structured outputs rather than prose parsing.
-
-These policies are highly portable. They do not require OMP's entire runtime.
-
-#### Harness primitives that matter
-
-- background `task` jobs return immediately;
-- `AsyncJobManager` routes results to the owning agent;
-- delivery has retry, suppression, watch, acknowledge, and consume semantics;
-- `hub` combines worker messaging, waits, cancellation, and process supervision;
-- `AgentRegistry` tracks `running | idle | parked | aborted` sessions;
-- finished agents can remain live, park after a TTL, and revive from persisted sessions;
-- subagents must finish through a structured `yield` contract;
-- Agent Hub exposes live transcripts, steering, revival, and kill;
-- advisor notes use severity-sensitive delivery (`nit`, `concern`, `blocker`) and safe-boundary steering;
-- orchestration guidance distinguishes worker-local proof from integrated parent validation.
-
-#### Evidence that OMP is not solved end to end
-
-Current open issues are useful warnings:
-
-- [#8711](https://github.com/can1357/oh-my-pi/issues/8711): background subagents can freeze or disappear, leaving stale running state and no failure result.
-- [#9747](https://github.com/can1357/oh-my-pi/issues/9747): the main agent can clobber files owned by in-flight subagents because ownership is only implied.
-- [#6032](https://github.com/can1357/oh-my-pi/issues/6032): peer waits can deadlock until timeout.
-- [#6947](https://github.com/can1357/oh-my-pi/issues/6947): durable workflow DAGs still need a shared task dispatch boundary and explicit restart semantics.
-- [#8874](https://github.com/can1357/oh-my-pi/issues/8874): prompt closure rules can still be defeated by terminal text-only stops and compaction.
-
-**Adaptation:** copy the closure contract, owner-routed completion, safe-boundary delivery, typed yield/evidence, and observability. Do not copy the whole harness, general IRC, or role ecology.
-
-### MCP Agent Mail Rust v0.3.30
-
-**Repository:** `Dicklesworthstone/mcp_agent_mail_rust`
-**Tag/commit:** `v0.3.30` / `e99e28902eac8c71322b697cf009afccd0c4c57a`
-**Release:** 2026-08-23
-
-The useful conceptual split is explicit:
-
-- Beads owns tasks, priorities, and dependencies.
-- Agent Mail owns identities, messages, acknowledgements, and advisory leases.
-- Shared issue IDs connect tickets, message threads, claims, and commits.
-
-Useful mechanics:
-
-- TTL-based advisory file reservations;
-- symmetric path overlap;
-- explicit recipients rather than default broadcast;
-- acknowledgements and delivery receipts;
-- durable per-recipient inbox event cursors;
-- build slots for expensive shared resources;
-- pre-commit guard as an optional enforcement layer;
-- human-readable audit records distinct from live query state.
-
-The project also demonstrates the cost of generality. It has 40 MCP tools, 25 resources, many crates, SQLite + Git dual persistence, a server, TUI, web UI, search, contacts, recovery, and extensive failure modes. Recent issues cover reservation drift, corrupted/reconstructed live state, hot-path write barriers, cursor semantics, identity mismatches, unbounded artifacts, and daemon health.
-
-**Adaptation:** implement a small project-local coordination board with ticket-linked signals and expiring path intent. No mail server, contacts, search index, web UI, or dual durable ledger.
-
-### `@tintinweb/pi-subagents` v0.19.0
-
-**Tag/commit:** `v0.19.0` / `4f572eaa04c09d3dbc16e4a5f13a16b295e84e14`
-**Release:** 2026-08-27
-
-Relevant ideas:
-
-- background by default with foreground as an option;
-- separate concurrency pools;
-- queueing and bounded fan-out;
-- live conversation view and mid-run steering;
-- persisted sessions and resume;
-- worktree isolation as an explicit mode;
-- lifecycle events on `pi.events`;
-- versioned cross-extension RPC;
-- result consumption to suppress duplicate delivery;
-- grouped completion with partial timeout release;
-- deterministic workflow scripts that reuse one agent manager.
-
-Open issues reveal an important unresolved delivery tradeoff:
-
-- [#188](https://github.com/tintinweb/pi-subagents/issues/188) asks to deliver unread completions at the next safe parent boundary via `steer`.
-- [#185](https://github.com/tintinweb/pi-subagents/issues/185) asks to delay until settled so results consumed later do not produce redundant post-answer turns.
-- [#103](https://github.com/tintinweb/pi-subagents/issues/103) asks for a reliable query API for active background agents.
-
-**Adaptation:** create an explicit completion inbox with consumption receipts and a policy-driven delivery scheduler instead of choosing one fixed timing for every completion.
-
-### `pi-collaborating-agents` v0.4.3
-
-**Tag/commit:** `v0.4.3` / `58a2600e7a9da28c1b78ca07a3045ad4da650b59`
-
-Relevant ideas:
-
-- all sessions register automatically;
-- direct and urgent messages use different Pi delivery modes;
-- file reservations are checked in edit/write hooks;
-- completed child outputs route automatically to the parent;
-- user-facing Agents/Feed/Reservations/Chat views share one model.
-
-**Adaptation:** use direct ticket-linked signals and tool-boundary overlap warnings. Avoid global broadcast and a machine-global unscoped registry.
-
-### `pi-intercom` v0.12.0
-
-**Tag/commit:** `v0.12.0` / `ef95f194de635a01abb6ec8f485c3d4ab6bfc644`
-
-Relevant ideas:
-
-- local session registry and targeted one-to-one delivery;
-- busy recipients receive safe steering rather than abrupt cancellation;
-- blocking `ask`, non-blocking `send`, reply correlation, cancellation, supersession, and receipts;
-- child-only `contact_supervisor` with typed reasons: decision, interview, progress;
-- duplicate IDs are acknowledged but injected at most once;
-- broker heartbeat detects half-open sessions;
-- extension channels separate non-conversational coordination from transcript-visible messages.
-
-**Adaptation:** use the typed supervisor-contact idea inside minions. A general broker is unnecessary while children live in the same Pi process.
-
-### `pi-side-agents` v1.1.3
-
-**Tag/commit:** `v1.1.3` / `6ce7b666888e96b499056651d12b5d3506089681`
-
-Its strongest lesson is deliberate simplicity: one child, one tmux window, one worktree, one short-lived branch, explicit `wait-any`, `send`, and human “LGTM” landing. It is a useful fallback model and a reminder not to make every worker a permanent team member.
-
-### Gas Town v1.2.1
-
-**Tag/commit:** `v1.2.1` / `319d33a91b2deca59bba6dd26be6b9daf8eaacf6`
-
-Useful ideas:
-
-- durable work survives agent sessions;
-- worker identity can persist while sessions remain ephemeral;
-- monitor roles observe, nudge, recover, and escalate;
-- integration verification belongs in a dedicated merge/refinery boundary;
-- scheduler capacity and watchdogs are explicit;
-- problem views distinguish stalled, zombie, working, and idle agents.
-
-**Adaptation:** use the recovery ladder and separate implementation acceptance from worker completion. Do not import the role hierarchy or daemon fleet.
-
-### Pi 0.84.3 primitives
-
-Pi itself now supplies the needed foundation:
-
-- `agent_settled` is the terminal no-more-automatic-work event;
-- `pi.sendMessage` supports `steer`, `followUp`, `nextTurn`, and `triggerTurn`;
-- `AgentSession` supports `steer`, `followUp`, `abort`, persistence, and event subscription;
-- `createEventBus()` can be shared with child resource loaders;
-- `session_shutdown` is the cleanup boundary;
-- custom session entries can store local durable orchestration state without entering model context;
-- project-local tools can participate in `withFileMutationQueue()`.
-
-The main work is composing these primitives correctly, not inventing a new process fabric.
+- tmux launch and inspection;
+- process marker files and pane discovery;
+- beadwork-owned live worker registry;
+- polling as the primary child lifecycle mechanism;
+- automatic landing assumptions for ordinary shared-branch work;
+- runtime-selected worktree behavior;
+- UI-only completion notices;
+- regex-only review finding classification;
+- worker completion automatically implying ticket acceptance.
 
 ---
 
-## 6. Repo-native mental model
+## 5. Core mental model
 
-### Four planes
+### Three owners
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ User + parent Pi session                                        │
-│ conversation, pause/resume, real decisions, mission dashboard   │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │ typed obligations + safe delivery
-┌───────────────────────────────▼─────────────────────────────────┐
-│ Beadwork mission controller                                     │
-│ scheduler, reducer, guidance compiler, review adjudication      │
-└───────────────┬───────────────────────────────┬─────────────────┘
-                │ durable work meaning          │ runtime commands/events
-┌───────────────▼────────────────┐   ┌──────────▼──────────────────┐
-│ Beadwork + Git                 │   │ Pi Minion Runtime           │
-│ issues, deps, status, comments │   │ sessions, progress, steer,  │
-│ commits and validation facts  │   │ settle, resume, cancel      │
-└────────────────────────────────┘   └──────────┬──────────────────┘
-                                               │
-                                    ┌──────────▼──────────────────┐
-                                    │ Workspace coordination      │
-                                    │ path intent, overlap, slots │
-                                    └─────────────────────────────┘
+#### `pi-minions`: orchestration mechanics
+
+Minions owns:
+
+- child session creation and lifetime;
+- process-local agent identity and status;
+- foreground and non-blocking orchestrated spawn modes;
+- orchestration group membership;
+- role and task-type metadata;
+- task descriptions and domain metadata transport;
+- lifecycle events;
+- fleet snapshots;
+- task-type and role nudge selection;
+- safe-boundary parent delivery;
+- coalescing pending updates;
+- direct messaging, steering, cancellation, and inspection;
+- advisory path intent and overlap notices.
+
+#### `pi-beadwork-extension`: domain context
+
+Beadwork owns:
+
+- activation and project detection;
+- tickets, epics, dependencies, and readiness;
+- goal scope and epic intent;
+- issue start, close, reopen, comment, label, and dependency operations;
+- beadwork metadata attached to minion work;
+- beadwork-specific prompt appendices and completion evidence;
+- review and ticket-close policy;
+- deciding whether the selected epic is complete;
+- durable comments and follow-up tickets.
+
+Beadwork does not own child processes, a worker registry, fleet monitoring, completion delivery, peer messaging, or a generic orchestration loop.
+
+#### Parent model: orchestration policy
+
+The parent model owns:
+
+- selecting work;
+- selecting roles and task types;
+- choosing how much work to run concurrently;
+- interpreting evidence and handoffs;
+- deciding whether a worker outcome satisfies a ticket;
+- adjudicating findings;
+- choosing remediation, follow-up, rejection, or escalation;
+- deciding when the goal is complete.
+
+Deterministic code gives the parent the right state and instruction. It does not replace the judgment.
+
+### The central distinction
+
+- **Role answers:** “How should this agent work?”
+- **Task type answers:** “What workflow transition should follow this work?”
+
+This distinction must remain visible in types, prompt construction, UI, and tests.
+
+---
+
+## 6. Role contract
+
+### Role is dynamic
+
+A role is an unrestricted string naming the selected agent prompt/template, for example:
+
+- `reviewer`;
+- `debugger`;
+- `hard_problem_coder`;
+- `general_coder`;
+- `security_specialist`;
+- a project-specific role unknown to the package at build time.
+
+The current `agent` field already selects this dynamic prompt definition. The implementation may either rename the public field to `role` or retain `agent` as a compatibility alias, but orchestration records and model-visible fleet snapshots should use the term `role`.
+
+A role may optionally define fallback completion guidance in its prompt metadata. This guidance is advisory and applies only when no task type is provided.
+
+Illustrative agent frontmatter:
+
+```yaml
+---
+name: reviewer
+description: Independently review completed work
+completion_nudge: Assess the feedback against the task and project intent; do not accept findings mechanically.
+---
 ```
 
-### Source-of-truth rules
+An unknown role or a role without completion guidance remains valid and receives the generic nudge.
 
-| Concern | Source of truth |
+### Role guidance is best effort
+
+Role guidance should describe general judgment appropriate to the role. It must not imply a guaranteed workflow transition because the same role may be used for many purposes.
+
+For example, `reviewer` can remind the parent to assess reviewer feedback in project context, but it cannot know whether the review concerns a ticket, a full epic, a design document, or a one-off investigation.
+
+---
+
+## 7. Task-type contract
+
+### Task type is an optional closed enum
+
+Task type opts a child into a known orchestration workflow. At the tool/API boundary it should be a literal union so models see the valid values and the runtime can select guidance without fuzzy matching.
+
+Illustrative initial enum:
+
+```ts
+export type TaskType =
+  | "implement"
+  | "fix"
+  | "reviewWorkerCompletion"
+  | "reviewScope"
+  | "investigateBlocker"
+  | "validate";
+```
+
+The exact vocabulary should be challenged during planning, but the inclusion rule is firm:
+
+> Add a task type only when lifecycle changes require a meaningfully constrained orchestration response.
+
+Unstructured research, exploration, advice, and ordinary delegation can omit `taskType`.
+
+### Task type selects workflow, not agent capability
+
+Examples:
+
+```ts
+{
+  role: "hard_problem_coder",
+  taskType: "fix",
+  description: "Fix the race in worker completion delivery"
+}
+```
+
+The role shapes how the child approaches the code. The `fix` task type determines that completion should be assessed and sent through independent review or validation.
+
+```ts
+{
+  role: "security_specialist",
+  taskType: "reviewWorkerCompletion",
+  description: "Review the completed authentication ticket"
+}
+```
+
+The child uses a security-oriented prompt, but completion invokes the generic worker-review adjudication workflow.
+
+```ts
+{
+  role: "reviewer",
+  description: "Review the registry refactor"
+}
+```
+
+With no task type, the parent receives the reviewer's general fallback guidance rather than the stronger `fix | file | reject` contract.
+
+### Nudge precedence
+
+Nudge selection is deterministic:
+
+1. If `taskType` is present, use the matching task-type policy.
+2. Otherwise, if the resolved role defines lifecycle guidance, use that guidance.
+3. Otherwise, use generic orchestration guidance.
+
+Do not concatenate role guidance onto task-type guidance. A task type is the authoritative workflow instruction; the role remains context displayed in the update.
+
+Per-spawn context may be appended as evidence or constraints, but it must not silently override the task-type policy.
+
+### Event-specific policies
+
+Task-type guidance should be modeled by lifecycle event rather than a single completion string:
+
+```ts
+export interface TaskTypePolicy {
+  started?: string;
+  blocked?: string;
+  handedOff?: string;
+  completed: string;
+  failed?: string;
+}
+```
+
+Illustrative policy intent:
+
+| Task type | Completion guidance |
 | --- | --- |
-| What work exists | Beadwork issue graph |
-| What is ready | `bw ready` |
-| Ticket status/dependencies | Beadwork |
-| Code result | Git commits/current checkout/worktree branch |
-| Live session state | Minion runtime |
-| Worker attempt evidence | Minion result + git + beadwork history |
-| Review finding disposition | Beadwork comment/follow-up + local attempt record |
-| Parent delivery/consumption | Parent session entries + minion delivery receipt |
-| Path edit intent | Ephemeral/advisory coordination board |
-| Integrated acceptance | Mission controller after validation + review |
+| `implement` | Assess completion evidence and dispatch review according to the active policy. |
+| `fix` | Verify the fix and send the changed behavior through independent re-review. |
+| `reviewWorkerCompletion` | Resolve every finding as `fix`, `file`, or `reject`; keep unresolved fixes blocking acceptance. |
+| `reviewScope` | Adjudicate cross-ticket findings and determine whether the goal satisfies its acceptance criteria. |
+| `investigateBlocker` | Apply the answer to blocked work or record why escalation remains necessary. |
+| `validate` | Address failures or record the validation gate as passed with evidence. |
 
-### The key distinction: attempt vs outcome
+Task-type policies select the next instruction. They do not close tickets, launch workers, accept findings, or perform other actions automatically.
 
-A minion attempt can be:
+### Future typed handoffs
 
-- queued;
-- running;
-- settled;
-- stopped;
-- lost/interrupted.
-
-A ticket outcome can independently be:
-
-- awaiting evidence review;
-- accepted;
-- needs remediation;
-- blocked;
-- follow-up filed;
-- needs attention.
-
-Do not overload one flat `status` to represent both.
-
-### The key innovation: typed orchestration obligations
-
-Every important transition creates an obligation with a stable key:
-
-```ts
-type OrchestrationObligation =
-  | { kind: "answer-worker"; attemptId: string; questionId: string }
-  | { kind: "assess-completion"; attemptId: string }
-  | { kind: "adjudicate-review"; reviewId: string }
-  | { kind: "dispatch-remediation"; findingSetId: string }
-  | { kind: "create-follow-up"; findingId: string }
-  | { kind: "launch-ready"; epicId: string }
-  | { kind: "resolve-overlap"; claimIds: string[] }
-  | { kind: "recover-stalled"; attemptId: string }
-  | { kind: "validate-scope"; missionId: string }
-  | { kind: "ask-user"; decisionId: string };
-```
-
-An obligation is not another task graph. It is a short-lived controller responsibility derived from the durable graph and runtime events.
-
-This directly solves the requested review example: reviewer completion creates `adjudicate-review`; its guidance says to assess findings against ticket/epic/project intent and resolve every finding as `fix`, `file`, or `reject`. The controller cannot claim the review is handled while a finding lacks a disposition.
+A later version may associate task types with expected result schemas. For example, a worker review could return structured findings and validation could return command/result pairs. This is deferred until lifecycle nudges prove useful; V1 should not turn every child response into a rigid protocol.
 
 ---
 
-## 7. Proposed V1 behavior
+## 8. Orchestrated spawning
 
-### 7.1 Start a mission
+### Preserve direct foreground delegation
 
-Human path:
+Existing foreground `spawn` remains useful for a one-off task where the parent intentionally waits for the result. Its behavior should remain available.
 
-```text
-/bw run EPIC-123 --workers 4
-```
+### Add a non-blocking orchestrated mode
 
-Model path:
+An orchestrated spawn starts one or more child sessions, registers them in an orchestration group, and immediately returns handles. The exact public spelling can be finalized during planning:
 
-```ts
-beadwork_run_mission({ epic_id: "EPIC-123", workers: 4 })
-```
+- an `orchestrate` tool; or
+- an orchestration block/mode on `spawn`.
 
-Behavior:
+The recommended implementation is to extend the shared spawn machinery rather than create another runtime. Whether the public entry point is one tool or two, both foreground and orchestrated execution must call the same session manager and registry.
 
-1. Validate epic scope and activation.
-2. Load `bw prime` and repo/project instructions.
-3. Create a session-scoped mission lens over the epic; do not duplicate its task graph.
-4. Query `bw ready`.
-5. Select ready tickets up to capacity.
-6. Check active attempts, dependency constraints, and advisory overlap risk.
-7. Spawn detached minions and return control immediately.
-8. Show the mission in the statusline/dashboard.
-
-### 7.2 Parent remains interactive
-
-While workers run:
-
-- user messages are accepted normally;
-- routine progress updates only refresh UI/runtime state;
-- no background model turn starts while user input is queued or the user has paused autonomy;
-- worker questions and blockers appear as explicit cards/obligations;
-- the user can inspect, steer, pause, stop, or reassign workers;
-- mission continuation drains at most one bounded obligation batch per automatic turn.
-
-Commands:
-
-```text
-/bw mission pause
-/bw mission resume
-/bw mission status
-/bw mission stop --leave-workers
-/bw mission stop --stop-workers
-```
-
-### 7.3 Worker communication
-
-Workers get a small child-only tool or runtime API:
+Illustrative descriptor:
 
 ```ts
-beadwork_signal({
-  kind: "progress" | "need-decision" | "blocker" | "scope-change" | "done",
-  message: string,
-  question?: { id: string; options?: string[] },
-  touched_paths?: string[],
-});
-```
-
-Policy:
-
-- `progress`: runtime/UI only unless it changes the plan;
-- `need-decision`: creates a parent obligation and may block the worker;
-- `blocker`: durable beadwork comment + parent obligation;
-- `scope-change`: parent must approve or file child/follow-up work;
-- `done`: worker submits completion evidence; it does not close the ticket or mission by itself.
-
-Parent-to-worker guidance uses safe-boundary steering and includes sequence/ack metadata. Stale guidance is ignored.
-
-### 7.4 Worker completion evidence
-
-A worker's final result should be structured and validated:
-
-```ts
-type CompletionEvidence = {
-  outcome: "completed" | "blocked" | "partial";
-  summary: string;
-  commitShas: string[];
-  touchedPaths: string[];
-  validation: Array<{
-    command: string;
-    status: "passed" | "failed" | "not-run";
-    detail?: string;
-  }>;
-  blockers: string[];
-  followUps: string[];
-  confidence?: number;
-};
-```
-
-Deterministic checks:
-
-- attempt truly reached `agent_settled`;
-- evidence schema is valid;
-- listed commits exist and remain ancestors of expected HEAD;
-- touched paths agree with commit evidence when commits exist;
-- ticket lifecycle is coherent;
-- no unresolved blocking signal exists.
-
-The controller then creates `assess-completion`.
-
-#### Canonical ticket transitions
-
-The worker never closes its own ticket in the new protocol. Closing an implementation ticket is the controller's acceptance action because `bw close` can unblock dependents.
-
-| Evidence/outcome | Ticket action | Next controller action |
-| --- | --- | --- |
-| attempt running | keep `in_progress` | monitor/signals |
-| completed evidence, review required | keep `in_progress` | independent review |
-| blocking `fix` disposition | keep `in_progress` | resume/remediation |
-| valid `file` or `reject` only | keep `in_progress` until other gates pass | persist dispositions |
-| evidence + required review + targeted validation pass | close + sync | refresh `bw ready` |
-| worker blocked/partial | comment; leave open or return to `open` by policy | answer, reassign, or attention |
-| remediation after legacy early close | reopen once with operation ID | remediate, then close after acceptance |
-
-`beadwork_worker_done` must therefore change from “close/sync/shutdown” to “persist evidence/signal settle/shutdown.” During migration, old tmux workers that close early are treated as provisional: the controller must finish review before considering dependent work safely launchable, and may reopen on blocking findings.
-
-### 7.5 Review, adjudication, and remediation
-
-#### Review
-
-Spawn an independent reviewer minion with:
-
-- ticket goal and acceptance criteria;
-- epic goal;
-- attributed immutable commit set or isolated branch;
-- relevant project instructions;
-- validation evidence;
-- explicit instruction to inspect consumers beyond the diff;
-- structured finding schema.
-
-Finding shape:
-
-```ts
-type ReviewFinding = {
-  findingId: string;
-  priority: "P0" | "P1" | "P2" | "P3";
-  claim: string;
-  impact: string;
-  evidence: Array<{ path: string; line?: number; commit?: string }>;
-  suggestedFix: string;
-  confidence: number;
-};
-```
-
-#### Adjudication
-
-The parent or a focused adjudicator minion evaluates each finding with the full ticket/epic/project context:
-
-```ts
-type FindingDisposition = {
-  findingId: string;
-  action: "fix" | "file" | "reject";
-  rationale: string;
-  blocksAcceptance: boolean;
-  followUpTitle?: string;
-};
-```
-
-Rules:
-
-- deterministic code never infers disposition from phrases such as “nice to have” or “false positive”;
-- every finding receives exactly one disposition;
-- `fix` must be in scope and concrete; it blocks acceptance;
-- `file` creates or links a real follow-up issue using a stable finding signature;
-- `reject` records rationale and preserves raw reviewer evidence;
-- high-impact/low-confidence findings may get an adversarial verifier before disposition;
-- parent/user policy may require human approval for selected priorities or security-sensitive actions.
-
-Finding identity must be stable across reviewer reruns. Compute a canonical fingerprint from the ticket ID, reviewed commit/tree identity, normalized claim, and sorted evidence locations; reviewer-generated IDs are display aliases only. Persist the raw finding and its disposition before executing `fix`, creating a follow-up, or recording rejection. A `file` issue is normally a child of the active epic, does not block the current ticket unless the adjudicator explicitly sets `blocksAcceptance`, and carries the fingerprint for deduplication.
-
-#### Remediation
-
-Preferred order:
-
-1. steer the original live minion;
-2. resume its persisted session;
-3. launch a fresh remediation minion with prior context and accepted findings.
-
-The remediation prompt contains only `fix` findings. After it settles:
-
-- rerun targeted checks;
-- re-review the changed commit set;
-- cap attempts;
-- route non-convergence to attention.
-
-### 7.6 Newly ready work
-
-After an attempt is accepted or a follow-up dependency changes:
-
-1. refresh `bw ready`;
-2. create `launch-ready` if capacity exists;
-3. compute advisory conflict risk;
-4. launch disjoint work;
-5. serialize only known shared mutation boundaries.
-
-No internal linear plan is advanced from memory. The graph is reread each time.
-
-### 7.7 Workspace overlap
-
-Workers publish planned path intent as soon as they know it:
-
-```ts
-type WorkspaceClaim = {
-  claimId: string;
-  attemptId: string;
-  ticketId: string;
-  patterns: string[];
-  mode: "read" | "edit";
-  confidence: "declared" | "observed";
-  expiresAt: string;
-};
-```
-
-The V1 safety policy has two levels:
-
-- **Broad claims are advisory.** Glob/directory overlap warns workers and biases scheduling; overlapping reads remain allowed.
-- **Exact active writes are owned.** For tool-managed `edit`/`write`, an exact overlap pauses the younger attempt and creates `resolve-overlap`; the parent must sequence, re-scope, or move one attempt to a worktree before mutation continues.
-- Claims expire and renew with meaningful activity; observed tool paths and commit evidence refine declared intent.
-- A shared contract file should have one integration owner.
-- Shell-heavy generators/codemods cannot be reliably guarded at edit hooks, so tickets expected to mutate broad/unknown surfaces should use worktree isolation by default.
-- An optional commit guard can catch additional shell-generated overlap, with `.beadwork/**` and coordination metadata exempt and an explicit operator bypass.
-
-This does not make reservations a prerequisite for current-branch launch. It does make known exact write contention a deterministic stop rather than a warning the workers may ignore. V1 can claim prevention for detected tool-managed exact overlaps; it must not claim complete lost-edit prevention for opaque shell writes.
-
-### 7.8 Stall and crash recovery
-
-Use meaningful activity, not only process existence:
-
-```text
-active work/tool progress
-  → observe
-quiet beyond soft threshold
-  → gentle status/wrap-up nudge
-still quiet
-  → explicit progress or blocker request
-no response / session non-live
-  → resume if possible
-resume impossible or fails
-  → replacement attempt with evidence
-attempt cap exhausted
-  → attention/user decision
-```
-
-Safeguards:
-
-- do not nudge while a known long-running tool is within its own timeout;
-- cooldown and deduplicate nudge messages;
-- distinguish user pause from worker stall;
-- use process/session generation, not PID alone;
-- retain partial transcript and commit evidence;
-- replacement is fix-forward; never reset unrelated current-branch state.
-
-### 7.9 Scope completion
-
-A mission reaches integrated verification only when:
-
-- no relevant ready work remains;
-- all relevant tickets are terminal;
-- no attempts are queued/running/settled-unassessed;
-- no blocking review disposition remains;
-- no unresolved parent question remains.
-
-Then:
-
-1. reconcile quiescent dirty state;
-2. run configured validation once;
-3. if validation fails, create attributed fix-forward work or attention;
-4. run scope review against the epic goal;
-5. adjudicate findings;
-6. continue if new blocking fix work is created;
-7. mark mission completed only after convergence.
-
----
-
-## 8. Recommended implementation architecture
-
-### 8.1 Package boundary
-
-#### `pi-minions` owns
-
-- child `AgentSession` lifecycle;
-- foreground and detached spawn;
-- model/tool/skill scoping;
-- progress/activity events;
-- settle detection;
-- steer/follow-up/stop/resume;
-- result artifact/transcript and durable result availability;
-- concurrency queues;
-- generic completion delivery/consumption for direct, non-mission spawns;
-- human-facing minion/fleet UI.
-
-#### `pi-beadwork-extension` owns
-
-- activation and `bw` adapter;
-- mission scope/policy;
-- ready scheduling;
-- ticket-to-attempt mapping;
-- orchestration obligations;
-- worker handoff/guidance;
-- completion assessment;
-- the sole parent-message delivery path for mission-owned attempts;
-- review/adjudication/remediation policy;
-- integrated validation/scope review;
-- beadwork dashboard and durable comments/follow-ups.
-
-A minion spawn declares its `deliveryOwner`. For direct spawns, minions may inject the generic result. For `deliveryOwner: "beadwork:<missionId>"`, minions only persists the result and emits a wake-up event; beadwork creates and delivers the mission-specific obligation. There must never be both a generic minion completion and a beadwork completion nudge for the same attempt.
-
-#### Neither owns
-
-- a second task graph;
-- a general mail service;
-- an unbounded daemon fleet;
-- arbitrary cross-project agent discovery.
-
-### 8.2 Minion Runtime V2 protocol
-
-Expose a public, versioned protocol over `pi.events` and export its TypeScript types.
-
-`pi.events` is a best-effort in-process notification bus, not a durable or at-least-once transport. It is used to wake consumers after state has been persisted. Mission reliability comes from the write-ahead journal described in section 10; startup reconciliation recovers events/effects the bus never delivered.
-
-Example channels:
-
-```text
-minions:ready
-minions:rpc:ping
-minions:rpc:spawn
-minions:rpc:steer
-minions:rpc:inspect
-minions:rpc:stop
-minions:rpc:consume
-minions:started
-minions:progress
-minions:signal
-minions:settled
-minions:failed
-minions:delivery
-```
-
-Envelope:
-
-```ts
-type MinionEvent<T> = {
-  protocolVersion: 1;
-  eventId: string;
-  sequence: number;
-  occurredAt: string;
-  parentSessionId: string;
-  parentSessionGeneration: number;
-  agentSessionId: string;
-  attemptId?: string;
-  ownerId: string;
-  payload: T;
-};
-```
-
-Properties:
-
-- live `pi.events` delivery is best effort; durable attempt results are replayable from the owning store;
-- effects are idempotent by `eventId`/operation key;
-- completion is based on `agent_settled` and `prompt()` resolution;
-- owner checks prevent one mission from stopping another mission's child;
-- result delivery can be consumed to suppress a redundant parent message;
-- RPC replies use request-scoped channels and explicit success/error envelopes;
-- child sessions share Pi's event bus rather than a private duplicate bus;
-- session shutdown aborts/disposes or parks children according to policy.
-
-### 8.3 Foreground and detached spawn
-
-Keep today's `spawn` behavior by default during migration, then consider making detached the agentic default after UX validation.
-
-```ts
-spawn({
-  task,
-  agent,
-  model,
-  mode: "foreground" | "detached",
-  ownerId,
-  attemptId,
-  tools,
-  cwd,
-});
-```
-
-Detached spawn returns only after startup is confirmed:
-
-```ts
-{ id, sessionPath, status: "queued" | "running" }
-```
-
-A failed startup is an error, not a successful handle.
-
-### 8.4 Parent-safe completion inbox
-
-A fixed `followUp` or fixed `steer` policy cannot satisfy both fast reaction and duplicate suppression. Use an inbox.
-
-State per completion:
-
-```ts
-type CompletionDelivery = {
-  eventId: string;
-  attemptId: string;
-  targetSessionId: string;
-  targetGeneration: number;
-  state: "pending" | "queued" | "delivered" | "consumed" | "expired";
-  urgency: "routine" | "action-needed" | "blocking";
-};
-```
-
-Delivery policy:
-
-- routine progress: UI/runtime only;
-- routine completion in interactive mode: short hold, group nearby events, trigger when idle;
-- completion while an autonomous mission turn is active: safe-boundary `steer` when the result creates a new obligation;
-- blocking worker question: safe-boundary `steer` unless the user has explicitly interrupted/paused autonomy;
-- user-interrupt latch: preserve as a card/next-turn item; never surprise-resume;
-- consumed result: no later duplicate message;
-- replaced session generation: do not inject into the new session unless mission recovery explicitly rebinds it.
-
-### 8.5 Mission controller as reducer + effect runner
-
-Split decision from side effects.
-
-```ts
-type MissionEvent =
-  | { type: "attempt-started"; ... }
-  | { type: "attempt-progress"; ... }
-  | { type: "worker-signal"; ... }
-  | { type: "attempt-settled"; ... }
-  | { type: "review-settled"; ... }
-  | { type: "finding-disposed"; ... }
-  | { type: "validation-settled"; ... }
-  | { type: "user-paused" | "user-resumed"; ... };
-
-type MissionEffect =
-  | { type: "spawn-attempt"; ... }
-  | { type: "deliver-parent-message"; ... }
-  | { type: "steer-worker"; ... }
-  | { type: "comment-ticket"; ... }
-  | { type: "create-follow-up"; ... }
-  | { type: "run-review"; ... }
-  | { type: "run-validation"; ... }
-  | { type: "request-user-decision"; ... };
-```
-
-Benefits:
-
-- reducer tests can prove every transition;
-- duplicate events produce no duplicate effects;
-- model judgment arrives as another validated event;
-- side effects carry stable operation IDs;
-- restart reconciliation can replay evidence without replaying completed effects.
-
-### 8.6 Attempt records, not one flat worker object
-
-Recommended shape:
-
-```ts
-type AgentAttempt = {
-  identity: {
-    attemptId: string;
-    missionId: string;
-    ticketId: string;
-    role: "implementer" | "reviewer" | "adjudicator" | "remediator" | "scope-reviewer";
+interface OrchestratedTaskDescriptor {
+  task: string;
+  description: string;
+  role?: string;
+  taskType?: TaskType;
+  model?: string;
+  domain?: {
+    source: string;
+    scopeId?: string;
+    workItemId?: string;
+    title?: string;
   };
-  runtime: {
-    agentSessionId?: string;
-    mode: "minion" | "tmux";
-    state: "queued" | "running" | "settled" | "stopped" | "interrupted";
-    startedAt?: string;
-    settledAt?: string;
-    lastMeaningfulActivityAt?: string;
-  };
-  evidence?: CompletionEvidence;
-  reviews: ReviewRound[];
-  deliveries: DeliveryReceipt[];
-  lineage?: { replacesAttemptId?: string; resumedFromAttemptId?: string };
-};
+}
 ```
 
-This replaces optional-field combinations such as “status running + review remediation in progress + ticket closed + validation passed.”
+Requirements:
 
-### 8.7 Dynamic guidance compiler
+- `task` is the complete child prompt;
+- `description` is a short fleet-readable summary and should not be inferred from a large prompt;
+- `role` is dynamic and selects a named prompt/template when supplied;
+- `taskType` is optional and selects deterministic lifecycle guidance;
+- `domain` transports metadata without making minions understand beadwork;
+- the parent receives a stable child ID and orchestration group ID immediately.
 
-Compile guidance from current state instead of appending one static prompt.
+The first orchestrated spawn may implicitly establish the current orchestration group. A separate explicit “begin orchestration” action is optional; it must not create a second scheduler or graph.
 
-Layers:
+### Process lifetime
 
-1. **Minimal invariant layer** — beadwork durability, scope discipline, completion evidence.
-2. **Role layer** — implementer, reviewer, adjudicator, remediator.
-3. **Mission context** — ticket, epic, dependencies, project rules.
-4. **State delta** — only changes since the agent's acknowledged sequence.
-5. **Current obligation** — exactly what must happen next and what actions are allowed.
+Orchestrated children are background relative to the parent turn, not detached from the process.
 
-Parent example:
+- Parent shutdown aborts or abandons active child sessions.
+- No child continuation is promised after process death.
+- On a later session, persisted child transcripts may be inspected, but the runtime should not report stale children as live.
+- Beadwork tickets remain durable and may still show interrupted work that a later parent must inspect or restart.
 
-```text
-[MISSION OBLIGATIONS]
-1. Review attempt A-17 settled for BW-123. Assess evidence before acceptance.
-2. Reviewer R-4 returned 3 findings. Every finding needs fix/file/reject.
-3. Capacity: 1 slot. BW-128 became ready after BW-123 closed.
-
-Required next step:
-- Adjudicate R-4 against BW-123 + EPIC-10 intent.
-- Dispatch only accepted fixes; create real tickets for file dispositions.
-- Do not mark BW-123 accepted while a fix disposition is unresolved.
-```
-
-Worker example:
-
-```text
-[GUIDANCE DELTA seq=8]
-- Parent approved API shape X.
-- Sibling BW-125 now owns src/shared/types.ts; coordinate before editing it.
-- Reviewer fixes F-1 and F-3 are accepted. F-2 was rejected; do not address it.
-```
-
-### 8.8 Workspace coordination board
-
-Keep this intentionally small.
-
-Storage tiers:
-
-- same-process minions: live in-memory board + event stream;
-- restart diagnostics: compact local snapshot under `.pi/beadwork/coordination/`;
-- durable decisions: beadwork comment/dependency/follow-up only when semantically important.
-
-No message archive is required. No general inbox is required. Claims can be reconstructed from active attempts and observed tool/git paths.
-
-### 8.9 Cross-process ownership
-
-The existing process-local locks are insufficient if two parent Pi sessions operate the same epic. A fenced single-controller lease is a V1 prerequisite, not an optional policy.
-
-- Lease scope is the normalized mission scope (for V1, one epic ID).
-- Acquisition is atomic under a cross-process OS/file lock; checking JSON existence is not sufficient.
-- The lease record contains `missionId`, owner parent session ID, parent generation, a monotonically increasing fencing token, renewal timestamp, and expiry.
-- Every mutating mission effect carries the fencing token and refuses to commit if the controller no longer owns the current token.
-- A second parent opens read-only status by default. It may take over only after expiry or an explicit operator-approved handoff that increments the token.
-- Renewal uses a same-machine bounded lease and stops on parent shutdown. A crashed parent is fenced when the lease expires.
-- Minion/tmux attempts may continue after controller loss, but their results enter the durable mission journal; they cannot dispatch follow-up effects until a controller owns the lease.
-
-This prevents dual dispatch while keeping the lease a controller invariant rather than a path-reservation prerequisite.
-
-### 8.10 Controller recovery and session rebinding
-
-`beadwork_resume_mission(missionId)` performs a deterministic recovery sequence:
-
-1. load the mission journal and latest checkpoint;
-2. acquire a new fenced controller lease or remain read-only;
-3. invalidate delivery entries targeting an older parent session generation;
-4. inspect minion sessions and tmux workers referenced by open attempts;
-5. mark an in-process attempt `interrupted` unless a live handle proves it is still running;
-6. persist any settled result that was written before the parent disappeared;
-7. reconcile every `effect-planned` entry against beadwork, git, minion runtime, and finding fingerprints;
-8. mark effects committed, safely retry idempotent effects, or create an `ask-user` obligation when the outcome is uncertain;
-9. rebind pending obligations and undelivered completion cards to the new parent generation;
-10. only then refresh `bw ready` and dispatch new work.
-
-Lifecycle policy is explicit:
-
-- `/reload`: same mission/session generation when Pi preserves the session; rebind runtime handlers.
-- `/new` or switch to another session: pause the mission and release its controller lease unless the user explicitly leaves it supervised elsewhere.
-- graceful quit: persist checkpoint, stop or detach attempts according to runtime policy, release lease.
-- process crash: lease expiry fences the old controller; recovery never assumes in-memory events were delivered.
-
-### 8.11 Judgment boundaries
-
-| Decision | Deterministic | Model |
-| --- | --- | --- |
-| Issue ready | Yes | No |
-| Concurrency slot | Yes | No |
-| Agent truly settled | Yes | No |
-| Commit exists/ancestry | Yes | No |
-| Schema/result valid | Yes | No |
-| Duplicate event/effect | Yes | No |
-| Finding is correct | Evidence checks only | Yes |
-| Finding is in ticket scope | Guardrails only | Yes |
-| `fix | file | reject` | Validate allowed action | Yes |
-| Worker blocker vs recoverable ambiguity | Mechanical evidence | Yes |
-| Scope goal actually met | Validation facts | Yes |
-| User approval required | Policy | User/model prepares question |
+This deliberately avoids process heartbeats, recovery leases, replay logs, and durable completion delivery.
 
 ---
 
-## 9. Likely files and modules affected
+## 9. Parent orchestration updates
+
+### Update contents
+
+A meaningful lifecycle change produces one structured model-visible packet with three sections.
+
+#### 1. What changed
+
+- child ID and display name;
+- role;
+- task type, when present;
+- short description;
+- domain metadata;
+- new status;
+- result, handoff, blocker, or failure evidence.
+
+#### 2. Current fleet
+
+For every still-running child in the orchestration group:
+
+- ID;
+- role;
+- task type;
+- short description;
+- state;
+- optionally elapsed time and most recent activity summary.
+
+#### 3. Next instruction
+
+The deterministic task-type nudge, role fallback, or generic guidance selected by the precedence rules above.
+
+Illustrative packet:
+
+```text
+Orchestration update
+
+Changed:
+- mn-12 completed
+- role: security_specialist
+- taskType: reviewWorkerCompletion
+- task: Review BW-123 authentication changes
+- result: 2 findings attached
+
+Still running:
+- mn-13 [hard_problem_coder / fix] Fix token refresh race
+- mn-14 [general_coder / implement] Add session expiry tests
+
+Required judgment:
+Resolve every review finding as fix, file, or reject. Record evidence and rationale.
+Do not accept BW-123 while a required fix remains unresolved.
+```
+
+### Delivery rules
+
+- Persist the child result/session transcript before notifying the parent within the live process.
+- Deliver at a safe model boundary; never inject into an active turn.
+- A UI toast may accompany the update but cannot replace it.
+- If several changes accumulate before delivery, coalesce them into one packet with one fresh fleet snapshot.
+- Each lifecycle event should be consumed once within the parent process to avoid duplicate model turns.
+- User input outranks autonomous continuation. Pending orchestration updates should wait for an appropriate boundary rather than interrupting the user.
+
+### Handoffs and blockers
+
+Children should be able to produce meaningful non-terminal signals in addition to final completion:
+
+- progress;
+- blocker/question;
+- handoff;
+- completion;
+- failure.
+
+A blocker or handoff may trigger a parent update while leaving the child available for steering. The task-type policy determines the contextual nudge when one exists.
+
+---
+
+## 10. Direct agent communication
+
+### Generic minion hub
+
+Minions should expose process-local communication modeled on the useful parts of OMP's agent hub/IRC and Agent Mail, without adopting their infrastructure.
+
+Agents should be able to:
+
+- list peers in their orchestration group;
+- inspect peer ID, role, task type, description, and state;
+- send an addressed message directly to a peer;
+- send a message or question to the parent;
+- declare advisory path intent with a TTL;
+- inspect current advisory path intent.
+
+### Delivery behavior
+
+- A peer message is delivered directly to the addressed child's safe boundary, using the runtime's child session handle.
+- The parent does not need to receive and retransmit the message.
+- Sending a peer message does not force a parent model turn.
+- The parent can inspect message metadata and communication history through minion status tools or UI.
+- Message metadata should include sender, recipient, timestamp, and delivery state.
+- Communication is process-local and best effort; no durable mailbox guarantee is required.
+
+### Parent visibility
+
+Parent-visible does not mean parent-mediated. The parent should be able to answer:
+
+- who communicated;
+- when communication occurred;
+- whether delivery succeeded;
+- what paths agents believe they are touching;
+- whether an overlap notice is active.
+
+The parent may inspect full message contents when debugging or coordinating, but routine peer messages should not consume parent turns.
+
+---
+
+## 11. Advisory workspace coordination
+
+### Shared checkout is the standard case
+
+Agents normally operate in the same cwd and branch. The runtime should make this state more legible, not impose an isolation model that conflicts with real usage.
+
+### Path intent
+
+An agent may announce:
+
+```ts
+interface PathIntent {
+  agentId: string;
+  paths: string[];
+  note?: string;
+  expiresAt: number;
+}
+```
+
+Path intent is:
+
+- advisory;
+- automatically expired by TTL;
+- visible to peers and parent;
+- useful for warnings and communication;
+- never proof of ownership.
+
+### Overlap behavior
+
+When declared or observed paths overlap:
+
+1. notify the affected agents;
+2. identify the other agent and its task description;
+3. encourage direct communication;
+4. surface the overlap to the parent as metadata;
+5. continue execution.
+
+The runtime must not:
+
+- reject an edit or write;
+- pause or cancel either child;
+- reorder work automatically;
+- create a worktree;
+- claim that undeclared shell writes are safe;
+- require path declarations before spawning.
+
+### Explicit alternate workspaces
+
+A user may deliberately start an orchestration group or child in a different cwd/worktree for isolation, reproduction, or exploration. That workspace must be explicitly provided by the user or calling domain adapter based on an explicit user choice. The scheduler cannot change it after launch or select it based on task heuristics.
+
+---
+
+## 12. Beadwork as a goal adapter
+
+### Goal-mode behavior
+
+`/bw run <epic>` should behave more like entering a domain-aware goal than launching a private worker fleet.
+
+It should:
+
+1. validate and store the selected epic scope;
+2. load epic/ticket metadata and beadwork guidance;
+3. add run-to-completion intent to the parent prompt;
+4. expose ready, blocked, and in-progress tickets through beadwork tools;
+5. instruct the parent to use minions for live delegation;
+6. attach beadwork domain metadata to orchestrated children;
+7. define ticket review, acceptance, and final goal-completion policy.
+
+It should not:
+
+- create tmux panes;
+- maintain a worker registry;
+- poll external processes;
+- deliver separate child completion notifications;
+- decide workspace isolation;
+- own peer messaging;
+- run a second generic orchestration reducer.
+
+### Beadwork domain metadata
+
+A ticket child may carry:
+
+```ts
+{
+  source: "beadwork",
+  scopeId: "EPIC-10",
+  workItemId: "BW-123",
+  title: "Fix authentication refresh race"
+}
+```
+
+Minions transports and displays this metadata without understanding ticket semantics. Beadwork uses it to recover ticket context, build prompts, record evidence, and perform issue operations.
+
+### Completion evidence
+
+A child settling is evidence, not ticket acceptance. For beadwork work, the handoff should include at least:
+
+- outcome summary;
+- touched paths or commits when available;
+- validation performed;
+- blockers or incomplete work;
+- recommended follow-ups.
+
+`beadwork_worker_done` should not remain a shutdown/process-control tool. It can be removed or narrowed into a beadwork-specific evidence submission interaction; minions owns child settlement and the parent owns acceptance.
+
+### Review policy
+
+The beadwork goal adapter should support a small explicit policy:
+
+```ts
+type ReviewPolicy = "ticket" | "scope" | "none";
+```
+
+- `ticket` — default; independently review implementation work before closing its ticket.
+- `scope` — accept/close individual work from evidence, then review the aggregate scope before declaring the epic complete.
+- `none` — no automatic independent review.
+
+`scope` is intentionally less conservative: dependents may begin before aggregate review discovers a problem. The configuration should state that tradeoff clearly rather than pretending the modes provide the same protection.
+
+### Review adjudication
+
+A `reviewWorkerCompletion` task type gives the parent deterministic guidance to assess every finding against ticket, epic, and project intent as:
+
+- `fix` — valid and required now; keep acceptance blocked and dispatch remediation;
+- `file` — valid but not required for current acceptance; create or link durable follow-up work;
+- `reject` — invalid, irrelevant, duplicate, or contrary to intent; record rationale.
+
+The task type locks in the adjudication instruction. The model still judges each finding and chooses the disposition.
+
+### Notable autonomous decisions
+
+Autonomous execution should be the default. Instead of interrupting for every high-concern decision, the orchestration group should collect notable decisions for the final handoff, including:
+
+- decision and rationale;
+- affected ticket or finding;
+- concern level;
+- evidence considered;
+- action taken;
+- scope expansion;
+- rejected high-confidence review feedback;
+- security-sensitive or destructive actions.
+
+The final beadwork handoff should summarize these decisions for optional human review. Beadwork may also persist domain-significant decisions as ticket comments.
+
+### Epic scope
+
+V1 acceptance should prove one epic end to end. Internal scope metadata may use `scopeIds: string[]` so adding multiple epics later does not require changing minion orchestration semantics. Multi-epic scheduling is not required for the first release.
+
+---
+
+## 13. Recommended package and module changes
 
 ### `packages/pi-minions`
 
-| File/module | Expected change | Confidence |
-| --- | --- | --- |
-| `src/subsessions/manager.ts` | Switch completion to settled semantics; child shutdown; shared event bus; robust persisted-state normalization | confirmed |
-| `src/subsessions/types.ts` | Public detached handle, attempt/owner/session generation, result evidence | confirmed |
-| `src/tools/spawn.ts` | Add foreground/detached mode, bounded concurrency, partial-result preservation | confirmed |
-| `src/spawn.ts` | Separate execution from foreground waiting; graceful settle and usage capture | confirmed |
-| `src/index.ts` | Runtime wiring, events, RPC, completion delivery, shutdown | confirmed |
-| `src/subsessions/event-bus.ts` | Remove or adapt to Pi's shared `pi.events` | confirmed |
-| `src/tree.ts` / UI modules | queued, running, waiting, settled, consumed states | inferred |
-| `src/runtime/protocol.ts` | New versioned public event/RPC contracts | speculative new file |
-| `src/runtime/delivery.ts` | Completion inbox, grouping, consume receipts | speculative new file |
-| `src/runtime/manager.ts` | Exported runtime API independent of tool UX | speculative new file |
-| `src/tools/steer.ts`, `wait.ts`, `consume.ts` | Model-facing lifecycle controls if useful | speculative new files |
-| `src/__tests__/` | Real child lifecycle, retry/settle, cancellation, duplicate delivery, replacement | confirmed |
+Likely changes:
+
+- `src/types.ts`
+  - add role, task type, orchestration group, domain metadata, messages, path intent, and lifecycle update types;
+- `src/tools/spawn.ts`
+  - add non-blocking orchestration descriptors and handles while preserving foreground spawn;
+- `src/spawn/*`
+  - separate session start from foreground result waiting;
+- `src/subsessions/manager.ts`
+  - use settled completion, expose safe steering/messaging, and avoid premature `agent_end` completion;
+- `src/tree.ts`
+  - become the canonical process-local fleet registry with role/task-type/description/group metadata;
+- new `src/orchestration/`
+  - group state, lifecycle normalization, fleet snapshots, nudge selection, coalescing, and parent delivery;
+- new `src/task-types.ts`
+  - closed enum/literal union and deterministic policies;
+- `src/agents.ts` and `src/types.ts`
+  - parse optional role fallback guidance from agent prompt metadata;
+- new `src/messaging/`
+  - peer directory, direct queues/delivery, parent message path, and inspection;
+- new `src/coordination/`
+  - advisory TTL path intent and overlap metadata;
+- `src/index.ts`
+  - register the new tools/events and update prompt guidance;
+- `src/renderers/`, `src/status.ts`, and command surfaces
+  - show orchestration groups, task types, fleet updates, and messages;
+- tests
+  - add lifecycle, delivery, precedence, messaging, coalescing, and child-lifetime coverage.
 
 ### `packages/pi-beadwork-extension`
 
-| File/module | Expected change | Confidence |
-| --- | --- | --- |
-| `src/index.ts` | Consume minion protocol, mission lifecycle, model-visible obligations, unified tracking for command/tool delegation | confirmed |
-| `src/orchestrator.ts` | Strangler refactor; eventually remove live session/process orchestration | confirmed |
-| `src/types.ts` | Mission, attempt, evidence, review round, obligation, delivery receipt | confirmed |
-| `src/prompt.ts` | Dynamic guidance compiler instead of only mode appendix | confirmed |
-| `src/handoff.ts` | Role-specific contracts and guidance deltas | confirmed |
-| `src/registry.ts` | Migration adapter; stop being primary live process owner | inferred |
-| `src/session-state.ts` | Mission pause/resume, session generation, pending obligations | confirmed |
-| `src/bw.ts` | Stable operation IDs/dedupe helpers if CLI allows; no generic passthrough | inferred |
-| `src/attribution.ts` | Consume explicit commit evidence first; heuristic fallback only | confirmed |
-| `src/worker-diagnostics.ts` | Attempt/outcome distinction and next obligation | confirmed |
-| `src/config.ts` | Runtime, delivery, autonomy, stall, claims, review policy | confirmed |
-| `src/controller/*` | Reducer, effect runner, scheduler, obligation engine | speculative new directory |
-| `src/review/*` | reviewer, adjudication, disposition, remediation | speculative extraction |
-| `src/coordination/*` | advisory claims and overlap analysis | speculative extraction |
-| `src/__tests__/` | reducer, integration, restart, duplicate effects, shared checkout | confirmed |
+Likely changes:
 
-### Package dependency direction
+- `src/index.ts`
+  - reduce worker runtime responsibilities and retain domain tools, scope, prompts, and goal mode;
+- `src/prompt.ts`
+  - express run-to-completion goal policy and minion usage;
+- `src/types.ts`
+  - remove tmux-backed worker runtime types; add goal/review/evidence/domain metadata types;
+- `src/config.ts` and `src/constants.ts`
+  - remove tmux, supervisor polling, automatic landing, and automatic worktree-selection configuration;
+- `src/orchestrator.ts`
+  - delete or decompose; generic live orchestration moves to minions;
+- `src/tmux.ts` and process/runtime marker support
+  - remove;
+- `src/registry.ts`
+  - remove live worker registry responsibilities; retain only domain state that remains necessary;
+- `src/worktree.ts`
+  - retain only explicit user-requested workspace behavior if still needed; no scheduler calls it;
+- `src/handoff.ts`
+  - focus on beadwork evidence and domain prompt context rather than process shutdown;
+- actions and TUI
+  - replace worker-runtime views with minion orchestration views or links, while keeping issue/goal views;
+- tests and scripts
+  - replace tmux/current-branch swarm e2e coverage with in-process minion/beadwork integration scenarios.
 
-`pi-beadwork-extension` should communicate through the versioned event protocol. It may import protocol types from `@solvedbydev/pi-minions` as a type/runtime compatibility package, but it should not import private manager classes.
+### Dependency direction
 
-When minions is not loaded or protocol negotiation fails:
+`pi-minions` must not import beadwork.
 
-- commands explain the missing runtime;
-- foreground/manual beadwork tools remain usable;
-- the existing tmux backend may remain available during migration.
+Beadwork may depend on a stable minions orchestration API or communicate through a typed in-process extension contract. The contract should allow beadwork to:
 
----
+- add domain metadata to spawns;
+- observe relevant child lifecycle events;
+- provide beadwork prompt context;
+- query group state when rendering status.
 
-## 10. Data, persistence, and compatibility
-
-### Write-ahead mission journal
-
-Mission reliability requires one project-local control journal, separate from the durable task graph:
-
-```text
-.pi/beadwork/missions/<mission-id>/
-  journal.jsonl
-  checkpoint.json
-  controller-lease.json
-```
-
-The journal records runtime control facts, not duplicate task truth:
-
-- mission created/paused/resumed;
-- controller lease/fencing token;
-- attempt planned/started/settled/interrupted;
-- completion evidence persisted;
-- obligation created/resolved;
-- effect planned/committed/uncertain;
-- parent delivery queued/delivered/consumed/expired.
-
-Ordering rule: persist and flush the new attempt/result/obligation/effect state before emitting `pi.events` or injecting a parent message. `pi.events` is only the fast wake-up channel. `checkpoint.json` is an atomically replaced compact projection of the append-only journal.
-
-For an external side effect, append `effect-planned` before execution and `effect-committed` after verification. Recovery reconciles a stranded planned effect using its operation ID. If the external operation cannot prove whether it happened, do not retry blindly; mark it uncertain and ask the controller/user. Pi custom session entries may mirror mission UI state but are not the authoritative effect journal.
-
-### State lifetime
-
-| State | Lifetime | Persistence |
-| --- | --- | --- |
-| Beadwork graph | project durable | beadwork/git |
-| Git result | project durable | git |
-| Mission control/effect journal | local durable | `.pi/beadwork/missions/<id>/journal.jsonl` + checkpoint |
-| Mission scope/policy | mission durable | mission journal; parent session entry is a projection |
-| Agent session/transcript | local durable | Pi session JSONL |
-| Live runtime handle | process local | reconstructed from session metadata |
-| Attempt result/lineage | mission durable | mission journal + minion result artifact; significant outcome mirrored to beadwork |
-| Delivery receipt | parent session generation | mission journal for mission attempts; minion store for direct spawns |
-| Workspace claim | ephemeral lease | in-memory + compact local snapshot |
-| Finding and disposition | mission durable; project durable when actionable | mission journal/review artifact + beadwork comment/follow-up |
-
-### Idempotency
-
-Every mutating controller effect gets an operation key, for example:
-
-```text
-mission:<mission-id>:ticket:<ticket-id>:attempt:<n>:spawn
-review:<review-id>:finding:<finding-id>:file
-attempt:<attempt-id>:delivery:<event-id>
-scope:<epic-id>:validation:<failure-signature>:follow-up
-```
-
-Before replaying an effect, reconcile actual state:
-
-- active attempt already exists;
-- ticket already closed/reopened;
-- follow-up with finding signature already exists;
-- completion already consumed;
-- commit already present;
-- review round already resolved.
-
-Durable write-ahead state plus best-effort wake-up events and idempotent effects are the target. Exactly-once delivery should not be claimed.
-
-An operation ID is useful only if every owner honors it. Minion spawn deduplicates `attemptId`; follow-up creation searches the canonical finding fingerprint; delivery consumption is keyed by event ID and parent generation. For `effect-planned` entries left by a crash, recovery verifies actual external state before retrying.
-
-### Registry migration
-
-The current worker registry should be supported during a transition:
-
-1. Existing tmux records continue to display and land.
-2. New minion attempts use the new attempt model.
-3. Dashboard aggregates both through a normalized view.
-4. Once tmux missions have drained and fault tests pass, stop creating old-style records for minion-backed attempts.
-5. Retain a read-only legacy normalizer for old records.
+It must not create a second message-delivery path. Minions is the sole owner of model-visible child lifecycle updates.
 
 ---
 
-## 11. API, CLI, UI, and config surfaces
+## 14. API and tool surface sketch
 
-### Proposed model tools
+The exact tool names remain subject to planning review, but the conceptual surfaces are:
 
-Runtime tools can remain under minions:
+### Existing tools to evolve
 
-- `spawn` with `mode`;
-- `minion_status` / existing list/show;
-- `minion_steer`;
-- `minion_wait` with abortable bounded wait;
-- `minion_stop`;
-- `minion_consume_result`.
+- `spawn`
+  - retain foreground behavior;
+  - accept role terminology or compatibility aliasing;
+  - share all session-creation machinery with orchestration mode.
+- `list_minions`
+  - include role, task type, description, group, domain metadata, and communication indicators.
+- `show_minion`
+  - include lifecycle, task policy, messages, path intent, and current activity.
+- `halt`
+  - continue to abort one child or a group.
 
-Beadwork should expose higher-level intent:
+### New generic orchestration surfaces
 
-- `beadwork_run_mission`;
-- `beadwork_pause_mission`;
-- `beadwork_resume_mission`;
-- `beadwork_mission_status`;
-- `beadwork_signal` for workers;
-- `beadwork_resolve_finding` if the parent is explicitly resolving review output;
-- existing issue CRUD tools.
+Potential tools:
 
-Avoid exposing raw runtime choreography to the orchestrator when a high-level beadwork action exists.
+- `orchestrate` or `spawn` orchestration mode
+  - non-blocking spawn and group creation;
+- `send_minion_message`
+  - addressed parent-to-child or child-to-child message;
+- `list_minion_messages`
+  - inspect communication history/metadata;
+- `announce_minion_paths`
+  - declare or refresh advisory TTL intent;
+- `record_orchestration_decision`
+  - append a notable decision for final handoff.
 
-### Proposed dashboard additions
+Tool count should remain small. Messaging and coordination operations may be grouped if that improves model usability, but their semantics must remain explicit.
 
-Mission tab:
+### Beadwork surfaces
 
-- epic(s), autonomy state, concurrency, current phase;
-- pending obligations, ordered by urgency;
-- ready/capacity summary;
-- last automatic action and next safe action.
-
-Workers tab:
-
-- attempt role and ticket;
-- runtime state vs outcome state;
-- current activity/current tool;
-- last meaningful activity;
-- pending question/blocker;
-- declared and observed paths;
-- review/remediation lineage;
-- steer/stop/resume/review actions.
-
-Review tab or detail pane:
-
-- findings and evidence;
-- disposition status;
-- rationale;
-- linked remediation/follow-up;
-- unresolved blocking findings.
-
-Coordination indicators:
-
-- exact overlap;
-- broad possible overlap;
-- build slot contention;
-- one-click sequence/isolate/allow choices.
-
-### Config sketch
-
-```json
-{
-  "minions": {
-    "backgroundByDefault": false,
-    "maxConcurrent": 4,
-    "completionGroupingMs": 750,
-    "completionGroupMaxWaitMs": 10000,
-    "settledRetentionMs": 600000
-  },
-  "mission": {
-    "autoContinue": true,
-    "maxAutomaticTurns": 20,
-    "controllerLeaseMs": 60000,
-    "delivery": {
-      "completionWhileBusy": "safe-boundary",
-      "routineWhileIdle": "trigger",
-      "afterUserInterrupt": "next-turn"
-    },
-    "stall": {
-      "softIdleMs": 300000,
-      "hardIdleMs": 900000,
-      "maxNudges": 2
-    },
-    "review": {
-      "enabled": true,
-      "maxRemediationAttempts": 2,
-      "requireHumanFor": ["P0"]
-    },
-    "coordination": {
-      "claims": "hybrid",
-      "schedulerBias": true,
-      "exactEditGuard": true,
-      "commitGuard": false
-    }
-  }
-}
-```
-
-Names should be finalized only after implementation boundaries settle.
+- `/bw run <epic>` or equivalent model tool enters beadwork goal mode;
+- beadwork issue CRUD and dependency tools remain;
+- generic minion spawning replaces `beadwork_delegate`;
+- evidence submission, if retained, is beadwork-specific and does not control the child process;
+- worker inspection/landing tools disappear or become domain views over minion state where still useful.
 
 ---
 
-## 12. Integration and sequencing
+## 15. State and persistence
 
-The program should ship as vertical, independently useful increments. The full Mission Control vision is a direction, not one release-sized rewrite.
+### Process-local state
 
-### Release A — Fix today's tmux orchestration seams
+Minions owns in-memory live state for:
 
-- make model-tool `beadwork_delegate` use the same tracking/supervision path as slash-command delegation;
-- persist a controller obligation for worker completion and deliver it model-visibly instead of only using `ctx.ui.notify()`;
-- replace regex `fix | file | reject` with structured model adjudication;
-- make `file` create/link a real fingerprinted follow-up issue;
-- change new worker completion semantics so evidence is submitted before ticket closure where practical;
-- add duplicate-notice and early-dependent-unlock regressions.
+- orchestration groups;
+- active child handles;
+- pending parent updates;
+- message delivery queues;
+- path intent TTLs;
+- consumed lifecycle notifications;
+- notable orchestration decisions.
 
-Exit criterion: the current tmux path reacts to completion and handles review findings correctly without waiting for the minion rewrite.
+Child session transcripts may continue to use Pi's existing file-backed session machinery for inspection, but V1 does not promise orchestration replay or child recovery.
 
-### Release B — Reliability foundation in minions
+### Durable domain state
 
-- complete on `agent_settled`/`prompt()` resolution, not first `agent_end`;
-- inspect assistant stop reasons and failures;
-- guarantee child `session_shutdown` and disposal;
-- bind parent/child session lineage correctly;
-- use a shared Pi event bus;
-- make restored `running` state become `interrupted` unless a live handle proves otherwise;
-- add real `AgentSession` lifecycle tests;
-- add bounded concurrency.
+Beadwork remains durable for:
 
-Exit criterion: a foreground minion can retry/compact, settle once, cancel cleanly, and leave no false-running metadata.
+- issue and epic state;
+- dependencies and readiness;
+- comments and history;
+- accepted follow-up work;
+- domain-significant evidence or decisions that are explicitly recorded.
 
-### Release C — Detached Minion Runtime V2
+### Parent death
 
-- exported runtime manager/API;
-- detached spawn and startup confirmation;
-- versioned event/RPC protocol;
-- inspect/steer/stop/resume;
-- durable result availability, generic direct-spawn delivery, grouping, and consumption;
-- parent session generation and user-interrupt latch;
-- fleet UI updates.
+If the parent exits unexpectedly:
 
-Exit criterion: the parent can keep interacting while two direct minions run, receive one completion each, consume results without duplicates, and survive `/new`/reload without wrong-session injection.
+- active children may terminate;
+- in-memory messages and pending orchestration updates may be lost;
+- no controller takeover occurs;
+- the next session treats prior “running” runtime metadata as interrupted/stale, not live;
+- durable beadwork tickets remain available for inspection and manual/model-driven restart.
 
-### Release D — One beadwork ticket through the minion backend
-
-- introduce a narrow runtime adapter (`spawn`, `inspect`, `steer`, `stop`, `resume`);
-- map one ticket to one attempt ID;
-- keep beadwork as the sole mission delivery owner;
-- preserve tmux fallback;
-- separate attempt settle from controller-owned ticket acceptance;
-- run implement → review → adjudicate → remediate → close end to end.
-
-Do not introduce the full reducer/journal abstraction merely to make this slice compile. Record operation IDs and the smallest durable attempt state needed; extract the reducer only when the next release demonstrates repeated transition logic.
-
-Exit criterion: one ticket completes through minions with no tmux polling and no duplicate parent delivery.
-
-### Release E — Single-epic mission journal and obligation engine
-
-- fenced controller lease;
-- write-ahead mission journal and recovery command;
-- reducer/effect runner over demonstrated transitions;
-- typed worker signals;
-- dynamic parent/worker guidance;
-- ready dispatch after controller-owned ticket acceptance;
-- pause/resume and bounded automatic turns;
-- context-preserving remediation;
-- quiescent validation and scope review.
-
-Exit criterion: one epic progresses through dependency waves, survives parent restart without duplicate effects, and remains user-interactive.
-
-### Release F — Workspace coordination safety
-
-- broad advisory claims and overlap UI;
-- exact edit/write ownership guard;
-- scheduler bias and worktree fallback for broad/opaque writes;
-- optional commit guard;
-- stall/recovery ladder;
-- dedicated shared-checkout fault tests.
-
-Exit criterion: detected tool-managed exact overlaps serialize or isolate without lost edits; opaque shell-write limits are explicit and tested.
-
-### Release G — Multi-epic missions, if required
-
-- mission scope accepts multiple epic IDs;
-- shared capacity and fairness;
-- per-epic quiescence and final review;
-- portfolio-level pause/attention UI;
-- no cross-epic graph duplication.
-
-The target vision supports one or more epics. The first release intentionally proves one epic; whether plural scope moves into the V1 release is a product decision below.
+This is an accepted tradeoff, not a degraded implementation of detached durability.
 
 ---
 
-## 13. Compatibility, rollout, and backout
+## 16. Integration and sequencing
 
-### Strangler migration
+No product release should improve or continue depending on the tmux runtime. The phases below describe implementation order on the cutover branch, not separately shippable beadwork milestones. The first release containing this work must include Phases A and B together and leave beadwork running through minions without tmux.
 
-Do not rewrite the current orchestrator in one cut.
+### Phase A — Minimum orchestration core in minions
 
-- introduce normalized attempt events alongside current worker inspection;
-- run selected tickets through minions behind config;
-- compare resulting artifacts/status with tmux path;
-- retain explicit tmux/worktree fallback;
-- move functions out of `orchestrator.ts` only when the new boundary has tests;
-- delete old creation paths only after no active registry records need them.
+- split child start from foreground waiting;
+- introduce orchestration groups and descriptors;
+- extend `AgentTree` metadata;
+- normalize lifecycle around settled/aborted/failed;
+- return stable handles immediately;
+- add the closed task-type union and policy table;
+- parse role fallback guidance;
+- implement strict nudge precedence;
+- deliver coalesced changed-child and fleet-state packets;
+- preserve existing foreground spawn.
 
-### Compatibility promises
+Exit criteria: generic orchestrated children run concurrently while the parent remains interactive; `fix` and `reviewWorkerCompletion` produce deterministic, distinct parent instructions regardless of role.
 
-- existing issue tools and commands continue to work;
-- `/bw delegate` and `/bw run` retain recognizable behavior;
-- worktree execution remains available;
-- old worker records remain readable;
-- inactive repos stay quiet;
-- foreground `spawn` remains available;
-- model/provider overrides remain independent by role.
+### Phase B — Beadwork cutover and tmux removal
 
-### Backout
+- make `/bw run` establish a beadwork goal rather than a tmux supervisor;
+- attach epic/ticket metadata to generic orchestrated children;
+- move completion delivery entirely to minions;
+- replace worker process completion with evidence submission;
+- remove tmux launch, polling, pane inspection, runtime markers, and worker configuration;
+- remove or rewrite tmux-dependent e2e tests.
 
-A repo-level config should be able to select:
+Exit criteria: one beadwork ticket can be implemented and reviewed through minions on a machine without tmux, and no production beadwork path references the removed runtime.
 
-```json
-{
-  "mission": { "runtime": "tmux" }
-}
-```
+### Phase C — Direct communication and advisory coordination
 
-until the migration is proven. Backout must not require issue graph migration because beadwork remains the source of truth throughout.
+- peer discovery;
+- addressed messages;
+- safe child delivery;
+- parent-visible metadata;
+- TTL path intent;
+- overlap notices without enforcement.
 
----
+Exit criteria: two children can notice overlap, message one another directly, and continue without a parent relay or runtime lock.
 
-## 14. Security, trust, and safety boundaries
+### Phase D — One epic to verified completion
 
-### Tool capability policy
+- drive ready tickets through the parent model and generic orchestration core;
+- apply default ticket-level review;
+- adjudicate findings as `fix | file | reject`;
+- launch remediation/re-review through typed workflows;
+- collect notable decisions;
+- validate scope and produce a final handoff.
 
-Minions should not blindly inherit every parent extension/tool.
+Exit criteria: one epic reaches a verified outcome with no competing beadwork worker runtime.
 
-Role defaults:
+### Phase E — Optional policies
 
-- implementer: repo tools + ticket signal + scoped beadwork completion;
-- reviewer: read/search/git/test, no edit by default;
-- adjudicator: read ticket/review evidence, no code mutation;
-- remediator: implementer tools but only approved finding context;
-- scope reviewer: read/search/git/test, no edit.
-
-Explicitly deny unless needed:
-
-- recursive mission launch;
-- raw issue graph mutation by ordinary workers;
-- global cleanup/reset/stash;
-- parent UI commands;
-- stop/consume of attempts owned by another mission.
-
-### Prompt/project trust
-
-Project-defined agents, skills, claim policies, and commands are executable or model-shaping configuration. Respect Pi's project trust state before loading them into child sessions.
-
-### User priority
-
-- user interrupt pauses surprise auto-resume;
-- user messages outrank pending mission continuation;
-- destructive remediation and high-severity security decisions can require human approval;
-- “automatic” never means unbounded turns or attempts.
-
-### Current-branch safety
-
-- never reset, clean, or stash unrelated state;
-- commit only explicit paths;
-- broad path claims are advisory; exact tool-managed edit/write ownership is guarded by default;
-- integrated validation waits for quiescence;
-- use worktree mode when isolation is the safer choice;
-- a reviewer inspects immutable attributed commits, not ambient moving `HEAD`.
+- scope-level review mode;
+- explicit alternate workspace support where user-selected;
+- multiple epic scopes if desired;
+- typed handoff schemas if lifecycle evidence shows value.
 
 ---
 
-## 15. Error handling and failure modes
+## 17. Error handling and failure modes
 
-| Failure | Required behavior |
-| --- | --- |
-| Child retries/compacts | Do not complete until settled |
-| Child startup fails | Return error; no false running attempt |
-| Parent busy | Queue by urgency; deliver at safe boundary |
-| User interrupts | Pause auto-resume; preserve obligation visibly |
-| Duplicate event | Reducer emits no duplicate effect |
-| Parent session replaced | Reject stale-generation delivery |
-| Parent process exits | Mark in-process attempts interrupted on recovery; tmux fallback may continue |
-| Worker question unanswered | Keep explicit blocking obligation; do not classify as crash |
-| Worker silent in long tool | Respect tool deadline before stall nudge |
-| Worker vanishes | Resume/replacement ladder with bounded attempts |
-| Review output malformed | One schema repair attempt, then attention; preserve raw output |
-| Reviewer finding ambiguous | Adversarial verify or user decision |
-| Follow-up already exists | Link it; do not duplicate |
-| Same-path overlap | Warn/coordinate/serialize/isolate according to policy |
-| Claim expires | Notify owner and lower confidence; do not silently hard-block |
-| Two controllers target epic | Lease/takeover policy; no dual dispatch |
-| Validation fails | Attributed fix-forward work or attention; no scope review yet |
-| Remediation cap exhausted | Attention with complete evidence |
-| Runtime protocol unavailable | Explain and use configured fallback |
+### Child fails to start
 
-Debuggability requirements:
+- Mark the child failed in `AgentTree`.
+- Include role, task type, description, and error in the parent update.
+- Do not report a running handle as successful.
 
-- every event/effect has IDs and timestamps;
-- attempt detail links child transcript and artifacts;
-- review detail preserves raw/parsed/disposition data;
-- dashboard reports the exact next obligation;
-- failure summaries name whether the problem is graph, runtime, evidence, judgment, delivery, or workspace conflict.
+### Child terminates early
+
+- Distinguish aborted, failed, and settled completion.
+- Apply the task-type failure nudge when present.
+- Preserve partial output for parent judgment.
+
+### Parent is busy when several children finish
+
+- Queue lifecycle changes process-locally.
+- Coalesce them at the next safe boundary.
+- Send one fresh fleet snapshot rather than stale per-child snapshots.
+
+### Peer is unavailable
+
+- Return a clear delivery failure to the sender.
+- Record failed message metadata for inspection.
+- Do not silently reroute through the parent.
+
+### Path intent expires
+
+- Remove it automatically.
+- Do not infer that the agent stopped touching the path; TTL intent is advisory metadata only.
+
+### Child and parent edit the same file
+
+- The runtime may warn if it has enough information.
+- It does not block either actor or claim a safe resolution.
+- Agents/parent inspect current state and coordinate explicitly.
+
+### Parent exits
+
+- Children may stop.
+- Pending messages and updates may be lost.
+- Beadwork domain state survives.
+- A later session reports stale prior runtime state as interrupted rather than attempting automatic recovery.
+
+### Task type and role disagree
+
+- Use task-type guidance.
+- Display both values so the parent can recognize a poor role selection.
+- Do not merge contradictory nudges.
+
+### Review output is ambiguous
+
+- The parent model requests clarification, dispatches another reviewer, or rejects unsupported claims.
+- No keyword classifier silently decides the disposition.
 
 ---
 
-## 16. Testing strategy
+## 18. Testing strategy
 
-### `pi-minions` unit/integration coverage
+### `pi-minions` unit coverage
 
-- `agent_end` followed by retry does not complete;
-- `agent_end` followed by compaction does not complete;
-- only one settled event is emitted;
-- assistant error/abort is not success;
-- detached spawn returns after startup, not after completion;
-- queued cancellation settles and releases capacity;
-- active cancellation waits for actual session settlement;
-- `session_shutdown` runs and child resources dispose;
-- parent `/new`, resume, fork, and reload reject stale deliveries;
-- duplicate events inject once;
-- consumed completion never injects later;
-- grouped completion flushes complete and partial groups correctly;
-- foreground and background results preserve partial successes;
-- event RPC enforces ownership and protocol version;
-- restored running metadata becomes interrupted without a live handle.
+- task-type schema accepts only known values;
+- role accepts arbitrary strings;
+- task type takes precedence over role guidance;
+- missing task type falls back to role guidance;
+- missing role guidance falls back to generic guidance;
+- task-type policy varies by lifecycle event;
+- `AgentTree` preserves group, role, task type, description, and domain metadata;
+- fleet snapshots include all and only relevant running children;
+- multiple pending updates coalesce deterministically;
+- consumed updates do not trigger duplicate parent turns;
+- TTL path intent expires without blocking work;
+- overlap detection creates notices but no enforcement action;
+- direct messages preserve sender/recipient metadata;
+- messages to missing peers fail clearly.
 
-### Beadwork reducer/property coverage
+### Minion integration coverage
 
-For every event:
+- foreground spawn continues to block and return its result;
+- orchestrated spawn returns handles before completion;
+- parent remains interactive while children run;
+- settled completion is not emitted on a premature `agent_end`;
+- abort and failure produce correct terminal states;
+- several children completing near-simultaneously produce one parent packet;
+- direct child-to-child messages arrive at a safe boundary;
+- parent can inspect communication metadata without receiving a model turn for every peer message;
+- parent shutdown does not promise child continuation;
+- stale persisted session metadata is not shown as a live process after restart.
 
-- duplicate replay is idempotent;
-- illegal state transition is rejected;
-- exactly the expected obligation is created;
-- obligation resolution removes it once;
-- effect keys remain stable across restart;
-- accepted tickets cannot retain unresolved blocking findings;
-- scope completion cannot occur with active/unassessed attempts.
+### Beadwork integration coverage
 
-### Fault harness
+- `/bw run <epic>` sets goal context without starting tmux or a polling supervisor;
+- generic minion descriptors carry ticket and epic metadata;
+- child completion does not automatically close the ticket;
+- default ticket policy launches review before close;
+- `reviewWorkerCompletion` instructs `fix | file | reject` adjudication;
+- `fix` remains blocking until remediation and review pass;
+- `file` creates or links durable follow-up work;
+- `reject` records rationale;
+- scope policy allows explicit aggregate review behavior;
+- notable decisions appear in the final handoff;
+- one epic reaches validated completion;
+- the complete flow works when tmux is unavailable;
+- no worktree is created without explicit user selection.
 
-Simulate:
+### Removal regressions
 
-- duplicate completion;
-- dropped progress;
-- dropped completion followed by reconciliation;
-- parent restart before/after delivery;
-- parent restart between follow-up creation and receipt persistence;
-- child stuck in a tool;
-- child process/session death;
-- worker asks parent while parent is busy;
-- user interrupts before a blocker message arrives;
-- reviewer returns malformed output;
-- reviewer returns false positive and valid finding together;
-- remediation succeeds/fails/exhausts;
-- two controllers race to launch one ticket;
-- two workers declare and then discover overlapping paths;
-- same-file edit through edit/write;
-- shell-generated overlapping file change;
-- validation reads transient state before quiescence (must be prevented);
-- worktree fallback and landing preservation.
-
-### End-to-end scenarios
-
-1. Two ready tickets, two detached minions, one parent conversation.
-2. Worker completion while user is actively chatting.
-3. Worker blocker → parent answer → same worker resumes.
-4. Worker result → review → mixed fix/file/reject → remediation → re-review → accepted.
-5. Worker crash → persisted-session resume or replacement → accepted.
-6. Exact tool-managed overlap → younger attempt pauses or isolates → no lost edit on the guarded surface.
-7. Scope validation failure → deduplicated fix-forward child → mission completes.
-8. Parent restart mid-mission → no duplicate launch or result.
-9. Explicit worktree attempt → validation/review/landing still works.
-10. Multi-model role routing with independent worker/reviewer/adjudicator models.
+- no production source imports beadwork's `tmux.ts`;
+- no beadwork tool description promises tmux-backed workers;
+- no runtime config requires tmux session/window/pane values;
+- no scheduler selects `worktree` based on task content or overlap;
+- no reservation or path-intent state rejects edit/write activity;
+- beadwork emits no duplicate model-visible lifecycle message for a minion-owned child.
 
 ### Quality gates
 
@@ -1620,206 +1087,150 @@ npm run test
 npm run typecheck
 ```
 
-Real-agent dogfood should supplement, not replace, deterministic tests.
+Logic changes require focused tests in the affected workspace in addition to the repository-wide gates.
 
 ---
 
-## 17. Metrics and acceptance evidence
+## 19. Material risks and mitigations
 
-Track enough to decide whether the redesign is actually better.
+### Task-type proliferation
 
-### Reliability
+**Risk:** The enum becomes a taxonomy of job names and duplicates roles.
 
-- duplicate model-visible completion rate: target 0;
-- wrong-session delivery rate: target 0;
-- false-running attempts after restart: target 0;
-- duplicate launch/remediation/follow-up rate: target 0;
-- unresolved worker exits without parent obligation: target 0.
+**Mitigation:** Add a value only when it defines a distinct workflow response to lifecycle events. Keep ordinary work untyped.
 
-### Responsiveness
+### Prompt conflicts
 
-- worker settle → parent obligation latency;
-- blocker signal → parent/user visibility latency;
-- parent remains available while workers run;
-- percentage of mission progress driven without manual `/bw workers` polling.
+**Risk:** Role and workflow guidance provide contradictory instructions.
 
-### Efficiency
+**Mitigation:** Task type has strict precedence; do not concatenate role guidance when typed.
 
-- integrated validation runs per mission;
-- review/remediation model calls per accepted ticket;
-- cold replacement vs context-preserving resume rate;
-- progress events coalesced vs injected into model context;
-- conflict warnings that prevented overlap vs false-positive warnings.
+### Parent update noise
 
-### Outcome quality
+**Risk:** Several children create repeated model turns and context churn.
 
-- accepted review findings later shown invalid;
-- rejected findings later shown valid;
-- missions completing with unmet epic acceptance criteria;
-- follow-up issues created per review and deduplication rate;
-- current-branch conflict/lost-edit rate compared with pre-claims baseline.
+**Mitigation:** Coalesce pending changes and always send one current fleet snapshot.
 
----
+### Over-automation
 
-## 18. Material risks and open design questions
+**Risk:** Deterministic task types are mistaken for deterministic decisions.
 
-### Material risks
+**Mitigation:** Policies produce instructions only. Tests must prove they do not close, spawn, or adjudicate automatically.
 
-1. **A hidden rewrite.** Calling this “integration” while retaining both complete orchestrators would increase complexity. The migration needs deletion milestones.
-2. **Completion timing.** Fast safe-boundary delivery and late duplicate suppression pull in opposite directions. The inbox/consume model must be tested under real Pi scheduling.
-3. **In-process durability.** Child sessions can persist, but running computation does not survive parent process death.
-4. **Cross-process ownership.** Multiple parent sessions need an explicit policy; process-local maps are insufficient.
-5. **Moving shared checkout.** Review and validation need immutable evidence and quiescent boundaries.
-6. **Claims becoming locks.** Broad claims must stay advisory; exact tool-managed ownership is a narrow deterministic guard, not a second general scheduler.
-7. **Frontier-model over-trust.** Better models still produce bad review and false completion. Evidence and bounded loops remain mandatory.
-8. **Prompt accumulation.** Dynamic guidance must be delta-based and sequence-aware or it will become stale context noise.
-9. **Extension/tool privilege.** Child sessions must not inherit orchestration authority accidentally.
-10. **UI work outrunning semantics.** Build the event/obligation contracts before redesigning dashboards around them.
+### Beadwork remains a hidden orchestrator
 
-### High-leverage questions for product direction
+**Risk:** Old supervisor, registry, landing, and notification paths remain alongside minions.
 
-1. **Durability target:** Must a running worker continue executing after the parent Pi process exits, or is it sufficient that its session/evidence can be recovered and resumed when the parent returns? This decides whether in-process minions can become the default runtime or tmux/child processes must remain first-class.
-2. **Workspace safety contract:** Is detected-overlap prevention enough, with shell-heavy/unknown writes routed to worktrees, or do you want a stronger default that isolates any ticket without a trustworthy declared edit surface?
-3. **Autonomy authority:** May the orchestrator automatically execute all `fix | file | reject` dispositions, or should selected categories (for example P0/security, rejection of high-confidence findings, destructive cleanup) require human confirmation?
-4. **Ticket acceptance gate:** Must every implementation ticket remain `in_progress` and pass independent review before `bw close` unlocks dependents, or may some tickets close on worker evidence and rely on wave/scope review? The former is safer and slower; the latter preserves more current beadwork throughput.
-5. **Multi-epic boundary:** Is support for a set of epics a V1 release requirement, or should the first mission release prove one epic end to end and add portfolio scheduling immediately afterward?
+**Mitigation:** Define one lifecycle owner, remove tmux runtime modules, and add duplicate-delivery regressions.
 
-### Recommended provisional answers
+### Shared-checkout conflicts
 
-Until the user decides:
+**Risk:** Concurrent agents still overwrite or invalidate one another's assumptions.
 
-- recoverable/resumable execution is sufficient; tmux remains the continue-after-parent-exit fallback;
-- broad claims are advisory, exact tool-managed edit/write ownership is guarded, and opaque shell-heavy writes use worktrees;
-- P0/security and destructive actions require human confirmation; ordinary fix/file/reject can be autonomous and auditable;
-- implementation tickets stay `in_progress` until required review and targeted validation pass, so dependents do not unlock on provisional worker claims;
-- single epic ships first with a singular V1 API; plural mission scope is added without changing beadwork graph semantics.
+**Mitigation:** Improve peer visibility, direct messaging, and TTL intent while explicitly accepting that coordination is best effort.
+
+### Dynamic role quality
+
+**Risk:** A project role supplies poor or missing fallback guidance.
+
+**Mitigation:** Use task types for workflows that require reliable nudges and generic guidance otherwise.
+
+### Extension integration coupling
+
+**Risk:** Beadwork depends on private minions internals or creates circular imports.
+
+**Mitigation:** Publish a small typed orchestration contract; minions never imports beadwork.
 
 ---
 
-## 19. Alternatives considered
+## 20. Decisions recorded and remaining questions
 
-### Keep beadwork orchestration and only improve prompts
+### Recorded decisions
 
-This would help immediately but leaves parent responsiveness, duplicate delivery, lifecycle ownership, and worker control unresolved.
+1. Tmux removal is a fundamental requirement; no incremental tmux improvement or fallback is acceptable.
+2. Worktrees are explicit user-selected options only.
+3. Shared-branch coordination is best effort and communication-driven.
+4. Parent death may terminate children; detached durability is unnecessary.
+5. Review adjudication begins autonomous, with consequential decisions collected for final review.
+6. Ticket-level review before close is the default; scope-level review remains an explicit option.
+7. One epic end to end is sufficient for the first release.
+8. Direct agent messaging should not require parent routing.
+9. Beadwork becomes a goal/domain adapter; minions owns generic orchestration.
+10. Role is dynamic, task type is an optional enum, and task type takes precedence.
 
-### Replace beadwork workers directly with today's foreground minions
+### Questions for planning review
 
-Rejected. It would block the parent and lose current background/restart behavior.
+These do not block this proposal, but planning should settle them before implementation:
 
-### Adopt `@tintinweb/pi-subagents` directly
-
-It is strong prior art, but the project already owns `pi-minions`, needs package-specific policy, and should not make durable beadwork orchestration depend on another extension's evolving RPC contract.
-
-### Adopt MCP Agent Mail
-
-Rejected for V1. Its features exceed the local same-process need and its operational surface is substantial. Its concepts should inform a smaller coordination board.
-
-### Make worktrees mandatory again
-
-Rejected as the default. They remain the strongest isolation tool and should be selected for high-overlap/risky tickets, not imposed on every task.
-
-### Build a new all-in-one orchestration package
-
-Rejected. This would repeat the current concentration problem and obscure ownership. The runtime belongs in minions; durable mission policy belongs in beadwork.
+1. Should the public non-blocking entry point be a distinct `orchestrate` tool or a mode on `spawn`?
+2. Should `agent` be renamed to `role`, retained as a compatibility alias, or remain the public selector while runtime records call it `role`?
+3. Is the initial task-type vocabulary appropriately small, particularly the boundary between `implement`, `fix`, `validate`, and untyped work?
+4. Should role fallback nudges live in agent frontmatter, a separate role registry, or both with a clear precedence rule?
+5. What minimum message history should remain parent-inspectable within a session without turning minions into a durable mail system?
 
 ---
 
-## 20. Handoff to planning workflow
+## 21. Handoff to planning workflow
 
-Reviewers should scrutinize these decisions first:
+The next planning pass should focus on implementation shape rather than reopening settled product constraints.
 
-1. completion inbox timing and consumption semantics;
-2. child-session durability expectations;
-3. cross-parent controller ownership;
-4. attempt/outcome data model and migration from `WorkerRuntime`;
-5. whether advisory claims are enough for the intended shared-checkout scale;
-6. exact model-vs-deterministic boundary for attribution and finding disposition;
-7. deletion plan for old tmux orchestration code.
+Reviewers should scrutinize:
 
-A competing plan would be most valuable if it can provide the same parent responsiveness and restart/idempotency guarantees with fewer new concepts.
+1. how to separate non-blocking child start from the current foreground `Promise.allSettled()` flow without duplicating session code;
+2. how Pi's settled and safe-boundary APIs should be wired and tested;
+3. whether one tool or two gives the clearest foreground/orchestrated spawn contract;
+4. how beadwork registers domain context without importing minions internals or creating duplicate parent messages;
+5. which beadwork runtime modules can be deleted outright at cutover;
+6. how direct child messaging is exposed inside child sessions without enabling recursive orchestration;
+7. whether the proposed task-type names represent workflow transitions rather than roles;
+8. how to coalesce updates while preserving every result and blocker;
+9. how the explicit alternate-cwd/worktree option is represented without allowing runtime selection;
+10. how ticket-level and scope-level review policies map to existing beadwork status transitions.
 
-This proposal is ready for `planning-workflow` review, adversarial challenge, and stabilization. It is intentionally not yet a bead/task graph.
+The implementation plan should preserve this invariant throughout:
+
+> **Role selects behavior; task type selects workflow; beadwork supplies domain context; minions owns orchestration mechanics.**
 
 ---
 
 ## Appendix A: Evidence pointers
 
-### Current repo
+### `pi-minions`
 
-- `packages/pi-minions/README.md`
-- `packages/pi-minions/src/index.ts`
 - `packages/pi-minions/src/tools/spawn.ts`
-- `packages/pi-minions/src/spawn.ts`
+  - current tool schema and foreground `Promise.allSettled()` behavior;
 - `packages/pi-minions/src/subsessions/manager.ts`
-- `packages/pi-minions/src/subsessions/event-bus.ts`
-- `packages/pi-minions/src/subsessions/types.ts`
-- `packages/pi-minions/src/delegation.ts`
-- `packages/pi-beadwork-extension/README.md`
-- `packages/pi-beadwork-extension/docs/workflows.md`
-- `packages/pi-beadwork-extension/docs/current-branch-e2e.md`
-- `packages/pi-beadwork-extension/src/index.ts`
+  - child `AgentSession` creation, lifecycle subscription, steer/abort handles, and current `agent_end` completion;
+- `packages/pi-minions/src/tree.ts`
+  - existing process-local fleet registry;
+- `packages/pi-minions/src/agents.ts`
+  - dynamic project/user agent discovery and frontmatter parsing;
+- `packages/pi-minions/src/types.ts`
+  - current agent config, status, result, and tree-node types;
+- `packages/pi-minions/src/index.ts`
+  - tool registration, session startup, event bus, and parent status surfaces.
+
+### `pi-beadwork-extension`
+
 - `packages/pi-beadwork-extension/src/orchestrator.ts`
+  - current tmux/process/worker orchestration center;
+- `packages/pi-beadwork-extension/src/tmux.ts`
+  - tmux-specific launch and inspection;
 - `packages/pi-beadwork-extension/src/types.ts`
+  - tmux-backed worker runtime and duplicate lifecycle model;
+- `packages/pi-beadwork-extension/src/config.ts`
+  - tmux, worktree, landing, and supervisor configuration;
+- `packages/pi-beadwork-extension/src/index.ts`
+  - combined goal, tool, worker, supervisor, and notification behavior;
 - `packages/pi-beadwork-extension/src/prompt.ts`
-- `packages/pi-beadwork-extension/src/handoff.ts`
-- `packages/pi-beadwork-extension/src/registry.ts`
-- `packages/pi-beadwork-extension/src/session-state.ts`
-- `packages/pi-beadwork-extension/src/attribution.ts`
+  - current beadwork orchestration prompt surface;
 - `packages/pi-beadwork-extension/src/bw.ts`
-- `packages/pi-beadwork-extension/src/__tests__/unit/substrate-invariants.test.ts`
-- `packages/pi-beadwork-extension/src/__tests__/unit/scope-completion.test.ts`
-- `docs/beadwork-pi-extension-research.md`
-- `docs/pi-beadwork-extension-implementation-plan.md`
-- `docs/proposals/proposal_current_branch_swarm_self_contained.md`
+  - durable beadwork domain adapter and issue operations.
 
-### Pi 0.84.3
+### Repository quality requirements
 
-- `@earendil-works/pi-coding-agent/docs/extensions.md`
-- `@earendil-works/pi-coding-agent/docs/sdk.md`
-- `@earendil-works/pi-coding-agent/examples/extensions/subagent/`
-
-### External source research
-
-- OMP: [github.com/can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) at `v18.0.8`
-  - `docs/tools/task.md`
-  - `docs/tools/hub.md`
-  - `docs/agent-hub.md`
-  - `docs/advisor-watchdog.md`
-  - `packages/coding-agent/src/prompts/system/orchestrate-notice.md`
-  - `packages/coding-agent/src/prompts/system/workflow-notice.md`
-  - `packages/coding-agent/src/async/job-manager.ts`
-  - `packages/coding-agent/src/irc/bus.ts`
-  - `packages/coding-agent/src/registry/agent-registry.ts`
-  - `packages/coding-agent/src/registry/agent-lifecycle.ts`
-  - `packages/coding-agent/src/task/executor.ts`
-- MCP Agent Mail Rust: [github.com/Dicklesworthstone/mcp_agent_mail_rust](https://github.com/Dicklesworthstone/mcp_agent_mail_rust) at `v0.3.30`
-- Tintin Pi Subagents: [github.com/tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents) at `v0.19.0`
-- Pi Collaborating Agents: [github.com/baochunli/pi-collaborating-agents](https://github.com/baochunli/pi-collaborating-agents) at `v0.4.3`
-- Pi Intercom: [github.com/nicobailon/pi-intercom](https://github.com/nicobailon/pi-intercom) at `v0.12.0`
-- Pi Side Agents: [github.com/pasky/pi-side-agents](https://github.com/pasky/pi-side-agents) at `v1.1.3`
-- Gas Town: [github.com/gastownhall/gastown](https://github.com/gastownhall/gastown) at `v1.2.1`
-
-## Appendix B: Idea-wizard shortlist
-
-The strongest ideas after generating and winnowing a larger set were:
-
-1. event-driven completion with consumption receipts;
-2. beadwork-authoritative lifecycle reducer;
-3. ticket-linked parent/worker signals;
-4. state-derived guidance compiler;
-5. durable finding dispositions;
-6. context-preserving remediation;
-7. adaptive stall recovery;
-8. advisory path intent;
-9. versioned minion runtime protocol;
-10. detached minion handles.
-
-Ideas intentionally cut from V1:
-
-- full mail/archive service;
-- permanent agent hierarchy;
-- hard mandatory locks;
-- speculative execution;
-- general workflow DSL;
-- multi-repo federation;
-- multi-epic portfolio scheduler unless required by product direction.
+- `AGENTS.md`
+  - atomic commits and required lint/test/typecheck gates;
+- package tests under:
+  - `packages/pi-minions/src/__tests__/`;
+  - `packages/pi-beadwork-extension/src/__tests__/`.
