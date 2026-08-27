@@ -17,15 +17,22 @@ function projectConfigPath(cwd: string): string {
 
 /** Default timeout for observer/reflector LLM calls (ms). */
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_STAGE_MESSAGE_TOKENS = 32_000;
-const DEFAULT_PUBLISH_MESSAGE_TOKENS = 32_000;
 
-const DEFAULT_STAGE_MESSAGE_COUNT = 12;
-const DEFAULT_PUBLISH_MESSAGE_COUNT = 12;
-const DEFAULT_STAGE_TOOL_RESULT_TOKENS = 6_000;
-const DEFAULT_PUBLISH_TOOL_RESULT_TOKENS = 6_000;
-const DEFAULT_MAX_CHUNK_MESSAGE_TOKENS = 8_000;
-const DEFAULT_MAX_CHUNK_MESSAGES = 8;
+// Tuned for long autonomous coding turns on large-context models.
+// Staging updates draft memory without moving the prune cursor; publish is
+// what lets the next turn drop raw history. Keep publish later than staging
+// so exploration file reads survive follow-up turns instead of being
+// summarized away after a handful of tool calls.
+const DEFAULT_STAGE_MESSAGE_TOKENS = 96_000;
+const DEFAULT_PUBLISH_MESSAGE_TOKENS = 192_000;
+
+const DEFAULT_STAGE_MESSAGE_COUNT = 48;
+const DEFAULT_PUBLISH_MESSAGE_COUNT = 96;
+const DEFAULT_STAGE_TOOL_RESULT_TOKENS = 32_000;
+const DEFAULT_PUBLISH_TOOL_RESULT_TOKENS = 96_000;
+const DEFAULT_MAX_CHUNK_MESSAGE_TOKENS = 32_000;
+const DEFAULT_MAX_CHUNK_MESSAGES = 32;
+const DEFAULT_REFLECTION_OBSERVATION_TOKENS = 120_000;
 
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
@@ -53,7 +60,7 @@ function defaults(cwd: string): OMConfig {
       timeout: DEFAULT_TIMEOUT_MS,
     },
     reflection: {
-      observationTokens: 50_000,
+      observationTokens: DEFAULT_REFLECTION_OBSERVATION_TOKENS,
       provider: "openai-codex",
       modelId: "gpt-5.6-luna",
       timeout: DEFAULT_TIMEOUT_MS,
