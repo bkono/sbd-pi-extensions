@@ -2,13 +2,15 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-27T03:56:47Z",
+  "close_reason": "Migrated all packages from @mariozechner/pi-* 0.67.3 to @earendil-works/pi-* 0.84.3. Lint, typecheck, and 2127 tests pass.",
   "created": "2026-08-27T03:30:37Z",
   "description": "## Goal\nMove this monorepo off the deprecated `@mariozechner/*` Pi packages (0.67.3) onto current `@earendil-works/*` at 0.84.3, and keep lint/tests/typecheck green.\n\n## Background\n- Pi moved to Earendil Works at 0.74.0. 0.73.1 was the last `@mariozechner` release.\n- This repo still pins `@mariozechner/pi-{ai,coding-agent,tui,agent-core}` at ^0.67.3.\n- Stay on `@earendil-works` (not a later hypothetical rename). Do not keep Mario aliases.\n\n## Locked migrations\n- `@mariozechner/pi-*` → `@earendil-works/pi-*` (peer + devDeps + imports)\n- `@sinclair/typebox` 0.34 → `typebox` 1.x (official extension schema import)\n- `Type`/`Static` tool schemas import from `typebox`; `StringEnum` stays on `@earendil-works/pi-ai`\n- `complete`, `completeSimple`, `getModel`, `registerFauxProvider` import from `@earendil-works/pi-ai/compat`\n- Root workspace pins `^0.84.3`; workspace packages keep `\"*\"` peer/dev ranges\n- tsdown `neverBundle` matches `/^@earendil-works\\//` and `typebox`\n- `createAgentSession` no longer accepts `modelRegistry`/`authStorage`; use `ModelRuntime` (or omit for default)\n- `AuthStorage` / `ModelRegistry.create()` are gone from the public SDK\n- `ModelRegistry.getApiKeyAndHeaders()` headers may be `string | null`\n- Node engines should match Pi: `\u003e=22.19.0`\n\n## Out of scope\n- Feature work, TUI redesign, OM mastra backlog, beadwork overlay rebuild\n- Migrating anything besides Pi runtime deps unless required for compile/test\n\n## Acceptance\n- `npm run lint`, `npm run test`, `npm run typecheck` all pass\n- No remaining `@mariozechner/pi-*` or `@sinclair/typebox` in source/package.json (lockfile transitives of other tools are ok)",
   "id": "sbdpi-udh",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Migrate Pi deps from @mariozechner 0.67.3 to @earendil-works 0.84.3",
   "type": "epic",
-  "updated_at": "2026-08-27T03:31:00Z"
+  "updated_at": "2026-08-27T03:56:47Z"
 }
