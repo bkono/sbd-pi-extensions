@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-27T21:51:50Z",
+  "description": "Design discussion only; do not implement until the user chooses a policy.\n\nContext:\n- OM intentionally stages observations during long agent loops but does not publish or prune mid-turn because earlier mid-turn pruning caused lost working context, repeated file reads/tool work, prompt instability, and tool-call/tool-result hazards.\n- On 2026-08-27, one tool-heavy autonomous turn grew to roughly 800k tokens before Pi compacted. OM's `session_before_compact` fallback preserved continuity correctly, so this is not a correctness bug in the intended normal policy.\n- The event suggests an optional emergency mechanism may be useful before an exceptionally long turn reaches the model/context hard limit.\n\nDiscuss and compare opt-in designs such as:\n1. A configurable emergency total-context/tool-result threshold that invokes OM-backed compaction early while leaving normal turn-boundary publication unchanged.\n2. A safe agent-loop rollover: persist an OM checkpoint, terminate/settle the current loop at a tool-safe boundary, and enqueue a continuation turn with the same task guidance.\n3. Emergency-only publication/pruning at a proven safe boundary, with a stable prompt generation, preserved recent working set, and strict tool-call/tool-result closure.\n4. Warning/pause policies or graduated thresholds before automatic action.\n5. Whether Pi-native compaction hooks provide enough control or require a small upstream/runtime seam.\n\nRequired discussion outcomes:\n- preserve the default invariant: observe continuously, publish discretely; no routine mid-turn pruning;\n- define trigger metrics, hysteresis, defaults, configuration, and user visibility;\n- compare continuity, prompt-cache, tool-protocol, latency, and runaway-turn risks;\n- choose whether the feature is disabled by default or has a conservative emergency default;\n- identify tests/fault scenarios before filing implementation children.\n\nRelevant references:\n- `packages/pi-om-extension/docs/observation-timing-deviation.md`\n- `packages/pi-om-extension/docs/mastra-parity-backlog.md`\n- `packages/pi-om-extension/src/index.ts` (`context`, `agent_end`, `session_before_compact` lifecycle)\n- Prior regression ticket `sbdpi-f51.12` for tool-call/tool-result-safe pruning.",
+  "id": "sbdpi-f51.13",
+  "labels": [],
+  "parent": "sbdpi-f51",
+  "priority": 2,
+  "status": "open",
+  "title": "Discuss opt-in emergency context controls for exceptionally long OM turns",
+  "type": "task",
+  "updated_at": "2026-08-27T21:51:50Z"
+}
