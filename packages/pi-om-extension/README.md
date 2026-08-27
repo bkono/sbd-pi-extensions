@@ -93,7 +93,7 @@ Two specialized LLM agents coordinate memory:
 - **Observer** — Reads new message history plus existing observations. Extracts discrete facts, decisions, preferences, and working context. Tracks `currentTask` and `suggestedResponse` for session continuity.
 - **Reflector** — Takes the full observation log when it grows too large. Compresses it by removing duplication, merging related items, and prioritizing recent/actionable information.
 
-Both agents use configurable models (default: `google/gemini-2.5-flash`) and support per-section custom instructions for domain-specific extraction. Each call goes through pi's `ModelRegistry` for auth resolution, so OAuth refresh and provider failover work the same way they do for the main agent.
+Both agents use configurable models (default: `openai-codex/gpt-5.6-luna`) and support per-section custom instructions for domain-specific extraction. Each call goes through pi's `ModelRegistry` for auth resolution, so OAuth refresh and provider failover work the same way they do for the main agent.
 
 ## Configuration
 
@@ -117,16 +117,14 @@ Configuration merges from multiple sources (highest precedence first):
     "publishToolResultTokens": 6000,
     "maxChunkMessageTokens": 8000,
     "maxChunkMessages": 8,
-    "provider": "google",
-    "modelId": "gemini-2.5-flash",
-    "temperature": 0.2,
+    "provider": "openai-codex",
+    "modelId": "gpt-5.6-luna",
     "customInstruction": "Focus on architectural decisions and rejected alternatives."
   },
   "reflection": {
     "observationTokens": 50000,
-    "provider": "google",
-    "modelId": "gemini-2.5-flash",
-    "temperature": 0.2
+    "provider": "openai-codex",
+    "modelId": "gpt-5.6-luna"
   },
   "storage": {
     "stateDir": "/custom/state/dir"
@@ -148,13 +146,13 @@ Configuration merges from multiple sources (highest precedence first):
 | `observation.maxChunkMessageTokens` | `8000` | `OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS` | Maximum unobserved message tokens sent in a single observe pass once staging begins |
 | `observation.maxChunkMessages` | `8` | `OM_OBSERVATION_MAX_CHUNK_MESSAGES` | Maximum messages sent in a single observe pass once staging begins |
 | `observation.messageTokens` | legacy alias | `OM_OBSERVATION_MESSAGE_TOKENS` | Backwards-compatible alias that sets both observation token thresholds together |
-| `observation.provider` | `google` | `OM_OBSERVATION_PROVIDER` | pi-ai provider for the observer agent |
-| `observation.modelId` | `gemini-2.5-flash` | `OM_OBSERVATION_MODEL` | Model ID for the observer agent |
+| `observation.provider` | `openai-codex` | `OM_OBSERVATION_PROVIDER` | pi-ai provider for the observer agent |
+| `observation.modelId` | `gpt-5.6-luna` | `OM_OBSERVATION_MODEL` | Model ID for the observer agent |
 | `observation.temperature` | unset | `OM_OBSERVATION_TEMPERATURE` | Temperature for observer calls. Leave unset for reasoning models that reject the parameter (GPT-5.x, etc.). |
 | `observation.customInstruction` | — | — | Additional instruction injected into observer prompt |
 | `reflection.observationTokens` | `50000` | `OM_REFLECTION_OBSERVATION_TOKENS` | Staged-observation-token threshold that triggers reflection |
-| `reflection.provider` | `google` | `OM_REFLECTION_PROVIDER` | pi-ai provider for the reflector agent |
-| `reflection.modelId` | `gemini-2.5-flash` | `OM_REFLECTION_MODEL` | Model ID for the reflector agent |
+| `reflection.provider` | `openai-codex` | `OM_REFLECTION_PROVIDER` | pi-ai provider for the reflector agent |
+| `reflection.modelId` | `gpt-5.6-luna` | `OM_REFLECTION_MODEL` | Model ID for the reflector agent |
 | `reflection.temperature` | unset | `OM_REFLECTION_TEMPERATURE` | Temperature for reflector calls |
 | `reflection.customInstruction` | — | — | Additional instruction injected into reflector prompt |
 | `storage.stateDir` | `<cwd>/.pi/om-state` | — | Directory for session state JSON files |
@@ -239,7 +237,7 @@ npm run smoke       # Layer 4: real pi session + real LLM, scripted file-reading
 Override the agent model via env vars:
 
 ```bash
-PI_SMOKE_PROVIDER=openai-codex PI_SMOKE_MODEL=gpt-5.4-mini npm run smoke
+PI_SMOKE_PROVIDER=openai-codex PI_SMOKE_MODEL=gpt-5.6-luna npm run smoke
 ```
 
 ## Differences from the OpenCode version

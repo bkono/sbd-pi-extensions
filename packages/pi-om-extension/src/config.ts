@@ -48,14 +48,14 @@ function defaults(cwd: string): OMConfig {
       publishToolResultTokens: DEFAULT_PUBLISH_TOOL_RESULT_TOKENS,
       maxChunkMessageTokens: DEFAULT_MAX_CHUNK_MESSAGE_TOKENS,
       maxChunkMessages: DEFAULT_MAX_CHUNK_MESSAGES,
-      provider: "google",
-      modelId: "gemini-2.5-flash",
+      provider: "openai-codex",
+      modelId: "gpt-5.6-luna",
       timeout: DEFAULT_TIMEOUT_MS,
     },
     reflection: {
       observationTokens: 50_000,
-      provider: "google",
-      modelId: "gemini-2.5-flash",
+      provider: "openai-codex",
+      modelId: "gpt-5.6-luna",
       timeout: DEFAULT_TIMEOUT_MS,
     },
     storage: {

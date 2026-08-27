@@ -80,10 +80,10 @@ describe("loadConfig", () => {
     expect(config.observation.maxChunkMessageTokens).toBe(8_000);
     expect(config.observation.maxChunkMessages).toBe(8);
     expect(config.reflection.observationTokens).toBe(50_000);
-    expect(config.observation.provider).toBe("google");
-    expect(config.observation.modelId).toBe("gemini-2.5-flash");
-    expect(config.reflection.provider).toBe("google");
-    expect(config.reflection.modelId).toBe("gemini-2.5-flash");
+    expect(config.observation.provider).toBe("openai-codex");
+    expect(config.observation.modelId).toBe("gpt-5.6-luna");
+    expect(config.reflection.provider).toBe("openai-codex");
+    expect(config.reflection.modelId).toBe("gpt-5.6-luna");
     expect(config.observation.temperature).toBeUndefined();
     expect(config.reflection.temperature).toBeUndefined();
     expect(config.debug).toBe(false);

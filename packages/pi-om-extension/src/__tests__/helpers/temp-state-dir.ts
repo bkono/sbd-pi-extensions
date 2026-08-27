@@ -53,13 +53,13 @@ export function createTestConfig(opts: {
       publishToolResultTokens: opts.publishToolResultTokens ?? Number.POSITIVE_INFINITY,
       maxChunkMessageTokens: opts.maxChunkMessageTokens ?? Number.POSITIVE_INFINITY,
       maxChunkMessages: opts.maxChunkMessages ?? Number.POSITIVE_INFINITY,
-      provider: "google" as const,
-      modelId: "gemini-2.5-flash",
+      provider: "openai-codex" as const,
+      modelId: "gpt-5.6-luna",
     },
     reflection: {
       observationTokens: opts.reflectionTokens ?? 5000,
-      provider: "google" as const,
-      modelId: "gemini-2.5-flash",
+      provider: "openai-codex" as const,
+      modelId: "gpt-5.6-luna",
     },
     storage: {
       stateDir: opts.stateDir,

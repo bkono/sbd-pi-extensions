@@ -48,8 +48,8 @@ import { createVerificationExtension, createVerificationRecord } from "./e2e-ver
 // Agent model selection (pinned to avoid drift from pi settings.json defaults)
 // ---------------------------------------------------------------------------
 // Override via env: PI_SMOKE_PROVIDER, PI_SMOKE_MODEL
-const SMOKE_PROVIDER = (process.env.PI_SMOKE_PROVIDER ?? "google") as KnownProvider;
-const SMOKE_MODEL_ID = process.env.PI_SMOKE_MODEL ?? "gemini-2.5-flash";
+const SMOKE_PROVIDER = (process.env.PI_SMOKE_PROVIDER ?? "openai-codex") as KnownProvider;
+const SMOKE_MODEL_ID = process.env.PI_SMOKE_MODEL ?? "gpt-5.6-luna";
 
 // ---------------------------------------------------------------------------
 // Assertion helpers — this script uses a bespoke report rather than vitest

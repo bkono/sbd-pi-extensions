@@ -30,7 +30,7 @@ vi.mock("../../agents.js", async () => {
 // OM_* env vars flow through loadConfig() as the highest-precedence source.
 // A shell with OM_OBSERVATION_PROVIDER / OM_OBSERVATION_MODEL (etc.) set will
 // override the expected defaults, causing assertions like
-// `expect(parsed.observationModel).toContain("google/")` to fail. Save, clear,
+// `expect(parsed.observationModel).toContain("openai-codex/")` to fail. Save, clear,
 // and restore them around every test in this file — same pattern used by
 // src/__tests__/unit/config.test.ts.
 const OM_ENV_KEYS = [
@@ -134,7 +134,7 @@ describe("extension: om_status tool", () => {
     expect(parsed.observationsPresent).toBe(true);
     expect(parsed.lastCycleReason).toBe("turn_end");
     expect(parsed.lastCycleAt).toBe("2023-11-14T22:13:20.000Z"); // ISO of 1_700_000_000_000
-    expect(parsed.observationModel).toContain("google/");
+    expect(parsed.observationModel).toContain("openai-codex/");
   });
 
   it("session_id param overrides the default", async () => {
