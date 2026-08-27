@@ -11,6 +11,6 @@ export default defineConfig({
   // Pi extensions are loaded by pi at runtime, so keep pi runtime deps external.
   unbundle: true,
   deps: {
-    neverBundle: [/^@mariozechner\//],
+    neverBundle: [/^@earendil-works\//, "typebox"],
   },
 });

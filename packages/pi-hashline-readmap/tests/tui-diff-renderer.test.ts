@@ -1,4 +1,4 @@
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import type { DiffData } from "../src/diff-data.js";
 import { renderTuiDiff } from "../src/tui-diff-renderer.js";

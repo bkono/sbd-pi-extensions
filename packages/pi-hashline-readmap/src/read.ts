@@ -4,16 +4,16 @@ import type {
   AgentToolResult,
   ExtensionAPI,
   ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import {
   createReadTool,
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
   truncateHead,
-} from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildReadRehydrateDescriptor } from "./context-hygiene.js";

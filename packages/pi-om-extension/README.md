@@ -26,7 +26,7 @@ Load via pi's extension system. Two options:
 **(a) Inline factory** (programmatic, e.g. when using the pi SDK directly):
 
 ```ts
-import { createAgentSession, DefaultResourceLoader } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import piObservationalMemory from "@solvedbydev/pi-om-extension";
 
 const resourceLoader = new DefaultResourceLoader({
@@ -297,7 +297,7 @@ docs/
 
 **Runtime**: `js-tiktoken` (token counting, `o200k_base` encoding)
 
-**Peer**: `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`
+**Peer**: `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `typebox`
 
 **Dev**: `vitest`, `tsx`, `typescript`
 

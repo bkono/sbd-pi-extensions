@@ -1,6 +1,6 @@
-import type { Model } from "@mariozechner/pi-ai";
-import { Type } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { createHaltHandler } from "./commands/halt.js";
 import { createMinionsHandler } from "./commands/minions.js";
 import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";

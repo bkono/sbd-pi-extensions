@@ -1,5 +1,5 @@
-import type { Component } from "@mariozechner/pi-tui";
-import { visibleWidth } from "@mariozechner/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { DiffData } from "./diff-data.js";
 import { renderTuiDiff } from "./tui-diff-renderer.js";
 import { clampLineToWidth, normalizeWidth, type RendererTheme } from "./tui-render-utils.js";

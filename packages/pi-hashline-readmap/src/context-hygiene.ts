@@ -8,8 +8,8 @@
  * tool behavior.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import type { BashCommandState } from "./bash-command-state.js";
 
 export const CONTEXT_HYGIENE_SCHEMA_VERSION = 1 as const;

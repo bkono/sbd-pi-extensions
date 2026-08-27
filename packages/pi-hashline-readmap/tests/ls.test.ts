@@ -263,7 +263,7 @@ describe("ls determinism", () => {
   });
 });
 
-import { Text } from "@mariozechner/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 
 describe("ls TUI renderers", () => {
   it("renderCall returns a Text object", async () => {

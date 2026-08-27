@@ -1,9 +1,9 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: ls renderer consumes dynamic Pi/tool result payloads. */
 import type { Stats } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { resolveToCwd } from "./path-utils.js";
 import { buildPtcError } from "./ptc-value.js";

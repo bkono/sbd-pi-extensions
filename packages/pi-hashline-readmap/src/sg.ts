@@ -2,9 +2,9 @@
 import * as cp from "node:child_process";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import path from "node:path";
-import type { ExtensionAPI, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import type { ExtensionAPI, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { executableCommand, resolveBundledBin } from "./binary-resolution.js";
 import {
   buildAstSearchRehydrateDescriptor,

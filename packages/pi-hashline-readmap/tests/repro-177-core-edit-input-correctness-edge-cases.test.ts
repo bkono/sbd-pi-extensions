@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { Value } from "@sinclair/typebox/value";
+import { Check } from "typebox/value";
 import { beforeAll, describe, expect, it } from "vitest";
 import { registerEditTool } from "../src/edit.js";
 import { ensureHashInit } from "../src/hashline.js";
@@ -109,7 +109,7 @@ describe("repro 177 — core edit input correctness edge cases", () => {
       { cwd: process.cwd() },
     );
 
-    expect(Value.Check(editTool.parameters, commonMistake)).toBe(true);
+    expect(Check(editTool.parameters, commonMistake)).toBe(true);
     // #199: the bare member stays valid (so the guard runs) but is now annotated to reduce exposure.
     const bareMember = (editTool.parameters as any).properties?.edits?.items?.anyOf?.find(
       (m: any) => m.properties?.old_text && m.properties?.new_text && !m.properties?.replace,

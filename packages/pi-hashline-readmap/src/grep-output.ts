@@ -1,4 +1,4 @@
-import { formatSize, truncateHead } from "@mariozechner/pi-coding-agent";
+import { formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import {
   buildContextHygieneMetadata,
   buildFileResource,

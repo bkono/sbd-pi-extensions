@@ -5,7 +5,7 @@ import {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { resolveToCwd } from "./path-utils.js";
 
 export const SUMMARY_PREFIX = "↳";

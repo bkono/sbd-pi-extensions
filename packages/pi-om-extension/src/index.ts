@@ -1,6 +1,6 @@
-import type { Message } from "@mariozechner/pi-ai";
-import { Type } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { Message } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import type { AuthResolver } from "./agents.js";
 import { ObservationAgents } from "./agents.js";
 import { loadConfig, sessionStatePath } from "./config.js";

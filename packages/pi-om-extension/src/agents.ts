@@ -1,6 +1,11 @@
-import type { Api, AssistantMessage, KnownProvider, Model } from "@mariozechner/pi-ai";
-import { completeSimple, getModel } from "@mariozechner/pi-ai";
-
+import type {
+  Api,
+  AssistantMessage,
+  KnownProvider,
+  Model,
+  ProviderHeaders,
+} from "@earendil-works/pi-ai";
+import { completeSimple, getModel } from "@earendil-works/pi-ai/compat";
 import {
   buildObserverSystemPrompt,
   buildReflectorSystemPrompt,
@@ -19,7 +24,7 @@ export interface AuthResolver {
   getApiKeyAndHeaders(model: Model<Api>): Promise<{
     ok: boolean;
     apiKey?: string;
-    headers?: Record<string, string>;
+    headers?: ProviderHeaders;
     error?: string;
   }>;
 }
@@ -232,6 +237,7 @@ export class ObservationAgents {
     // If no resolver is provided (e.g. unit tests), fall through and let pi-ai
     // read from environment variables directly.
     let resolvedApiKey: string | undefined;
+    let resolvedHeaders: ProviderHeaders | undefined;
     if (this.authResolver) {
       const auth = await this.authResolver.getApiKeyAndHeaders(model);
       if (!auth.ok) {
@@ -239,19 +245,26 @@ export class ObservationAgents {
           `[om][agents] Auth resolution failed for ${provider}: ${auth.error ?? "unknown error"}`,
         );
       }
-      if (!auth.apiKey) {
+      if (!auth.apiKey && !auth.headers) {
         throw new Error(
           `[om][agents] No API key for provider: ${provider}. Configure it in ~/.pi/agent/auth.json or set the provider's env var.`,
         );
       }
       resolvedApiKey = auth.apiKey;
+      resolvedHeaders = auth.headers;
     }
 
     // Only pass temperature when explicitly configured. Reasoning models
     // (GPT-5.x, some Opus variants) reject the parameter entirely, so we let
     // the provider use its default unless the user opts in via config.
-    const simpleOptions: { temperature?: number; apiKey?: string; signal?: AbortSignal } = {
+    const simpleOptions: {
+      temperature?: number;
+      apiKey?: string;
+      headers?: ProviderHeaders;
+      signal?: AbortSignal;
+    } = {
       apiKey: resolvedApiKey,
+      headers: resolvedHeaders,
     };
     if (temperature !== undefined) {
       simpleOptions.temperature = temperature;

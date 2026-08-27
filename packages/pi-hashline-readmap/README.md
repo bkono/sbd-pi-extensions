@@ -7,7 +7,7 @@
 
 Upgrade pi's local coding workflow with hash-anchored text reads and edits, stock-pi-compatible image reads, structural file maps, symbol-aware navigation, structural search, agent-friendly file exploration, and compressed `bash` output.
 
-`@solvedbydev/pi-hashline-readmap` is a drop-in [pi](https://github.com/mariozechner/pi-coding-agent) extension. It replaces the stock `read`, `edit`, `grep`, `ls`, and `find` tools, provides an enhanced `ast_search` tool, registers `write`, and post-processes `bash` output so more context budget goes to signal instead of noise.
+`@solvedbydev/pi-hashline-readmap` is a drop-in [pi](https://github.com/earendil-works/pi) extension. It replaces the stock `read`, `edit`, `grep`, `ls`, and `find` tools, provides an enhanced `ast_search` tool, registers `write`, and post-processes `bash` output so more context budget goes to signal instead of noise.
 
 It also reduces extension conflict risk by replacing several overlapping tool packages with one coordinated implementation.
 
@@ -28,8 +28,8 @@ It also reduces extension conflict risk by replacing several overlapping tool pa
 
 ### Requirements
 
-- [pi](https://github.com/mariozechner/pi-coding-agent) with extension support
-- Node.js **>= 20** for package installation/runtime; use a current Node LTS/current release for local development
+- [pi](https://github.com/earendil-works/pi) with extension support
+- Node.js **>= 22.19** for package installation/runtime; use a current Node LTS/current release for local development
 
 ### From npm
 

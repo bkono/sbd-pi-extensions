@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resetCapabilitiesCache, setCapabilities, visibleWidth } from "@mariozechner/pi-tui";
+import { resetCapabilitiesCache, setCapabilities, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerReadTool } from "../src/read.js";
 

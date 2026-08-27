@@ -36,7 +36,7 @@ describe("tree-sitter WASM package manifest", () => {
     expect(packageJson.dependencies?.["tree-sitter-wasms"]).toEqual(expect.any(String));
   });
 
-  it("supports Node 20", () => {
-    expect(packageJson.engines?.node).toBe(">=20.0.0");
+  it("supports Node 22.19 to match Pi", () => {
+    expect(packageJson.engines?.node).toBe(">=22.19.0");
   });
 });

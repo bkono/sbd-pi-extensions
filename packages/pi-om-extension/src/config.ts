@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { KnownProvider } from "@mariozechner/pi-ai";
+import type { KnownProvider } from "@earendil-works/pi-ai";
 
 import type { OMConfig } from "./types.js";
 

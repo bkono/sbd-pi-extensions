@@ -1,9 +1,9 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: write tool inputs/results cross Pi's dynamic tool boundary and are narrowed internally. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
-import { type ExtensionAPI, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { type ExtensionAPI, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { looksLikeBinary } from "./binary-detect.js";
 import {
   buildContextHygieneMetadata,

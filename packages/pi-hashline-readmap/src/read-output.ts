@@ -3,7 +3,7 @@ import {
   DEFAULT_MAX_LINES,
   formatSize,
   truncateHead,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import {
   buildContextHygieneMetadata,
   buildFileResource,

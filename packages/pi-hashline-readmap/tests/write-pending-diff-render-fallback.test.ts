@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { setCapabilities } from "@mariozechner/pi-tui";
+import { setCapabilities } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { registerWriteTool } from "../src/write.js";
 

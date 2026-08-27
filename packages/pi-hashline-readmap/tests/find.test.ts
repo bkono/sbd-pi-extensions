@@ -520,7 +520,7 @@ describe("find determinism", () => {
   });
 });
 
-import { Text } from "@mariozechner/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 
 describe("find TUI renderers", () => {
   it("renderCall returns a Text object", async () => {

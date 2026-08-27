@@ -1,5 +1,5 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: Pi extension lifecycle events are intentionally dynamic at runtime. */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildBashCommandState } from "./bash-command-state.js";
 import { registerBashRendererTool } from "./bash-renderer.js";
 import { applyContextHygieneStaleContext } from "./context-application.js";

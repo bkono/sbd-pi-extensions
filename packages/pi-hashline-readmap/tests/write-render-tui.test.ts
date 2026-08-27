@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resetCapabilitiesCache, setCapabilities } from "@mariozechner/pi-tui";
+import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerWriteTool } from "../src/write.js";
 

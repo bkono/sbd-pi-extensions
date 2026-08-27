@@ -1,4 +1,4 @@
-import type { AutocompleteItem } from "@mariozechner/pi-tui";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { tokenizeArgs } from "./argv.js";
 import type { BeadworkAdapter } from "./bw.js";
 import { BEADWORK_ALIAS_COMMANDS, type BeadworkAliasSubcommand } from "./command-aliases.js";

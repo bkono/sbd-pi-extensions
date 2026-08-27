@@ -17,6 +17,6 @@ export default defineConfig({
     },
   ],
   deps: {
-    neverBundle: [/^@mariozechner\//],
+    neverBundle: [/^@earendil-works\//, "typebox"],
   },
 });

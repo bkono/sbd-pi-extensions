@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionStatePath } from "../../config.js";
 import piObservationalMemory from "../../index.js";

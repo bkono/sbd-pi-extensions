@@ -29,16 +29,15 @@ process.env.OM_DEBUG = "1";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { KnownProvider } from "@mariozechner/pi-ai";
-import { getModel } from "@mariozechner/pi-ai";
+import type { KnownProvider } from "@earendil-works/pi-ai";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import {
-  AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
-  ModelRegistry,
+  getAgentDir,
   SessionManager,
   SettingsManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 import { sessionStatePath } from "../src/config.js";
 import piObservationalMemory from "../src/index.js";
@@ -145,14 +144,11 @@ writeSampleFile(
 async function runSmoke(): Promise<void> {
   console.log(`\nLoading pi config (same mechanism as real pi CLI)...`);
 
-  let authStorage: AuthStorage;
   let settingsManager: SettingsManager;
-  let modelRegistry: ModelRegistry;
+  const agentDir = getAgentDir();
 
   try {
-    authStorage = AuthStorage.create();
-    settingsManager = SettingsManager.create();
-    modelRegistry = ModelRegistry.create(authStorage);
+    settingsManager = SettingsManager.create(workspace, agentDir);
   } catch (err) {
     fatal(
       `Failed to load pi config or auth: ${err instanceof Error ? err.message : String(err)}\n` +
@@ -166,6 +162,7 @@ async function runSmoke(): Promise<void> {
   // verification extension), verification second.
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspace,
+    agentDir,
     settingsManager,
     extensionFactories: [piObservationalMemory, createVerificationExtension(record)],
     noSkills: true,
@@ -196,10 +193,9 @@ async function runSmoke(): Promise<void> {
   try {
     const result = await createAgentSession({
       cwd: workspace,
+      agentDir,
       model: agentModel,
-      authStorage,
       settingsManager,
-      modelRegistry,
       resourceLoader,
       // Omitting `tools` lets pi activate its default built-in tool set
       // (read, bash, edit, write, grep, find, ls). Extension-registered tools

@@ -1,6 +1,7 @@
-import { StringEnum, Type } from "@mariozechner/pi-ai";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Exa } from "exa-js";
+import { Type } from "typebox";
 
 import { loadConfig } from "./config.js";
 import type { ExaExtensionConfig, ExaSearchType } from "./types.js";
@@ -104,7 +105,7 @@ export function formatResults(
   return parts.join("\n");
 }
 
-export function createWebSearchTool(deps: WebSearchToolDeps = {}) {
+export function createWebSearchTool(deps: WebSearchToolDeps = {}): ToolDefinition {
   const loadConfigImpl = deps.loadConfig ?? loadConfig;
   const createClient = deps.createClient ?? defaultCreateClient;
 

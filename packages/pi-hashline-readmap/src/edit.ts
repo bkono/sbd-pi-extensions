@@ -5,11 +5,11 @@ import {
   type ExtensionAPI,
   type ToolRenderResultOptions,
   withFileMutationQueue,
-} from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import type { Static } from "@sinclair/typebox";
-import { Type } from "@sinclair/typebox";
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { createPatch } from "diff";
+import type { Static } from "typebox";
+import { Type } from "typebox";
 import {
   buildContextHygieneMetadata,
   buildFileResource,

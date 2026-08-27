@@ -37,10 +37,12 @@
     ]
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
     "tsdown": "^0.21.7",
     "typescript": "^6",
     "vitest": "^4"

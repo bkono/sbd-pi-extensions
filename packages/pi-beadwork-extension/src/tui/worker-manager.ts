@@ -1,7 +1,7 @@
 import path from "node:path";
-import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
-import type { Component, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component, TUI } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { summarizeWorkers } from "../registry.js";
 import {
   type ActivationState,

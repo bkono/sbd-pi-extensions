@@ -2,7 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 type AnyHandler = (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>;
 type CommandRegistration = {

@@ -1,11 +1,11 @@
-import type { Static } from "@mariozechner/pi-ai";
-import { Type } from "@mariozechner/pi-ai";
 import type {
   AgentToolResult,
   AgentToolUpdateCallback,
   ExtensionAPI,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
+import type { Static } from "typebox";
+import { Type } from "typebox";
 import { discoverAgents } from "../agents.js";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";

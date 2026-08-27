@@ -1,10 +1,10 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: grep renderer and tool output parse dynamic Pi payloads. */
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import path from "node:path";
-import type { ExtensionAPI, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
-import { createGrepTool } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import type { ExtensionAPI, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import { createGrepTool } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildGrepRehydrateDescriptor } from "./context-hygiene.js";

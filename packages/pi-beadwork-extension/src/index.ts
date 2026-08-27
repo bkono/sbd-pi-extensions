@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { Type } from "@mariozechner/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { handleCleanupAction } from "./actions/cleanup.js";
 import { handleDelegateAction } from "./actions/delegate.js";
 import { handleIssuesAction } from "./actions/issues.js";

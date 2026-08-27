@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "@mariozechner/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "@earendil-works/pi-coding-agent";
 
 const COMPACT_DESCRIPTIONS: Record<string, string> = {
   "read.md":

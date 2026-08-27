@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("write Pi file mutation queue integration", () => {
   afterEach(() => {
-    vi.doUnmock("@mariozechner/pi-coding-agent");
+    vi.doUnmock("@earendil-works/pi-coding-agent");
     vi.doUnmock("node:fs");
     vi.resetModules();
   });
@@ -12,8 +12,8 @@ describe("write Pi file mutation queue integration", () => {
     const events: string[] = [];
     const filePath = "/virtual/write-queue.txt";
 
-    vi.doMock("@mariozechner/pi-coding-agent", async () => {
-      const actual = await vi.importActual<any>("@mariozechner/pi-coding-agent");
+    vi.doMock("@earendil-works/pi-coding-agent", async () => {
+      const actual = await vi.importActual<any>("@earendil-works/pi-coding-agent");
       return {
         ...actual,
         withFileMutationQueue: vi.fn(async (queuedPath: string, fn: () => Promise<unknown>) => {

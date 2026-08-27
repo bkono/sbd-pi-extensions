@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerFauxProvider } from "@mariozechner/pi-ai";
+import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,
   type ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 type PromptMetadataResult = {
   systemPrompt: string;

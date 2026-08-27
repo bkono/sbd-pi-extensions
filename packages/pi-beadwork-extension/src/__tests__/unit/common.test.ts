@@ -1,4 +1,4 @@
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
   countBadge,
@@ -33,7 +33,7 @@ const theme = {
   underline: (text: string) => text,
   inverse: (text: string) => text,
   strikethrough: (text: string) => text,
-} as unknown as import("@mariozechner/pi-coding-agent").Theme;
+} as unknown as import("@earendil-works/pi-coding-agent").Theme;
 
 describe("theme-aware content helpers", () => {
   it("styledLabel returns text", () => {

@@ -1,6 +1,6 @@
-import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
-import type { Component, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey } from "@mariozechner/pi-tui";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component, TUI } from "@earendil-works/pi-tui";
+import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { type ParsedModelOverride, parseModelOverride } from "../argv.js";
 import type { BeadworkIssueDetail } from "../types.js";
 import { kv, renderSurface, styledDim, styledLabel } from "./common.js";

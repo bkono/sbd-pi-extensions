@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ParsedArgv } from "../argv.js";
 import { showWorkers } from "../commands.js";
 import { stopWorkers } from "../orchestrator.js";

@@ -1,6 +1,6 @@
-import type { Static } from "@mariozechner/pi-ai";
-import { Type } from "@mariozechner/pi-ai";
-import type { AgentToolResult, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Static } from "typebox";
+import { Type } from "typebox";
 import { logger } from "../logger.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { AgentTree } from "../tree.js";

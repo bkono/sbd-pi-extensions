@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentSession } from "@mariozechner/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
   SessionManager,
   SettingsManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { logger } from "../logger.js";
 import { formatToolCall } from "../render.js";
 import type { EventBus } from "./event-bus.js";
@@ -43,17 +43,7 @@ export class SubsessionManager {
   }
 
   async create(options: CreateMinionSessionOptions): Promise<MinionSessionHandle> {
-    const {
-      id,
-      name,
-      task,
-      config,
-      spawnedBy,
-      modelRegistry,
-      parentModel,
-      parentSystemPrompt,
-      signal,
-    } = options;
+    const { id, name, task, config, spawnedBy, parentModel, parentSystemPrompt, signal } = options;
 
     // Create minions directory
     const minionsDir = getMinionsDir(this.cwd);
@@ -109,11 +99,11 @@ export class SubsessionManager {
     // Create the agent session
     const { session } = await createAgentSession({
       cwd: this.cwd,
+      agentDir,
       model: parentModel,
       customTools: options.customTools,
       sessionManager,
       settingsManager,
-      modelRegistry,
       resourceLoader: loader,
     });
 

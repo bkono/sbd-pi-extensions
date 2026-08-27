@@ -2,8 +2,8 @@ import type {
   AgentToolResult,
   Theme,
   ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { minionSpawnRenderer } from "./renderers/minion-spawn.js";
 import type { SpawnToolDetails } from "./tools/spawn.js";
 import type { UsageStats } from "./types.js";
@@ -169,7 +169,7 @@ export function renderResult(
     } as SpawnToolDetails;
   }
 
-  const rendered = minionSpawnRenderer({ details }, { expanded }, theme);
+  const rendered = minionSpawnRenderer({ details }, { expanded, outputPad: 0 }, theme);
 
   if (!rendered) {
     return new Text(theme.fg("error", "Failed to render spawn result"), 0, 0);

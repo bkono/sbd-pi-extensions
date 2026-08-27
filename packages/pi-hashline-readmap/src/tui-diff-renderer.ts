@@ -1,4 +1,4 @@
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { DiffData, DiffEntry, DiffSpan } from "./diff-data.js";
 import {
   clampLinesToWidth,

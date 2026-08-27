@@ -13,9 +13,15 @@
  * 4. Submits the compiled answers when done
  */
 
-import { type Api, complete, type Model, type UserMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@mariozechner/pi-coding-agent";
-import { BorderedLoader } from "@mariozechner/pi-coding-agent";
+import type { Api, Model, UserMessage } from "@earendil-works/pi-ai";
+
+import { complete } from "@earendil-works/pi-ai/compat";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  ModelRegistry,
+} from "@earendil-works/pi-coding-agent";
+import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
   Editor,
@@ -26,7 +32,7 @@ import {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 
 // ---------------------------------------------------------------------------
 // Types

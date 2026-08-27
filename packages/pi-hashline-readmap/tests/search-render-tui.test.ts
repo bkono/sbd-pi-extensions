@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resetCapabilitiesCache, setCapabilities } from "@mariozechner/pi-tui";
+import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerGrepTool } from "../src/grep.js";
 import { registerSgTool } from "../src/sg.js";

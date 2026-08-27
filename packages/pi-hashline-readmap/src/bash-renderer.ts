@@ -1,7 +1,7 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: bash renderer delegates to Pi's untyped built-in tool/runtime renderer contracts. */
-import { createBashTool, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { createBashTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import {
   clampLinesToWidth,
   clampLineToWidth,

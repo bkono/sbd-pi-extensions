@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const builtinExecute = vi.fn();
 
-vi.mock("@mariozechner/pi-coding-agent", async () => {
-  const actual = await vi.importActual<Record<string, unknown>>("@mariozechner/pi-coding-agent");
+vi.mock("@earendil-works/pi-coding-agent", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@earendil-works/pi-coding-agent");
   return {
     ...actual,
     createGrepTool: () => ({ execute: builtinExecute }),

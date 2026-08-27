@@ -1,4 +1,4 @@
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@mariozechner/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 import { resolveHashlineJsonSettings } from "./hashline-settings.js";
 
 const POSITIVE_BASE10_INT = /^[1-9][0-9]*$/;

@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ParsedArgv } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { showRunSummary } from "../commands.js";

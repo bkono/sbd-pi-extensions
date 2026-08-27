@@ -74,6 +74,7 @@ npm run dev               # tsdown watch mode
 - **Formatting:** 2 spaces, double quotes, 100 char line width, LF line endings (biome)
 - **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, etc.)
 - **Namespacing:** all packages use `@solvedbydev/*`
-- **Pi extensions:** dev-depend on `@mariozechner/pi-coding-agent`; externalize
-  all pi runtime deps in tsdown config (`neverBundle`) since pi loads extensions
-  via jiti at runtime
+- **Pi extensions:** peer/dev-depend on `@earendil-works/pi-*` and `typebox`;
+  externalize those in tsdown config (`neverBundle`) since pi loads extensions
+  via jiti at runtime. Schema `Type`/`Static` come from `typebox`;
+  `complete`/`getModel`/`registerFauxProvider` come from `@earendil-works/pi-ai/compat`.

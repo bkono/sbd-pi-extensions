@@ -1,4 +1,4 @@
-import type { KnownProvider } from "@mariozechner/pi-ai";
+import type { KnownProvider } from "@earendil-works/pi-ai";
 
 export interface OMConfig {
   observation: {
