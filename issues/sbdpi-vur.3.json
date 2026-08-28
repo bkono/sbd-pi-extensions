@@ -7,7 +7,9 @@
     "sbdpi-vur.3.4",
     "sbdpi-vur.3.5"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-vur"
+  ],
   "created": "2026-08-28T21:30:47Z",
   "description": "Process-local agent communication and advisory path overlap for *orchestrated* children.\n\n## Background\n\nShared checkout is the normal environment. Agents need to see who else is live and tap a peer on the shoulder without routing through the parent model. That is not a mail product, not IRC, not durable.\n\nMessaging was specified after the native pass invented wait-for-reply and parked sessions. Those are rejected. Messages only succeed while the recipient run is live. Peer chat may postpone idle; halt if it runs on. No timeout product.\n\n## Why after minions core\n\nNeed groups, live child handles, and packet delivery. Do not start this until `orchestrate` exists or you will invent a second session table.\n\n## Out of scope\n\nBroadcast, cross-session mail, wait-for-reply tools, file locks, automatic worktrees, beadwork TUI fleet rows.\n\n## Success\n\nTwo live children can message each other without a parent turn. Terminal recipients fail clearly. Parent-directed child messages wake the parent as `parentMessage` (child still running). Path overlap warns and continues.",
   "id": "sbdpi-vur.3",
@@ -26,5 +28,5 @@
   "status": "open",
   "title": "[EPIC] Minion messaging and advisory paths",
   "type": "epic",
-  "updated_at": "2026-08-28T21:33:01Z"
+  "updated_at": "2026-08-28T21:33:06Z"
 }
