@@ -9,7 +9,7 @@
     "sbdpi-vur.4"
   ],
   "created": "2026-08-28T21:31:30Z",
-  "description": "Removal regressions and TUI smoke for the published cutover.\n\n## Assert\n\n- no production import of beadwork tmux.ts\n- no beadwork_delegate/worker_done/land_worker/worker_check registrations\n- no runBoundedEpicLoop\n- no path intent rejects writes\n- no duplicate model-visible lifecycle messages from beadwork for minion children\n- no permit/bind/report-result/shouldStopAfterTurn orchestration symbols\n- `/bw run` rejects --workers\n- manual TUI smoke documented: parent interactive, one packet after several idle settlements\n\nAlso `npm run build`.\n\n## Files\n\n- tests in both packages\n- short smoke checklist in beadwork docs\n\n## Success criteria\n\n- CI catches resurrection of tmux worker path.\n- Quality gates: lint, test, typecheck, build.",
+  "description": "Removal regressions and TUI smoke for the published cutover.\n\n## Assert\n\n- no production import of beadwork tmux.ts\n- no beadwork_delegate/worker_done/land_worker/worker_check registrations\n- no runBoundedEpicLoop\n- no path intent rejects writes\n- no duplicate model-visible lifecycle messages from beadwork for minion children\n- no permit/bind/report-result/shouldStopAfterTurn orchestration symbols\n- `/bw run` rejects --workers\n- manual TUI smoke documented: parent interactive, one packet after several idle settlements\n\nAlso `npm run build`.\n\n## Files\n\n- tests in both packages\n- short smoke checklist in beadwork docs\n\n## Success criteria\n\n- CI catches resurrection of tmux worker path.\n- Quality gates: lint, test, typecheck, build.\n\n\n## Test plan (expanded)\n\n- CI grep/import tests for the full kill list (tools + tmux + runBoundedEpicLoop + permits/report-result/shouldStopAfterTurn).\n- `/bw run --workers` rejects.\n- Document TUI smoke: parent interactive, one packet after several idle settlements, no tmux.\n- npm run lint \u0026\u0026 npm run test \u0026\u0026 npm run typecheck \u0026\u0026 npm run build.\n- Logging: each grep probe result.",
   "id": "sbdpi-vur.4.5",
   "labels": [
     "orchestration"
@@ -19,5 +19,5 @@
   "status": "open",
   "title": "Add removal regressions, quality gates, and TUI smoke checklist",
   "type": "task",
-  "updated_at": "2026-08-28T21:44:27Z"
+  "updated_at": "2026-08-28T21:47:31Z"
 }
