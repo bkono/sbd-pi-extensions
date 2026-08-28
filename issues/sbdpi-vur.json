@@ -23,11 +23,15 @@
     {
       "text": "Supersedes the deleted native-orchestration proposal. Living contract is process-local minions + beadwork goal adapter + parent judgment. Do not resurrect permits, result schemas, report/wait tools, git locks, or sagas. Publication is one cutover train (A–D); E is deferred and must not block this epic.",
       "timestamp": "2026-08-28T21:30:47Z"
+    },
+    {
+      "text": "Polish round: added inspection/halt surfaces and a dedicated scope-policy e2e. Cutover epic now waits on parentMessage and mail/settle. Removed deps that serialized spawn-compat behind orchestrate and packets behind role-frontmatter parse.",
+      "timestamp": "2026-08-28T21:44:29Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Replace Beadwork tmux workers with in-process minions orchestration",
   "type": "epic",
-  "updated_at": "2026-08-28T21:33:07Z"
+  "updated_at": "2026-08-28T21:44:29Z"
 }
