@@ -26,6 +26,8 @@ export interface AgentConfig {
   systemPrompt: string;
   source: AgentSource;
   filePath: string;
+  /** Best-effort role fallback from frontmatter. Not a workflow contract. */
+  completionNudge?: string;
 }
 
 export type AgentStatus = "pending" | "running" | "completed" | "failed" | "aborted";

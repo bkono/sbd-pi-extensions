@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { logger } from "./logger.js";
 import type { AgentConfig, AgentSource, ThinkingLevel } from "./types.js";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>([
@@ -12,6 +13,17 @@ const THINKING_LEVELS = new Set<ThinkingLevel>([
   "high",
   "xhigh",
 ]);
+
+const COMPLETION_NUDGE_MAX_LENGTH = 500;
+
+function parseCompletionNudge(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > COMPLETION_NUDGE_MAX_LENGTH
+    ? trimmed.slice(0, COMPLETION_NUDGE_MAX_LENGTH)
+    : trimmed;
+}
 
 function loadAgentFromFile(
   filePath: string,
@@ -46,6 +58,13 @@ function loadAgentFromFile(
       ? parseInt(frontmatter.steps, 10) || parseInt(frontmatter.max_turns, 10) || undefined
       : undefined;
   const timeout = frontmatter.timeout ? parseInt(frontmatter.timeout, 10) || undefined : undefined;
+  const completionNudge = parseCompletionNudge(frontmatter.completion_nudge);
+
+  logger.debug("agents", "loaded", {
+    name,
+    completionNudgePresent: completionNudge !== undefined,
+    completionNudgeLength: completionNudge?.length ?? 0,
+  });
 
   return {
     name,
@@ -59,6 +78,7 @@ function loadAgentFromFile(
     systemPrompt: body.trim(),
     source,
     filePath,
+    ...(completionNudge !== undefined ? { completionNudge } : {}),
   };
 }
 
