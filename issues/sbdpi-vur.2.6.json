@@ -22,11 +22,15 @@
     {
       "text": "Abandon command spelling locked to /bw abandon.",
       "timestamp": "2026-08-28T21:46:46Z"
+    },
+    {
+      "text": "Executable contract: Beadwork drops run mode; continuation tells parent to halt the minion group; halt (1.10) forgets the group. No minions import.",
+      "timestamp": "2026-08-28T22:57:45Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Exit goal mode on epic close or abandon and forget the minion group",
   "type": "feature",
-  "updated_at": "2026-08-28T22:57:11Z"
+  "updated_at": "2026-08-28T22:57:45Z"
 }
