@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-vur.1.1"
+  ],
   "blocks": [],
   "created": "2026-08-28T21:30:47Z",
   "description": "Minions-side orchestration core: non-blocking `orchestrate`, groups, settled lifecycle, packets, spawn compatibility.\n\n## Background\n\n`pi-minions` is already the right runtime (in-process AgentSessions, AgentTree, steer/abort, transcripts). The blocker is semantic: spawn waits. This phase makes minions a background orchestration backend the parent can keep talking to.\n\nThis phase does not delete beadwork tmux. Beadwork cutover is a sibling phase. Different package, can proceed in parallel where files do not overlap.\n\n## Why it exists\n\nWithout this, `/bw run` has nothing to call except tmux. All later messaging, packets, and epic loops sit on these APIs.\n\n## Scope\n\nChildren under this epic. Do not implement this epic as one PR.\n\n## Out of scope\n\nBeadwork goal mode, tmux deletion, peer messaging, path intent (those are B/C). Do not add report/wait protocol tools.\n\n## Success\n\nForeground spawn still blocks. Orchestrate returns handles immediately. Parent stays interactive. Settlement is not `agent_end`. Packets coalesce when idle. Spawn children are absent from orchestrated fleet snapshots.",
@@ -20,5 +22,5 @@
   "status": "open",
   "title": "[EPIC] Minions orchestration core",
   "type": "epic",
-  "updated_at": "2026-08-28T21:30:49Z"
+  "updated_at": "2026-08-28T21:32:52Z"
 }
