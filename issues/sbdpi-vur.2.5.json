@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T21:31:27Z",
+  "description": "Remove worker/fleet/landing UI from Beadwork TUI. Keep issue/goal browsing.\n\n## Background\n\nV1 has no beadwork fleet UI. Live children are `list_minions` / `show_minion` / asking the parent. Do not import AgentTree.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/tui/worker-manager.ts` delete\n- `packages/pi-beadwork-extension/src/tui/dashboard.ts` (drop workers tab)\n- related TUI tests\n- statusline worker fields\n\n## Success criteria\n\n- Dashboard tabs have no Workers.\n- No land/cleanup actions.\n- Command copy does not say \"bounded epic loop\".\n- Issue explorer still works.\n\n## Test plan\n\n- Unit: dashboard tab list.\n- Unit: statusline without worker counts.\n\n## Considerations\n\nRun tab: if it is supervisor UI, remove or reduce to goal summary (epic id, review policy, interrupted vs active) without worker rows. Do not rebuild a minion table.",
+  "id": "sbdpi-vur.2.5",
+  "labels": [],
+  "parent": "sbdpi-vur.2",
+  "priority": 1,
+  "status": "open",
+  "title": "Remove Beadwork worker/fleet TUI and supervisor copy",
+  "type": "chore",
+  "updated_at": "2026-08-28T21:31:27Z"
+}
