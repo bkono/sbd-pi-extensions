@@ -3,7 +3,9 @@
   "blocked_by": [
     "sbdpi-vur.2.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-vur.4.3"
+  ],
   "created": "2026-08-28T21:31:29Z",
   "description": "Encode default ticket-level independent review in Beadwork goal/child prompt guidance (not a keyword classifier, not a structured-result gate).\n\n## Background\n\nDefault reviewPolicy is `ticket`: parent should launch a review child (`taskType: reviewImplementation`) before closing an implementation ticket. `scope` and `none` are explicit. Parent dispositions findings as fix (blocking), file (nonblocking follow-up), or reject (record why). User can waive a blocking finding in an ordinary turn; no override tokens.\n\n## Files\n\n- prompt.ts additions if not already complete in B-prompt\n- tests\n- maybe a short parent guideline in minions packet context is already in nudges\n\nIf B-prompt already contains this, this issue is the test/proof and any missing reviewPolicy branches (scope/none). Do not duplicate conflicting copy.\n\n## Success criteria\n\n- ticket policy text requires independent review before close.\n- scope policy allows close then aggregate review, and states the dependent-start tradeoff.\n- none skips independent review children.\n- No regex classifier.\n\n## Test plan\n\n- Unit: prompt strings per policy.\n- No e2e here (that's D-epic-e2e).",
   "id": "sbdpi-vur.4.1",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Encode ticket/scope/none review policy in goal prompts",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:01Z"
+  "updated_at": "2026-08-28T21:33:03Z"
 }
