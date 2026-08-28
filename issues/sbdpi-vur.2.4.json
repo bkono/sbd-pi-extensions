@@ -13,9 +13,15 @@
   "id": "sbdpi-vur.2.4",
   "labels": [],
   "parent": "sbdpi-vur.2",
+  "comments": [
+    {
+      "text": "Rip out of the package: delegate, worker_done, land_worker, worker_check. Keep beadwork_sync on the parent. This is not a child-hide list.",
+      "timestamp": "2026-08-28T21:33:29Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Delete beadwork_delegate, worker_done, land_worker, and worker_check",
   "type": "chore",
-  "updated_at": "2026-08-28T21:33:02Z"
+  "updated_at": "2026-08-28T21:33:29Z"
 }
