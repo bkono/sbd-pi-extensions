@@ -7,9 +7,15 @@
   "id": "sbdpi-vur.4",
   "labels": [],
   "parent": "sbdpi-vur",
+  "comments": [
+    {
+      "text": "Do not publish tmux-free beadwork until epic e2e passes. Script parent turns; do not call paid LLMs in CI.",
+      "timestamp": "2026-08-28T21:30:49Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[EPIC] One-epic published cutover",
   "type": "epic",
-  "updated_at": "2026-08-28T21:30:48Z"
+  "updated_at": "2026-08-28T21:30:49Z"
 }
