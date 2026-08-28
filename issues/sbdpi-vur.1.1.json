@@ -9,6 +9,8 @@
     "sbdpi-vur.1.5",
     "sbdpi-vur.1.6"
   ],
+  "closed_at": "2026-08-28T23:41:48Z",
+  "close_reason": "Landed orchestration types + closed taskType schema (3532360). Review PASS. Nudge policy deferred to 1.2.",
   "created": "2026-08-28T21:31:24Z",
   "description": "Add the public TypeScript types and tool-schema literals for orchestration. This is the schema lock every other minions issue imports.\n\n## Background\n\nWithout a closed `taskType` union and explicit packet/group types, later issues will invent incompatible shapes (or resurrect `validation`, `protocolStatus`, `operationId`). This issue exists so parallel work shares one contract.\n\n## Files\n\n- `packages/pi-minions/src/types.ts` (extend, do not fork AgentTree types into a second registry)\n- new `packages/pi-minions/src/task-types.ts` for the enum + nudge policy *table placeholder* if you keep strings here; actual policy copy can land in the nudges issue if you only export the union here. Prefer: union + NudgeEvent live here; policy strings in the nudges issue that imports the union.\n\n## Technical approach\n\n```ts\ntype TaskType = \"implementation\" | \"fix\" | \"reviewImplementation\" | \"reviewScope\" | \"investigateBlocker\";\ntype NudgeEvent = \"settled\" | \"aborted\" | \"failed\" | \"parentMessage\";\n```\n\nNo `validation`. No `completed`. OrchestrateInput: optional groupId, optional cwd (group create only), tasks[] with required description, optional role/taskType/model/domain. Domain: `{ source, scopeId?, workItemId?, title? }` opaque. OrchestrateResult: groupId, accepted[{childId, description, state:\"starting\"}], rejected[{index, reason}].\n\nDo not add assignmentPermit, operationId, protocolStatus, SubmittedTaskResult.\n\nUse a real string enum in the TypeBox tool schema (provider-visible closed list).\n\n## Success criteria\n\n- Types compile; TaskType rejects unknown strings at the schema layer.\n- No beadwork imports in pi-minions.\n- Existing spawn types still work (`agent` remains on spawn).\n\n## Test plan\n\n- Unit: schema accepts the five task types; rejects `validation` and junk.\n- Unit: description required on orchestrate task descriptors (can be schema-only tests even before the tool exists).\n- Unit: role remains an open string.\n\n## Considerations\n\nThis issue owns `types.ts` / `task-types.ts` only. Do not rewrite `tools/spawn.ts` or `tree.ts` here (those are sibling issues). If you must touch AgentNode, add optional fields with defaults so current spawn still compiles.",
   "id": "sbdpi-vur.1.1",
@@ -24,8 +26,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Add orchestration public types and closed taskType schema",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:30Z"
+  "updated_at": "2026-08-28T23:41:48Z"
 }
