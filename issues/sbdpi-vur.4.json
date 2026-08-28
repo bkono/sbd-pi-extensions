@@ -4,7 +4,8 @@
     "sbdpi-vur.4.1",
     "sbdpi-vur.4.2",
     "sbdpi-vur.4.3",
-    "sbdpi-vur.4.4"
+    "sbdpi-vur.4.4",
+    "sbdpi-vur.4.5"
   ],
   "blocks": [],
   "created": "2026-08-28T21:30:48Z",
@@ -26,5 +27,5 @@
   "status": "open",
   "title": "[EPIC] One-epic published cutover",
   "type": "epic",
-  "updated_at": "2026-08-28T21:33:05Z"
+  "updated_at": "2026-08-28T21:33:06Z"
 }

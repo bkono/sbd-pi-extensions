@@ -4,7 +4,9 @@
     "sbdpi-vur.2.7",
     "sbdpi-vur.4.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-vur.4"
+  ],
   "created": "2026-08-28T21:31:30Z",
   "description": "Removal regressions and TUI smoke for the published cutover.\n\n## Assert\n\n- no production import of beadwork tmux.ts\n- no beadwork_delegate/worker_done/land_worker/worker_check registrations\n- no runBoundedEpicLoop\n- no path intent rejects writes\n- no duplicate model-visible lifecycle messages from beadwork for minion children\n- no permit/bind/report-result/shouldStopAfterTurn orchestration symbols\n- `/bw run` rejects --workers\n- manual TUI smoke documented: parent interactive, one packet after several idle settlements\n\nAlso `npm run build`.\n\n## Files\n\n- tests in both packages\n- short smoke checklist in beadwork docs\n\n## Success criteria\n\n- CI catches resurrection of tmux worker path.\n- Quality gates: lint, test, typecheck, build.",
   "id": "sbdpi-vur.4.5",
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Add removal regressions, quality gates, and TUI smoke checklist",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:05Z"
+  "updated_at": "2026-08-28T21:33:06Z"
 }
