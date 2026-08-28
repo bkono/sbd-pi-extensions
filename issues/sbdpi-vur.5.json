@@ -4,7 +4,7 @@
   "blocks": [],
   "created": "2026-08-28T21:30:48Z",
   "defer_until": "2027-01-01",
-  "description": "Explicitly deferred. Do not implement in the V1 cutover. Does not block the parent epic.\n\n## Items\n\n- Multiple epic ids in one goal (`scopeIds` length \u003e 1). The array exists in the V1 goal record so this does not require a minions protocol change later.\n- Observing path overlap from minions-managed edit/write tools (still advisory).\n- Linking beadwork TUI to live minion rows (V1: ask the parent or `list_minions`).\n- Compose-buffer-aware turn ordering.\n- Custom task-type registration by third-party adapters.\n\n## Why deferred\n\nV1 proves one epic, shared checkout, and packets. Each item above is a product increment, not a hole in the constitution.",
+  "description": "Explicitly deferred. Do not implement in the V1 cutover. **Does not block** `sbdpi-vur`.\n\nNamed children exist so these are not forgotten and then smuggled into V1.\n\n## Already childed\n\n- Multi-epic `scopeIds` (array already in V1 goal record)\n- Observe minions edit/write paths for advisory overlap\n- Optional Beadwork TUI link to minion status (no live AgentTree import in V1)\n\n## Also deferred (thin children)\n\n- Compose-buffer-aware parent turn ordering\n- Third-party/custom task-type registration\n- Richer message threads or broadcast channels\n- Live orchestration resumption after `/new` or process restart\n- Historical orchestration analytics\n- Automated ranking by dependency unlock value\n- Remote or process-isolated minion backends\n\nNo implementation specs here. V1 remains process-local, one epic, advisory paths, packets + injected prompts.",
   "id": "sbdpi-vur.5",
   "labels": [
     "deferred",
@@ -21,5 +21,5 @@
   "status": "deferred",
   "title": "Deferred orchestration follow-ons",
   "type": "epic",
-  "updated_at": "2026-08-28T21:34:49Z"
+  "updated_at": "2026-08-28T22:57:40Z"
 }
