@@ -8,7 +8,7 @@
     "sbdpi-vur.4"
   ],
   "created": "2026-08-28T21:31:30Z",
-  "description": "Published docs and migration notes for the cutover.\n\n## Content\n\n- Both package READMEs\n- Beadwork configuration reference: removed keys, review policy, no landing.validateCommands gate\n- Removed tools and `/bw run` behavior (injected prompt)\n- Honest: in-process children die with Pi; stuck child may require process exit; shared-checkout conflicts are best effort\n- Do not document tmux workers as current\n\n## Success criteria\n\n- An operator who only reads README can run `/bw run EPIC` on tui with minions enabled.\n- Removed flags documented as errors, not ignored.\n\n## Test plan\n\n- Grep docs for tmux worker launch as current instructions (should be none, except a \"removed\" migration section).\n\n\n## Test plan (expanded)\n\n- README states /bw run injects a prompt, children die with Pi, shared-checkout is advisory.\n- Removed flags documented as errors.\n- Grep: no current-tense tmux worker instructions outside a Removed/Migration section.",
+  "description": "Published **READMEs, operator guidance, and migration documentation** for the cutover.\n\n## Owns\n\n- Both package READMEs\n- Beadwork `docs/` configuration/migration pages\n- Root examples that mention delegate/tmux as current usage\n\n## Does not own\n\n- CLI aliases/completions (2.8)\n- TUI copy (2.5)\n- `/bw abandon` implementation (2.6) — document it here once it exists\n\n## Content\n\n- `/bw run` injects a prompt; standing appendix is policy\n- Children die with Pi; stuck child may require process exit\n- Shared-checkout coordination is advisory\n- Removed flags/tools as **errors**, not ignored\n- No landing.validateCommands gate\n- Review policy ticket/scope/none\n- Do not document tmux workers as current except in a Removed/Migration section\n\n## Success criteria\n\n- An operator who only reads README can run `/bw run EPIC` on tui with minions enabled.\n\n## Test plan\n\n- Grep: no current-tense tmux worker launch outside Migration.\n- README states inject-prompt, process-local lifetime, advisory checkout.",
   "id": "sbdpi-vur.4.4",
   "labels": [
     "orchestration"
@@ -18,5 +18,5 @@
   "status": "open",
   "title": "Publish cutover README and migration notes",
   "type": "chore",
-  "updated_at": "2026-08-28T21:48:23Z"
+  "updated_at": "2026-08-28T22:57:09Z"
 }
