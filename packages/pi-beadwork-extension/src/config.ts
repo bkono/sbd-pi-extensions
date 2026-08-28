@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG } from "./constants.js";
 import type {
   BeadworkConfig,
   LandingPolicy,
+  ReviewPolicy,
   WorkerExecutionMode,
   WorktreeCopyRule,
 } from "./types.js";
@@ -25,9 +26,16 @@ type PartialWorkerExecutionConfig = {
   };
 };
 
+type PartialGoalReviewConfig = {
+  policy?: unknown;
+  provider?: unknown;
+  model?: unknown;
+};
+
 type PartialConfig = {
   ui?: Partial<BeadworkConfig["ui"]>;
   storage?: Partial<BeadworkConfig["storage"]>;
+  review?: PartialGoalReviewConfig;
   tmux?: Partial<BeadworkConfig["tmux"]>;
   worktrees?: Partial<BeadworkConfig["worktrees"]>;
   workerExecution?: PartialWorkerExecutionConfig;
@@ -37,6 +45,81 @@ type PartialConfig = {
   };
   supervisor?: Partial<BeadworkConfig["supervisor"]>;
 };
+
+export type LoadConfigOptions = {
+  env?: NodeJS.Dict<string | undefined>;
+  homeDir?: string;
+};
+
+export type InspectedBeadworkConfig = {
+  config: BeadworkConfig;
+  rejectedKeys: string[];
+};
+
+const REJECTED_JSON_FAMILIES = [
+  "tmux",
+  "worktrees",
+  "landing",
+  "supervisor",
+  "workerExecution",
+] as const;
+
+const REJECTED_RUN_KEYS = [
+  "defaultWorkers",
+  "defaultUntil",
+  "defaultMaxCycles",
+  "pollIntervalMs",
+] as const;
+
+const REJECTED_STORAGE_KEYS = ["workerRegistryFile", "runtimeDir"] as const;
+
+export const REJECTED_SUPERVISOR_ENV_VARS = [
+  "PI_BEADWORK_WORKER_REGISTRY_FILE",
+  "PI_BEADWORK_RUNTIME_DIR",
+  "PI_BEADWORK_TMUX_SESSION_NAME",
+  "PI_BEADWORK_WORKER_COMMAND",
+  "PI_BEADWORK_WORKER_PROVIDER",
+  "PI_BEADWORK_WORKER_MODEL",
+  "PI_BEADWORK_WORKTREE_BASE_DIR",
+  "PI_BEADWORK_WORKER_EXECUTION_MODE",
+  "PI_BEADWORK_WORKER_MAX_LIFETIME",
+  "PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD",
+  "PI_BEADWORK_WORKER_REVIEW_ENABLED",
+  "PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED",
+  "PI_BEADWORK_DEFAULT_WORKERS",
+  "PI_BEADWORK_DEFAULT_MAX_CYCLES",
+  "PI_BEADWORK_POLL_INTERVAL_MS",
+  "PI_BEADWORK_VALIDATE_TIMEOUT_MS",
+  "PI_BEADWORK_MAX_REBASE_ATTEMPTS",
+  "PI_BEADWORK_LANDING_POLICY",
+  "PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS",
+] as const;
+
+export class SupervisorConfigError extends Error {
+  readonly rejectedKeys: string[];
+
+  constructor(rejectedKeys: string[]) {
+    const unique = uniqueSorted(rejectedKeys);
+    super(formatSupervisorConfigError(unique));
+    this.name = "SupervisorConfigError";
+    this.rejectedKeys = unique;
+  }
+}
+
+export function formatSupervisorConfigError(rejectedKeys: string[]): string {
+  const listed = rejectedKeys.map((key) => `- ${key}`).join("\n");
+  return [
+    "Beadwork goal mode refuses supervisor config leftovers. Remove:",
+    listed,
+    "",
+    "/bw run is a standing appendix plus injected prompt, not a polling supervisor.",
+    "Do not migrate landing.validateCommands into a validation gate.",
+  ].join("\n");
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
 
 function readJsonConfig(filePath: string): PartialConfig | undefined {
   if (!existsSync(filePath)) {
@@ -98,6 +181,20 @@ function normalizeStringArray(value: unknown): string[] | undefined {
 
 function normalizeLandingPolicy(value: unknown): LandingPolicy | undefined {
   return value === "auto" || value === "deferred" ? value : undefined;
+}
+
+function normalizeReviewPolicy(value: unknown, fieldName: string): ReviewPolicy | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "ticket" || value === "scope" || value === "none") {
+    return value;
+  }
+  throw new Error(`${fieldName} must be "ticket", "scope", or "none"`);
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function normalizeBoolean(value: unknown): boolean | undefined {
@@ -199,6 +296,11 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
       workerRegistryFile: override.storage?.workerRegistryFile ?? base.storage.workerRegistryFile,
       runtimeDir: override.storage?.runtimeDir ?? base.storage.runtimeDir,
     },
+    review: {
+      policy: normalizeReviewPolicy(override.review?.policy, "review.policy") ?? base.review.policy,
+      provider: normalizeOptionalString(override.review?.provider) ?? base.review.provider,
+      model: normalizeOptionalString(override.review?.model) ?? base.review.model,
+    },
     tmux: {
       sessionName: override.tmux?.sessionName ?? base.tmux.sessionName,
       workerCommand: override.tmux?.workerCommand ?? base.tmux.workerCommand,
@@ -257,68 +359,110 @@ function mergeConfig(base: BeadworkConfig, override?: PartialConfig): BeadworkCo
   };
 }
 
-function canAccessDirectory(dirPath: string): boolean {
-  try {
-    accessSync(dirPath);
-    return true;
-  } catch {
-    return false;
+function flattenPresentPaths(value: unknown, prefix: string): string[] {
+  if (value === undefined) {
+    return [prefix];
   }
-}
-
-function resolveProjectConfigPath(cwd: string): string | undefined {
-  if (!canAccessDirectory(cwd)) {
-    return undefined;
-  }
-  return path.join(cwd, ".pi", "beadwork-config.json");
-}
-
-function resolveGlobalConfigPath(): string {
-  return path.join(os.homedir(), ".pi", "beadwork-config.json");
-}
-
-export function loadConfig(cwd: string): BeadworkConfig {
-  let config = DEFAULT_CONFIG;
-
-  const globalConfig = readJsonConfig(resolveGlobalConfigPath());
-  config = mergeConfig(config, globalConfig);
-
-  const projectConfigPath = resolveProjectConfigPath(cwd);
-  if (projectConfigPath) {
-    config = mergeConfig(config, readJsonConfig(projectConfigPath));
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return [prefix];
   }
 
-  const showInactiveStatus = process.env.PI_BEADWORK_SHOW_INACTIVE_STATUS;
-  const sessionStateDir = process.env.PI_BEADWORK_SESSION_STATE_DIR;
-  const workerRegistryFile = process.env.PI_BEADWORK_WORKER_REGISTRY_FILE;
-  const runtimeDir = process.env.PI_BEADWORK_RUNTIME_DIR;
-  const tmuxSessionName = process.env.PI_BEADWORK_TMUX_SESSION_NAME;
-  const workerCommand = process.env.PI_BEADWORK_WORKER_COMMAND;
-  const workerProvider = process.env.PI_BEADWORK_WORKER_PROVIDER;
-  const workerModel = process.env.PI_BEADWORK_WORKER_MODEL;
-  const worktreeBaseDir = process.env.PI_BEADWORK_WORKTREE_BASE_DIR;
-  const workerExecutionMode = process.env.PI_BEADWORK_WORKER_EXECUTION_MODE;
-  const workerMaxLifetime = process.env.PI_BEADWORK_WORKER_MAX_LIFETIME;
-  const workerAllowDetachedHead = process.env.PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD;
-  const workerExecutionReviewEnabled = process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED;
-  const workerExecutionSelfReviewEnabled = process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED;
-  const defaultWorkers = process.env.PI_BEADWORK_DEFAULT_WORKERS;
-  const defaultMaxCycles = process.env.PI_BEADWORK_DEFAULT_MAX_CYCLES;
-  const pollIntervalMs = process.env.PI_BEADWORK_POLL_INTERVAL_MS;
-  const validateTimeoutMs = process.env.PI_BEADWORK_VALIDATE_TIMEOUT_MS;
-  const maxRebaseAttempts = process.env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
-  const landingPolicy = process.env.PI_BEADWORK_LANDING_POLICY;
-  const reviewEnabled = process.env.PI_BEADWORK_REVIEW_ENABLED;
-  const reviewProvider = process.env.PI_BEADWORK_REVIEW_PROVIDER;
-  const reviewModel = process.env.PI_BEADWORK_REVIEW_MODEL;
-  const reviewTimeoutMs = process.env.PI_BEADWORK_REVIEW_TIMEOUT_MS;
-  const reviewMaxRemediationAttempts = process.env.PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) {
+    return [prefix];
+  }
+
+  return entries.flatMap(([key, child]) => flattenPresentPaths(child, `${prefix}.${key}`));
+}
+
+function collectRejectedJsonKeys(config: unknown): string[] {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return [];
+  }
+
+  const record = config as Record<string, unknown>;
+  const keys: string[] = [];
+
+  for (const family of REJECTED_JSON_FAMILIES) {
+    if (family in record) {
+      keys.push(...flattenPresentPaths(record[family], family));
+    }
+  }
+
+  if (record.run && typeof record.run === "object" && !Array.isArray(record.run)) {
+    const run = record.run as Record<string, unknown>;
+    for (const key of REJECTED_RUN_KEYS) {
+      if (key in run) {
+        keys.push(`run.${key}`);
+      }
+    }
+  }
+
+  if (record.storage && typeof record.storage === "object" && !Array.isArray(record.storage)) {
+    const storage = record.storage as Record<string, unknown>;
+    for (const key of REJECTED_STORAGE_KEYS) {
+      if (key in storage) {
+        keys.push(`storage.${key}`);
+      }
+    }
+  }
+
+  return keys;
+}
+
+export function collectRejectedSupervisorKeys(input: {
+  configs?: unknown[];
+  env?: NodeJS.Dict<string | undefined>;
+}): string[] {
+  const keys: string[] = [];
+
+  for (const config of input.configs ?? []) {
+    keys.push(...collectRejectedJsonKeys(config));
+  }
+
+  if (input.env) {
+    for (const envVar of REJECTED_SUPERVISOR_ENV_VARS) {
+      if (input.env[envVar] !== undefined) {
+        keys.push(envVar);
+      }
+    }
+  }
+
+  return uniqueSorted(keys);
+}
+
+function envPartialConfig(env: NodeJS.Dict<string | undefined>): PartialConfig {
+  const showInactiveStatus = env.PI_BEADWORK_SHOW_INACTIVE_STATUS;
+  const sessionStateDir = env.PI_BEADWORK_SESSION_STATE_DIR;
+  const workerRegistryFile = env.PI_BEADWORK_WORKER_REGISTRY_FILE;
+  const runtimeDir = env.PI_BEADWORK_RUNTIME_DIR;
+  const tmuxSessionName = env.PI_BEADWORK_TMUX_SESSION_NAME;
+  const workerCommand = env.PI_BEADWORK_WORKER_COMMAND;
+  const workerProvider = env.PI_BEADWORK_WORKER_PROVIDER;
+  const workerModel = env.PI_BEADWORK_WORKER_MODEL;
+  const worktreeBaseDir = env.PI_BEADWORK_WORKTREE_BASE_DIR;
+  const workerExecutionMode = env.PI_BEADWORK_WORKER_EXECUTION_MODE;
+  const workerMaxLifetime = env.PI_BEADWORK_WORKER_MAX_LIFETIME;
+  const workerAllowDetachedHead = env.PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD;
+  const workerExecutionReviewEnabled = env.PI_BEADWORK_WORKER_REVIEW_ENABLED;
+  const workerExecutionSelfReviewEnabled = env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED;
+  const defaultWorkers = env.PI_BEADWORK_DEFAULT_WORKERS;
+  const defaultMaxCycles = env.PI_BEADWORK_DEFAULT_MAX_CYCLES;
+  const pollIntervalMs = env.PI_BEADWORK_POLL_INTERVAL_MS;
+  const validateTimeoutMs = env.PI_BEADWORK_VALIDATE_TIMEOUT_MS;
+  const maxRebaseAttempts = env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
+  const landingPolicy = env.PI_BEADWORK_LANDING_POLICY;
+  const reviewPolicy = env.PI_BEADWORK_REVIEW_POLICY;
+  const reviewEnabled = env.PI_BEADWORK_REVIEW_ENABLED;
+  const reviewProvider = env.PI_BEADWORK_REVIEW_PROVIDER;
+  const reviewModel = env.PI_BEADWORK_REVIEW_MODEL;
+  const reviewTimeoutMs = env.PI_BEADWORK_REVIEW_TIMEOUT_MS;
+  const reviewMaxRemediationAttempts = env.PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS;
   const reviewMaxArtifactChars =
-    process.env.PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS ??
-    process.env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS;
-  const supervisorPollIntervalMs = process.env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
+    env.PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS ?? env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS;
+  const supervisorPollIntervalMs = env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
 
-  config = mergeConfig(config, {
+  return {
     ui: {
       showInactiveStatus:
         showInactiveStatus !== undefined
@@ -329,6 +473,11 @@ export function loadConfig(cwd: string): BeadworkConfig {
       sessionStateDir,
       workerRegistryFile,
       runtimeDir,
+    },
+    review: {
+      policy: reviewPolicy,
+      provider: reviewProvider,
+      model: reviewModel,
     },
     tmux: {
       sessionName: tmuxSessionName,
@@ -377,7 +526,75 @@ export function loadConfig(cwd: string): BeadworkConfig {
         ? Number.parseInt(supervisorPollIntervalMs, 10)
         : undefined,
     },
-  });
+  };
+}
 
+function canAccessDirectory(dirPath: string): boolean {
+  try {
+    accessSync(dirPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveProjectConfigPath(cwd: string): string | undefined {
+  if (!canAccessDirectory(cwd)) {
+    return undefined;
+  }
+  return path.join(cwd, ".pi", "beadwork-config.json");
+}
+
+function resolveGlobalConfigPath(homeDir: string): string {
+  return path.join(homeDir, ".pi", "beadwork-config.json");
+}
+
+function readConfiguredDocuments(cwd: string, homeDir: string): unknown[] {
+  const documents: unknown[] = [];
+  const globalConfig = readJsonConfig(resolveGlobalConfigPath(homeDir));
+  if (globalConfig) {
+    documents.push(globalConfig);
+  }
+
+  const projectConfigPath = resolveProjectConfigPath(cwd);
+  if (projectConfigPath) {
+    const projectConfig = readJsonConfig(projectConfigPath);
+    if (projectConfig) {
+      documents.push(projectConfig);
+    }
+  }
+
+  return documents;
+}
+
+export function inspectBeadworkConfig(
+  cwd: string,
+  options: LoadConfigOptions = {},
+): InspectedBeadworkConfig {
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? os.homedir();
+  const documents = readConfiguredDocuments(cwd, homeDir);
+
+  let config = DEFAULT_CONFIG;
+  for (const document of documents) {
+    config = mergeConfig(config, document as PartialConfig);
+  }
+  config = mergeConfig(config, envPartialConfig(env));
+
+  return {
+    config,
+    rejectedKeys: collectRejectedSupervisorKeys({ configs: documents, env }),
+  };
+}
+
+export function loadConfig(cwd: string, options?: LoadConfigOptions): BeadworkConfig {
+  return inspectBeadworkConfig(cwd, options).config;
+}
+
+export function assertGoalModeConfig(cwd: string, options?: LoadConfigOptions): BeadworkConfig {
+  const { config, rejectedKeys } = inspectBeadworkConfig(cwd, options);
+  if (rejectedKeys.length > 0) {
+    throw new SupervisorConfigError(rejectedKeys);
+  }
   return config;
 }

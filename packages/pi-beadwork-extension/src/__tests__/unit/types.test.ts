@@ -4,8 +4,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadWorkerRegistry, saveWorkerRegistry, summarizeWorkers } from "../../registry.js";
 import {
+  type Goal,
   isCurrentBranchWorker,
   isSuccessfulTerminalWorker,
+  isV1Goal,
   isWorktreeWorker,
   type WorkerRuntime,
 } from "../../types.js";
@@ -51,6 +53,33 @@ function currentBranchWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRunt
     ...overrides,
   };
 }
+
+describe("goal record", () => {
+  it("accepts V1 goals with exactly one epic id", () => {
+    const goal: Goal = {
+      goalId: "goal-1",
+      scopeIds: ["BW-100"],
+      reviewPolicy: "ticket",
+      startedAt: "2026-08-28T00:00:00.000Z",
+    };
+
+    expect(isV1Goal(goal)).toBe(true);
+    expect(isV1Goal({ ...goal, scopeIds: [] })).toBe(false);
+    expect(isV1Goal({ ...goal, scopeIds: ["BW-100", "BW-200"] })).toBe(false);
+  });
+
+  it("keeps WorkerRuntime tmux fields so orchestrator still typechecks", () => {
+    const worker = baseWorker();
+    const tmuxSession: string = worker.tmuxSession;
+    const tmuxWindow: string = worker.tmuxWindow;
+    const tmuxPane: string = worker.tmuxPane;
+
+    expect(worker.backend).toBe("tmux");
+    expect(tmuxSession).toBe("pi-bw");
+    expect(tmuxWindow).toBe("bw-101");
+    expect(tmuxPane).toBe("%42");
+  });
+});
 
 describe("worker runtime checkout types", () => {
   it("narrows worktree workers with checkoutPath and worktreePath", () => {

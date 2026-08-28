@@ -1,14 +1,17 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_SESSION_STATE } from "./constants.js";
-import type {
-  PrimeCache,
-  RunCycleSummary,
-  RunSummary,
-  SessionRunOptions,
-  SessionScope,
-  SessionState,
-  WorkerSummary,
+import {
+  type Goal,
+  isV1Goal,
+  type PrimeCache,
+  type ReviewPolicy,
+  type RunCycleSummary,
+  type RunSummary,
+  type SessionRunOptions,
+  type SessionScope,
+  type SessionState,
+  type WorkerSummary,
 } from "./types.js";
 
 function normalizeScope(scope: unknown): SessionScope {
@@ -156,6 +159,49 @@ function normalizeRunCycleSummary(value: unknown): RunCycleSummary | undefined {
   };
 }
 
+function normalizeReviewPolicy(value: unknown): ReviewPolicy | undefined {
+  return value === "ticket" || value === "scope" || value === "none" ? value : undefined;
+}
+
+function normalizeGoal(value: unknown): Goal | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const parsed = value as Partial<Goal>;
+  if (typeof parsed.goalId !== "string" || parsed.goalId.length === 0) {
+    return undefined;
+  }
+
+  const scopeIds = Array.isArray(parsed.scopeIds)
+    ? parsed.scopeIds.filter(
+        (entry): entry is string => typeof entry === "string" && entry.length > 0,
+      )
+    : [];
+  const reviewPolicy = normalizeReviewPolicy(parsed.reviewPolicy);
+  const startedAt =
+    typeof parsed.startedAt === "string" && parsed.startedAt.length > 0
+      ? parsed.startedAt
+      : undefined;
+
+  if (!reviewPolicy || !startedAt) {
+    return undefined;
+  }
+
+  const goal: Goal = {
+    goalId: parsed.goalId,
+    scopeIds,
+    reviewPolicy,
+    startedAt,
+  };
+
+  return isV1Goal(goal) ? goal : undefined;
+}
+
+export function isInterruptedRun(state: SessionState): boolean {
+  return state.mode === "run" && state.runInterrupted === true;
+}
+
 function normalizeRunSummary(value: unknown): RunSummary | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -192,7 +238,7 @@ function normalizeRunSummary(value: unknown): RunSummary | undefined {
   };
 }
 
-function normalizeState(state: unknown): SessionState {
+function normalizeState(state: unknown, origin: "memory" | "disk" = "memory"): SessionState {
   if (!state || typeof state !== "object") {
     return { ...DEFAULT_SESSION_STATE, updatedAt: new Date().toISOString() };
   }
@@ -201,6 +247,7 @@ function normalizeState(state: unknown): SessionState {
   const mode = value.mode === "interactive" || value.mode === "run" ? value.mode : "neutral";
   const updatedAt =
     typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString();
+  const interruptedRun = origin === "disk" && mode === "run";
 
   return {
     mode,
@@ -208,11 +255,34 @@ function normalizeState(state: unknown): SessionState {
     updatedAt,
     engagedAt: typeof value.engagedAt === "string" ? value.engagedAt : undefined,
     prime: normalizePrimeCache(value.prime),
-    trackedWorkerIds: normalizeTrackedWorkerIds(value.trackedWorkerIds),
+    goal: normalizeGoal(value.goal),
+    runInterrupted: interruptedRun ? true : undefined,
+    trackedWorkerIds: interruptedRun
+      ? undefined
+      : normalizeTrackedWorkerIds(value.trackedWorkerIds),
     workerNotices: normalizeWorkerNotices(value.workerNotices),
-    runOptions: normalizeRunOptions(value.runOptions),
+    runOptions: interruptedRun ? undefined : normalizeRunOptions(value.runOptions),
     lastRunOptions: normalizeRunOptions(value.lastRunOptions),
     recentRunSummary: normalizeRunSummary(value.recentRunSummary),
+  };
+}
+
+function toPersistedSessionState(state: SessionState): SessionState {
+  if (state.mode !== "run") {
+    const { runInterrupted: _runInterrupted, ...rest } = state;
+    return rest;
+  }
+
+  return {
+    mode: state.mode,
+    scope: state.scope,
+    updatedAt: state.updatedAt,
+    engagedAt: state.engagedAt,
+    prime: state.prime,
+    goal: state.goal,
+    workerNotices: state.workerNotices,
+    lastRunOptions: state.lastRunOptions,
+    recentRunSummary: state.recentRunSummary,
   };
 }
 
@@ -228,7 +298,7 @@ export async function loadSessionState(baseDir: string, sessionId: string): Prom
   try {
     const filePath = resolveSessionStatePath(baseDir, sessionId);
     const raw = await readFile(filePath, "utf8");
-    return normalizeState(JSON.parse(raw));
+    return normalizeState(JSON.parse(raw), "disk");
   } catch {
     return {
       ...DEFAULT_SESSION_STATE,
@@ -242,11 +312,15 @@ export async function saveSessionState(
   sessionId: string,
   state: SessionState,
 ): Promise<SessionState> {
-  const normalized = normalizeState(state);
+  const normalized = normalizeState(state, "memory");
   const filePath = resolveSessionStatePath(baseDir, sessionId);
 
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  await writeFile(
+    filePath,
+    `${JSON.stringify(toPersistedSessionState(normalized), null, 2)}\n`,
+    "utf8",
+  );
 
   return normalized;
 }

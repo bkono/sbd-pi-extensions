@@ -19,6 +19,11 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
     workerRegistryFile: ".pi/beadwork/workers/registry.json",
     runtimeDir: ".pi/beadwork/workers/runtime",
   },
+  review: {
+    policy: "ticket",
+    provider: undefined,
+    model: undefined,
+  },
   tmux: {
     sessionName: "pi-bw",
     workerCommand: "pi",

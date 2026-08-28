@@ -1,14 +1,16 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  isInterruptedRun,
   loadSessionState,
   resetSessionState,
   resolveSessionStateDir,
   resolveSessionStatePath,
   saveSessionState,
 } from "../../session-state.js";
+import type { Goal, SessionState } from "../../types.js";
 
 describe("session state persistence", () => {
   it("loads a default neutral state when no file exists", async () => {
@@ -189,5 +191,129 @@ describe("session state persistence", () => {
   it("resolves relative state directories under the provided root", () => {
     const resolved = resolveSessionStateDir("/repo", ".pi/beadwork/session-state");
     expect(resolved).toBe(path.resolve("/repo", ".pi/beadwork/session-state"));
+  });
+
+  it("round-trips a V1 goal record", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
+    const goal: Goal = {
+      goalId: "goal-BW-100",
+      scopeIds: ["BW-100"],
+      reviewPolicy: "ticket",
+      startedAt: "2026-08-28T00:00:00.000Z",
+    };
+
+    const saved = await saveSessionState(tempDir, "session-goal", {
+      mode: "run",
+      scope: { kind: "epic", id: "BW-100", title: "Epic title" },
+      updatedAt: "2026-08-28T00:00:00.000Z",
+      engagedAt: "2026-08-28T00:00:00.000Z",
+      goal,
+    });
+
+    expect(saved.goal).toEqual(goal);
+    expect(saved.runInterrupted).toBeUndefined();
+
+    const loaded = await loadSessionState(tempDir, "session-goal");
+    expect(loaded.goal).toEqual(goal);
+    expect(loaded.mode).toBe("run");
+    expect(loaded.runInterrupted).toBe(true);
+    expect(isInterruptedRun(loaded)).toBe(true);
+  });
+
+  it("rejects V1 goals that do not have exactly one epic id", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
+
+    await saveSessionState(tempDir, "session-empty-scope", {
+      mode: "run",
+      scope: { kind: "epic", id: "BW-100" },
+      updatedAt: "2026-08-28T00:00:00.000Z",
+      goal: {
+        goalId: "goal-empty",
+        scopeIds: [],
+        reviewPolicy: "ticket",
+        startedAt: "2026-08-28T00:00:00.000Z",
+      },
+    });
+    expect((await loadSessionState(tempDir, "session-empty-scope")).goal).toBeUndefined();
+
+    await saveSessionState(tempDir, "session-multi-scope", {
+      mode: "run",
+      scope: { kind: "epic", id: "BW-100" },
+      updatedAt: "2026-08-28T00:00:00.000Z",
+      goal: {
+        goalId: "goal-multi",
+        scopeIds: ["BW-100", "BW-200"],
+        reviewPolicy: "scope",
+        startedAt: "2026-08-28T00:00:00.000Z",
+      },
+    });
+    expect((await loadSessionState(tempDir, "session-multi-scope")).goal).toBeUndefined();
+  });
+
+  it("treats persisted run mode as interrupted and does not restore live workers", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
+    const live: SessionState = {
+      mode: "run",
+      scope: { kind: "epic", id: "BW-100" },
+      updatedAt: "2026-08-28T00:00:00.000Z",
+      goal: {
+        goalId: "goal-BW-100",
+        scopeIds: ["BW-100"],
+        reviewPolicy: "none",
+        startedAt: "2026-08-28T00:00:00.000Z",
+      },
+      trackedWorkerIds: ["bw-101-worker"],
+      runOptions: {
+        workers: 3,
+        until: "blocked",
+        noSpawn: false,
+        dryRun: false,
+        maxCycles: 5,
+      },
+    };
+
+    const saved = await saveSessionState(tempDir, "session-run", live);
+    expect(saved.trackedWorkerIds).toEqual(["bw-101-worker"]);
+    expect(saved.runOptions).toEqual(live.runOptions);
+    expect(isInterruptedRun(saved)).toBe(false);
+
+    const raw = await readFile(resolveSessionStatePath(tempDir, "session-run"), "utf8");
+    expect(raw).not.toContain("trackedWorkerIds");
+    expect(raw).not.toContain("runOptions");
+    expect(raw).toContain("goal-BW-100");
+
+    const loaded = await loadSessionState(tempDir, "session-run");
+    expect(loaded.mode).toBe("run");
+    expect(loaded.runInterrupted).toBe(true);
+    expect(isInterruptedRun(loaded)).toBe(true);
+    expect(loaded.trackedWorkerIds).toBeUndefined();
+    expect(loaded.runOptions).toBeUndefined();
+    expect(loaded.goal).toEqual(live.goal);
+  });
+
+  it("marks leftover run JSON as interrupted even if supervisor fields are still on disk", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
+    await writeFile(
+      resolveSessionStatePath(tempDir, "session-legacy-run"),
+      `${JSON.stringify({
+        mode: "run",
+        scope: { kind: "epic", id: "BW-100" },
+        updatedAt: "2026-08-28T00:00:00.000Z",
+        trackedWorkerIds: ["bw-101-worker"],
+        runOptions: {
+          workers: 2,
+          until: "empty",
+          noSpawn: false,
+          dryRun: false,
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const loaded = await loadSessionState(tempDir, "session-legacy-run");
+    expect(loaded.runInterrupted).toBe(true);
+    expect(loaded.trackedWorkerIds).toBeUndefined();
+    expect(loaded.runOptions).toBeUndefined();
+    expect(isInterruptedRun(loaded)).toBe(true);
   });
 });

@@ -22,6 +22,20 @@ export type SessionScope =
   | { kind: "ticket"; id: string; title?: string }
   | { kind: "epic"; id: string; title?: string };
 
+export type ReviewPolicy = "ticket" | "scope" | "none";
+
+export type Goal = {
+  goalId: string;
+  /** V1 requires exactly one epic id. */
+  scopeIds: string[];
+  reviewPolicy: ReviewPolicy;
+  startedAt: string;
+};
+
+export function isV1Goal(goal: Goal): boolean {
+  return goal.scopeIds.length === 1 && Boolean(goal.scopeIds[0]);
+}
+
 export type PrimeCache = {
   content: string;
   loadedAt: string;
@@ -42,6 +56,9 @@ export type SessionState = {
   updatedAt: string;
   engagedAt?: string;
   prime?: PrimeCache;
+  goal?: Goal;
+  /** Set on disk rehydration of mode=run. Never treat as a live supervisor. */
+  runInterrupted?: boolean;
   trackedWorkerIds?: string[];
   workerNotices?: Record<string, string>;
   runOptions?: SessionRunOptions;
@@ -116,6 +133,11 @@ export type BeadworkConfig = {
     sessionStateDir: string;
     workerRegistryFile: string;
     runtimeDir: string;
+  };
+  review: {
+    policy: ReviewPolicy;
+    provider?: string;
+    model?: string;
   };
   tmux: {
     sessionName: string;
