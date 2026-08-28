@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-vur.4.2"
+  ],
   "blocks": [
     "sbdpi-vur.4",
     "sbdpi-vur.4.5"
