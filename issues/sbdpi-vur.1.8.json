@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "sbdpi-vur.1.2",
     "sbdpi-vur.1.7"
   ],
   "blocks": [],
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Deliver coalesced parent lifecycle packets at a safe boundary",
   "type": "feature",
-  "updated_at": "2026-08-28T21:32:50Z"
+  "updated_at": "2026-08-28T21:32:51Z"
 }
