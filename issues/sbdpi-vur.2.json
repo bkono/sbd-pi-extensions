@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T21:30:47Z",
+  "description": "Beadwork becomes a goal/domain adapter: `/bw run` injects a prompt, supervisor flags die, worker tools die. Tmux runtime deletion is a child of this phase but must wait until minions `orchestrate` and `/bw run` exist.\n\n## Background\n\n`orchestrator.ts` is a multi-thousand-line tmux/polling supervisor. `beadwork_delegate` launches tmux workers. `/bw run` currently enters `run` mode and `runBoundedEpicLoop`. That is the product we are replacing, not wrapping.\n\nBeadwork keeps tickets, dependencies, ready, start/close/comment, inspection tools, attribution helpers, and issue TUI.\n\n## Parallelism\n\nConfig/session-state, TUI worker-tab deletion, and worker-tool unregistration can start without minions. `/bw run` inject prompt can be written against a stub, but e2e needs orchestrate. Deleting orchestrator.ts before orchestrate exists will leave the package unable to run epics and may break typecheck if types are removed too early. Keep WorkerRuntime types until the delete-runtime child.\n\n## Out of scope\n\nMinions packet internals, peer mail, path TTL. Do not add a beadwork fleet UI or import AgentTree. Do not migrate landing.validateCommands into a new gate. Do not add `--workers` as a minions cap.\n\n## Success\n\n`/bw run \u003cepic\u003e` on tui/rpc injects a prompt and does not start tmux. Supervisor flags rejected. No delegate/worker_done/land/check tools. Published cutover still waits on phase D.",
+  "id": "sbdpi-vur.2",
+  "labels": [],
+  "parent": "sbdpi-vur",
+  "priority": 1,
+  "status": "open",
+  "title": "[EPIC] Beadwork goal adapter cutover",
+  "type": "epic",
+  "updated_at": "2026-08-28T21:30:47Z"
+}
