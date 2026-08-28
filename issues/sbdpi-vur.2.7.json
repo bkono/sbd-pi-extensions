@@ -16,9 +16,15 @@
   "id": "sbdpi-vur.2.7",
   "labels": [],
   "parent": "sbdpi-vur.2",
+  "comments": [
+    {
+      "text": "No wrap, no tmux fallback, no worker façade. Blocked until /bw run no longer calls the supervisor and worker tools are gone.",
+      "timestamp": "2026-08-28T21:33:29Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Delete tmux, orchestrator, worktree, registry, and worker action modules",
   "type": "chore",
-  "updated_at": "2026-08-28T21:33:04Z"
+  "updated_at": "2026-08-28T21:33:29Z"
 }
