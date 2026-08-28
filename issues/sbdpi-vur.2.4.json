@@ -5,7 +5,8 @@
     "sbdpi-vur.2",
     "sbdpi-vur.2.6",
     "sbdpi-vur.2.7",
-    "sbdpi-vur.2.8"
+    "sbdpi-vur.2.8",
+    "sbdpi-vur.4.2"
   ],
   "created": "2026-08-28T21:31:27Z",
   "description": "Unregister and delete Beadwork worker tools from the package. These are gone for parent and child, not merely hidden.\n\n## Kill list (rip out)\n\n- `beadwork_delegate`\n- `beadwork_worker_done`\n- `beadwork_land_worker`\n- `beadwork_worker_check`\n\nKeep `beadwork_sync` on the parent. Keep start/close/reopen/create/update/comment/label/defer/dependencies on the parent.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/index.ts` (tool registrations)\n- tests that mention these tools\n- docs/tool descriptions if in the same package README snippets\n\nDo not delete orchestrator.ts here; unused imports can remain until delete-runtime, or stub the removed execute paths. Prefer: remove registerTool blocks and their helpers if that does not require deleting orchestrator yet. If index imports launchTicketWorker only for delegate, remove that import and leave orchestrator.ts unreferenced until delete-runtime (might trip lint unused — then export a comment or wait: **this issue may need delete-runtime if lint forbids unused modules**. If so, depend on nothing but keep orchestrator imported from a deprecated test skip... Better: this issue only removes tools; if that leaves unused imports, use a lint ignore only if unavoidable, otherwise this issue is allowed to stop importing orchestrator while leaving the file on disk until delete-runtime.\n\n## Success criteria\n\n- Those four tools are not registered.\n- beadwork_sync still registered.\n- Children never had a special path; once minions allowlist lands they cannot see close anyway.\n\n## Test plan\n\n- Unit: tool names registered (existing index tests).\n- Regression: descriptions do not mention tmux workers.\n\n## Considerations\n\nindex.ts is a hotspot. Do not also implement /bw run or close-issue goal-exit here.",
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Delete beadwork_delegate, worker_done, land_worker, and worker_check",
   "type": "chore",
-  "updated_at": "2026-08-28T21:32:57Z"
+  "updated_at": "2026-08-28T21:33:02Z"
 }
