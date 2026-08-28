@@ -7,9 +7,15 @@
   "id": "sbdpi-vur.5",
   "labels": [],
   "parent": "sbdpi-vur",
+  "comments": [
+    {
+      "text": "Deferred on purpose. Does not block sbdpi-vur. scopeIds is already an array in V1.",
+      "timestamp": "2026-08-28T21:30:49Z"
+    }
+  ],
   "priority": 3,
   "status": "open",
   "title": "[EPIC] Deferred orchestration follow-ons",
   "type": "epic",
-  "updated_at": "2026-08-28T21:30:48Z"
+  "updated_at": "2026-08-28T21:30:49Z"
 }
