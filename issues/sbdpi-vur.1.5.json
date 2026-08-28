@@ -16,9 +16,15 @@
   "id": "sbdpi-vur.1.5",
   "labels": [],
   "parent": "sbdpi-vur.1",
+  "comments": [
+    {
+      "text": "Single owner of SubsessionManager. Do not split this bead. Re-apply tool allowlist after async extension load. Leave a hook for orchestrated-only comm tools. Exclude pi-minions from child extension load so children cannot orchestrate.",
+      "timestamp": "2026-08-28T21:33:28Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Split child session start from wait; settled lifecycle, dispose, tool allowlist",
   "type": "feature",
-  "updated_at": "2026-08-28T21:32:59Z"
+  "updated_at": "2026-08-28T21:33:28Z"
 }
