@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T21:31:29Z",
+  "description": "Single-winner between child settlement and inbound child mail. Do not double-complete.\n\n## Background\n\nIf mail is accepted as followUp, that continuation must go idle before one settled packet. If settlement is already committed, later mail is recipient-terminal. Not a wait state machine.\n\n## Success criteria\n\n- No two terminal events for one run.\n- No settled packet plus a still-running prompt.\n\n## Test plan\n\n- Race tests: mail vs settle ordering both ways.\n- Halt vs mail.\n\n## Considerations\n\nHook the runner's terminal commit latch. Keep it small.",
+  "id": "sbdpi-vur.3.4",
+  "labels": [],
+  "parent": "sbdpi-vur.3",
+  "priority": 2,
+  "status": "open",
+  "title": "Serialize child settlement against inbound mail with one terminal winner",
+  "type": "task",
+  "updated_at": "2026-08-28T21:31:29Z"
+}
