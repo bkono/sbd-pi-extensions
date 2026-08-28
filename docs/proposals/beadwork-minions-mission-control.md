@@ -1,9 +1,12 @@
 # Revised Proposal: Minions Orchestration Core with a Beadwork Goal Adapter
 
 **Date:** 2026-08-27
-**Status:** Revised repo-grounded proposal for review
+**Status:** Superseded. Retained as the first-pass product constitution.
+**Replacement:** [`beadwork-minions-orchestration.md`](./beadwork-minions-orchestration.md)
 **Scope:** `packages/pi-minions` + `packages/pi-beadwork-extension`
 **Supersedes:** The earlier tmux-migration and detached Mission Control design in this file
+
+> Do not implement from this file. The living spec is `docs/proposals/beadwork-minions-orchestration.md`.
 
 ## Executive recommendation
 
