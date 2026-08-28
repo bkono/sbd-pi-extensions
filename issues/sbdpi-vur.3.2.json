@@ -12,7 +12,10 @@
   "created": "2026-08-28T21:31:28Z",
   "description": "Deliver addressed peer messages only to live children in the same group. Best effort, nonblocking.\n\n## Background\n\nNo durable mailbox, no exactly-once, no wait-for-reply, no parked sessions. Send returns immediately. Live recipient: steer/followUp at a child-safe boundary (may postpone idle). Terminal: recipient-terminal. Do not reroute through the parent. Peer messages do not start a parent turn.\n\n## Success criteria\n\n- Same-group live delivery works.\n- Cross-group and terminal fail clearly.\n- Parent inspects via list_minions/show_minion, not a parent turn per peer message.\n\n## Test plan\n\n- Unit: ACL same group, identity from closure.\n- Integration: live vs disposed.\n- Size/depth limits fail mailbox-full.\n\n## Considerations\n\nPeer chat can delay settlement. Halt is the escape. No timeout product in V1.",
   "id": "sbdpi-vur.3.2",
-  "labels": [],
+  "labels": [
+    "minions",
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.3",
   "comments": [
     {
@@ -24,5 +27,5 @@
   "status": "open",
   "title": "Deliver nonblocking same-group messages to live children",
   "type": "feature",
-  "updated_at": "2026-08-28T21:33:29Z"
+  "updated_at": "2026-08-28T21:33:35Z"
 }
