@@ -9,7 +9,7 @@
     "sbdpi-vur.4.3"
   ],
   "created": "2026-08-28T21:31:29Z",
-  "description": "Single-winner between child settlement and inbound child mail. Do not double-complete.\n\n## Background\n\nIf mail is accepted as followUp, that continuation must go idle before one settled packet. If settlement is already committed, later mail is recipient-terminal. Not a wait state machine.\n\n## Success criteria\n\n- No two terminal events for one run.\n- No settled packet plus a still-running prompt.\n\n## Test plan\n\n- Race tests: mail vs settle ordering both ways.\n- Halt vs mail.\n\n## Considerations\n\nHook the runner's terminal commit latch. Keep it small.\n\n\n## Test plan (expanded)\n\n- Race: mail then settle → one settled after continuation idles; original mail delivered.\n- Race: settle commit then mail → recipient-terminal; no second terminal event.\n- Race: halt vs mail.\n- Logging: winner (settle vs mail vs abort), event count (must be 1 terminal).",
+  "description": "Single-winner between child terminal commit and inbound child mail. Do not double-complete. Not a wait state machine.\n\n## Background\n\nIf mail is already accepted as child followUp, that continuation must go idle before **one** settled packet. If terminal is already committed, later mail is recipient-terminal.\n\nSame latch for **failed**, **aborted/halt**, and **parent session_shutdown**, not only happy-path settle.\n\n## Races (all required)\n\n- mail then settle → one settled after continuation idles; mail delivered\n- settle commit then mail → recipient-terminal; one terminal event\n- failed vs mail (both orders)\n- shutdown vs mail (both orders)\n- halt vs mail\n\n## Success criteria\n\n- Exactly one terminal event per run.\n- No settled/failed/aborted packet plus a still-running prompt.\n\n## Test plan\n\n- Each race above.\n- Logging: winner (settle | fail | abort | shutdown | mail-then-settle), terminal event count = 1.\n\n## Considerations\n\nHook the runner’s terminal commit latch from 1.5. Keep it small.",
   "id": "sbdpi-vur.3.4",
   "labels": [
     "minions",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Serialize child settlement against inbound mail with one terminal winner",
   "type": "task",
-  "updated_at": "2026-08-28T21:47:30Z"
+  "updated_at": "2026-08-28T22:57:10Z"
 }
