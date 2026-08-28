@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-vur.1.7"
+  ],
   "blocks": [],
   "created": "2026-08-28T21:31:28Z",
   "description": "Inject bound communication tools into orchestrated child sessions only. Do not load the minions extension in children.\n\n## Background\n\nChildren must not get parent `orchestrate`/`spawn`/`halt`/`send_minion_message`. Comm tools are closures with sender identity fixed at inject time. Spawn children do not get these tools.\n\n## Tools (names are an implementation choice)\n\n- list peers in the group (id, role, taskType, description, state)\n- send to a live peer or to the parent\n- announce path intent / inspect intent (or leave announce to the paths issue; if so, provide the inject hook only)\n\n## Success criteria\n\n- Orchestrated child tool list includes comm, not halt/orchestrate.\n- Spawn child tool list does not include comm.\n- Child cannot pass `from` identity.\n\n## Test plan\n\n- Unit: inject binds childId.\n- Integration: spawn vs orchestrate tool names.\n\n## Considerations\n\nThis issue owns the inject hook in the runner. Coordinate with runner's extra-tools list rather than rewriting allowlist math.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Inject bound comm tools into orchestrated children only",
   "type": "feature",
-  "updated_at": "2026-08-28T21:31:28Z"
+  "updated_at": "2026-08-28T21:32:58Z"
 }
