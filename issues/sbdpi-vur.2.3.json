@@ -5,7 +5,8 @@
   ],
   "blocks": [
     "sbdpi-vur.2.6",
-    "sbdpi-vur.2.7"
+    "sbdpi-vur.2.7",
+    "sbdpi-vur.2.8"
   ],
   "created": "2026-08-28T21:31:27Z",
   "description": "`/bw run \u003cepic\u003e` enters goal mode and injects a prompt that starts a parent turn.\n\n## Background\n\nToday `actions/run.ts` builds RunOptions and the supervisor launches workers. Replace that. This is not a minions lifecycle packet and not a frozen dump of `bw ready`.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/actions/run.ts`\n- `argv.ts` / `commands.ts` / `command-aliases.ts` / `command-completions.ts` as needed for flags\n- tests\n\n## Behavior\n\n1. Reject print/json hosts (same as orchestrate).\n2. Reject --workers/--until/--maxCycles/--noSpawn/--dryRun (actionable error). Command is `/bw run \u003cepic\u003e` only.\n3. Validate open epic with traversable descendants.\n4. Store Goal (exactly one scopeId). Set mode run.\n5. Standing appendix from prompt.ts.\n6. Inject prompt: epic id/title, review policy, \"refresh bw ready/show, start ready work, compose task, orchestrate with domain metadata\". followUp if parent mid-turn; triggerTurn if idle. sendUserMessage or sendMessage is fine; no second packet schema.\n7. Do not probe minions. If orchestrate is missing, the parent turn fails in the open.\n8. Same session, same epic: re-inject the prompt.\n9. Same session, different epic while a goal is active: reject until current goal exits.\n10. Two Pi sessions, one epic: no lock.\n\n## Success criteria\n\n- No tmux, no runBoundedEpicLoop call.\n- Flags rejected.\n- print/json rejected.\n- Injected content has identifiers + refresh instruction, not a baked ready list.\n\n## Test plan\n\n- Unit: flag/host/epic validation.\n- Unit: same-epic retry vs different-epic reject.\n- Unit: injected prompt shape.\n- Do not require a live AgentSession for this issue; stub sendMessage.\n\n## Considerations\n\nGoal-exit (forget group, exit run on epic close) is a sibling issue so this file does not also rewrite close_issue in index.ts.",
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Make /bw run inject an epic prompt instead of supervising workers",
   "type": "feature",
-  "updated_at": "2026-08-28T21:32:55Z"
+  "updated_at": "2026-08-28T21:32:56Z"
 }
