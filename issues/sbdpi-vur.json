@@ -3,7 +3,8 @@
   "blocked_by": [
     "sbdpi-vur.1",
     "sbdpi-vur.2",
-    "sbdpi-vur.3"
+    "sbdpi-vur.3",
+    "sbdpi-vur.4"
   ],
   "blocks": [],
   "created": "2026-08-28T07:21:18Z",
@@ -28,5 +29,5 @@
   "status": "open",
   "title": "Replace Beadwork tmux workers with in-process minions orchestration",
   "type": "epic",
-  "updated_at": "2026-08-28T21:33:06Z"
+  "updated_at": "2026-08-28T21:33:07Z"
 }
