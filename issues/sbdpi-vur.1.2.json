@@ -7,6 +7,8 @@
     "sbdpi-vur.1",
     "sbdpi-vur.1.8"
   ],
+  "closed_at": "2026-08-28T23:57:51Z",
+  "close_reason": "Landed nudgeFor policy table (b1231d2 cherry-pick). Review PASS. Enums stay in task-types.ts; packets (1.8) consume this.",
   "created": "2026-08-28T21:31:24Z",
   "description": "Implement deterministic parent-nudge selection. Nudges are instruction **intents** (strings). They must not close tickets, spawn work, or parse child JSON.\n\n## Background\n\n`taskType` asks the parent a constrained question when a child changes state. Role is how the child worked. A native pass tried to enforce structured child results instead. Rejected.\n\n## Files\n\n- `packages/pi-minions/src/task-types.ts` (policy strings)\n- tests\n\n## Precedence (exact)\n\n1. If `taskType` is present → that policy for the **event class**.\n2. Else if event is `settled` or `failed` and role `completion_nudge` is present → that string.\n3. Else generic for that event class.\n\nDo not concatenate role guidance onto task-type guidance. `parentMessage` and `aborted` never use role completion_nudge.\n\n## Intent matrix (lock the questions, not a frozen sentence protocol)\n\nEvent classes: `settled | aborted | failed | parentMessage`.\n\n| Task type | settled | failed | aborted | parentMessage |\n| --- | --- | --- | --- | --- |\n| implementation | Assess evidence. Apply active domain review policy if any. Accept, dispatch a fix, or ask the user. Do not close a ticket solely because the child settled. | Inspect failure; retry/fix/escalate. | Do not retry unless the user asks. | Child still running. Answer via parent→child message or halt. Not settlement. |\n| fix | Verify against the original finding. Independent re-review before acceptance. | Inspect failure; retry or escalate. | Same abort rule. | Same live-child rule. |\n| reviewImplementation | Disposition every finding as **fix** (blocking, remediate + re-review), **file** (nonblocking follow-up unless the user waives a blocker in an ordinary turn), or **reject** (record why). Unresolved required fixes block acceptance. Judgment is the parent’s, not a keyword classifier. | Inspect failure; re-review or escalate. | Same abort rule. | Same live-child rule. |\n| reviewScope | Adjudicate cross-ticket findings; judge whether the goal meets acceptance. | Inspect failure; re-review or escalate. | Same abort rule. | Same live-child rule. |\n| investigateBlocker | Apply the answer to blocked work, or record why escalation remains. Investigation settlement is not implementation settlement. | Inspect failure; retry or escalate. | Same abort rule. | Same live-child rule. |\n| (none) | Role fallback or “A background task settled. Inspect and decide.” | “A background task failed…” | “A background task was aborted. Do not retry unless the user asks.” | “A running child sent a question. Answer or halt; it has not settled.” |\n\nWording may be edited for clarity; the **questions and constraints** above must remain. Do not turn this into a required child result schema.\n\nCoalesced packets call `nudgeFor(child, event)` per changed child.\n\n## Success criteria\n\n- `fix` vs `reviewImplementation` settled strings differ regardless of role.\n- parentMessage never says settled.\n- aborted is not failed copy.\n- No concatenation.\n\n## Test plan\n\n- Full TaskType × NudgeEvent table; log each pair.\n- taskType present ignores role nudge.\n- Missing taskType + role nudge on settled; ignored on parentMessage/aborted.\n\n## Considerations\n\nMinions must not import beadwork. Implementation settled nudge may say “apply active domain review policy if any.”",
   "id": "sbdpi-vur.1.2",
@@ -16,8 +18,8 @@
   ],
   "parent": "sbdpi-vur.1",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Implement task-type nudge table and precedence",
   "type": "task",
-  "updated_at": "2026-08-28T23:41:48Z"
+  "updated_at": "2026-08-28T23:57:51Z"
 }
