@@ -5,6 +5,8 @@
     "sbdpi-vur.2",
     "sbdpi-vur.2.7"
   ],
+  "closed_at": "2026-08-28T23:44:44Z",
+  "close_reason": "Removed worker/fleet TUI and statusline counts (7ca8368). Review PASS. Issue explorer + goal-summary Run tab remain. CLI aliases/README left for later beads.",
   "created": "2026-08-28T21:31:27Z",
   "description": "Remove worker/fleet/landing **TUI and statusline** from Beadwork. Keep issue/goal browsing.\n\n## Owns\n\n- `src/tui/worker-manager.ts` delete\n- `src/tui/dashboard.ts` workers tab\n- statusline worker fields\n- TUI-facing copy (not CLI aliases, not README)\n\n## Does not own\n\n- CLI aliases/completions — 2.8\n- `/bw abandon` — 2.6\n- published README/migration — 4.4\n\n## Success criteria\n\n- Dashboard has no Workers tab; no land/cleanup actions.\n- Statusline has no worker counts.\n- Issue explorer still works.\n- Run tab, if kept, is goal summary (epic id, review policy, interrupted vs active) with **no minion rows**.\n\n## Test plan\n\n- Unit: tab ids; statusline; issue explorer still renders.\n- Grep TUI strings for worker land/cleanup.\n\n## Considerations\n\nDo not import AgentTree. Do not rebuild a fleet table.",
   "id": "sbdpi-vur.2.5",
@@ -14,8 +16,8 @@
   ],
   "parent": "sbdpi-vur.2",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Remove Beadwork worker/fleet TUI and supervisor copy",
   "type": "chore",
-  "updated_at": "2026-08-28T22:57:09Z"
+  "updated_at": "2026-08-28T23:44:44Z"
 }
