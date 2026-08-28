@@ -9,7 +9,7 @@
     "sbdpi-vur.4.3"
   ],
   "created": "2026-08-28T21:31:29Z",
-  "description": "Advisory TTL path intent and overlap notices. Never lock, pause, or reject writes.\n\n## Background\n\nShared checkout is normal. Intent is a hint, not ownership. Shell writes may be invisible. Do not claim safety. Do not create worktrees. Observing edit-tool paths is deferred.\n\n## Behavior\n\n- Announce paths + TTL; expire automatically.\n- On overlap of declared paths: notify live agents, name the other child's description, suggest a direct message, surface metadata for the parent on the next real packet (not a spam wake).\n- Continue execution.\n\n## Success criteria\n\n- Overlap never rejects an edit.\n- Expired intent disappears without implying the agent stopped touching the path.\n\n## Test plan\n\n- Unit: TTL expiry.\n- Unit: overlap notice contents.\n- Unit: no enforcement action.\n\n## Considerations\n\nSpawn children are not in the group; they do not announce. Fine.\n\n\n## Test plan (expanded)\n\n- Unit: TTL expiry; overlap notice includes other child description; no reject/pause/worktree.\n- Unit: expired intent does not imply the agent stopped touching the path.\n- Logging: paths, agent ids, whether an edit was allowed (always true).",
+  "description": "Advisory TTL path intent and overlap notices. Never lock, pause, or reject writes.\n\n## Background\n\nShared checkout is normal. Intent is a hint, not ownership. Shell writes may be invisible. Do not claim safety. Do not create worktrees. Observing edit-tool paths is deferred.\n\n## Matcher (one, deterministic)\n\n- Paths are relative to the group cwd after lexical normalization (`path.normalize`, collapse `.` / `..`, POSIX-ish separators).\n- Overlap is **exact match or ancestor/descendant** (a file overlaps a directory prefix).\n- No glob engine, no brace expansion, no symlink-ownership claim, no filesystem lock.\n\n## Behavior\n\n- Announce paths + TTL; expire automatically.\n- On overlap: notify live agents, name the other child’s description, suggest a direct message, surface metadata on the next real parent packet (not a spam wake).\n- Continue execution.\n\n## Success criteria\n\n- Overlap never rejects an edit.\n- Expired intent does not imply the agent stopped touching the path.\n\n## Test plan\n\n- Unit: `a/b.ts` overlaps `a/`; `a/b.ts` does not overlap `c/`; TTL expiry.\n- Unit: no glob required (`*` is a literal path segment if announced that way).\n- Logging: paths, agent ids, overlap boolean, edit still allowed.\n\n## Considerations\n\nSpawn children are not in the group; they do not announce.",
   "id": "sbdpi-vur.3.5",
   "labels": [
     "minions",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Add advisory TTL path intent and overlap notices",
   "type": "feature",
-  "updated_at": "2026-08-28T21:47:30Z"
+  "updated_at": "2026-08-28T22:57:10Z"
 }
