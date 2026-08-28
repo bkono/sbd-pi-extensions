@@ -713,13 +713,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             runOptions: undefined,
             recentRunSummary: summary,
           });
-          updateStatusline(
-            ctx,
-            activation,
-            paused,
-            config,
-            status.workerSummary ?? summary.workerSummary,
-          );
+          updateStatusline(ctx, activation, paused, config);
           if (runNotice) {
             ctx.ui.notify(runNotice.message, runNotice.level);
           }
@@ -730,13 +724,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           ...state,
           recentRunSummary: summary,
         });
-        updateStatusline(
-          ctx,
-          activation,
-          continued,
-          config,
-          status.workerSummary ?? summary.workerSummary,
-        );
+        updateStatusline(ctx, activation, continued, config);
         return;
       }
 
@@ -870,7 +858,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       );
     }
 
-    updateStatusline(ctx, activation, state, config, workerSummary);
+    updateStatusline(ctx, activation, state, config);
 
     return { activation, state, counts, scopeDetail, workerSummary, workers, config };
   }
@@ -930,12 +918,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       runOptions: mode === "run" ? (runOptions ?? state.runOptions) : undefined,
     });
     const scopeDetail = await resolveScopeDetail(ctx, activation, nextState);
-    const workerSummary = await resolveWorkerSummary(
-      activation,
-      config,
-      nextState.scope.kind === "epic" ? nextState.scope.id : undefined,
-    );
-    updateStatusline(ctx, activation, nextState, config, workerSummary);
+    updateStatusline(ctx, activation, nextState, config);
     return { state: nextState, scopeDetail };
   }
 
@@ -997,12 +980,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       trackedWorkerIds,
       workerNotices: Object.keys(workerNotices).length > 0 ? workerNotices : undefined,
     });
-    const workerSummary = await resolveWorkerSummary(
-      activation,
-      config,
-      nextState.scope.kind === "epic" ? nextState.scope.id : undefined,
-    );
-    updateStatusline(ctx, activation, nextState, config, workerSummary);
+    updateStatusline(ctx, activation, nextState, config);
     return nextState;
   }
 
@@ -1128,12 +1106,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     const activation = await detectActivation(ctx.cwd);
     const state = await readSessionState(ctx, activation, config);
     await writeSessionState(ctx, activation, config, state);
-    const workerSummary = await resolveWorkerSummary(
-      activation,
-      config,
-      state.scope.kind === "epic" ? state.scope.id : undefined,
-    );
-    updateStatusline(ctx, activation, state, config, workerSummary);
+    updateStatusline(ctx, activation, state, config);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
@@ -1218,45 +1191,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             resolveCounts,
             inspectWorkers,
             syncWorkerTracking,
-            executeLand: async (actionCtx, target) => {
-              await handleLandingAction({
-                subcommand: "land",
-                parsed: { positional: [target], options: new Map() },
-                ctx: actionCtx,
-                deps: {
-                  adapter,
-                  requireActive,
-                  trackWorkerForBackground,
-                },
-              });
-            },
-            executeCancel: async (actionCtx, target) => {
-              await handleWorkersAction({
-                subcommand: "cancel",
-                parsed: { positional: [target], options: new Map() },
-                ctx: actionCtx,
-                deps: {
-                  requireActive,
-                  inspectWorkers,
-                  syncWorkerTracking,
-                },
-              });
-            },
-            executeCleanup: async (actionCtx, target) => {
-              await handleCleanupAction({
-                subcommand: "cleanup",
-                parsed: { positional: [target], options: new Map() },
-                ctx: actionCtx,
-                deps: {
-                  loadConfig,
-                  detectActivation,
-                  readSessionState,
-                  resetState,
-                  inspectWorkers,
-                  requireActive,
-                },
-              });
-            },
           },
         })
       ) {

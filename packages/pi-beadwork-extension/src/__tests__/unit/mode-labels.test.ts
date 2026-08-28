@@ -3,7 +3,6 @@ import { formatStatusLines, showWorkers } from "../../commands.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
 import { summarizeWorkers } from "../../registry.js";
 import { renderStatusText } from "../../statusline.js";
-import { buildWorkerManagerPanelLines } from "../../tui/worker-manager.js";
 import type { WorkerRuntime } from "../../types.js";
 import { formatWorkerInspectionLines, inspectWorker } from "../../worker-diagnostics.js";
 import { createFakeExtensionContext, createFakeUi } from "../helpers/extension-harness.js";
@@ -64,18 +63,10 @@ describe("worker execution mode labels", () => {
     ].join("\n");
     expect(workersText).toContain("BW-101 [worktree]");
     expect(workersText).toContain("BW-102 [current-branch]");
-
-    const managerText = buildWorkerManagerPanelLines({
-      workers: [worktree, currentBranch],
-      state: { mode: "interactive", scope: { kind: "none" }, updatedAt: "now" },
-      selectedWorkerId: currentBranch.workerId,
-    }).join("\n");
-    expect(managerText).toContain("BW-101 [worktree]");
-    expect(managerText).toContain("BW-102 [current-branch]");
-    expect(managerText).toContain("executionMode: current-branch");
-    expect(managerText).toContain("checkoutPath: /repo");
-    expect(managerText).toContain("branchName: main");
-    expect(managerText).toContain("launchHead: def456");
+    expect(workersText).toContain("executionMode=current-branch");
+    expect(workersText).toContain("checkoutPath=/repo");
+    expect(workersText).toContain("branchName=main");
+    expect(workersText).toContain("launchHead=def456");
   });
 
   it("counts mixed execution modes in aggregate and statusline output", async () => {
@@ -96,9 +87,11 @@ describe("worker execution mode labels", () => {
       { kind: "active", repoRoot: "/repo" },
       { mode: "interactive", scope: { kind: "none" }, updatedAt: "now" },
       DEFAULT_CONFIG,
-      summary,
     );
-    expect(statusText).toContain("current-branch 1 worktree 1");
+    expect(statusText).toBe("bw interactive");
+    expect(statusText).not.toContain("current-branch");
+    expect(statusText).not.toContain("worktree");
+    expect(statusText).not.toMatch(/workers \d/);
   });
 
   it("shows configured default execution mode in /bw status text", () => {

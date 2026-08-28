@@ -8,7 +8,6 @@ import {
   resolveWorkerRuntimeDir,
   saveWorkerRegistry,
 } from "../registry.js";
-import { getWorkerActionAvailability } from "../tui/worker-manager.js";
 import {
   type ActivationState,
   type BeadworkConfig,
@@ -16,6 +15,7 @@ import {
   type SessionState,
   type WorkerRuntime,
 } from "../types.js";
+import { getWorkerActionAvailability } from "../worker-diagnostics.js";
 import { cleanupTicketWorktree, cleanupWorkerRuntimeDir } from "../worktree.js";
 
 function matchesWorkerTarget(worker: WorkerRuntime, target: string): boolean {

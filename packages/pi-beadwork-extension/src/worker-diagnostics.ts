@@ -1,4 +1,16 @@
-import { isSuccessfulTerminalWorker, type WorkerRuntime } from "./types.js";
+import { isSuccessfulTerminalWorker, isWorktreeWorker, type WorkerRuntime } from "./types.js";
+
+export type WorkerActionKind = "land" | "cancel" | "cleanup";
+
+export type WorkerActionAvailability = {
+  kind: WorkerActionKind;
+  label: string;
+  command: string;
+  enabled: boolean;
+  reason: string;
+};
+
+export type WorkerActionSet = Record<WorkerActionKind, WorkerActionAvailability>;
 
 export type WorkerInspection = {
   runtime: WorkerRuntime;
@@ -698,4 +710,99 @@ export function formatWorkerInspectionLines(inspection: WorkerInspection): strin
   }
 
   return lines;
+}
+
+export function getWorkerActionAvailability(worker: WorkerRuntime): WorkerActionSet {
+  const inspection = inspectWorker(worker);
+
+  const land: WorkerActionAvailability = {
+    kind: "land",
+    label: "land",
+    command: `/bw land ${worker.ticketId}`,
+    enabled: false,
+    reason: "not ready",
+  };
+
+  if (isSuccessfulTerminalWorker(worker) || inspection.landing.state === "verified") {
+    land.reason = worker.status === "verified" ? "already verified" : "already landed";
+  } else if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
+    land.reason =
+      worker.executionMode === "worktree"
+        ? "landing already queued"
+        : "verification already queued";
+  } else if (worker.status === "launching" || worker.status === "running") {
+    land.reason = "worker is still active";
+  } else if (worker.ticketStatus !== "closed") {
+    land.reason = "ticket must be closed first";
+  } else if (worker.status === "failed") {
+    land.reason = "worker failed; relaunch after fixing it";
+  } else if (inspection.validation.state === "failed") {
+    land.reason = inspection.validation.detail ?? "validation is failing";
+  } else if (
+    inspection.review.state === "changes-requested" ||
+    inspection.review.state === "review-blocked"
+  ) {
+    land.reason = inspection.review.detail ?? "review requested additional changes";
+  } else if (
+    worker.executionMode === "current-branch" &&
+    worker.status === "attention" &&
+    worker.ticketStatus === "closed"
+  ) {
+    land.enabled = true;
+    land.reason = "rerun current-branch verification for this worker";
+  } else if (worker.status === "attention" && inspection.landing.state === "needs-attention") {
+    land.reason = inspection.followUp.action;
+  } else {
+    land.enabled = true;
+    if (worker.executionMode === "current-branch") {
+      land.reason = "run current-branch verification for this worker";
+    } else {
+      land.reason =
+        inspection.landing.state === "needs-refresh"
+          ? "re-run merge-back checks and refresh the held branch"
+          : inspection.landing.state === "ready-to-land" || worker.status === "held"
+            ? "merge back the held worker branch"
+            : "queue merge-back checks for this worker";
+    }
+  }
+
+  const cancel: WorkerActionAvailability = {
+    kind: "cancel",
+    label: "cancel",
+    command: `/bw cancel ${worker.workerId}`,
+    enabled: worker.status === "launching" || worker.status === "running",
+    reason:
+      worker.status === "launching" || worker.status === "running"
+        ? "stop the active worker"
+        : "only launching/running workers can be cancelled",
+  };
+
+  const cleanup: WorkerActionAvailability = {
+    kind: "cleanup",
+    label: "cleanup",
+    command: `/bw cleanup ${worker.ticketId}`,
+    enabled: false,
+    reason: "not ready",
+  };
+
+  if (worker.status === "launching" || worker.status === "running") {
+    cleanup.reason = "worker is still active";
+  } else if (worker.cleanupStatus === "cleaned") {
+    cleanup.reason = "already cleaned";
+  } else if (isWorktreeWorker(worker) && worker.cleanupPolicy !== "keep") {
+    cleanup.reason = `cleanup policy is ${worker.cleanupPolicy}`;
+  } else if (
+    !worker.landingVerifiedAt &&
+    worker.status !== "landed" &&
+    worker.status !== "verified"
+  ) {
+    cleanup.reason = "landing must be verified or marked landed first";
+  } else {
+    cleanup.enabled = true;
+    cleanup.reason = isWorktreeWorker(worker)
+      ? "remove retained worktree/runtime artifacts"
+      : "remove retained runtime artifacts";
+  }
+
+  return { land, cancel, cleanup };
 }

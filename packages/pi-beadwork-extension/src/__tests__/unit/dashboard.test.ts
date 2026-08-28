@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_CONFIG } from "../../constants.js";
 import {
   DASHBOARD_TABS,
   type DashboardModel,
@@ -115,6 +116,7 @@ function createSnapshot(overrides: Partial<DashboardStatusSnapshot> = {}): Dashb
     scopeDetail: overrides.scopeDetail,
     workerSummary: overrides.workerSummary ?? createWorkerSummary(),
     workers: overrides.workers ?? [],
+    config: overrides.config ?? DEFAULT_CONFIG,
   };
 }
 
@@ -145,57 +147,48 @@ function selectTab(
 }
 
 describe("dashboard", () => {
-  it("applies refreshed worker rows alongside worker summary badges", async () => {
-    const runningWorker = createWorker({ status: "running", ticketTitle: "Delegable ticket" });
-    const heldWorker = createWorker({
-      status: "held",
-      ticketTitle: "Delegable ticket",
-      ticketStatus: "closed",
-      validationStatus: "passed",
-      landingVerification: "Validated and held. Ready to land.",
-      landingAheadCount: 1,
-      landingBehindCount: 0,
-    });
+  it("exposes issue, run, and scope tabs only", () => {
+    const tabIds = DASHBOARD_TABS.map((tab) => tab.id);
+    // Log tab ids so regressions show the exact dashboard surface.
+    expect(tabIds).toEqual(["issues", "run", "scope"]);
+    expect(tabIds).not.toContain("workers");
+  });
+
+  it("renders the issue explorer without a Workers tab or land/cleanup actions", async () => {
+    const epic = createIssue({ id: "BW-100", type: "epic", title: "Dashboard epic" });
+    const dataSource: IssueExplorerDataSource = {
+      loadLevel: vi.fn().mockResolvedValue({ items: [epic], currentDetail: undefined }),
+      loadDetail: vi.fn().mockResolvedValue(createDetail(epic)),
+    };
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({
       cwd: "/repo",
       ui,
-      sessionId: "dashboard-workers-refresh",
+      sessionId: "dashboard-issue-explorer",
     });
 
-    await openBeadworkDashboard(
-      ctx,
-      createModel({
-        defaultTab: "workers",
-        workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
-        workers: [runningWorker],
-      }),
-    );
+    await openBeadworkDashboard(ctx, createModel({ defaultTab: "issues" }), {
+      issueExplorer: { dataSource },
+    });
+    await flushAsyncWork();
 
     const dashboard = ui.customCalls[0]?.component as {
       render: (width: number) => string[];
-      applySnapshot: (snapshot: DashboardStatusSnapshot) => void;
     };
-    expect(renderComponent(dashboard)).toContain(
-      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
-    );
-    expect(renderComponent(dashboard)).toContain("Delegable ticket");
-    expect(renderComponent(dashboard)).toContain("running · ticket open");
-
-    dashboard.applySnapshot(
-      createSnapshot({
-        state: createState({ trackedWorkerIds: [heldWorker.workerId] }),
-        workerSummary: createWorkerSummary({ total: 1, held: 1 }),
-        workers: [heldWorker],
-      }),
-    );
     const rendered = renderComponent(dashboard);
-    expect(rendered).toContain("workers 1 · active 0 · held 1 · done 0 · landed 0 · verified 0");
-    expect(rendered).toContain("held · ticket closed");
-    expect(rendered).toContain("tracked 1");
-    expect(rendered).not.toContain("running · ticket open");
+    expect(rendered).toContain("ready · repo");
+    expect(rendered).toContain("Dashboard epic");
+    expect(rendered).toContain("● Issues");
+    expect(rendered).toContain("○ Run");
+    expect(rendered).toContain("○ Scope");
+    expect(rendered).not.toContain("○ Workers");
+    expect(rendered).not.toContain("● Workers");
+    expect(rendered).not.toMatch(/\bl land\b/);
+    expect(rendered).not.toMatch(/\bu cleanup\b/);
+    expect(rendered).not.toContain("workers 1");
   });
-  it("applies delegate follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
+
+  it("applies delegate follow-up snapshots to the dashboard header and run tab without a fleet table", async () => {
     const ticket = createIssue({
       id: "BW-101",
       title: "Delegable ticket",
@@ -242,23 +235,18 @@ describe("dashboard", () => {
     const issuesRendered = renderComponent(dashboard);
     expect(onDelegateIntent).toHaveBeenCalledWith(ticketDetail);
     expect(issuesRendered).toContain("ready 0 · blocked 0 · in progress 1");
-    expect(issuesRendered).toContain(
-      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
-    );
+    expect(issuesRendered).not.toContain("workers 1 · active 1");
+    expect(issuesRendered).not.toContain("○ Workers");
 
-    selectTab(dashboard, "workers");
-    const workersRendered = renderComponent(dashboard);
-    expect(workersRendered).toContain("Delegable ticket");
-    expect(workersRendered).toContain("running · ticket open");
-    expect(workersRendered).toContain("l land blocked");
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Run state: idle");
-    expect(runRendered).toContain(
-      "Tracked workers: total=1 active=1 held=0 done=0 landed=0 verified=0 attention=0 failed=0",
-    );
+    expect(runRendered).toContain("Goal state: idle");
+    expect(runRendered).not.toContain("Tracked workers:");
+    expect(runRendered).not.toContain("Delegable ticket");
+    expect(runRendered).not.toMatch(/\bl land\b/);
   });
-  it("applies run follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
+
+  it("renders the run tab as a goal summary with no minion rows", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
     const epicDetail = createDetail(epic, [createIssue({ id: "BW-101", parentId: "BW-100" })]);
     const worker = createWorker({ ticketTitle: "Runnable ticket", status: "running" });
@@ -334,28 +322,21 @@ describe("dashboard", () => {
     const issuesRendered = renderComponent(dashboard);
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
     expect(issuesRendered).toContain("repo · active · run · epic:BW-100 · Runnable epic");
-    expect(issuesRendered).toContain(
-      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
-    );
+    expect(issuesRendered).not.toContain("workers 1 · active 1");
+    expect(issuesRendered).toContain("run armed for BW-100");
 
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Run state: active supervision armed");
-    expect(runRendered).toContain(
-      "Next: Background supervision is armed; use the Workers tab for live follow-up while the session stays open.",
-    );
-    expect(runRendered).toContain("Run scope: BW-100 · Runnable epic");
-    expect(runRendered).toContain(
-      "Options: workers=2 until=blocked maxCycles=4 dryRun=no noSpawn=no",
-    );
-
-    selectTab(dashboard, "workers");
-    const workersRendered = renderComponent(dashboard);
-    expect(workersRendered).toContain("Epic BW-100 (current scope)");
-    expect(workersRendered).toContain("Runnable ticket");
-    expect(workersRendered).toContain("running · ticket open");
-    expect(workersRendered).toContain("c cancel ready");
+    expect(runRendered).toContain("Epic: BW-100 · Runnable epic");
+    expect(runRendered).toContain("Review policy: ticket");
+    expect(runRendered).toContain("Goal state: active");
+    expect(runRendered).not.toContain("Tracked workers:");
+    expect(runRendered).not.toContain("Runnable ticket");
+    expect(runRendered).not.toContain("activeWorkers=");
+    expect(runRendered).not.toContain("Workers tab");
+    expect(runRendered).not.toMatch(/\bc cancel\b/);
   });
+
   it("renders the scope tab with concise dashboard-level hints", async () => {
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({
@@ -384,9 +365,10 @@ describe("dashboard", () => {
     const scopeRendered = renderComponent(dashboard);
     expect(scopeRendered).toContain("Current scope");
     expect(scopeRendered).toContain("interactive · epic:BW-100 · Scoped epic");
-    expect(scopeRendered).toContain("tracked 1");
+    expect(scopeRendered).not.toContain("tracked 1");
     expect(scopeRendered).toContain("Scoped epic");
     expect(scopeRendered).toContain("scope from Issues with s • clear with x");
     expect(scopeRendered).not.toContain("Quick actions");
+    expect(scopeRendered).not.toContain("○ Workers");
   });
 });

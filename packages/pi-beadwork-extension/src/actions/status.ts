@@ -22,11 +22,6 @@ import { createIssueExplorerDataSource } from "./issues.js";
 import { executeRunAction } from "./run.js";
 import { clearInteractiveScope, setInteractiveScope } from "./scope.js";
 
-export type StatusWorkerActionExecutor = (
-  ctx: ExtensionCommandContext,
-  target: string,
-) => Promise<void>;
-
 export type StatusActionDeps = {
   adapter: BeadworkAdapter;
   refreshStatus: (ctx: ExtensionCommandContext) => Promise<DashboardStatusSnapshot>;
@@ -75,9 +70,6 @@ export type StatusActionDeps = {
     state: SessionState,
     workers: WorkerRuntime[],
   ) => Promise<SessionState>;
-  executeLand: StatusWorkerActionExecutor;
-  executeCancel: StatusWorkerActionExecutor;
-  executeCleanup: StatusWorkerActionExecutor;
 };
 
 export async function handleStatusAction(input: {
@@ -225,26 +217,6 @@ export async function handleStatusAction(input: {
             }
           : undefined;
 
-      const workerActions =
-        status.activation.kind === "active"
-          ? {
-              onNotify: (message: string, level?: "info" | "warning") =>
-                ctx.ui.notify(message, level),
-              onLand: async (worker: WorkerRuntime) => {
-                await deps.executeLand(ctx, worker.ticketId);
-                return deps.refreshStatus(ctx);
-              },
-              onCancel: async (worker: WorkerRuntime) => {
-                await deps.executeCancel(ctx, worker.workerId);
-                return deps.refreshStatus(ctx);
-              },
-              onCleanup: async (worker: WorkerRuntime) => {
-                await deps.executeCleanup(ctx, worker.ticketId);
-                return deps.refreshStatus(ctx);
-              },
-            }
-          : undefined;
-
       await openBeadworkDashboard(
         ctx,
         {
@@ -254,7 +226,6 @@ export async function handleStatusAction(input: {
         },
         {
           issueExplorer,
-          workerActions,
         },
       );
       return true;

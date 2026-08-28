@@ -32,15 +32,8 @@ import {
   type IssueExplorerHooks,
 } from "./issue-explorer.js";
 import { formatRunManagerLines } from "./run-manager.js";
-import {
-  buildWorkerFooterHint,
-  buildWorkerManagerPanelLines,
-  groupWorkersForManager,
-  type WorkerActionKind,
-  type WorkerManagerEntry,
-} from "./worker-manager.js";
 
-export type DashboardTabId = "issues" | "workers" | "run" | "scope";
+export type DashboardTabId = "issues" | "run" | "scope";
 
 export type DashboardStatusSnapshot = {
   activation: ActivationState;
@@ -62,21 +55,12 @@ export type DashboardIssueExplorerDeps = IssueExplorerHooks & {
   initialFilter?: IssueExplorerFilter;
 };
 
-export type DashboardWorkerActionDeps = {
-  onLand?: (worker: WorkerRuntime) => Promise<DashboardStatusSnapshot | undefined>;
-  onCancel?: (worker: WorkerRuntime) => Promise<DashboardStatusSnapshot | undefined>;
-  onCleanup?: (worker: WorkerRuntime) => Promise<DashboardStatusSnapshot | undefined>;
-  onNotify?: (message: string, level?: "info" | "warning") => void;
-};
-
 export type DashboardDeps = {
   issueExplorer?: DashboardIssueExplorerDeps;
-  workerActions?: DashboardWorkerActionDeps;
 };
 
 export const DASHBOARD_TABS: Array<{ id: DashboardTabId; label: string }> = [
   { id: "issues", label: "Issues" },
-  { id: "workers", label: "Workers" },
   { id: "run", label: "Run" },
   { id: "scope", label: "Scope" },
 ];
@@ -109,24 +93,15 @@ function describeScope(theme: Theme, state: SessionState, maxTitleWidth = 28): s
 }
 
 function describeBackground(theme: Theme, state: SessionState): string | undefined {
-  const tracked = state.trackedWorkerIds?.length ?? 0;
-  const notices = Object.keys(state.workerNotices ?? {}).length;
   if (state.mode === "run" && state.scope.kind === "epic") {
-    const trackedPart =
-      tracked > 0
-        ? ` \u00b7 ${styledLabel(theme, "tracked")} ${styledAccent(theme, String(tracked))}`
-        : "";
-    return `${styledAccent(theme, "run armed")} for ${styledValue(theme, state.scope.id)}${trackedPart}`;
-  }
-  if (tracked > 0 || notices > 0) {
-    const parts = [`${styledLabel(theme, "tracked")} ${styledAccent(theme, String(tracked))}`];
-    if (notices > 0) {
-      parts.push(`${styledLabel(theme, "notices")} ${styledWarning(theme, String(notices))}`);
-    }
-    return parts.join(" · ");
+    return `${styledAccent(theme, "run armed")} for ${styledValue(theme, state.scope.id)}`;
   }
   if (state.recentRunSummary) {
-    return `${styledLabel(theme, "last run")} ${state.recentRunSummary.epicId} · ${styledDim(theme, state.recentRunSummary.stopReason)}`;
+    const goalState =
+      state.recentRunSummary.stopReason === "completed"
+        ? styledDim(theme, state.recentRunSummary.stopReason)
+        : styledWarning(theme, "interrupted");
+    return `${styledLabel(theme, "last run")} ${state.recentRunSummary.epicId} · ${goalState}`;
   }
 
   return undefined;
@@ -146,46 +121,11 @@ function describeCounts(theme: Theme, counts?: BeadworkCounts): string | undefin
   ].join(" · ");
 }
 
-function describeWorkerModes(theme: Theme, workerSummary?: WorkerSummary): string | undefined {
-  if (!workerSummary || workerSummary.total === 0) {
-    return undefined;
-  }
-  return `${styledLabel(theme, "modes")} ${styledDim(theme, "current-branch")} ${styledAccent(theme, String(workerSummary.currentBranch ?? 0))} ${styledDim(theme, "worktree")} ${styledAccent(theme, String(workerSummary.worktree ?? 0))}`;
-}
-
-function describeWorkerSummary(theme: Theme, workerSummary?: WorkerSummary): string | undefined {
-  if (!workerSummary || workerSummary.total === 0) {
-    return undefined;
-  }
-
-  const sw = (n: number, label: string, tone: (t: Theme, s: string) => string) =>
-    `${styledLabel(theme, label)} ${n > 0 ? tone(theme, String(n)) : styledDim(theme, "0")}`;
-  return [
-    sw(workerSummary.total, "workers", styledValue),
-    sw(workerSummary.active, "active", styledAccent),
-    sw(workerSummary.held, "held", styledWarning),
-    sw(workerSummary.successfulTerminal, "done", styledSuccess),
-    sw(workerSummary.landed, "landed", styledSuccess),
-    sw(workerSummary.verified, "verified", styledSuccess),
-    sw(workerSummary.failed, "failed", styledError),
-    sw(workerSummary.attention, "attention", styledWarning),
-    describeWorkerModes(theme, workerSummary),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" · ");
-}
-
-function buildFooterHint(
-  tab: DashboardTabId,
-  issueExplorer?: IssueExplorerController,
-  selectedWorker?: WorkerManagerEntry,
-): string {
+function buildFooterHint(tab: DashboardTabId, issueExplorer?: IssueExplorerController): string {
   if (tab === "issues" && issueExplorer) {
     return issueExplorer.renderFooterHint();
   }
   switch (tab) {
-    case "workers":
-      return buildWorkerFooterHint(selectedWorker);
     case "run":
       return "tab switch • r from Issues starts a run";
     case "scope":
@@ -209,10 +149,7 @@ function buildPanelLines(theme: Theme, model: DashboardModel, tab: DashboardTabI
             model.activation.detail ?? "Run the repo's beadwork bootstrap flow to finish setup.",
           ),
           "",
-          styledDim(
-            theme,
-            "Initialize beadwork to unlock the issue explorer, worker controls, and run panel.",
-          ),
+          styledDim(theme, "Initialize beadwork to unlock the issue explorer and run panel."),
         ];
       }
 
@@ -222,19 +159,6 @@ function buildPanelLines(theme: Theme, model: DashboardModel, tab: DashboardTabI
           theme,
           "The issue explorer data source was not wired for this dashboard invocation.",
         ),
-      ];
-    }
-    case "workers": {
-      if (model.activation.kind !== "active") {
-        return [
-          styledDim(theme, "Workers become available after beadwork is active in this repository."),
-          styledDim(theme, model.activation.detail ?? "No worker diagnostics are available yet."),
-        ];
-      }
-
-      return [
-        styledDim(theme, "Workers tab unavailable."),
-        styledDim(theme, "The worker manager was not wired for this dashboard invocation."),
       ];
     }
     case "run":
@@ -261,14 +185,13 @@ class DashboardComponent implements Component {
   private cachedWidth?: number;
   private cachedLines?: string[];
   private readonly issueExplorer?: IssueExplorerController;
-  private selectedWorkerId?: string;
   private readonly model: DashboardModel;
 
   constructor(
     private readonly tui: TUI,
     private readonly theme: Theme,
     model: DashboardModel,
-    private readonly deps: DashboardDeps | undefined,
+    deps: DashboardDeps | undefined,
     private readonly done: (result: undefined) => void,
   ) {
     this.model = { ...model };
@@ -294,31 +217,6 @@ class DashboardComponent implements Component {
 
   private get selectedTab(): DashboardTabId {
     return DASHBOARD_TABS[this.selectedTabIndex]?.id ?? "issues";
-  }
-
-  private get workerEntries(): WorkerManagerEntry[] {
-    return groupWorkersForManager({
-      workers: this.model.workers ?? [],
-      state: this.model.state,
-    }).flatMap((group) => group.workers);
-  }
-
-  private get selectedWorkerEntry(): WorkerManagerEntry | undefined {
-    const entries = this.workerEntries;
-    if (entries.length === 0) {
-      this.selectedWorkerId = undefined;
-      return undefined;
-    }
-
-    const selected = this.selectedWorkerId
-      ? entries.find((entry) => entry.worker.workerId === this.selectedWorkerId)
-      : undefined;
-    if (selected) {
-      return selected;
-    }
-
-    this.selectedWorkerId = entries[0]?.worker.workerId;
-    return entries[0];
   }
 
   private wrapSnapshotHook(
@@ -362,15 +260,8 @@ class DashboardComponent implements Component {
     this.model.scopeDetail = snapshot.scopeDetail;
     this.model.workerSummary = snapshot.workerSummary;
     this.model.workers = snapshot.workers;
+    this.model.config = snapshot.config;
     this.issueExplorer?.setSessionState(snapshot.state);
-
-    if (
-      this.selectedWorkerId &&
-      !(snapshot.workers ?? []).some((worker) => worker.workerId === this.selectedWorkerId)
-    ) {
-      this.selectedWorkerId = snapshot.workers?.[0]?.workerId;
-    }
-
     this.requestRender();
   }
 
@@ -379,80 +270,9 @@ class DashboardComponent implements Component {
     this.tui.requestRender();
   }
 
-  private moveWorkerSelection(delta: number): void {
-    const entries = this.workerEntries;
-    if (entries.length === 0) {
-      return;
-    }
-
-    const selected = this.selectedWorkerEntry;
-    const currentIndex = selected
-      ? entries.findIndex((entry) => entry.worker.workerId === selected.worker.workerId)
-      : 0;
-    const nextIndex = Math.max(0, Math.min(entries.length - 1, currentIndex + delta));
-    this.selectedWorkerId = entries[nextIndex]?.worker.workerId;
-    this.requestRender();
-  }
-
-  private async requestWorkerAction(kind: WorkerActionKind): Promise<void> {
-    const entry = this.selectedWorkerEntry;
-    if (!entry) {
-      this.deps?.workerActions?.onNotify?.("No worker selected.", "info");
-      return;
-    }
-
-    const action = entry.actions[kind];
-    if (!action.enabled) {
-      this.deps?.workerActions?.onNotify?.(
-        `Cannot ${kind} ${entry.worker.ticketId}: ${action.reason}.`,
-        "warning",
-      );
-      return;
-    }
-
-    let snapshot: DashboardStatusSnapshot | undefined;
-    switch (kind) {
-      case "land":
-        snapshot = await this.deps?.workerActions?.onLand?.(entry.worker);
-        break;
-      case "cancel":
-        snapshot = await this.deps?.workerActions?.onCancel?.(entry.worker);
-        break;
-      case "cleanup":
-        snapshot = await this.deps?.workerActions?.onCleanup?.(entry.worker);
-        break;
-    }
-
-    this.applySnapshot(snapshot);
-    this.requestRender();
-  }
-
   handleInput(data: string): void {
     if (this.selectedTab === "issues" && this.issueExplorer?.handleInput(data)) {
       return;
-    }
-
-    if (this.selectedTab === "workers") {
-      if (matchesKey(data, Key.up) || matchesKey(data, "k")) {
-        this.moveWorkerSelection(-1);
-        return;
-      }
-      if (matchesKey(data, Key.down) || matchesKey(data, "j")) {
-        this.moveWorkerSelection(1);
-        return;
-      }
-      if (matchesKey(data, "l")) {
-        void this.requestWorkerAction("land");
-        return;
-      }
-      if (matchesKey(data, "c")) {
-        void this.requestWorkerAction("cancel");
-        return;
-      }
-      if (matchesKey(data, "u")) {
-        void this.requestWorkerAction("cleanup");
-        return;
-      }
     }
 
     if (matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab"))) {
@@ -490,7 +310,6 @@ class DashboardComponent implements Component {
     const statusLine = `${repoLabel} \u00b7 ${describeActivation(this.theme, this.model.activation)} \u00b7 ${modeLabel} \u00b7 ${describeScope(this.theme, this.model.state, 22)}`;
     const secondaryParts = [
       describeCounts(this.theme, this.model.counts),
-      describeWorkerSummary(this.theme, this.model.workerSummary),
       describeBackground(this.theme, this.model.state),
     ].filter((value): value is string => Boolean(value));
     const tabsLine = renderTabLine(
@@ -504,15 +323,7 @@ class DashboardComponent implements Component {
     const bodyLines =
       this.selectedTab === "issues" && this.issueExplorer
         ? this.issueExplorer.renderLines(bodyWidth, this.theme)
-        : this.selectedTab === "workers" && this.model.activation.kind === "active"
-          ? buildWorkerManagerPanelLines({
-              workers: this.model.workers ?? [],
-              state: this.model.state,
-              selectedWorkerId: this.selectedWorkerEntry?.worker.workerId,
-              width: bodyWidth,
-              theme: this.theme,
-            })
-          : buildPanelLines(this.theme, this.model, this.selectedTab);
+        : buildPanelLines(this.theme, this.model, this.selectedTab);
 
     const lines = renderSurface(this.theme, width, {
       title: "Beadwork Dashboard",
@@ -524,7 +335,7 @@ class DashboardComponent implements Component {
           lines: bodyLines,
         },
       ],
-      footer: buildFooterHint(this.selectedTab, this.issueExplorer, this.selectedWorkerEntry),
+      footer: buildFooterHint(this.selectedTab, this.issueExplorer),
     });
 
     this.cachedWidth = width;

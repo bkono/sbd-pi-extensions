@@ -2,7 +2,6 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type ParsedArgv, type ParsedModelOverride, parseModelOverride } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { launchTicketWorker } from "../orchestrator.js";
-import { summarizeWorkers } from "../registry.js";
 import { updateStatusline } from "../statusline.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
 
@@ -116,7 +115,7 @@ export async function executeDelegateAction(input: {
     stateWithPrime,
     workers,
   );
-  updateStatusline(ctx, active.activation, trackedState, active.config, summarizeWorkers(workers));
+  updateStatusline(ctx, active.activation, trackedState, active.config);
   return worker;
 }
 

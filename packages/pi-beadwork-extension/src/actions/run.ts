@@ -151,7 +151,7 @@ export async function executeRunAction(input: {
       "info",
     );
   }
-  updateStatusline(ctx, active.activation, finalState, active.config, summary.workerSummary);
+  updateStatusline(ctx, active.activation, finalState, active.config);
 }
 
 export async function handleRunAction(input: {

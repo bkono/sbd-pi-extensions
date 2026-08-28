@@ -867,7 +867,7 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("Next: No action needed.");
   });
 
-  it("opens the worker manager overlay from /bw:workers", async () => {
+  it("lists workers as text instead of a TUI overlay from /bw:workers", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
     const ui = createFakeUi();
@@ -895,8 +895,9 @@ describe("pi beadwork extension", () => {
 
     await harness.invokeCommand("bw:workers", "", ctx);
 
-    expect(ui.customCalls).toHaveLength(1);
-    expect(ui.notifications.at(-1)?.message ?? "").not.toContain("No beadwork workers");
+    expect(ui.customCalls).toHaveLength(0);
+    expect(ui.notifications.at(-1)?.message ?? "").toContain("Workers:");
+    expect(ui.notifications.at(-1)?.message ?? "").toContain("BW-101");
   });
 
   it("does not say landed cleanly when validation is still pending", async () => {
@@ -1319,7 +1320,9 @@ describe("pi beadwork extension", () => {
       "session-land-worker-queued",
     );
     expect(persisted.trackedWorkerIds).toContain("bw-101-worker");
-    expect(ui.statuses.get("beadwork")).toContain("tracked 1");
+    expect(ui.statuses.get("beadwork")).toContain("bw");
+    expect(ui.statuses.get("beadwork")).not.toContain("tracked");
+    expect(ui.statuses.get("beadwork")).not.toMatch(/workers \d/);
   });
 
   it("uses current-branch verification wording for explicit verification requests", async () => {

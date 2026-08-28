@@ -3,10 +3,9 @@ import type { ParsedArgv } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { requestWorkerLanding } from "../orchestrator.js";
 import { loadWorkerRegistry, resolveWorkerRegistryPath } from "../registry.js";
-import { getWorkerActionAvailability } from "../tui/worker-manager.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
 import { isSuccessfulTerminalWorker } from "../types.js";
-import { inspectWorker } from "../worker-diagnostics.js";
+import { getWorkerActionAvailability, inspectWorker } from "../worker-diagnostics.js";
 
 export type LandingActionDeps = {
   adapter: BeadworkAdapter;

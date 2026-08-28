@@ -2,10 +2,9 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ParsedArgv } from "../argv.js";
 import { showWorkers } from "../commands.js";
 import { stopWorkers } from "../orchestrator.js";
-import { summarizeWorkers } from "../registry.js";
 import { updateStatusline } from "../statusline.js";
-import { getWorkerActionAvailability, openWorkerManager } from "../tui/worker-manager.js";
 import type { ActivationState, BeadworkConfig, SessionState, WorkerRuntime } from "../types.js";
+import { getWorkerActionAvailability } from "../worker-diagnostics.js";
 
 function matchesWorkerTarget(worker: WorkerRuntime, target: string): boolean {
   return worker.workerId === target || worker.ticketId === target;
@@ -52,24 +51,6 @@ export async function handleWorkersAction(input: {
     const workers = await deps.inspectWorkers(ctx, active.activation, active.config, {
       epicId,
     });
-
-    if (ctx.hasUI && explicitEpicId === undefined) {
-      const nextState = await deps.syncWorkerTracking(
-        ctx,
-        active.activation,
-        active.config,
-        active.state,
-        workers,
-      );
-      await openWorkerManager(ctx, {
-        cwd: ctx.cwd,
-        activation: active.activation,
-        state: nextState,
-        workers,
-        epicId,
-      });
-      return true;
-    }
     await showWorkers(ctx, workers, epicId);
     return true;
   }
@@ -124,13 +105,7 @@ export async function handleWorkersAction(input: {
       active.state,
       refreshedWorkers,
     );
-    updateStatusline(
-      ctx,
-      active.activation,
-      nextState,
-      active.config,
-      summarizeWorkers(refreshedWorkers),
-    );
+    updateStatusline(ctx, active.activation, nextState, active.config);
     ctx.ui.notify(
       `Stopped ${stopped.length} worker(s) for ${target}.`,
       stopped.some((worker) => worker.status === "failed") ? "warning" : "info",

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { WorkerRuntime } from "../../types.js";
-import { formatWorkerInspectionLines, inspectWorker } from "../../worker-diagnostics.js";
+import {
+  formatWorkerInspectionLines,
+  getWorkerActionAvailability,
+  inspectWorker,
+} from "../../worker-diagnostics.js";
 
 function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
   return {
@@ -340,5 +344,150 @@ describe("worker diagnostics", () => {
     expect(inspection.followUp.needsAttention).toBe(false);
     expect(inspection.followUp.action).toContain("Waiting for the worker process to exit");
     expect(inspection.landing.state).toBe("pending-review");
+  });
+
+  it("computes explicit land/cancel/cleanup action guards", () => {
+    const heldWorker = createWorker({
+      status: "held",
+      ticketStatus: "closed",
+      validationStatus: "passed",
+      landingAheadCount: 2,
+      landingBehindCount: 0,
+      landingVerification: "Validated and held. Ready to land.",
+    });
+    const runningWorker = createWorker({
+      status: "running",
+      ticketStatus: "open",
+    });
+    const manualCleanupWorker = createWorker({
+      status: "landed",
+      ticketStatus: "closed",
+      cleanupPolicy: "keep",
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification: "Landing verified.",
+      landingBehindCount: 1,
+    });
+    const autoCleanupWorker = createWorker({
+      status: "landed",
+      ticketStatus: "closed",
+      cleanupPolicy: "cleanup-after-landing",
+      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+      landingVerification: "Landing verified.",
+      landingBehindCount: 1,
+    });
+    const verifiedWorker = {
+      ...createWorker({
+        status: "verified",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        landingVerifiedAt: "2026-04-14T01:00:00.000Z",
+        landingVerification: "Current branch verified.",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
+    const currentBranchPendingWorker = {
+      ...createWorker({
+        status: "exited",
+        ticketStatus: "closed",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
+    const worktreeQueuedWorker = createWorker({
+      status: "exited",
+      ticketStatus: "closed",
+      landingRequestedAt: "2026-04-14T01:00:00.000Z",
+    });
+    const currentBranchQueuedWorker = {
+      ...createWorker({
+        status: "exited",
+        ticketStatus: "closed",
+        landingRequestedAt: "2026-04-14T01:00:00.000Z",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
+    const currentBranchAttentionWorker = {
+      ...createWorker({
+        status: "attention",
+        ticketStatus: "closed",
+        validationStatus: "passed",
+        lastError: "Stale attribution attention from a previous verifier run.",
+      }),
+      executionMode: "current-branch",
+      checkoutPath: "/repo",
+      branchName: "main",
+      launchHead: "abc123",
+      cleanupPolicy: undefined,
+      worktreePath: undefined,
+    } as unknown as WorkerRuntime;
+
+    expect(getWorkerActionAvailability(heldWorker).land).toMatchObject({
+      enabled: true,
+      reason: "merge back the held worker branch",
+    });
+    expect(getWorkerActionAvailability(currentBranchPendingWorker).land).toMatchObject({
+      enabled: true,
+      reason: "run current-branch verification for this worker",
+    });
+    expect(getWorkerActionAvailability(currentBranchPendingWorker).land.reason).not.toContain(
+      "merge-back",
+    );
+    expect(getWorkerActionAvailability(currentBranchAttentionWorker).land).toMatchObject({
+      enabled: true,
+      reason: "rerun current-branch verification for this worker",
+    });
+    expect(getWorkerActionAvailability(worktreeQueuedWorker).land).toMatchObject({
+      enabled: false,
+      reason: "landing already queued",
+    });
+    expect(getWorkerActionAvailability(currentBranchQueuedWorker).land).toMatchObject({
+      enabled: false,
+      reason: "verification already queued",
+    });
+    expect(getWorkerActionAvailability(currentBranchQueuedWorker).land.reason).not.toContain(
+      "landing",
+    );
+    expect(getWorkerActionAvailability(runningWorker).land).toMatchObject({
+      enabled: false,
+      reason: "worker is still active",
+    });
+    expect(getWorkerActionAvailability(runningWorker).cancel).toMatchObject({
+      enabled: true,
+      reason: "stop the active worker",
+    });
+    expect(getWorkerActionAvailability(manualCleanupWorker).cleanup).toMatchObject({
+      enabled: true,
+      reason: "remove retained worktree/runtime artifacts",
+    });
+    expect(getWorkerActionAvailability(autoCleanupWorker).cleanup).toMatchObject({
+      enabled: false,
+      reason: "cleanup policy is cleanup-after-landing",
+    });
+    expect(getWorkerActionAvailability(verifiedWorker).land).toMatchObject({
+      enabled: false,
+      reason: "already verified",
+    });
+    expect(getWorkerActionAvailability(verifiedWorker).cancel).toMatchObject({
+      enabled: false,
+      reason: "only launching/running workers can be cancelled",
+    });
+    expect(getWorkerActionAvailability(verifiedWorker).cleanup).toMatchObject({
+      enabled: true,
+      reason: "remove retained runtime artifacts",
+    });
   });
 });
