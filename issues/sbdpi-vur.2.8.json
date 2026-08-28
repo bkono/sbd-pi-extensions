@@ -9,7 +9,7 @@
     "sbdpi-vur.4.4"
   ],
   "created": "2026-08-28T21:31:28Z",
-  "description": "Update Beadwork CLI copy, completions, and package README for goal mode.\n\n## Background\n\nAliases still say \"Run a bounded epic loop\". Completions still offer workers/until/noSpawn. Docs describe tmux workers.\n\n## Files\n\n- `command-aliases.ts`, `command-completions.ts`\n- `packages/pi-beadwork-extension/README.md` and `docs/` worker/tmux pages: rewrite or mark removed\n- root examples if they mention delegate/tmux\n\n## Success criteria\n\n- `/bw run` help is epic-only.\n- No tmux worker instructions as current behavior.\n- Migration notes: removed flags, removed tools, use orchestrate.\n\n## Test plan\n\n- Completions tests.\n- Grep tests for forbidden strings in command descriptions.\n\n## Considerations\n\nFull published migration guide can wait for phase D; this issue should not leave operators following tmux docs as if they were current on the cutover branch.",
+  "description": "Update Beadwork CLI copy, completions, and package README for goal mode.\n\n## Background\n\nAliases still say \"Run a bounded epic loop\". Completions still offer workers/until/noSpawn. Docs describe tmux workers.\n\n## Files\n\n- `command-aliases.ts`, `command-completions.ts`\n- `packages/pi-beadwork-extension/README.md` and `docs/` worker/tmux pages: rewrite or mark removed\n- root examples if they mention delegate/tmux\n\n## Success criteria\n\n- `/bw run` help is epic-only.\n- No tmux worker instructions as current behavior.\n- Migration notes: removed flags, removed tools, use orchestrate.\n\n## Test plan\n\n- Completions tests.\n- Grep tests for forbidden strings in command descriptions.\n\n## Considerations\n\nFull published migration guide can wait for phase D; this issue should not leave operators following tmux docs as if they were current on the cutover branch.\n\n\n## Test plan (expanded)\n\n- Completions for /bw run are epic-only; /bw abandon present after goal-exit lands (if this issue ships first, leave a TODO completion that goal-exit owns).\n- Grep README/docs: tmux worker launch not described as current.\n- Logging: completion values, rejected flags.",
   "id": "sbdpi-vur.2.8",
   "labels": [
     "beadwork",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Update Beadwork CLI help, completions, and in-tree worker docs",
   "type": "chore",
-  "updated_at": "2026-08-28T21:33:35Z"
+  "updated_at": "2026-08-28T21:48:23Z"
 }
