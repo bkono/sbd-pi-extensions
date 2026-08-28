@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.1.1"
   ],
@@ -19,8 +19,8 @@
   ],
   "parent": "sbdpi-vur.1",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Extend AgentTree with group, role, taskType, and spawn vs orchestrated kind",
   "type": "task",
-  "updated_at": "2026-08-28T21:48:21Z"
+  "updated_at": "2026-08-28T23:41:48Z"
 }
