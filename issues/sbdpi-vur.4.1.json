@@ -5,7 +5,8 @@
   ],
   "blocks": [
     "sbdpi-vur.4",
-    "sbdpi-vur.4.3"
+    "sbdpi-vur.4.3",
+    "sbdpi-vur.4.6"
   ],
   "created": "2026-08-28T21:31:29Z",
   "description": "Regression suite for ticket/scope/none review policy copy and reviewer child-task composition. Product copy is owned by the prompt-appendix issue; this issue **must not rewrite** that module's voice, only fail the build if a required instruction disappears.\n\n## Background\n\nDefault reviewPolicy is `ticket`. Scope and none are explicit. Parent dispositions fix|file|reject by judgment, not a keyword classifier. File is nonblocking unless the user waives a blocking finding in an ordinary turn.\n\nIf the appendix issue already contains the strings, this issue is still required: golden tests prevent a later “simplify the prompt” from deleting the tradeoff text.\n\n## Files\n\n- tests under `packages/pi-beadwork-extension/src/__tests__/`\n- fixtures/goldens for each policy\n- do not own prompt.ts unless a test-only export is missing (prefer exporting a testable builder)\n\n## Assertions\n\n- ticket: requires independent `reviewImplementation` before close.\n- scope: allows close from evidence; requires `reviewScope` before epic complete; states dependents may start before aggregate review.\n- none: does not require independent review children.\n- reviewer task guidance: git show/commits/ticket id; do not start review of A while A is still implementing.\n- no regex classifier; no structured-result gate language.\n\n## Test plan\n\n- Unit goldens per policy; fail on substring deletions listed above.\n- Log policy name and which required phrases matched.\n\n## Success criteria\n\n- CI fails if required phrases are removed.\n- No e2e here (ticket-policy and scope-policy e2e are siblings).",
@@ -18,5 +19,5 @@
   "status": "open",
   "title": "Golden tests for ticket/scope/none review prompt copy",
   "type": "task",
-  "updated_at": "2026-08-28T21:46:45Z"
+  "updated_at": "2026-08-28T22:57:11Z"
 }
