@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "sbdpi-vur.2.3"
+    "sbdpi-vur.2.3",
+    "sbdpi-vur.2.4"
   ],
   "blocks": [],
   "created": "2026-08-28T21:31:27Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Exit goal mode on epic close or abandon and forget the minion group",
   "type": "feature",
-  "updated_at": "2026-08-28T21:32:54Z"
+  "updated_at": "2026-08-28T21:32:55Z"
 }
