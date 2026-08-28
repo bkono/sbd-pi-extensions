@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T21:31:30Z",
+  "description": "Deferred: allow `scopeIds` length \u003e 1 on a goal.\n\nV1 validates exactly one epic. The field is already an array so minions does not change. When done: `/bw run` policy for multiple epics, still one group, still no second scheduler.\n\nDo not implement in the cutover train.",
+  "id": "sbdpi-vur.5.1",
+  "labels": [],
+  "parent": "sbdpi-vur.5",
+  "priority": 3,
+  "status": "open",
+  "title": "Later: multi-epic goals using existing scopeIds array",
+  "type": "task",
+  "updated_at": "2026-08-28T21:31:30Z"
+}
