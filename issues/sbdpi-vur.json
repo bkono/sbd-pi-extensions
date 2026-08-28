@@ -31,11 +31,15 @@
     {
       "text": "Polish round 2: locked /bw abandon; expanded unit/e2e logging on lifecycle, packets, races, fixtures, and removal greps. Inspection tools + scope-policy e2e added. Spawn-compat no longer waits on orchestrate; packets no longer wait on role-frontmatter parse.",
       "timestamp": "2026-08-28T21:47:32Z"
+    },
+    {
+      "text": "Applied approved polish: 2.6 is model-mediated group halt (1.10 blocks 2.6). Embedded normative lists in 1.2/1.8/2.1/2.2/4.5. Locked workItemId live-duplicate, nudge trim, lexical path overlap, no rate-limit product. 4.2 owns e2e harness; 4.3 and 4.6 parallel. Deferred epic lists remaining non-V1 scope. No schemas/permits/locks/wait-tools added.",
+      "timestamp": "2026-08-28T22:57:45Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Replace Beadwork tmux workers with in-process minions orchestration",
   "type": "epic",
-  "updated_at": "2026-08-28T21:47:32Z"
+  "updated_at": "2026-08-28T22:57:45Z"
 }
