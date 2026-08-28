@@ -5,6 +5,7 @@
     "sbdpi-vur.1.4"
   ],
   "blocks": [
+    "sbdpi-vur.1",
     "sbdpi-vur.1.7"
   ],
   "created": "2026-08-28T21:31:25Z",
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "Enforce one open orchestration group and immutable existing cwd",
   "type": "task",
-  "updated_at": "2026-08-28T21:32:50Z"
+  "updated_at": "2026-08-28T21:32:53Z"
 }
