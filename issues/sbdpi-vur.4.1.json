@@ -4,6 +4,7 @@
     "sbdpi-vur.2.2"
   ],
   "blocks": [
+    "sbdpi-vur.4",
     "sbdpi-vur.4.3"
   ],
   "created": "2026-08-28T21:31:29Z",
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "Encode ticket/scope/none review policy in goal prompts",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:03Z"
+  "updated_at": "2026-08-28T21:33:05Z"
 }

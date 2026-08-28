@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-vur.4.1"
+  ],
   "blocks": [],
   "created": "2026-08-28T21:30:48Z",
   "description": "Published cutover: one real epic through in-process minions with default ticket review, tmux gone, docs/tests match.\n\n## Background\n\nPhase B may delete worker tools and rewrite `/bw run` in development, but we do not publish a beadwork release that removes tmux before this phase's epic fixture passes, and we do not keep tmux as fallback after it.\n\n## Why it is a separate phase\n\nCore runtime + goal adapter + messaging can exist while still proving the user-visible loop: ready ticket → orchestrate implementation → settle (prose OK) → parent does not close → independent review child → parent dispositions fix|file|reject → close ticket → next ready work → epic close exits goal mode and forgets the group.\n\n## Out of scope\n\nMulti-epic goals, dependency-set review manifests, validation task type, beadwork-owned lint runner.\n\n## Success\n\nOne epic with parallel and dependent tickets completes without tmux. Manual TUI smoke: parent interactive, one packet after several idle settlements, `/bw run` rejects `--workers`. lint/test/typecheck/build pass.",
@@ -21,5 +23,5 @@
   "status": "open",
   "title": "[EPIC] One-epic published cutover",
   "type": "epic",
-  "updated_at": "2026-08-28T21:30:50Z"
+  "updated_at": "2026-08-28T21:33:05Z"
 }
