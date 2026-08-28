@@ -15,7 +15,9 @@
   "created": "2026-08-28T21:31:30Z",
   "description": "Full epic fixture: parallel and dependent tickets, default ticket review, fix/file/reject as parent judgment, epic close exits goal mode.\n\n## Background\n\nThis is the published-cutover proof. Separate from scope-policy (can be a second fixture in this issue or a child comment). Do not combine both policies in one ambiguous test.\n\n## Scenario (ticket policy)\n\n1. Epic with two parallel tickets and one dependent.\n2. `/bw run` inject prompt, one open group.\n3. Two implementation children on shared branch.\n4. Optional: overlap notice + peer message if C is done.\n5. Settlement does not close.\n6. Review child on one ticket (clean) and one with findings; parent fix/file/reject in scripted turns.\n7. Fix assignment + re-review.\n8. Dependent unlocks only after parent closed the blocker ticket (bw ready), not because a child settled.\n9. Epic close exits run and forgets group.\n10. No tmux/landing/registry/worker tools.\n\n## Success criteria\n\n- Fixture logs each step.\n- tmux binary not required.\n- lint/test/typecheck of the repo under test as implementer/reviewer commands, not a beadwork runner.\n\n## Test plan\n\n- e2e script with great logging (timestamps, issue ids, child ids, packet counts).\n- Assert packet coalescing if multiple completions are arranged to be near-simultaneous.\n\n## Considerations\n\nScript the parent model (deterministic fake completions) rather than calling paid LLMs in CI.",
   "id": "sbdpi-vur.4.3",
-  "labels": [],
+  "labels": [
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.4",
   "comments": [
     {
@@ -27,5 +29,5 @@
   "status": "open",
   "title": "Prove one epic end-to-end with ticket review and no tmux",
   "type": "feature",
-  "updated_at": "2026-08-28T21:33:29Z"
+  "updated_at": "2026-08-28T21:33:37Z"
 }
