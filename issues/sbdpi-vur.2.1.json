@@ -8,7 +8,10 @@
   "created": "2026-08-28T21:31:26Z",
   "description": "Add Beadwork goal record and reject supervisor config, without deleting WorkerRuntime types yet (orchestrator.ts still exists until delete-runtime).\n\n## Background\n\n`/bw run` currently stores SessionRunOptions (workers, until, noSpawn, dryRun, maxCycles) and enters a polling supervisor. We replace that with a small Goal: `{ goalId, scopeIds (exactly one epic), reviewPolicy, startedAt }` and session mode `run` meaning \"goal appendix + injected prompt\", not a loop.\n\nConfig today has tmux, worktrees, landing, supervisor, workerExecution. Loader must report **all** removed-key errors together and refuse to start **goal mode** on leftovers. Keep type fields so the still-present orchestrator compiles until delete-runtime. Do not silently ignore removed keys.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/types.ts` (add Goal; keep old worker types until delete-runtime)\n- `packages/pi-beadwork-extension/src/config.ts`\n- `packages/pi-beadwork-extension/src/session-state.ts`\n- config tests\n\n## Behavior\n\n- Persisted `mode: \"run\"` after /new or process death is **interrupted**: do not auto-inject a prompt, do not recreate children. User must `/bw run` again. Drop trackedWorkerIds/runOptions as supervisor residue (stop persisting them; ignore on load).\n- Review policy: ticket | scope | none. Default ticket.\n- Reject PI_BEADWORK_* env vars that map to removed keys (tmux, worktree, poll, workers, etc.).\n- Do not migrate landing.validateCommands into a new beadwork gate.\n\n## Success criteria\n\n- Loading config with tmux.sessionName fails goal-mode start with an actionable error.\n- Clean config loads; Goal can be written and rehydrated; rehydrated run does not imply live workers.\n- WorkerRuntime types still exist so orchestrator.ts typechecks until the delete issue.\n\n## Test plan\n\n- Unit: migration error aggregation.\n- Unit: session JSON without runOptions.\n- Unit: interrupted run does not look live.\n\n## Considerations\n\nThis issue owns types.ts/config.ts/session-state.ts. Do not rewrite prompt.ts or actions/run.ts here.",
   "id": "sbdpi-vur.2.1",
-  "labels": [],
+  "labels": [
+    "beadwork",
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.2",
   "comments": [
     {
@@ -20,5 +23,5 @@
   "status": "open",
   "title": "Add goal record, interrupted run, and reject supervisor config",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:28Z"
+  "updated_at": "2026-08-28T21:33:33Z"
 }
