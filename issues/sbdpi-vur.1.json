@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [
     "sbdpi-vur.1.1",
+    "sbdpi-vur.1.10",
     "sbdpi-vur.1.2",
     "sbdpi-vur.1.3",
     "sbdpi-vur.1.4",
@@ -32,5 +33,5 @@
   "status": "open",
   "title": "Minions orchestration core",
   "type": "epic",
-  "updated_at": "2026-08-28T21:34:48Z"
+  "updated_at": "2026-08-28T21:44:26Z"
 }
