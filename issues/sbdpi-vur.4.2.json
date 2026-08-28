@@ -12,7 +12,7 @@
     "sbdpi-vur.4.3"
   ],
   "created": "2026-08-28T21:31:29Z",
-  "description": "In-process integration: one Beadwork ticket from `/bw run` through implementation child settle without tmux, without closing the ticket automatically.\n\n## Background\n\nThis is the first vertical slice that proves the two packages together. Review may be exercised if cheap; default ticket review full loop is D-epic-e2e. Do not publish on this slice alone.\n\n## Approach\n\nTemporary git+bw fixture, stub or scripted parent turns if needed, real orchestrate + session factory. Assert:\n\n- no tmux\n- orchestrate handle before completion\n- parent not blocked\n- settlement does not close the issue\n- domain metadata present on the child\n- `/bw run` injected prompt happened\n\n## Success criteria\n\n- Test is deterministic and logged.\n- Works with tmux absent (PATH without tmux).\n\n## Test plan\n\n- Integration under packages/pi-beadwork-extension or a workspace e2e script replacing e2e-current-branch-delegate.\n\n## Considerations\n\nNeeds orchestrate + packets + /bw run. Child tool allowlist should already hide close.",
+  "description": "In-process integration: one Beadwork ticket from `/bw run` through implementation child settle without tmux, without closing the ticket automatically.\n\n## Background\n\nFirst vertical slice that proves the two packages together. Full review loop is the epic e2e. Do not publish on this slice alone.\n\n## Approach\n\nTemporary git+bw fixture. Scripted/stub parent turns. Real orchestrate + session factory. PATH without tmux.\n\nAssert:\n\n- no tmux process/session\n- `/bw run` inject happened (captured sendMessage/sendUserMessage)\n- orchestrate handle returns before completion\n- parent not blocked while child runs\n- domain metadata on the child\n- settlement does not close the issue\n- child active tools include `beadwork_show` and exclude `beadwork_close_issue`\n- list_minions shows the orchestrated child with description/taskType\n\n## Success criteria\n\n- Deterministic CI test, no paid LLM.\n- Fails loudly with logs if any assert fails.\n\n## Test plan / logging\n\nEvery step logs: timestamp, step name, epic id, ticket id, child id, group id, issue status, packet count.\n\nOn failure dump: last inject payload, last packet, `bw show` ticket, minion list.\n\nReplace e2e-current-branch-delegate as the canonical path; do not leave tmux e2e as the only documented recipe.\n\n## Considerations\n\nNeeds packets, spawn-compat allowlist, /bw run, worker tools gone, inspection tools.",
   "id": "sbdpi-vur.4.2",
   "labels": [
     "orchestration"
@@ -22,5 +22,5 @@
   "status": "open",
   "title": "Prove one in-process ticket from /bw run through child settlement",
   "type": "feature",
-  "updated_at": "2026-08-28T21:44:26Z"
+  "updated_at": "2026-08-28T21:46:45Z"
 }
