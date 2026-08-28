@@ -4,6 +4,7 @@
     "sbdpi-vur.2.6",
     "sbdpi-vur.2.7",
     "sbdpi-vur.3.2",
+    "sbdpi-vur.3.3",
     "sbdpi-vur.3.5",
     "sbdpi-vur.4.1",
     "sbdpi-vur.4.2"
@@ -30,5 +31,5 @@
   "status": "open",
   "title": "Prove one epic end-to-end with ticket review and no tmux",
   "type": "feature",
-  "updated_at": "2026-08-28T21:44:27Z"
+  "updated_at": "2026-08-28T21:44:28Z"
 }
