@@ -1,6 +1,6 @@
 import type { Static } from "typebox";
 import { Type } from "typebox";
-import { TaskTypeSchema } from "./task-types.js";
+import { type TaskType, TaskTypeSchema } from "./task-types.js";
 
 export type { NudgeEvent, TaskType } from "./task-types.js";
 export {
@@ -32,6 +32,8 @@ export interface AgentConfig {
 
 export type AgentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
+export type AgentKind = "spawn" | "orchestrated";
+
 export interface UsageStats {
   input: number;
   output: number;
@@ -62,6 +64,17 @@ export interface SpawnResult {
   error?: string;
 }
 
+/** Opaque domain metadata. Minions stores and echoes; it does not interpret ticket semantics. */
+export const OrchestrationDomainSchema = Type.Object({
+  source: Type.String({
+    description: "Opaque domain adapter id. Minions does not interpret it.",
+  }),
+  scopeId: Type.Optional(Type.String()),
+  workItemId: Type.Optional(Type.String()),
+  title: Type.Optional(Type.String()),
+});
+export type OrchestrationDomain = Static<typeof OrchestrationDomainSchema>;
+
 export interface AgentNode {
   id: string;
   name: string;
@@ -81,18 +94,17 @@ export interface AgentNode {
   activityHistory?: string[];
   /** Model used by this minion */
   model?: string;
+  /** Origin of this node. Existing add() call sites default to spawn. */
+  kind?: AgentKind;
+  groupId?: string;
+  /** Open agent role/template name. Not a closed enum. */
+  role?: string;
+  taskType?: TaskType;
+  /** Fleet-readable summary. Stored as provided; never inferred from task. */
+  description?: string;
+  /** Opaque domain metadata. Not parsed as ticket semantics. */
+  domain?: OrchestrationDomain;
 }
-
-/** Opaque domain metadata. Minions stores and echoes; it does not interpret ticket semantics. */
-export const OrchestrationDomainSchema = Type.Object({
-  source: Type.String({
-    description: "Opaque domain adapter id. Minions does not interpret it.",
-  }),
-  scopeId: Type.Optional(Type.String()),
-  workItemId: Type.Optional(Type.String()),
-  title: Type.Optional(Type.String()),
-});
-export type OrchestrationDomain = Static<typeof OrchestrationDomainSchema>;
 
 export const OrchestratedTaskDescriptorSchema = Type.Object({
   task: Type.String({

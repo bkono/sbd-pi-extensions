@@ -1,5 +1,31 @@
-import type { AgentNode, AgentStatus, UsageStats } from "./types.js";
+import { logger } from "./logger.js";
+import type {
+  AgentKind,
+  AgentNode,
+  AgentStatus,
+  OrchestrationDomain,
+  TaskType,
+  UsageStats,
+} from "./types.js";
 import { emptyUsage } from "./types.js";
+
+const TERMINAL_STATUSES = new Set<AgentStatus>(["completed", "failed", "aborted"]);
+
+function isTerminalStatus(status: AgentStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+export interface AddAgentOptions {
+  parentId?: string;
+  agentName?: string;
+  model?: string;
+  kind?: AgentKind;
+  groupId?: string;
+  role?: string;
+  taskType?: TaskType;
+  description?: string;
+  domain?: OrchestrationDomain;
+}
 
 export class AgentTree {
   private nodes = new Map<string, AgentNode>();
@@ -16,6 +42,7 @@ export class AgentTree {
     for (const listener of this.listeners) listener();
   }
 
+  add(id: string, name: string, task: string, options?: AddAgentOptions): AgentNode;
   add(
     id: string,
     name: string,
@@ -23,25 +50,53 @@ export class AgentTree {
     parentId?: string,
     agentName?: string,
     model?: string,
+  ): AgentNode;
+  add(
+    id: string,
+    name: string,
+    task: string,
+    parentIdOrOptions?: string | AddAgentOptions,
+    agentName?: string,
+    model?: string,
   ): AgentNode {
+    const options: AddAgentOptions =
+      typeof parentIdOrOptions === "object" && parentIdOrOptions !== null
+        ? parentIdOrOptions
+        : { parentId: parentIdOrOptions, agentName, model };
+
+    const kind = options.kind ?? "spawn";
     const node: AgentNode = {
       id,
       name,
-      agentName,
+      agentName: options.agentName,
       task,
-      model,
+      model: options.model,
       status: "running",
-      parentId,
+      parentId: options.parentId,
       children: [],
       usage: emptyUsage(),
       startTime: Date.now(),
+      kind,
+      groupId: options.groupId,
+      role: options.role,
+      taskType: options.taskType,
+      description: options.description,
+      domain: options.domain,
     };
     this.nodes.set(id, node);
 
-    if (parentId) {
-      const parent = this.nodes.get(parentId);
+    if (options.parentId) {
+      const parent = this.nodes.get(options.parentId);
       if (parent) parent.children.push(id);
     }
+
+    logger.info("tree", "add", {
+      id,
+      kind,
+      groupId: options.groupId,
+      taskType: options.taskType,
+      description: options.description,
+    });
 
     this.notify();
     return node;
@@ -69,6 +124,20 @@ export class AgentTree {
 
   getRunning(): AgentNode[] {
     return Array.from(this.nodes.values()).filter((n) => n.status === "running");
+  }
+
+  /** Live orchestrated members of one group. Spawn and terminal nodes are excluded. */
+  getOrchestratedGroup(groupId: string): AgentNode[] {
+    return Array.from(this.nodes.values()).filter(
+      (n) => n.kind === "orchestrated" && n.groupId === groupId && !isTerminalStatus(n.status),
+    );
+  }
+
+  /** Live nodes with this domain.workItemId. String equality only; not ticket ownership. */
+  getLiveByWorkItemId(workItemId: string): AgentNode[] {
+    return Array.from(this.nodes.values()).filter(
+      (n) => n.domain?.workItemId === workItemId && !isTerminalStatus(n.status),
+    );
   }
 
   getRoots(): AgentNode[] {
