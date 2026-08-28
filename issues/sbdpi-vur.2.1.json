@@ -10,9 +10,15 @@
   "id": "sbdpi-vur.2.1",
   "labels": [],
   "parent": "sbdpi-vur.2",
+  "comments": [
+    {
+      "text": "Keep WorkerRuntime/tmux types until delete-runtime so orchestrator.ts still typechecks. Reject supervisor keys at load for goal mode. Persisted run is interrupted, never auto-inject.",
+      "timestamp": "2026-08-28T21:33:28Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Add goal record, interrupted run, and reject supervisor config",
   "type": "task",
-  "updated_at": "2026-08-28T21:32:56Z"
+  "updated_at": "2026-08-28T21:33:28Z"
 }
