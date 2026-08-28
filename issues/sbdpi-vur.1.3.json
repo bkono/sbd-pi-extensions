@@ -4,6 +4,7 @@
     "sbdpi-vur.1.1"
   ],
   "blocks": [
+    "sbdpi-vur.1",
     "sbdpi-vur.1.8"
   ],
   "created": "2026-08-28T21:31:25Z",
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "Parse optional role completion_nudge from agent frontmatter",
   "type": "task",
-  "updated_at": "2026-08-28T21:32:51Z"
+  "updated_at": "2026-08-28T21:32:52Z"
 }
