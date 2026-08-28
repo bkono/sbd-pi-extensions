@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T21:31:31Z",
+  "description": "Deferred: observe exact paths from minions-managed edit/write tools and include them in advisory overlap (still never lock).\n\nV1 is declare-only path intent. Shell writes remain invisible either way.",
+  "id": "sbdpi-vur.5.2",
+  "labels": [],
+  "parent": "sbdpi-vur.5",
+  "priority": 3,
+  "status": "open",
+  "title": "Later: observe edit-tool paths for advisory overlap",
+  "type": "task",
+  "updated_at": "2026-08-28T21:31:31Z"
+}
