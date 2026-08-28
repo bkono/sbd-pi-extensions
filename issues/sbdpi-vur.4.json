@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "sbdpi-vur.4.1"
+    "sbdpi-vur.4.1",
+    "sbdpi-vur.4.2"
   ],
   "blocks": [],
   "created": "2026-08-28T21:30:48Z",
