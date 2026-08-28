@@ -31,7 +31,7 @@ Concretely:
 10. Shared checkout is the default. A worktree or alternate cwd is an explicit user-supplied existing workspace on the group, never chosen by the runtime.
 11. Per-ticket independent review is the beadwork default. The parent model adjudicates findings. Notable decisions are ordinary `bw` comments plus the parent's final recap — not a minions decision log.
 12. Prove one epic end to end. Represent goal scope as `scopeIds: string[]` so multiple epics can be added later without changing minion mechanics.
-13. `/bw run <epic>` enters goal mode and sends a kickoff packet that starts a parent turn. It is not a supervisor. All supervisor CLI/config (`--workers`, `--until`, `--maxCycles`, `--noSpawn`, `--dryRun`, poll intervals, landing) is removed.
+13. `/bw run <epic>` enters goal mode and sends a kickoff packet that starts a parent turn. Persistent hosts only (`tui`/`rpc`). One goal and one open orchestration group per parent session. Leftover persisted `run` mode is interrupted, not auto-resumed. All supervisor CLI/config (`--workers`, `--until`, `--maxCycles`, `--noSpawn`, `--dryRun`, poll intervals, landing) is removed.
 
 The durable source of truth remains beadwork. The live orchestration runtime remains process-local.
 
@@ -57,24 +57,27 @@ These are constraints, not prompts for re-litigation.
 4. **The `task` field is the child prompt.** The caller supplies the complete prompt. Beadwork does not intercept or wrap child session creation. Goal/parent prompt tells the parent what to put in `task`.
 5. **`description` is required.** Short, fleet-readable. Do not infer it from `task`.
 6. **Nudges, not schemas.** `taskType` / role / generic fallback choose parent instruction text. Child text is evidence. No `protocolStatus`, no required `SubmittedTaskResult`, no `minion_report_result`.
-7. **Settlement is fully idle, not success.** A child is terminal after the Pi session is fully idle (the `agent_settled` / `waitForIdle` condition, including retries, compaction, and queued continuations), or aborted, or failed. First `agent_end` is too early. Idle is not ticket acceptance. V1 does not use `shouldStopAfterTurn`.
+7. **Settlement is fully idle, not success.** A child is terminal after the Pi session is fully idle (the `agent_settled` / `waitForIdle` condition, including retries, compaction, and queued continuations), or aborted, or failed. First `agent_end` is too early. Idle is not ticket acceptance. V1 does not use `shouldStopAfterTurn`. Parent-packet event classes are `settled | aborted | failed | parentMessage`. Abort is not failure.
 8. **Turn ordering.** Never inject into an active parent turn. Coalesce pending updates into one packet **including when the parent is idle** — fold events that arrive before the packet is submitted rather than one turn per child. After coalesce, if idle, the packet may `triggerTurn`. Unattended epic continuation is the feature. A rare idle-vs-idle collision with a user submit is accepted. V1 does not detect compose-buffer state and does not build a user-priority queue.
 9. **Per-child nudges in coalesced packets.** One fleet snapshot; each changed child carries its own status, bounded output, and nudge. Do not pick a single nudge for mixed task types.
-10. **One cwd per group.** Set at group creation (default: parent cwd). Must already exist. Immutable for the group's life. No per-task override. Runtime never creates, switches, lands, or deletes worktrees.
+10. **One open orchestrated group per parent session in V1.** First `orchestrate` creates it. Later calls with omitted `groupId` join that group. A second group is deferred. The group has one cwd, set at creation (default: parent cwd), must already exist, immutable. No per-task override. Runtime never creates, switches, lands, or deletes worktrees.
 11. **Advisory coordination only.** TTL path intent and overlap notices warn and suggest communication. They never lock, pause, reject writes, or claim safety.
 12. **No real locks.** Two Pi sessions in one repo is best-effort, same class as two agents on one branch. No git-common-dir mutex, no mission lease, no PID-reclaim protocol.
-13. **No parked children.** There is no wait state and no idle-but-alive mailbox. Peer and parent-directed messages succeed only while the recipient's run is live; they may `steer`/`followUp` into that child and may cause another turn. After settled/aborted/failed, dispose; further messages fail as recipient-terminal. “I'm blocked” is a parent-directed message during the run, or prose in the final output.
+13. **No parked children.** There is no wait state and no idle-but-alive mailbox. Peer and parent-directed messages succeed only while the recipient's run is live; they may `steer`/`followUp` into that child and may cause another turn (peer chat can postpone idle; user/parent `halt` if needed — not a keep-alive protocol, no timeout product). After settled/aborted/failed, dispose; further messages fail as recipient-terminal. “I'm blocked” is a parent-directed message during the run, or prose in the final output. Terminal vs inbound mail is a single winner: if settlement is committed, mail fails terminal; if mail was already accepted as child follow-up, wait until that continuation idles, then settle once.
 14. **Review policy is beadwork's.** Default `ticket`; also `scope` and `none`. Independent review before close is the default. `file` is for nonblocking follow-up; blocking findings stay `fix` or `reject` unless the user explicitly waives. This lives in nudge text and beadwork policy, not in a parser of child JSON. Shared-branch reviewers may see unrelated dirty files; that is accepted. Prompt them at commits / ticket id / `git show`, not “read the whole workspace.” Do not start review of ticket A while A's implementer is still live.
 15. **Quality commands are not a beadwork job.** `lint` / `test` / `typecheck` are ordinary project commands. Implementers should run them before declaring done; reviewers may confirm; the repo may run them at overall checkpoints. They are not a special per-ticket close gate, not a minions task type, and not a beadwork-owned command runner.
 16. **No `--workers` coupling.** Beadwork does not set minions concurrency caps. The parent orchestrates against ready work; it will not mechanically need a second extension to limit fan-out. `/bw run` has no worker count flag.
-17. **Children may load beadwork for inspection.** Do not exclude the whole extension from child sessions. Hide dispatch/acceptance tools (`start`, `close`, `reopen`, and any remaining worker tools). Keep show/list/history/ready/blocked/status/prime so children can see the tree, including closed issues. `beadwork_delegate` / `beadwork_worker_done` are deleted for everyone. Children still do not receive `orchestrate`, `spawn`, or group halt (minions is not loaded as a child extension; parent injects only comm tools). Shell can still `bw close`. Parent refreshes `bw` before acceptance. V1 does not claim OS isolation.
-18. **No beadwork fleet UI.** Beadwork TUI is issues/goal. Live children are `list_minions` / `show_minion` / asking the parent. Do not import the live minions runtime from beadwork.
-19. **`/bw run` kickoff.** After validating the epic and storing goal scope, `/bw run` sends a model-visible kickoff packet that may start a parent turn. Prompt appendices alone do not start work. Existing `run` session mode is redefined as this goal mode, not a polling loop.
-20. **Supervisor flags and config are rejected.** `--workers`, `--until`, `--maxCycles`, `--noSpawn`, `--dryRun`, `pollIntervalMs`, `supervisor.*`, `landing.*`, `workerExecution.*`, `tmux.*`, managed `worktrees.*` — removed with actionable errors. Beadwork does not supervise.
-21. **`orchestrate` requires a persistent host.** Supported in Pi `tui` and `rpc`. Rejected synchronously in `print` and `json`, which dispose the parent after the prompt.
-22. **One epic for V1.** Goal `scopeIds` is an array; V1 validates exactly one epic. Child metadata still carries a single `scopeId`.
-23. **Notable decisions.** Parent recap plus ordinary `bw comment` when something is worth keeping. No minions decision log and no `record_orchestration_decision` tool in V1.
-24. **Opaque `workItemId` uniqueness is optional convenience.** Rejecting a second **live** child with the same `domain.workItemId` in this process is string uniqueness, not ticket ownership. Cross-session doubles are a user problem.
+17. **Child beadwork tools are an allowlist, applied to spawn and orchestrate children.** Do not exclude the whole extension. After bind, minions sets active tools. Beadwork child allowlist: `show`, `list_issues`, `issue_history`, `ready`, `blocked`, `status`, `prime`. Parent-only (not on children): start, close, reopen, create, update, comment, label, defer, undefer, dependencies, `beadwork_sync`. Deleted for everyone: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`. Minions is not loaded in children; parent injects bound comm tools only (`list` peers, send, announce) with runtime-attached identity — not the parent `send_minion_message` tool. Shell can still `bw close`. Parent refreshes `bw` before acceptance. V1 does not claim OS isolation.
+18. **Effective child tools.** `(role allowlist if present, else parent coding tools) ∪ beadwork inspection allowlist ∪ injected comm tools − {start, close, reopen}`. Role cannot drop inspection/comm and cannot add close. Apply this to spawn children too.
+19. **No beadwork fleet UI.** Beadwork TUI is issues/goal. Delete the workers tab, supervisor “run” copy (“bounded epic loop”), statusline worker fields, `SessionRunOptions`, and `trackedWorkerIds`. Live children are `list_minions` / `show_minion` / asking the parent. Do not import the live minions runtime from beadwork.
+20. **`/bw run` kickoff.** Persistent `tui`/`rpc` only; reject `print`/`json`. After validating the epic and storing goal scope, send a kickoff packet. Prompt appendices alone do not start work. Existing `run` session mode is this goal mode, not a polling loop. One goal per parent session: same epic again resends kickoff; a different epic is rejected until the current goal exits. Exit `run` when the scoped epic is closed or the user explicitly abandons goal mode. Halt of the minion group is not enough by itself.
+21. **Stale `run` is interrupted.** Persisted session JSON must not auto-kickoff or recreate children after `/new`, reload, or process death. User runs `/bw run` again. Do not require a minions probe/ack; kickoff even if minions is missing — the parent turn fails in the open if `orchestrate` is absent.
+22. **Supervisor flags and config are rejected.** `--workers`, `--until`, `--maxCycles`, `--noSpawn`, `--dryRun`, `pollIntervalMs`, `supervisor.*`, `landing.*`, `workerExecution.*`, `tmux.*`, managed `worktrees.*` — removed with actionable errors. Beadwork does not supervise.
+23. **`orchestrate` requires a persistent host.** Supported in Pi `tui` and `rpc`. Rejected synchronously in `print` and `json`.
+24. **One epic for V1.** Goal `scopeIds` is an array; V1 validates exactly one epic. Child metadata still carries a single `scopeId`.
+25. **Notable decisions.** Parent recap plus ordinary `bw comment` when something is worth keeping. No minions decision log and no `record_orchestration_decision` tool in V1.
+26. **Opaque `workItemId` uniqueness is optional convenience.** Rejecting a second **live** child with the same `domain.workItemId` in this process is string uniqueness, not ticket ownership. Cross-session doubles are a user problem.
+27. **`orchestrate` `accepted` means registered, not running.** `state: "starting"` is not liveness. Start failure is a later `failed` packet.
 
 ---
 
@@ -106,8 +109,11 @@ Do not reintroduce any of the following. They were considered in the native pass
 - Treating settlement, a typed workflow, or a child handoff as ticket acceptance.
 - Excluding the entire beadwork extension from children (inspection is required).
 - Inferring `description` from `task`.
+- Auto-kickoff or child resurrection from persisted `run` session JSON.
+- A minions probe/ack handshake as `/bw run` preflight.
+- More than one open orchestrated group per parent session in V1.
 
-**Deprecated:** beadwork tmux/worker/landing/supervisor runtime, `beadwork_delegate`, `beadwork_worker_done`, `runBoundedEpicLoop`, worker dashboard land/cleanup, supervisor CLI flags.
+**Deprecated:** beadwork tmux/worker/landing/supervisor runtime, `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`, `runBoundedEpicLoop`, worker dashboard / “bounded epic loop” copy, statusline worker fields, `SessionRunOptions`, `trackedWorkerIds`, supervisor CLI flags.
 **Replacement:** minions `orchestrate` + beadwork goal/domain tools + `/bw run` kickoff.
 **Status:** delete at cutover, not later, and not behind a compatibility façade.
 
@@ -177,17 +183,17 @@ Consequences:
 4. Each meaningful lifecycle change yields one safe-boundary parent packet, not merely a UI toast.
 5. The packet includes the changed children, a fresh snapshot of still-running **orchestrated** children, and a nudge per changed child.
 6. Optional `taskType` deterministically selects that child's nudge.
-7. Without a task type, role fallback or generic guidance applies, and that guidance matches the event (settled vs failed vs live question).
+7. Without a task type, role fallback or generic guidance applies, and that guidance matches the event (`settled` / `aborted` / `failed` / `parentMessage`).
 8. Near-simultaneous completions on an idle parent produce one coalesced turn, not one turn per child.
 9. Direct peer messages reach a **live** addressed child without a parent turn, and fail clearly once that child is terminal.
 10. The parent can inspect peer identities and communication metadata via minions tools.
-11. `/bw run <epic>` kickoff starts parent work with no tmux, no polling supervisor, and no worker flags.
+11. `/bw run <epic>` kickoff starts parent work with no tmux, no polling supervisor, and no worker flags; rejected in `print`/`json`; stale persisted `run` does not auto-kickoff.
 12. One beadwork epic can be implemented and reviewed through minions on a machine without tmux.
 13. Shared checkout remains default; no worktree is created without explicit user input.
 14. Overlap notices are informational.
 15. Ticket review defaults to occurring before close; the parent model judges findings, not a keyword classifier.
 16. Child output is accepted as prose. Missing a “handoff format” or result tool does not fail the child.
-17. Orchestrated children can inspect the beadwork tree (including closed issues) and cannot close/start tickets through extension tools.
+17. Spawn and orchestrated children can inspect the beadwork tree (including closed issues) and cannot close/start tickets through extension tools.
 18. Foreground `spawn` still blocks and does not appear in orchestration fleet snapshots.
 
 ### Failure criteria
@@ -210,7 +216,10 @@ Implementation has failed if it:
 - introduces permits, bind sagas, disk locks, or effect-key CAS;
 - keeps supervisor flags/config (`workers`, `until`, `maxCycles`, `noSpawn`, `dryRun`, poll, landing);
 - builds a beadwork fleet UI or imports the live minions runtime;
-- makes lint/test/typecheck a beadwork-owned per-ticket gate or a `validation` task type.
+- makes lint/test/typecheck a beadwork-owned per-ticket gate or a `validation` task type;
+- auto-resumes a goal from persisted `run` state;
+- creates a second orchestrated group in V1;
+- uses `completed` as the settlement event class or treats abort as failure.
 
 ---
 
@@ -312,7 +321,8 @@ Everything in **Do not**, plus:
 - supervisor CLI/config: `workers`, `until`, `maxCycles`, `noSpawn`, `dryRun`, poll intervals;
 - `landing.*`, `workerExecution.*`, `tmux.*`, managed `worktrees.*`;
 - beadwork worker dashboard land/cleanup / fleet views;
-- `beadwork_delegate`, `beadwork_worker_done`.
+- `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`;
+- dashboard workers tab, “bounded epic loop” command copy, statusline worker fields, `SessionRunOptions`, `trackedWorkerIds`.
 
 ---
 
@@ -339,7 +349,7 @@ Minions does not understand tickets, readiness, review policy, or acceptance. Op
 - activation and project detection;
 - tickets, epics, dependencies, readiness;
 - goal scope and epic intent;
-- issue start, close, reopen, comment, label, and dependency operations (parent-visible; children get inspection only for the mutating subset listed in locked decision 17);
+- issue start, close, reopen, comment, label, and dependency operations (parent-visible; children get the inspection allowlist only);
 - beadwork metadata attached at orchestrate time by the parent;
 - parent prompt appendix for goal mode;
 - review policy;
@@ -374,7 +384,7 @@ A role is an unrestricted string naming an agent prompt/template (`reviewer`, `h
 
 Foreground `spawn` keeps `agent` as the public selector for compatibility. `orchestrate` and fleet snapshots use `role`. Both resolve through the same profile loader.
 
-A role may optionally define `completion_nudge` in frontmatter. That text applies only when no `taskType` is present, and only for settlement/failure — not as a substitute for the live-question nudge.
+A role may optionally define `completion_nudge` in frontmatter. That text applies only when no `taskType` is present, and only for `settled`/`failed` — not for `aborted` or `parentMessage`.
 
 ```yaml
 ---
@@ -434,7 +444,7 @@ No task type → reviewer fallback nudge, not the stronger `fix | file | reject`
 ### Nudge precedence
 
 1. If `taskType` is present, use that policy text for the **event class**.
-2. Else if the event is settlement/failure and the resolved role defines `completion_nudge`, use it.
+2. Else if the event is `settled` or `failed` and the resolved role defines `completion_nudge`, use it.
 3. Else the generic string for that event class.
 
 Do not concatenate role guidance onto task-type guidance. Per-spawn task text is evidence, not a nudge override.
@@ -442,19 +452,19 @@ Do not concatenate role guidance onto task-type guidance. Per-spawn task text is
 ### Event classes
 
 ```ts
-type NudgeEvent = "completed" | "failed" | "parentMessage";
+type NudgeEvent = "settled" | "aborted" | "failed" | "parentMessage";
 ```
 
-`parentMessage` is a live child → parent question/blocker. The child is still running. That nudge must not say the task settled.
+`parentMessage` is a live child → parent question/blocker. The child is still running. That nudge must not say the task settled. `aborted` is user/parent halt, not a crash; do not retry unless the user asks.
 
-| Task type | `completed` intent | `failed` intent | `parentMessage` intent |
-| --- | --- | --- | --- |
-| `implementation` | Assess evidence. Apply review policy. Accept, dispatch a fix, or ask the user. Do not close a ticket solely because the child settled. | Inspect the failure, decide retry/fix/escalate. | The child is still running. Answer via `send_minion_message` or halt; do not treat this as completion. |
-| `fix` | Verify against the original finding. Independent re-review before acceptance. | Inspect failure; decide retry or escalate. | Same live-child rule. |
-| `reviewImplementation` | Disposition every finding as `fix`, `file`, or `reject`. Blocking findings require `fix` or `reject` unless the user waives. `file` is for nonblocking follow-up. Unresolved required fixes block acceptance. | Inspect failure; decide re-review or escalate. | Same live-child rule. |
-| `reviewScope` | Adjudicate cross-ticket findings and judge whether the goal meets acceptance criteria. | Inspect failure; decide re-review or escalate. | Same live-child rule. |
-| `investigateBlocker` | Apply the answer to blocked work, or record why escalation remains necessary. Investigation completion is not implementation completion. | Inspect failure; decide retry or escalate. | Same live-child rule. |
-| *(none)* | Role fallback or “A background task settled. Inspect its result and decide the next action.” | “A background task failed. Inspect the error and decide the next action.” | “A running child sent a question. Answer or halt; it has not settled.” |
+| Task type | `settled` intent | `failed` intent | `aborted` intent | `parentMessage` intent |
+| --- | --- | --- | --- | --- |
+| `implementation` | Assess evidence. Apply review policy. Accept, dispatch a fix, or ask the user. Do not close a ticket solely because the child settled. | Inspect the failure, decide retry/fix/escalate. | Do not retry unless the user asks. | The child is still running. Answer via parent→child message or halt; do not treat this as settlement. |
+| `fix` | Verify against the original finding. Independent re-review before acceptance. | Inspect failure; decide retry or escalate. | Same abort rule. | Same live-child rule. |
+| `reviewImplementation` | Disposition every finding as `fix`, `file`, or `reject`. Blocking findings require `fix` or `reject` unless the user waives. `file` is for nonblocking follow-up. Unresolved required fixes block acceptance. | Inspect failure; decide re-review or escalate. | Same abort rule. | Same live-child rule. |
+| `reviewScope` | Adjudicate cross-ticket findings and judge whether the goal meets acceptance criteria. | Inspect failure; decide re-review or escalate. | Same abort rule. | Same live-child rule. |
+| `investigateBlocker` | Apply the answer to blocked work, or record why escalation remains necessary. Investigation settlement is not implementation settlement. | Inspect failure; decide retry or escalate. | Same abort rule. | Same live-child rule. |
+| *(none)* | Role fallback or “A background task settled. Inspect its result and decide the next action.” | “A background task failed. Inspect the error and decide the next action.” | “A background task was aborted. Do not retry unless the user asks.” | “A running child sent a question. Answer or halt; it has not settled.” |
 
 Nudges instruct. They do not close, spawn, accept, or disposition automatically.
 
@@ -477,7 +487,8 @@ Unchanged product behavior: start children, wait, return results to the current 
 - are not members of an orchestration group;
 - do not emit orchestration packets;
 - do not appear in orchestrated fleet snapshots;
-- block the parent tool call, so packets queue as `followUp` until spawn returns.
+- block the parent tool call, so packets queue as `followUp` until spawn returns;
+- still get the same child tool filter as orchestrated children (inspection allowlist, no start/close/reopen, no parent minions tools).
 
 ### `orchestrate`
 
@@ -485,7 +496,7 @@ Starts one or more children, registers them in a group, returns handles immediat
 
 ```ts
 interface OrchestrateInput {
-  groupId?: string; // omit on first call to create a group
+  groupId?: string; // omit: create if none open, else join the one open group
   cwd?: string;     // group creation only; default parent cwd; must already exist
   tasks: OrchestratedTaskDescriptor[];
 }
@@ -506,7 +517,7 @@ interface OrchestratedTaskDescriptor {
 
 interface OrchestrateResult {
   groupId: string;
-  accepted: Array<{ childId: string; description: string; state: "starting" }>;
+  accepted: Array<{ childId: string; description: string; state: "starting" }>; // registered, not running
   rejected: Array<{ index: number; reason: string }>;
 }
 ```
@@ -518,8 +529,9 @@ Requirements:
 - The tool call's `AbortSignal` cancels registration, not the children. Child lifetime belongs to the group.
 - Reject in `print` and `json` hosts.
 - `domain` is opaque transport. Minions does not parse ticket IDs. Optional live duplicate rejection is equality on `workItemId` strings in this process.
-- First call may create the group. Later calls name `groupId`. There is no separate “begin orchestration” scheduler.
+- V1 allows one open group per parent session. Omit `groupId` to create or join it. Passing a different `groupId` rejects. There is no separate “begin orchestration” scheduler.
 - A group has exactly one cwd. Later `cwd` mismatch rejects. Tasks cannot override it.
+- `accepted` / `starting` means registered. A subsequent `failed` packet means start never became a live run.
 
 ### Process lifetime
 
@@ -530,6 +542,7 @@ Children are background relative to the parent turn, not detached from the proce
 - Persisted transcripts may remain inspectable. They are not live children and must not be shown as running after restart.
 - Beadwork tickets remain durable. A later session inspects `bw` and decides whether to restart work.
 - After terminal, dispose. Do not retain the session so mail can be delivered later.
+- Settlement vs inbound child mail: one winner. Committed settlement → later mail is `recipient-terminal`. Already-accepted mail → that continuation must go idle before a single `settled` packet.
 
 No heartbeats, recovery leases, replay logs, or generation-token protocols. Shutdown abort is hygiene, not a distributed session-generation CAS.
 
@@ -569,8 +582,8 @@ Still running:
 
 ### What counts as a parent-waking event
 
-- orchestrated child fully idle (settled), aborted, or failed;
-- live orchestrated child → parent message.
+- orchestrated child `settled`, `aborted`, or `failed`;
+- live orchestrated child → parent message (`parentMessage`).
 
 Progress, peer messages, and path notices update TUI / minions inspection. They do not, by themselves, start a parent turn. Repeated unresolved overlap may be included as metadata on the next real packet, not as a spam wake.
 
@@ -600,24 +613,23 @@ This is “safe-boundary delivery + idle continuation + idle coalesce.” It is 
 
 Process-local, best effort. Inspired by useful parts of agent hubs, without adopting their infrastructure.
 
-Minions is not loaded as a child extension (prevents recursive `orchestrate`/`spawn`). The parent runtime injects child-facing comm tools into orchestrated sessions only.
+Minions is not loaded as a child extension (prevents recursive `orchestrate`/`spawn`/`halt`). The parent runtime injects **bound** child-facing comm tools into **orchestrated** sessions (not the parent tools). Spawn children do not get comm tools; they do get the beadwork inspection filter.
 
-Agents can:
+Injected child tools (names may vary; identity is a closure, not a parameter):
 
-- list peers in their group (id, role, task type, description, state);
-- send an addressed message to a **live** peer;
-- send a message to the parent (parent-waking, coalesced; sender stays running);
+- list peers in the group (id, role, task type, description, state);
+- send an addressed message to a **live** peer, or to the parent;
 - announce advisory path intent with a TTL;
 - inspect current path intent.
 
 Rules:
 
 - Same group only. No broadcast in V1. No cross-session delivery.
-- Sender identity is attached by the runtime, not supplied by the child.
+- Sender identity is attached by the runtime, not supplied by the child. Do not install parent `send_minion_message` on the child.
 - Send returns immediately. The sender never waits for the recipient's model turn.
-- Live recipient: deliver at a safe **child** boundary (`steer`/`followUp`). That may cause another child turn. Intended.
+- Live recipient: deliver at a safe **child** boundary (`steer`/`followUp`). That may cause another child turn and postpone idle. Intended, not a keep-alive protocol. Halt if chatter runs on. No timeout product in V1.
 - Terminal recipient: fail clearly (`recipient-terminal`). Do not keep the session alive to drain mail. Do not reroute through the parent.
-- Peer messages do not start a parent turn. The parent inspects via `list_minions` / `show_minion`.
+- Peer messages do not start a parent turn. Parent inspects via `list_minions` / `show_minion` (those tools are not on the child).
 - Bodies are size-bounded. Queues are best effort; mailbox-full fails clearly.
 - No durable mailbox, no exactly-once, no wait-for-reply tool, no parked-wait state machine.
 
@@ -677,21 +689,27 @@ interface BeadworkGoal {
 /bw run <epic>
 ```
 
-No `--workers`, `--until`, `--maxCycles`, `--noSpawn`, `--dryRun`. Those flags are rejected.
+No `--workers`, `--until`, `--maxCycles`, `--noSpawn`, `--dryRun`. Those flags are rejected. Reject in Pi `print`/`json` the same as `orchestrate`.
 
 It should:
 
-1. validate the target is an open epic with traversable descendants;
+1. validate persistent host and that the target is an open epic with traversable descendants;
 2. store the goal record (exactly one `scopeId`);
-3. redefine session `run` mode as goal mode: parent prompt appendix with run-to-completion intent, review policy, and “use `orchestrate` + beadwork tools; do not poll; do not close from child settlement”;
+3. set session `run` mode as goal mode: parent prompt appendix with run-to-completion intent, review policy, and “use `orchestrate` + beadwork tools; do not poll; do not close from child settlement”;
 4. load prime/guidance into the parent prompt;
 5. send a kickoff packet (`sendMessage` followUp + idle triggerTurn) telling the parent to refresh `bw`, choose ready work, `beadwork_start_issue` when assigning, compose the child `task`, and `orchestrate` with domain metadata and the right `taskType`.
 
+Do not probe minions. If `orchestrate` is not registered, the kickoff turn fails in the open.
+
+Same session, same epic: resend kickoff (retry). Same session, different epic while a goal is active: reject until the current goal exits. Two Pi sessions on one epic: no lock; `bw` is the recovery surface.
+
+Exit `run` (drop the goal appendix) when the scoped epic is closed, or when the user explicitly abandons goal mode. `halt` of the minion group does not by itself leave goal mode.
+
+Persisted `mode: "run"` after `/new`, reload, or process death is **interrupted**. Do not auto-kickoff and do not recreate children. The user runs `/bw run` again. Drop `trackedWorkerIds` / `runOptions` with the supervisor.
+
 It should not create tmux panes, maintain a worker registry, poll processes, deliver a second completion channel, pick worktrees, own peer messaging, run a hidden scheduler, cap minions concurrency, or show a fleet UI.
 
-If two sessions both `/bw run` the same epic, V1 does not lock. Durable `bw` state is the recovery surface.
-
-`interactive` mode stays human-led (no kickoff loop). `neutral` stays inactive. `run` is goal + kickoff only.
+`interactive` mode stays human-led (no kickoff). `neutral` stays inactive. `run` is goal + kickoff only.
 
 ### Domain metadata
 
@@ -736,7 +754,7 @@ Autonomous by default. The parent recaps consequential decisions at the end of t
 
 ### Epic completion
 
-Minions quiescence is not epic completion. The parent judges from a fresh `bw` snapshot: in-scope descendants closed or explicitly excluded, no unresolved required fixes. Then it closes the epic with beadwork tools. Halt of the minion group is a minions/user action, not gated on a domain token.
+Minions quiescence is not epic completion. The parent judges from a fresh `bw` snapshot: in-scope descendants closed or explicitly excluded, no unresolved required fixes. Then it closes the epic with beadwork tools. Closing the scoped epic exits `run` mode. Halt of the minion group is a minions/user action, not gated on a domain token, and does not by itself exit goal mode.
 
 ---
 
@@ -744,19 +762,30 @@ Minions quiescence is not epic completion. The parent judges from a fresh `bw` s
 
 Background children expand blast radius. Keep this small.
 
-**Minions in children:** do not load the minions extension (avoids recursive `orchestrate`/`spawn`/`halt`). Inject only comm/path tools.
+**Minions in children:** do not load the minions extension (avoids recursive `orchestrate`/`spawn`/`halt`). Inject bound comm/path tools into orchestrated sessions only.
 
-**Beadwork in children:** load it. Filter tools:
+**Beadwork in children (spawn and orchestrate):** load it. After `bindExtensions`, minions sets active tools. Child **allowlist** of beadwork tools:
 
-| Available to orchestrated children | Hidden from orchestrated children |
-| --- | --- |
-| `beadwork_show`, `beadwork_list_issues`, `beadwork_issue_history` | `beadwork_start_issue`, `beadwork_close_issue`, `beadwork_reopen_issue` |
-| `beadwork_ready`, `beadwork_blocked`, `beadwork_status`, `beadwork_prime` | `beadwork_delegate`, `beadwork_worker_done` (deleted for all) |
-| | `orchestrate`, `spawn`, group `halt` |
+- `beadwork_show`
+- `beadwork_list_issues`
+- `beadwork_issue_history`
+- `beadwork_ready`
+- `beadwork_blocked`
+- `beadwork_status`
+- `beadwork_prime`
 
-Parent keeps start/close/reopen/create/update/dependency tools. Children inspect the tree, including closed issues. Graph mutations other than those hidden tools remain parent-facing in V1 so assignment and acceptance stay with the orchestrator; children may still `bw comment` via shell, which is the same class as shell `bw close` — unpreventable, noticed on refresh.
+Everything else beadwork remains parent-only, including start/close/reopen/create/update/comment/label/defer/undefer/dependencies/`beadwork_sync`. Deleted for all sessions: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`.
 
-Role metadata may request tools, model, and limits. It may not grant what parent policy denies.
+Effective tools:
+
+```text
+(role allowlist if present, else parent coding tools)
+  ∪ beadwork inspection allowlist
+  ∪ injected comm tools (orchestrated only)
+  − {beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue}
+```
+
+Role cannot omit inspection/comm and cannot add close. Shell `bw close` / `bw comment` remains possible; parent refresh notices it.
 
 This is a tool-visibility boundary, not a sandbox.
 
@@ -769,7 +798,7 @@ This is a tool-visibility boundary, not a sandbox.
 - `src/types.ts` — role, task type, group, domain metadata, messages, path intent, packet types, nudge events.
 - `src/tools/spawn.ts` — unchanged foreground contract; still not grouped.
 - new `src/tools/orchestrate.ts` — non-blocking registration and handles.
-- `src/spawn/*` and `src/subsessions/manager.ts` — share session factory; split start from wait; fully-idle completion; real runtime dispose on shutdown; no `agent_end` terminal; inject child comm tools; **do not** exclude beadwork wholesale; beadwork tool filter is beadwork's job when loaded in a child, or a passed allow/deny list from the parent runtime.
+- `src/spawn/*` and `src/subsessions/manager.ts` — share session factory; split start from wait; fully-idle completion; real runtime dispose on shutdown; no `agent_end` terminal; inject bound comm tools on orchestrated children; **do not** exclude beadwork wholesale; after bind, apply the inspection allowlist ∪ comm ∪ coding/role formula to **both** spawn and orchestrate children.
 - `src/tree.ts` — canonical live registry with group/role/taskType/description/domain; distinguish orchestrated vs spawn nodes.
 - new `src/orchestration/` — groups, per-child nudge selection, idle coalescing, parent delivery.
 - new `src/task-types.ts` — closed union (no `validation`) and policy strings per event class.
@@ -779,7 +808,7 @@ This is a tool-visibility boundary, not a sandbox.
 - commands/status/renderers — groups, task types, packets, messages (minions UI, not beadwork).
 - tests — lifecycle, idle coalescing, precedence per event, messaging to live vs terminal, shutdown, prose settlement, spawn-not-in-fleet.
 
-How beadwork tools are filtered in a child session: the child `ResourceLoader` still loads beadwork; after bind, set the child's active tool names to the inspection allowlist plus comm tools plus ordinary coding tools. Do not rely on “beadwork isn't installed.”
+How beadwork tools are filtered: the child `ResourceLoader` still loads beadwork; minions, after bind, applies `setActiveToolsByName` (or equivalent) using the formula in §13. Beadwork does not need a child-mode. Do not rely on “beadwork isn't installed.”
 
 ### `packages/pi-beadwork-extension`
 
@@ -791,8 +820,8 @@ How beadwork tools are filtered in a child session: the child `ResourceLoader` s
 - `src/worktree.ts` — delete managed lifecycle.
 - `src/handoff.ts` — prompt context / evidence hints, not process shutdown.
 - `src/attribution.ts` — keep as domain helper for parent context.
-- TUI — issue/goal views remain; **delete** worker manager, land/cleanup, fleet-ish worker tabs. No minion rows in beadwork.
-- CLI/completions — `/bw run` takes an epic id only.
+- TUI — issue/goal views remain; **delete** worker manager, land/cleanup, workers tab. No minion rows in beadwork. Command/statusline copy must not say “bounded epic loop” or show worker counts.
+- CLI/completions — `/bw run` takes an epic id only; reject supervisor flags and `print`/`json`.
 - tests/e2e — replace tmux swarm with in-process minion + beadwork scenarios; drop supervisor-flag tests.
 
 ### Dependency direction
@@ -801,7 +830,7 @@ How beadwork tools are filtered in a child session: the child `ResourceLoader` s
 
 Beadwork must not import the live minions runtime. Types-only is allowed if needed and does not construct a second `AgentTree`. The parent model and minions tools are how anyone inspects the fleet.
 
-If minions is absent, `/bw run` fails with a clear “enable pi-minions” message (presence check, not a probe/ack protocol).
+If minions is absent, `/bw run` still kickoffs; the parent turn fails when it calls `orchestrate`. No probe/ack. Optional warn only if the parent tool registry is enumerable.
 
 ---
 
@@ -811,23 +840,22 @@ If minions is absent, `/bw run` fails with a clear “enable pi-minions” messa
 
 | Surface | Behavior |
 | --- | --- |
-| `spawn` | Foreground, blocking, `agent` selector preserved. Not grouped. |
-| `orchestrate` | Non-blocking. Metadata in, handles out. |
+| `spawn` | Foreground, blocking, `agent` selector preserved. Not grouped. Same inspection allowlist as orchestrated children. |
+| `orchestrate` | Non-blocking. Metadata in, handles out. One open group per session. `accepted` is registered, not running. |
 | `list_minions` | Include role, task type, description, group, domain, communication indicators. Distinguish spawn vs orchestrated. |
 | `show_minion` | Full output, messages, path intent, activity. Canonical place for large text. |
-| `halt` | Abort one child or a group. User/parent. Children do not halt peers. |
-| `send_minion_message` | Parent → live child, or child → live peer / parent. |
-| `announce_minion_paths` | Advisory TTL intent. |
+| `halt` | Abort one child or a group. User/parent. Children do not halt peers. Abort emits `aborted`, not `failed`. |
+| `send_minion_message` | **Parent** → live child. Not installed on children. |
+| injected child list-peers / send / announce | Bound closures on orchestrated children only. |
 
 Keep the tool count small.
 
 ### Beadwork
 
-- `/bw run <epic>` — goal + kickoff. No supervisor flags.
-- Existing issue CRUD, ready, start, close, comment remain on the **parent**.
-- Children get the inspection subset in §13.
-- `beadwork_delegate` removed.
-- `beadwork_worker_done` removed.
+- `/bw run <epic>` — goal + kickoff. No supervisor flags. Persistent hosts only. Same-epic retry; different-epic reject while a goal is active. Explicit abandon or scoped-epic close exits `run`.
+- Existing issue CRUD, ready, start, close, comment, `beadwork_sync` remain on the **parent**.
+- Children get the inspection allowlist in §13.
+- Deleted: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`.
 - Worker inspection/landing tools and TUI actions removed.
 
 ### Config cutover
@@ -858,7 +886,7 @@ Do not silently select a backend. Do not map old worker-review flags onto a vali
 
 **Durable (beadwork):** issues, dependencies, comments, labels, history. Goal record in ordinary session state. No parallel orchestration log format. No minions decision journal.
 
-**Parent death:** children die; in-memory messages and packets are lost; no takeover; next session treats prior runtime as interrupted; tickets are still in `bw`.
+**Parent death / session replacement:** children die; in-memory messages and packets are lost; no takeover; persisted `run` is interrupted and must not auto-kickoff; tickets are still in `bw`.
 
 This is an accepted tradeoff, not a degraded implementation of detached durability.
 
@@ -878,7 +906,9 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 - role fallback parsing;
 - coalesced packets including idle fold + no mid-turn parent injection;
 - shutdown abort/dispose;
-- child comm tools injected; minions extension not loaded in children;
+- child comm tools injected on orchestrated sessions; minions extension not loaded in children; inspection allowlist applied to spawn and orchestrate;
+- one open group per parent session; `accepted` is registered not running;
+- settlement vs inbound mail single-winner; `aborted` ≠ `failed`;
 - preserve `spawn`.
 
 **Exit:** generic orchestrated children run while the parent stays interactive; `fix` vs `reviewImplementation` produce distinct per-child nudges; a typed child that emits prose still settles; four idle completions → one parent turn; `spawn` does not appear in the orchestrated fleet.
@@ -889,9 +919,10 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 - reject supervisor flags/config;
 - domain metadata on orchestrated children; parent composes `task`;
 - completion packets come only from minions;
-- delete `beadwork_delegate` / `beadwork_worker_done` / `runBoundedEpicLoop`;
-- remove tmux, polling, pane inspection, runtime markers, landing, worktree manager, worker TUI;
-- child beadwork tool filter (inspection vs start/close/reopen);
+- delete `beadwork_delegate` / `beadwork_worker_done` / `beadwork_land_worker` / `beadwork_worker_check` / `runBoundedEpicLoop`;
+- remove tmux, polling, pane inspection, runtime markers, landing, worktree manager, workers TUI;
+- child beadwork inspection allowlist after bind;
+- `/bw run` persistent-host only; same-epic kickoff retry; stale `run` not auto-resumed;
 - rewrite tmux e2e to in-process scenarios.
 
 **Exit:** one ticket implement through minions without tmux; no production beadwork path references the old runtime. Not a published cutover until Phase D.
@@ -901,9 +932,10 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 - peer discovery and addressed messages to live children;
 - parent-directed child messages as coalesced wakes with `parentMessage` nudges;
 - TTL path intent and overlap notices;
-- terminal recipient fails; no parked sessions.
+- terminal recipient fails; no parked sessions;
+- mail vs settle single-winner; bound child send (not parent tool).
 
-**Exit:** two live children notice overlap, message each other, continue; no parent relay; no lock; message after settle fails.
+**Exit:** two live children notice overlap, message each other, continue; no parent relay; no lock; message after settle fails; mail-before-idle yields one later `settled`.
 
 ### Phase D — One epic (published cutover)
 
@@ -934,7 +966,16 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 | Missing `description` | Synchronous reject. |
 | Partial batch start | Keep successful handles; fail the rest. |
 | Child fails to start | Terminal failed; packet with error. Do not report a running handle as successful. |
-| Child dies early | Distinguish aborted vs failed vs settled. Apply `failed` nudge if typed. Keep partial output. |
+| Child dies early | Distinguish `aborted` vs `failed` vs `settled`. Keep partial output. |
+| Child aborted | `aborted` nudge; do not retry unless the user asks. |
+| Mail after settlement committed | `recipient-terminal`; no second settled packet. |
+| Mail accepted before idle | Continuation runs; one `settled` after it idles. |
+| Omit groupId with one open group | Join it. Second group id rejects. |
+| `/bw run` in print/json | Synchronous reject. |
+| `/bw run` different epic while goal active | Reject until current goal exits. |
+| `/bw run` same epic | Resend kickoff. |
+| Stale persisted `run` | Interrupted; no auto-kickoff. |
+| Kickoff with minions absent | No probe; parent turn fails on `orchestrate`. |
 | Parent busy or idle, several children finish | Coalesce; one fleet snapshot; per-child nudges. |
 | Peer unavailable / terminal | Clear delivery failure to sender; inspectable metadata; no parent reroute; do not keep the session. |
 | Path TTL expires | Drop the notice. Do not infer the agent stopped touching the path. |
@@ -946,7 +987,7 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 | Two sessions `/bw run` one epic | No lock. User/model reconcile from `bw`. |
 | Child `bw close` via shell | Parent refresh should notice. V1 cannot prevent it. |
 | Supervisor flag/config present | Actionable reject; do not start goal mode. |
-| Minions extension absent | `/bw run` fails clearly. |
+| Minions extension absent | Kickoff still sent; parent fails when calling `orchestrate`. No probe. |
 | `in_progress` ticket with no live child | Visible in `bw`; parent re-dispatches or user fixes. No saga. |
 | Reviewer sees dirty unrelated files | Accepted shared-checkout limitation. |
 
@@ -958,7 +999,7 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 
 - task-type schema accepts only the five values; rejects `validation` and unknown strings; role accepts arbitrary strings;
 - `description` required;
-- nudge precedence: task type > role > generic; no concatenation; `parentMessage` never uses the settled generic;
+- nudge precedence: task type > role > generic; no concatenation; `parentMessage` and `aborted` never use the settled generic;
 - coalesced mixed task types keep per-child nudges;
 - `AgentTree` preserves group, role, task type, description, domain; spawn nodes are not in orchestrated snapshots;
 - idle and busy coalescing: several events → one packet;
@@ -966,12 +1007,16 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 - TTL intent expires without blocking;
 - overlap creates notices, never enforcement;
 - messages preserve sender/recipient; missing and terminal peers fail clearly;
+- second `groupId` rejects; omitted `groupId` joins the one open group;
+- `accepted`/`starting` is not treated as running;
 - prose-only typed child still settles.
 
 ### Minions integration
 
-- `spawn` still blocks and returns results and is absent from orchestrated fleet snapshots;
+- `spawn` still blocks and returns results, is absent from orchestrated fleet snapshots, and gets the inspection allowlist (no close);
 - `orchestrate` returns before completion; rejected in print/json;
+- halt emits `aborted` not `failed`;
+- mail-after-settle fails; mail-before-idle extends then one `settled`;
 - parent interactive while children run;
 - settlement is not emitted on premature `agent_end`;
 - abort/failure terminal states;
@@ -986,8 +1031,12 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 
 ### Beadwork integration
 
-- `/bw run <epic>` kickoff without tmux, polling, or worker flags;
+- `/bw run <epic>` kickoff without tmux, polling, or worker flags; rejected in print/json;
+- same-epic `/bw run` resends kickoff; different epic rejected while goal active;
+- closing the scoped epic exits `run`; halt alone does not;
+- persisted `run` after `/new` does not auto-kickoff;
 - supervisor flags/config rejected;
+- `beadwork_land_worker` / `beadwork_worker_check` unregistered;
 - descriptors carry ticket/epic metadata;
 - parent-composed `task` is what the child sees (no secret wrap);
 - settlement does not close the ticket;
@@ -1009,7 +1058,9 @@ No published beadwork release keeps tmux as fallback after cutover, and no publi
 - no path intent rejects writes;
 - beadwork emits no duplicate model-visible lifecycle message for a minion-owned child;
 - no permit/bind/report-result/`shouldStopAfterTurn` orchestration symbols in production source;
-- no `runBoundedEpicLoop`, `defaultWorkers`, `maxCycles`, `noSpawn` in the live CLI.
+- no `runBoundedEpicLoop`, `defaultWorkers`, `maxCycles`, `noSpawn` in the live CLI;
+- no `beadwork_land_worker` / `beadwork_worker_check`;
+- no auto-kickoff from session JSON.
 
 ### Quality gates
 
@@ -1047,7 +1098,9 @@ Logic changes need focused tests in the affected workspace. Cutover also needs `
 
 **Dynamic role quality.** Use task types when the parent question must be reliable.
 
-**Extension coupling.** No live runtime import; no event-handshake product; presence check only.
+**Extension coupling.** No live runtime import; no event-handshake product; no `/bw run` probe.
+
+**Stale goal JSON.** Persisted `run` must not resurrect a fleet. Interrupted, user re-runs `/bw run`.
 
 ---
 
@@ -1056,10 +1109,10 @@ Logic changes need focused tests in the affected workspace. Cutover also needs `
 Product and architecture are locked. Implementation planning may still choose:
 
 1. default numeric bounds that are **minions-local** (message bytes, packet output bounds, path-intent TTL) — not beadwork-configured;
-2. child-facing tool names for peer send vs parent send;
+2. exact child-facing tool names for list-peers / send / announce (identity stays a bound closure);
 3. exact in-process coalesce mechanic (queue drain vs short fold window) as long as idle multi-complete is one turn;
-4. how the child active-tool allowlist is applied after beadwork binds;
-5. default reviewer role name for goal prompt text.
+4. default reviewer role name for goal prompt text;
+5. the explicit user command spelling for abandoning goal mode (`/bw` subcommand vs existing halt-plus-mode).
 
 None of these reopens tmux, schemas, permits, locks, hidden schedulers, `--workers` coupling, validation task types, or beadwork fleet UI.
 
@@ -1079,7 +1132,7 @@ Planning should focus on wiring, not re-opening the constitution:
 4. `/bw run` kickoff; parent-composed `task`; domain metadata without a second completion channel;
 5. which beadwork runtime modules delete outright at cutover, including supervisor flags;
 6. child messaging tools without exposing `orchestrate`; beadwork inspection without start/close;
-7. one-cwd group representation; spawn excluded from fleet snapshots;
+7. one open group per session, one cwd; spawn excluded from fleet snapshots;
 8. ticket vs scope review as prompt/policy, not a second scheduler.
 
 ---
@@ -1098,13 +1151,14 @@ Planning should focus on wiring, not re-opening the constitution:
 
 - `src/orchestrator.ts` — tmux/process supervisor (`runBoundedEpicLoop`)
 - `src/tmux.ts` — launch/inspection
-- `src/types.ts` / `src/config.ts` / `src/session-state.ts` — worker runtime, supervisor flags
+- `src/types.ts` / `src/config.ts` / `src/session-state.ts` — worker runtime, supervisor flags; persisted `run` / `trackedWorkerIds` must not auto-resume
 - `src/actions/run.ts` — `/bw run` currently starts the supervisor
-- `src/index.ts` — `beadwork_delegate`, `beadwork_worker_done`, mutating tools
+- `src/index.ts` — `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`, mutating tools
+- `src/tui/dashboard.ts` / `src/tui/worker-manager.ts` — workers tab / worker UI to delete
+- `src/command-aliases.ts` — “bounded epic loop” copy
 - `src/prompt.ts` — current orchestration prompt
 - `src/bw.ts` — durable domain adapter
 - `src/attribution.ts` — domain helpers to keep
-- `src/tui/worker-manager.ts` — worker UI to delete
 
 ### Pi APIs this design relies on
 
