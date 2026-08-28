@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "sbdpi-vur.4.3"
-  ],
+  "blocked_by": [],
   "blocks": [
     "sbdpi-vur.4",
     "sbdpi-vur.4.5"
@@ -25,5 +23,5 @@
   "status": "open",
   "title": "Prove scope-policy epic fixture without per-ticket review children",
   "type": "feature",
-  "updated_at": "2026-08-28T22:55:43Z"
+  "updated_at": "2026-08-28T22:57:11Z"
 }
