@@ -10,6 +10,10 @@
     {
       "text": "Normative proposal committed on feat/reimagine-beadwork-flow as a566739 (`docs: propose native minions orchestration`). Proposal underwent repo/API archaeology plus repeated Pi-runtime, Beadwork-durability, and hostile security/coherence audits; final post-fix review reported no remaining Critical/High blockers. Planning validation: npm run lint, npm run test (424 files / 2,127 passed / 3 skipped), and npm run typecheck all passed.",
       "timestamp": "2026-08-28T07:22:47Z"
+    },
+    {
+      "text": "Supersedes the deleted native-orchestration proposal. Living contract is process-local minions + beadwork goal adapter + parent judgment. Do not resurrect permits, result schemas, report/wait tools, git locks, or sagas. Publication is one cutover train (A–D); E is deferred and must not block this epic.",
+      "timestamp": "2026-08-28T21:30:47Z"
     }
   ],
   "priority": 1,
