@@ -5,7 +5,10 @@
   "created": "2026-08-28T22:57:42Z",
   "description": "Deferred. Do not implement in the V1 cutover. Does not block sbdpi-vur.\n\nNamed so this is not “forgotten → sneak into V1.” No implementation spec beyond one paragraph.\n\nV1 children die with the parent. Persisted run is interrupted. User /bw run again.",
   "id": "sbdpi-vur.5.7",
-  "labels": [],
+  "labels": [
+    "deferred",
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.5",
   "priority": 3,
   "status": "open",
