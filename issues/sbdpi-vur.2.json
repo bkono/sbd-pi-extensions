@@ -7,9 +7,15 @@
   "id": "sbdpi-vur.2",
   "labels": [],
   "parent": "sbdpi-vur",
+  "comments": [
+    {
+      "text": "Beadwork can start without minions for config, TUI, and tool deletion. Do not delete orchestrator.ts until /bw run no longer calls it. Keep WorkerRuntime types until delete-runtime. No fleet UI, no AgentTree import, no --workers cap.",
+      "timestamp": "2026-08-28T21:30:48Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[EPIC] Beadwork goal adapter cutover",
   "type": "epic",
-  "updated_at": "2026-08-28T21:30:47Z"
+  "updated_at": "2026-08-28T21:30:48Z"
 }
