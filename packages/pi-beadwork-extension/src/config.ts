@@ -92,6 +92,11 @@ export const REJECTED_SUPERVISOR_ENV_VARS = [
   "PI_BEADWORK_VALIDATE_TIMEOUT_MS",
   "PI_BEADWORK_MAX_REBASE_ATTEMPTS",
   "PI_BEADWORK_LANDING_POLICY",
+  "PI_BEADWORK_REVIEW_ENABLED",
+  "PI_BEADWORK_REVIEW_TIMEOUT_MS",
+  "PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS",
+  "PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS",
+  "PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS",
   "PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS",
 ] as const;
 
@@ -453,13 +458,8 @@ function envPartialConfig(env: NodeJS.Dict<string | undefined>): PartialConfig {
   const maxRebaseAttempts = env.PI_BEADWORK_MAX_REBASE_ATTEMPTS;
   const landingPolicy = env.PI_BEADWORK_LANDING_POLICY;
   const reviewPolicy = env.PI_BEADWORK_REVIEW_POLICY;
-  const reviewEnabled = env.PI_BEADWORK_REVIEW_ENABLED;
   const reviewProvider = env.PI_BEADWORK_REVIEW_PROVIDER;
   const reviewModel = env.PI_BEADWORK_REVIEW_MODEL;
-  const reviewTimeoutMs = env.PI_BEADWORK_REVIEW_TIMEOUT_MS;
-  const reviewMaxRemediationAttempts = env.PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS;
-  const reviewMaxArtifactChars =
-    env.PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS ?? env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS;
   const supervisorPollIntervalMs = env.PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS;
 
   return {
@@ -508,18 +508,6 @@ function envPartialConfig(env: NodeJS.Dict<string | undefined>): PartialConfig {
       policy: normalizeLandingPolicy(landingPolicy),
       commandTimeoutMs: validateTimeoutMs ? Number.parseInt(validateTimeoutMs, 10) : undefined,
       maxRebaseAttempts: maxRebaseAttempts ? Number.parseInt(maxRebaseAttempts, 10) : undefined,
-      review: {
-        enabled: normalizeBoolean(reviewEnabled),
-        provider: reviewProvider,
-        model: reviewModel,
-        commandTimeoutMs: reviewTimeoutMs ? Number.parseInt(reviewTimeoutMs, 10) : undefined,
-        maxRemediationAttempts: reviewMaxRemediationAttempts
-          ? Number.parseInt(reviewMaxRemediationAttempts, 10)
-          : undefined,
-        maxArtifactChars: reviewMaxArtifactChars
-          ? Number.parseInt(reviewMaxArtifactChars, 10)
-          : undefined,
-      },
     },
     supervisor: {
       pollIntervalMs: supervisorPollIntervalMs

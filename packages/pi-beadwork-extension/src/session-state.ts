@@ -247,7 +247,9 @@ function normalizeState(state: unknown, origin: "memory" | "disk" = "memory"): S
   const mode = value.mode === "interactive" || value.mode === "run" ? value.mode : "neutral";
   const updatedAt =
     typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString();
-  const interruptedRun = origin === "disk" && mode === "run";
+  // Disk rehydration of mode=run is interrupted; keep that across in-memory writes
+  // until a later /bw run starts a fresh goal.
+  const interruptedRun = mode === "run" && (origin === "disk" || value.runInterrupted === true);
 
   return {
     mode,
@@ -280,6 +282,7 @@ function toPersistedSessionState(state: SessionState): SessionState {
     engagedAt: state.engagedAt,
     prime: state.prime,
     goal: state.goal,
+    runInterrupted: state.runInterrupted === true ? true : undefined,
     workerNotices: state.workerNotices,
     lastRunOptions: state.lastRunOptions,
     recentRunSummary: state.recentRunSummary,

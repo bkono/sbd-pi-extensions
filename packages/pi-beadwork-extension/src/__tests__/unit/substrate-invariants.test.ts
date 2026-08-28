@@ -269,11 +269,10 @@ describe("substrate invariants for current-branch worker execution", () => {
     expect(projectConfig.landing.review.enabled).toBe(false);
     expect(projectConfig.workerExecution.review.enabled).toBe(true);
 
-    process.env.PI_BEADWORK_REVIEW_ENABLED = "true";
     process.env.PI_BEADWORK_WORKER_REVIEW_ENABLED = "false";
 
     const envConfig = loadConfig(repoRoot);
-    expect(envConfig.landing.review.enabled).toBe(true);
+    expect(envConfig.landing.review.enabled).toBe(false);
     expect(envConfig.workerExecution.review.enabled).toBe(false);
   });
 });

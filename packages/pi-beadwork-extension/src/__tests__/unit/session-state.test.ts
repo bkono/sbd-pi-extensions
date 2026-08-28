@@ -316,4 +316,55 @@ describe("session state persistence", () => {
     expect(loaded.runOptions).toBeUndefined();
     expect(isInterruptedRun(loaded)).toBe(true);
   });
+
+  it("keeps a rehydrated interrupted run interrupted across in-memory saves", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
+    await writeFile(
+      resolveSessionStatePath(tempDir, "session-interrupted"),
+      `${JSON.stringify({
+        mode: "run",
+        scope: { kind: "epic", id: "BW-100" },
+        updatedAt: "2026-08-28T00:00:00.000Z",
+        goal: {
+          goalId: "goal-BW-100",
+          scopeIds: ["BW-100"],
+          reviewPolicy: "ticket",
+          startedAt: "2026-08-28T00:00:00.000Z",
+        },
+        trackedWorkerIds: ["bw-101-worker"],
+        runOptions: {
+          workers: 2,
+          until: "empty",
+          noSpawn: false,
+          dryRun: false,
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const loaded = await loadSessionState(tempDir, "session-interrupted");
+    expect(isInterruptedRun(loaded)).toBe(true);
+
+    const saved = await saveSessionState(tempDir, "session-interrupted", {
+      ...loaded,
+      updatedAt: "2026-08-28T00:01:00.000Z",
+    });
+    expect(isInterruptedRun(saved)).toBe(true);
+    expect(saved.trackedWorkerIds).toBeUndefined();
+    expect(saved.runOptions).toBeUndefined();
+
+    const raw = await readFile(resolveSessionStatePath(tempDir, "session-interrupted"), "utf8");
+    expect(raw).toContain('"runInterrupted": true');
+    expect(raw).not.toContain("trackedWorkerIds");
+    expect(raw).not.toContain("runOptions");
+    expect(raw).not.toContain("bw-101-worker");
+
+    const reloaded = await loadSessionState(tempDir, "session-interrupted");
+    expect(reloaded.mode).toBe("run");
+    expect(reloaded.runInterrupted).toBe(true);
+    expect(isInterruptedRun(reloaded)).toBe(true);
+    expect(reloaded.trackedWorkerIds).toBeUndefined();
+    expect(reloaded.runOptions).toBeUndefined();
+    expect(reloaded.goal).toEqual(loaded.goal);
+  });
 });

@@ -57,7 +57,7 @@ export type SessionState = {
   engagedAt?: string;
   prime?: PrimeCache;
   goal?: Goal;
-  /** Set on disk rehydration of mode=run. Never treat as a live supervisor. */
+  /** Disk rehydration of mode=run. Stays set across in-memory writes until a later /bw run. */
   runInterrupted?: boolean;
   trackedWorkerIds?: string[];
   workerNotices?: Record<string, string>;

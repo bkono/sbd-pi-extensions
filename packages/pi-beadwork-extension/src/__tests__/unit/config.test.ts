@@ -78,14 +78,26 @@ describe("reviewer config", () => {
     expect(config.landing.review.maxArtifactChars).toBe(4567);
   });
 
-  it("prefers the new env var but still accepts the legacy alias", async () => {
+  it("does not map landing-review gate env leftovers into landing.review", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-home-"));
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-config-"));
 
-    process.env.PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS = "5678";
-    expect(loadConfig(repoRoot).landing.review.maxArtifactChars).toBe(5678);
+    const config = loadConfig(repoRoot, {
+      homeDir,
+      env: {
+        PI_BEADWORK_REVIEW_ENABLED: "true",
+        PI_BEADWORK_REVIEW_TIMEOUT_MS: "1000",
+        PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS: "4",
+        PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS: "6789",
+        PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS: "5678",
+        PI_BEADWORK_REVIEW_PROVIDER: "openai",
+        PI_BEADWORK_REVIEW_MODEL: "gpt-5.4",
+      },
+    });
 
-    process.env.PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS = "6789";
-    expect(loadConfig(repoRoot).landing.review.maxArtifactChars).toBe(6789);
+    expect(config.landing.review).toEqual(DEFAULT_CONFIG.landing.review);
+    expect(config.review.provider).toBe("openai");
+    expect(config.review.model).toBe("gpt-5.4");
   });
 });
 
@@ -455,5 +467,40 @@ describe("goal-mode supervisor config rejection", () => {
       provider: "openai",
       model: "gpt-5.4",
     });
+    expect(config.landing.review.provider).toBeUndefined();
+    expect(config.landing.review.model).toBeUndefined();
+  });
+
+  it("fails goal-mode start for landing-review gate env leftovers and logs the keys", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-home-"));
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "pi-bw-goal-"));
+    const env = {
+      PI_BEADWORK_REVIEW_ENABLED: "true",
+      PI_BEADWORK_REVIEW_TIMEOUT_MS: "1000",
+      PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS: "4",
+      PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS: "6789",
+      PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS: "5678",
+    };
+
+    expect(() => assertGoalModeConfig(repoRoot, { homeDir, env })).toThrow(SupervisorConfigError);
+    try {
+      assertGoalModeConfig(repoRoot, { homeDir, env });
+      expect.unreachable("expected SupervisorConfigError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SupervisorConfigError);
+      const rejected = (error as SupervisorConfigError).rejectedKeys;
+      expect(rejected).toEqual(uniqueSorted(Object.keys(env)));
+      for (const key of rejected) {
+        expect((error as SupervisorConfigError).message).toContain(`- ${key}`);
+      }
+    }
+  });
+
+  it("does not reject display/prompt review env vars", () => {
+    expect(REJECTED_SUPERVISOR_ENV_VARS).not.toContain("PI_BEADWORK_REVIEW_POLICY");
+    expect(REJECTED_SUPERVISOR_ENV_VARS).not.toContain("PI_BEADWORK_REVIEW_PROVIDER");
+    expect(REJECTED_SUPERVISOR_ENV_VARS).not.toContain("PI_BEADWORK_REVIEW_MODEL");
+    expect(REJECTED_SUPERVISOR_ENV_VARS).not.toContain("PI_BEADWORK_SHOW_INACTIVE_STATUS");
+    expect(REJECTED_SUPERVISOR_ENV_VARS).not.toContain("PI_BEADWORK_SESSION_STATE_DIR");
   });
 });
