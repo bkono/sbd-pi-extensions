@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "sbdpi-vur.1.8"
+  ],
   "blocks": [],
   "created": "2026-08-28T21:31:29Z",
   "description": "In-process integration: one Beadwork ticket from `/bw run` through implementation child settle without tmux, without closing the ticket automatically.\n\n## Background\n\nThis is the first vertical slice that proves the two packages together. Review may be exercised if cheap; default ticket review full loop is D-epic-e2e. Do not publish on this slice alone.\n\n## Approach\n\nTemporary git+bw fixture, stub or scripted parent turns if needed, real orchestrate + session factory. Assert:\n\n- no tmux\n- orchestrate handle before completion\n- parent not blocked\n- settlement does not close the issue\n- domain metadata present on the child\n- `/bw run` injected prompt happened\n\n## Success criteria\n\n- Test is deterministic and logged.\n- Works with tmux absent (PATH without tmux).\n\n## Test plan\n\n- Integration under packages/pi-beadwork-extension or a workspace e2e script replacing e2e-current-branch-delegate.\n\n## Considerations\n\nNeeds orchestrate + packets + /bw run. Child tool allowlist should already hide close.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Prove one in-process ticket from /bw run through child settlement",
   "type": "feature",
-  "updated_at": "2026-08-28T21:31:29Z"
+  "updated_at": "2026-08-28T21:33:01Z"
 }
