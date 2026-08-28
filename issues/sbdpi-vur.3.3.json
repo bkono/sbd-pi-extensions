@@ -10,11 +10,14 @@
   "created": "2026-08-28T21:31:28Z",
   "description": "A live child's message to the parent is a parent-waking `parentMessage` event, coalesced like other packets. The child stays running.\n\n## Background\n\nWithout this, a blocked child can only settle with prose. With this, they can ask while still live and be steered. Nudge must not say they settled.\n\n## Success criteria\n\n- Packet event class parentMessage; child remains in the fleet snapshot.\n- Coalesced with other pending events.\n- Does not use settled generic nudge.\n\n## Test plan\n\n- Integration: send-to-parent → one packet, child still running.\n- Unit: nudge selection for parentMessage.\n\n## Considerations\n\nDo not implement minion_wait. If the child then idles without further tools, that is settled (separate event).",
   "id": "sbdpi-vur.3.3",
-  "labels": [],
+  "labels": [
+    "minions",
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.3",
   "priority": 2,
   "status": "open",
   "title": "Wake parent on live child questions without treating them as settled",
   "type": "feature",
-  "updated_at": "2026-08-28T21:33:00Z"
+  "updated_at": "2026-08-28T21:33:35Z"
 }
