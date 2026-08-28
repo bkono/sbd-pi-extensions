@@ -19,9 +19,15 @@
     "orchestration"
   ],
   "parent": "sbdpi-vur.4",
+  "comments": [
+    {
+      "text": "Owns the reusable scripted-parent/git/bw harness for 4.3 and 4.6.",
+      "timestamp": "2026-08-28T22:57:46Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Prove one in-process ticket from /bw run through child settlement",
   "type": "feature",
-  "updated_at": "2026-08-28T22:57:11Z"
+  "updated_at": "2026-08-28T22:57:46Z"
 }
