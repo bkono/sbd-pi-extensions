@@ -10,11 +10,13 @@
   "created": "2026-08-28T21:31:30Z",
   "description": "Published docs and migration notes for the cutover.\n\n## Content\n\n- Both package READMEs\n- Beadwork configuration reference: removed keys, review policy, no landing.validateCommands gate\n- Removed tools and `/bw run` behavior (injected prompt)\n- Honest: in-process children die with Pi; stuck child may require process exit; shared-checkout conflicts are best effort\n- Do not document tmux workers as current\n\n## Success criteria\n\n- An operator who only reads README can run `/bw run EPIC` on tui with minions enabled.\n- Removed flags documented as errors, not ignored.\n\n## Test plan\n\n- Grep docs for tmux worker launch as current instructions (should be none, except a \"removed\" migration section).",
   "id": "sbdpi-vur.4.4",
-  "labels": [],
+  "labels": [
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.4",
   "priority": 1,
   "status": "open",
   "title": "Publish cutover README and migration notes",
   "type": "chore",
-  "updated_at": "2026-08-28T21:33:05Z"
+  "updated_at": "2026-08-28T21:33:37Z"
 }
