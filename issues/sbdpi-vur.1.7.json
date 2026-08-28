@@ -6,6 +6,7 @@
     "sbdpi-vur.1.6"
   ],
   "blocks": [
+    "sbdpi-vur.1",
     "sbdpi-vur.1.8",
     "sbdpi-vur.1.9"
   ],
@@ -18,5 +19,5 @@
   "status": "open",
   "title": "Add non-blocking orchestrate tool on persistent hosts",
   "type": "feature",
-  "updated_at": "2026-08-28T21:32:52Z"
+  "updated_at": "2026-08-28T21:32:53Z"
 }
