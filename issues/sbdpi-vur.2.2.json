@@ -11,11 +11,14 @@
   "created": "2026-08-28T21:31:26Z",
   "description": "Rewrite the Beadwork parent prompt appendix for goal mode and interactive mode. No supervisor language.\n\n## Background\n\n`prompt.ts` currently tells the parent it is in run mode and to delegate against ready tickets via beadwork worker tools. New run mode: standing appendix is policy only (does not start a turn). Tell the parent to use `orchestrate` + beadwork start/close/comment; do not poll; do not close from child settlement; compose the child `task` string yourself; include domain metadata; default ticket review; file is nonblocking unless the user waives; quality commands are the implementer's/reviewer's job.\n\nInteractive mode stays human-led: no injected go-prompt, no autonomous fleet.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/prompt.ts`\n- tests\n\n## Child task composition guidance\n\nThe parent (not a wrap hook) writes `task`. Include ticket/epic facts, \"do not close tickets\", shared-checkout discipline, encourage a prose handoff (summary, commits, commands run, blockers). Do not claim a schema.\n\nReview children: inspect commits/ticket id/git show, not \"read the whole dirty workspace\". Do not start review of A while A's implementer is still live (instruction, not a lock).\n\n## Success criteria\n\n- Appendix contains orchestrate + start-before-work + settlement≠close.\n- Appendix does not mention tmux, delegate, worker_done, landing, --workers.\n- Neutral mode still returns undefined appendix.\n\n## Test plan\n\n- Unit: snapshots/strings for run vs interactive vs neutral.\n- Unit: review policy text differs for ticket/scope/none.\n\n## Considerations\n\nDo not inject a turn from this module. Injection is `/bw run` in actions/run.ts.",
   "id": "sbdpi-vur.2.2",
-  "labels": [],
+  "labels": [
+    "beadwork",
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.2",
   "priority": 1,
   "status": "open",
   "title": "Rewrite Beadwork goal-mode prompt appendix for orchestrate",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:01Z"
+  "updated_at": "2026-08-28T21:33:33Z"
 }
