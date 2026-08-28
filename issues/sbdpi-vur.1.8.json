@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T21:31:26Z",
+  "description": "Deliver coalesced model-visible parent packets on orchestrated child lifecycle events.\n\n## Background\n\nUI toasts are not enough. The parent model must see: what changed, who is still running (orchestrated only), and the per-child nudge. Native overbuilt effect keys and exactly-once delivery. Pi `sendMessage` returns void. V1: one in-process submit per coalesced packet, consume once, no retry/ack claim.\n\n`/bw run` is NOT this. `/bw run` injects a prompt. Idle continuation here is how the epic continues **after children settle**.\n\n## Delivery\n\n`pi.sendMessage({ customType, content, display: true, details }, { triggerTurn: true, deliverAs: \"followUp\" })`\n\n- Never `steer` parent packets.\n- Coalesce including idle: fold events arriving before submit so four near-simultaneous settlements are one turn, not four. Queue drain / \"submit when no further pending\" is fine; not a user-visible timer product.\n- Delimit runtime nudge text from untrusted child output.\n- Bound output; full transcript via show_minion.\n- Parent-waking events: settled, aborted, failed. parentMessage is added in the messaging phase; leave a kind in the union so that issue can emit it.\n\n## Success criteria\n\n- Busy parent: events fold, one packet after the turn.\n- Idle parent: several events still one packet/one turn.\n- Mixed task types: each changed child has its own nudge.\n- Spawn completions do not emit these packets.\n- Consumed packet does not fire twice.\n\n## Test plan\n\n- Unit: coalesce ordering, per-child nudges, fleet snapshot filter.\n- Integration: followUp not steer; idle multi-complete.\n\n## Considerations\n\nPackets accumulate in parent session history. Keep them small. Cost of parent-LLM-in-the-loop is real; coalescing is a cost feature.",
+  "id": "sbdpi-vur.1.8",
+  "labels": [],
+  "parent": "sbdpi-vur.1",
+  "priority": 1,
+  "status": "open",
+  "title": "Deliver coalesced parent lifecycle packets at a safe boundary",
+  "type": "feature",
+  "updated_at": "2026-08-28T21:31:26Z"
+}
