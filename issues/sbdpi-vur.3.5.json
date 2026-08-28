@@ -4,7 +4,9 @@
     "sbdpi-vur.1.7",
     "sbdpi-vur.3.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "sbdpi-vur.3"
+  ],
   "created": "2026-08-28T21:31:29Z",
   "description": "Advisory TTL path intent and overlap notices. Never lock, pause, or reject writes.\n\n## Background\n\nShared checkout is normal. Intent is a hint, not ownership. Shell writes may be invisible. Do not claim safety. Do not create worktrees. Observing edit-tool paths is deferred.\n\n## Behavior\n\n- Announce paths + TTL; expire automatically.\n- On overlap of declared paths: notify live agents, name the other child's description, suggest a direct message, surface metadata for the parent on the next real packet (not a spam wake).\n- Continue execution.\n\n## Success criteria\n\n- Overlap never rejects an edit.\n- Expired intent disappears without implying the agent stopped touching the path.\n\n## Test plan\n\n- Unit: TTL expiry.\n- Unit: overlap notice contents.\n- Unit: no enforcement action.\n\n## Considerations\n\nSpawn children are not in the group; they do not announce. Fine.",
   "id": "sbdpi-vur.3.5",
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "Add advisory TTL path intent and overlap notices",
   "type": "feature",
-  "updated_at": "2026-08-28T21:33:00Z"
+  "updated_at": "2026-08-28T21:33:01Z"
 }
