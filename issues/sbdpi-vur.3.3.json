@@ -9,7 +9,7 @@
     "sbdpi-vur.4.3"
   ],
   "created": "2026-08-28T21:31:28Z",
-  "description": "A live child's message to the parent is a parent-waking `parentMessage` event, coalesced like other packets. The child stays running.\n\n## Background\n\nWithout this, a blocked child can only settle with prose. With this, they can ask while still live and be steered. Nudge must not say they settled.\n\n## Success criteria\n\n- Packet event class parentMessage; child remains in the fleet snapshot.\n- Coalesced with other pending events.\n- Does not use settled generic nudge.\n\n## Test plan\n\n- Integration: send-to-parent → one packet, child still running.\n- Unit: nudge selection for parentMessage.\n\n## Considerations\n\nDo not implement minion_wait. If the child then idles without further tools, that is settled (separate event).",
+  "description": "A live child's message to the parent is a parent-waking `parentMessage` event, coalesced like other packets. The child stays running.\n\n## Background\n\nWithout this, a blocked child can only settle with prose. With this, they can ask while still live and be steered. Nudge must not say they settled.\n\n## Success criteria\n\n- Packet event class parentMessage; child remains in the fleet snapshot.\n- Coalesced with other pending events.\n- Does not use settled generic nudge.\n\n## Test plan\n\n- Integration: send-to-parent → one packet, child still running.\n- Unit: nudge selection for parentMessage.\n\n## Considerations\n\nDo not implement minion_wait. If the child then idles without further tools, that is settled (separate event).\n\n\n## Test plan (expanded)\n\n- Integration: child send-to-parent → packet event class parentMessage; child remains in fleet snapshot.\n- Unit: nudge is the live-question string, not settled generic.\n- Coalesce with a simultaneous settlement of another child → one packet, two changed children, different event classes.\n- Logging: event class, child still-running boolean, nudge excerpt.",
   "id": "sbdpi-vur.3.3",
   "labels": [
     "minions",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Wake parent on live child questions without treating them as settled",
   "type": "feature",
-  "updated_at": "2026-08-28T21:44:28Z"
+  "updated_at": "2026-08-28T21:47:30Z"
 }
