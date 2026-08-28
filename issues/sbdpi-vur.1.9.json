@@ -9,7 +9,7 @@
     "sbdpi-vur.4.2"
   ],
   "created": "2026-08-28T21:31:26Z",
-  "description": "Prove and keep foreground `spawn` as a blocking tool that is not part of orchestration groups.\n\n## Background\n\nExisting callers use spawn for fan-out-and-wait. Changing its return type would break that. Share the runner internally but await all children before returning.\n\n## Files\n\n- `packages/pi-minions/src/tools/spawn.ts`\n- `packages/pi-minions/src/spawn/*`\n- existing spawn tests\n\n## Behavior\n\n- Keep `agent` selector.\n- Still Promise.allSettled (or equivalent wait) before return.\n- Nodes kind=spawn; excluded from orchestrated snapshots and packets.\n- While spawn is in flight the parent turn is blocked; orchestrated packets wait as followUp (Pi behavior).\n- Spawn children get inspection allowlist, not comm tools.\n\n## Success criteria\n\n- Existing spawn tests pass.\n- list_minions can distinguish spawn vs orchestrated.\n- A running spawn child is absent from orchestrate fleet snapshots.\n\n## Test plan\n\n- Existing unit/integration spawn tests.\n- Regression: spawn + orchestrate in the same tree; snapshot filter.\n\n## Considerations\n\nDo not add required description to spawn. Do not add taskType to spawn in V1 unless it is optional and ignored for packets (spawn does not emit packets).",
+  "description": "Prove and keep foreground `spawn` as a blocking tool that is not part of orchestration groups.\n\n## Background\n\nExisting callers use spawn for fan-out-and-wait. Changing its return type would break that. Share the runner internally but await all children before returning.\n\n## Files\n\n- `packages/pi-minions/src/tools/spawn.ts`\n- `packages/pi-minions/src/spawn/*`\n- existing spawn tests\n\n## Behavior\n\n- Keep `agent` selector.\n- Still Promise.allSettled (or equivalent wait) before return.\n- Nodes kind=spawn; excluded from orchestrated snapshots and packets.\n- While spawn is in flight the parent turn is blocked; orchestrated packets wait as followUp (Pi behavior).\n- Spawn children get inspection allowlist, not comm tools.\n\n## Success criteria\n\n- Existing spawn tests pass.\n- list_minions can distinguish spawn vs orchestrated.\n- A running spawn child is absent from orchestrate fleet snapshots.\n\n## Test plan\n\n- Existing unit/integration spawn tests.\n- Regression: spawn + orchestrate in the same tree; snapshot filter.\n\n## Considerations\n\nDo not add required description to spawn. Do not add taskType to spawn in V1 unless it is optional and ignored for packets (spawn does not emit packets).\n\n\n## Test plan (expanded)\n\n- Existing spawn tests still pass.\n- list/tree snapshot: running spawn child absent from orchestrated fleet.\n- Spawn child tools: inspection yes, comm no, close no.\n- Logging: kind=spawn, groupId empty/undefined.",
   "id": "sbdpi-vur.1.9",
   "labels": [
     "minions",
@@ -20,5 +20,5 @@
   "status": "open",
   "title": "Keep foreground spawn blocking and outside orchestrated fleets",
   "type": "task",
-  "updated_at": "2026-08-28T21:44:28Z"
+  "updated_at": "2026-08-28T21:47:32Z"
 }
