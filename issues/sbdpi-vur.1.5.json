@@ -4,6 +4,7 @@
     "sbdpi-vur.1.1"
   ],
   "blocks": [
+    "sbdpi-vur.1",
     "sbdpi-vur.1.7",
     "sbdpi-vur.1.8",
     "sbdpi-vur.1.9"
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "Split child session start from wait; settled lifecycle, dispose, tool allowlist",
   "type": "feature",
-  "updated_at": "2026-08-28T21:32:51Z"
+  "updated_at": "2026-08-28T21:32:53Z"
 }
