@@ -7,9 +7,15 @@
   "id": "sbdpi-vur.1",
   "labels": [],
   "parent": "sbdpi-vur",
+  "comments": [
+    {
+      "text": "Package hotspot: SubsessionManager/spawn runner is one issue (child session lifecycle). types/nudges/role/tree/group can proceed in parallel after types. Do not add report/wait tools.",
+      "timestamp": "2026-08-28T21:30:48Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[EPIC] Minions orchestration core",
   "type": "epic",
-  "updated_at": "2026-08-28T21:30:47Z"
+  "updated_at": "2026-08-28T21:30:48Z"
 }
