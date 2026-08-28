@@ -14,9 +14,15 @@
   "id": "sbdpi-vur.3.2",
   "labels": [],
   "parent": "sbdpi-vur.3",
+  "comments": [
+    {
+      "text": "Live recipients only. Peer chat may postpone idle; halt is the escape. No wait-for-reply, no parked sessions.",
+      "timestamp": "2026-08-28T21:33:29Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Deliver nonblocking same-group messages to live children",
   "type": "feature",
-  "updated_at": "2026-08-28T21:33:03Z"
+  "updated_at": "2026-08-28T21:33:29Z"
 }
