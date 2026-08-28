@@ -1,8 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
-    "sbdpi-vur.2.3",
-    "sbdpi-vur.2.4"
+    "sbdpi-vur.2.3"
   ],
   "blocks": [
     "sbdpi-vur.2",
@@ -20,5 +19,5 @@
   "status": "open",
   "title": "Update Beadwork CLI help, completions, and in-tree worker docs",
   "type": "chore",
-  "updated_at": "2026-08-28T22:57:09Z"
+  "updated_at": "2026-08-28T22:57:12Z"
 }
