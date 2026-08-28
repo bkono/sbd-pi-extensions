@@ -3,6 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-28T22:57:41Z",
+  "defer_until": "2027-01-01",
   "description": "Deferred. Do not implement in the V1 cutover. Does not block sbdpi-vur.\n\nNamed so this is not “forgotten → sneak into V1.” No implementation spec beyond one paragraph.\n\nV1 taskType is a closed minions enum. Adapters pass domain metadata; they do not register new workflow types.",
   "id": "sbdpi-vur.5.5",
   "labels": [
@@ -11,7 +12,7 @@
   ],
   "parent": "sbdpi-vur.5",
   "priority": 3,
-  "status": "open",
+  "status": "deferred",
   "title": "Later: third-party custom task-type registration",
   "type": "task",
   "updated_at": "2026-08-28T22:57:41Z"
