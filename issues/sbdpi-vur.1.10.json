@@ -5,7 +5,10 @@
   "created": "2026-08-28T21:44:25Z",
   "description": "Update parent inspection and control surfaces so orchestrated work is usable: `list_minions`, `show_minion`, and `halt`.\n\n## Background\n\nWithout this, the parent can spawn/orchestrate but cannot see role, taskType, description, group, domain, comm indicators, or halt a group. That is worse UX than tmux pane names. Beadwork has no fleet UI on purpose; minions *is* the fleet UI/tools.\n\n## Files\n\n- `packages/pi-minions/src/tools/minions.ts` (list/show)\n- `packages/pi-minions/src/tools/halt.ts` (one child or group; abort emits `aborted` not `failed`)\n- `packages/pi-minions/src/commands/` if user commands exist\n- `packages/pi-minions/src/status.ts` / renderers: optional statusline of orchestrated counts (not beadwork)\n- tests\n\nDo not edit `orchestrate.ts` here (sibling). Do not import beadwork.\n\n## Behavior\n\n- list/show distinguish spawn vs orchestrated.\n- Show full output, messages, path intent, activity. Large text lives here, not in packets.\n- halt id=all still works; halt group forgets the open group after drain so the next orchestrate creates a new id. Halt does **not** exit Beadwork goal mode (that's beadwork).\n- Children do not receive halt.\n\n## Success criteria\n\n- Parent can answer: who is running, what taskType, what they last said, whether a peer message failed.\n- Halt of a running orchestrated child yields an `aborted` packet (once packets exist).\n\n## Test plan\n\n- Unit: list filters, show fields, halt one vs group vs missing id.\n- Integration: halt → aborted status on the tree; spawn child halt still works as today.\n- Logging: each list/show/halt test logs id, kind, groupId, status.\n\n## Considerations\n\nBlocked until tree metadata and orchestrate/group exist. Packet emission of aborted is owned by the packets issue; this issue must call the same abort path as the runner.",
   "id": "sbdpi-vur.1.10",
-  "labels": [],
+  "labels": [
+    "minions",
+    "orchestration"
+  ],
   "parent": "sbdpi-vur.1",
   "priority": 1,
   "status": "open",
