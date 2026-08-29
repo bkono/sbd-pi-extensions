@@ -100,7 +100,31 @@ export type StepLogEntry = {
   groupId?: string;
   issueStatus?: string;
   packetCount: number;
+  /** Active review policy. Filled from the fixture unless a step overrides it. */
+  policy?: string;
 };
+
+export type LaunchedChild = {
+  id: string;
+  taskType?: string;
+  description?: string;
+  status: string;
+};
+
+export function listLaunchedChildren(tree: Pick<AgentTree, "getRoots">): LaunchedChild[] {
+  return tree.getRoots().map((node) => ({
+    id: node.id,
+    taskType: node.taskType,
+    description: node.description,
+    status: node.status,
+  }));
+}
+
+export function listLaunchedTaskTypes(
+  tree: Pick<AgentTree, "getRoots">,
+): Array<string | undefined> {
+  return listLaunchedChildren(tree).map((child) => child.taskType);
+}
 
 export class StepLog {
   readonly entries: StepLogEntry[] = [];
@@ -159,6 +183,8 @@ export type InProcessHarness = {
   settleChild: (childId: string, prose: string) => Promise<void>;
   waitForPackets: (count: number) => Promise<SentPacket[]>;
   lastPacket: () => SentPacket | undefined;
+  launchedChildren: () => LaunchedChild[];
+  launchedTaskTypes: () => Array<string | undefined>;
   assertNoTmuxOrWorktree: () => Promise<void>;
   dumpFailure: (error?: unknown) => Promise<void>;
   dispose: () => Promise<void>;
@@ -269,6 +295,7 @@ export async function createInProcessHarness(
       groupId: extra.groupId ?? groups.getOpenGroup()?.groupId,
       issueStatus,
       packetCount: extra.packetCount ?? packets.length,
+      policy: extra.policy ?? fixture.reviewPolicy,
     });
   };
 
@@ -388,6 +415,12 @@ export async function createInProcessHarness(
     lastPacket() {
       return packets.at(-1);
     },
+    launchedChildren() {
+      return listLaunchedChildren(tree);
+    },
+    launchedTaskTypes() {
+      return listLaunchedTaskTypes(tree);
+    },
     async assertNoTmuxOrWorktree() {
       if (fixture.tmuxOnPath()) {
         throw new Error(`tmux is on PATH: ${fixture.tmuxOnPath()}`);
@@ -416,6 +449,14 @@ export async function createInProcessHarness(
         };
       }
       const childId = [...children.keys()].at(-1);
+      let epicShow: unknown;
+      try {
+        epicShow = await fixture.show(fixture.epic.id);
+      } catch (showError) {
+        epicShow = {
+          error: showError instanceof Error ? showError.message : String(showError),
+        };
+      }
       const dump = {
         error: error instanceof Error ? error.message : error ? String(error) : undefined,
         injectedPrompt: harness.injectedPrompt(),
@@ -429,7 +470,9 @@ export async function createInProcessHarness(
           domain: node.domain,
           groupId: node.groupId,
         })),
+        launchedTaskTypes: listLaunchedTaskTypes(tree),
         ticketShow,
+        epicShow,
         activeTools: childId ? harness.childActiveTools(childId) : [],
         steps: log.entries,
       };

@@ -121,6 +121,11 @@ type RawIssue = {
   parent?: string;
 };
 
+type RawClosePayload = RawIssue & {
+  issue?: RawIssue;
+  unblocked?: unknown;
+};
+
 type RawHistoryEntry = {
   hash?: string;
   timestamp?: string;
@@ -190,6 +195,14 @@ function normalizeIssue(input: RawIssue): BeadworkIssue {
     parentId:
       typeof input.parent === "string" && input.parent.length > 0 ? input.parent : undefined,
   };
+}
+
+/** `bw close --json` returns `{ issue, unblocked }`; other mutations return the issue. */
+function issueFromClosePayload(payload: RawClosePayload): RawIssue {
+  if (payload.issue && typeof payload.issue === "object" && typeof payload.issue.id === "string") {
+    return payload.issue;
+  }
+  return payload;
 }
 
 function normalizeIssueArray(input: RawIssue[] | null | undefined): BeadworkIssue[] {
@@ -422,8 +435,8 @@ export function createBeadworkAdapter(execRunner: ExecRunner = defaultExecRunner
       return runMutation(cwd, async () => {
         const args = ["close", id, "--json"];
         pushOptionalArg(args, "--reason", reason);
-        const issue = await runJson<RawIssue>(cwd, args, `close ${id}`);
-        return normalizeIssue(issue);
+        const payload = await runJson<RawClosePayload>(cwd, args, `close ${id}`);
+        return normalizeIssue(issueFromClosePayload(payload));
       });
     },
     async reopen(cwd, id) {
