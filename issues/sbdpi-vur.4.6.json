@@ -10,6 +10,8 @@
     "sbdpi-vur.4",
     "sbdpi-vur.4.5"
   ],
+  "closed_at": "2026-08-29T02:27:49Z",
+  "close_reason": "Scope-policy epic fixture on 4.2 harness (d914b74). Review PASS. Zero reviewImplementation; also unwraps bw close --json so 2.6 goal-exit sees type=epic.",
   "created": "2026-08-28T21:44:25Z",
   "description": "Second published-cutover fixture: `reviewPolicy: scope`. Uses the **4.2 harness** and a separate scenario file. Do not wait on the ticket-policy epic e2e.\n\n## Background\n\nScope policy closes tickets from evidence then independently reviews the **aggregate** before declaring the epic complete. Dependents may start before aggregate review finds a problem. Prove that tradeoff. Do not mix policies in one script.\n\nDo **not** build an immutable review-subject protocol, OID manifests, or dependency graphs. Reviewer prompts target **named commits / ticket ids** (`git show`), same as shared-checkout guidance.\n\n## Scenario\n\n1. Epic with two tickets, policy scope.\n2. `/bw run`, implement both, parent accepts/closes from evidence **without** per-ticket `reviewImplementation` children.\n3. Dependent may start after parent close (not after settle).\n4. One `reviewScope` child against the aggregate (named commits/tickets), not ambient workspace-only.\n5. Blocking finding → in-scope remediation + re-review as scripted parent turns.\n6. Epic close only after scope-review dispositions are done.\n7. Logs: policy=scope, ticket ids, proof that **zero** ticket-review children were launched, scope-review child id, dispositions.\n\n## Success criteria\n\n- No per-ticket `reviewImplementation` children under scope policy.\n- Ticket-policy fixture (sibling) still requires them.\n- tmux absent. Scripted parent, no paid LLM. No worktree.\n\n## Test plan\n\n- Dedicated scenario file on the 4.2 harness.\n- Failure dumps last packet, `bw show` epic, child taskTypes launched.\n\n## Considerations\n\nDoes not need peer/mail (`3.x`). Blocked by harness (4.2), review goldens (4.1), goal-exit (2.6), and runtime deletion (2.7).",
   "id": "sbdpi-vur.4.6",
@@ -25,8 +27,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Prove scope-policy epic fixture without per-ticket review children",
   "type": "feature",
-  "updated_at": "2026-08-29T02:05:09Z"
+  "updated_at": "2026-08-29T02:27:49Z"
 }
