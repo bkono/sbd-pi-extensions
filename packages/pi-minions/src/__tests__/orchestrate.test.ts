@@ -546,13 +546,16 @@ describe("halt during detached start", () => {
     expect(tree.get(childId)?.usage.turns).toBe(1);
     expect(tree.getTotalUsage().turns).toBe(1);
 
-    onTurnEnd?.(4);
+    onTurnEnd?.(2);
+    expect(abortSession).not.toHaveBeenCalled();
+
+    onTurnEnd?.(3);
     expect(steer).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledWith(childId);
-    expect(tree.get(childId)?.activityHistory).toContain("turn 4");
-    expect(tree.get(childId)?.usage.turns).toBe(4);
-    expect(tree.getTotalUsage().turns).toBe(4);
+    expect(tree.get(childId)?.activityHistory).toContain("turn 3");
+    expect(tree.get(childId)?.usage.turns).toBe(3);
+    expect(tree.getTotalUsage().turns).toBe(3);
   });
 
   it("honors role timeouts on orchestrated children", async () => {
@@ -705,6 +708,91 @@ describe("role resolution cwd", () => {
     );
     expect(sharedCall?.[0]?.config?.systemPrompt).toContain("GROUP ROLE");
     expect(sharedCall?.[0]?.config?.systemPrompt).not.toContain("PARENT ONLY");
+  });
+});
+
+describe("orchestration policy cwd", () => {
+  it("loads allowEphemeral from group cwd, not parent cwd", async () => {
+    const parentCwd = tempDir("pi-minions-policy-parent-");
+    const groupCwd = tempDir("pi-minions-policy-group-");
+    mkdirSync(join(parentCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(parentCwd, ".pi", "settings.json"),
+      JSON.stringify({ "pi-minions": { allowEphemeral: true } }),
+      "utf-8",
+    );
+    mkdirSync(join(groupCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(groupCwd, ".pi", "settings.json"),
+      JSON.stringify({ "pi-minions": { allowEphemeral: false } }),
+      "utf-8",
+    );
+
+    const startChild = vi.fn(async (opts: { id: string }) => hangingHandle(opts.id, groupCwd));
+    const execute = orchestrate({
+      tree: new AgentTree(),
+      pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
+        ExtensionAPI,
+        "getAllTools"
+      >,
+      subsessionManager: { startChild } as unknown as Pick<
+        SubsessionManager,
+        "startChild" | "getSessionHandle" | "abortSession"
+      >,
+      groups: new OrchestrationGroupState(),
+    });
+
+    const result = detailsOf(
+      await run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
+    );
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected).toEqual([
+      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.ephemeralDisabled },
+    ]);
+    expect(startChild).not.toHaveBeenCalled();
+  });
+
+  it("allows ephemeral when the group cwd enables it even if the parent disables it", async () => {
+    const parentCwd = tempDir("pi-minions-policy-parent-off-");
+    const groupCwd = tempDir("pi-minions-policy-group-on-");
+    mkdirSync(join(parentCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(parentCwd, ".pi", "settings.json"),
+      JSON.stringify({
+        "pi-minions": { allowEphemeral: false, toolSync: { enabled: true } },
+      }),
+      "utf-8",
+    );
+    mkdirSync(join(groupCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(groupCwd, ".pi", "settings.json"),
+      JSON.stringify({
+        "pi-minions": { allowEphemeral: true, toolSync: { enabled: false } },
+      }),
+      "utf-8",
+    );
+
+    const startChild = vi.fn(async (opts: { id: string }) => hangingHandle(opts.id, groupCwd));
+    const execute = orchestrate({
+      tree: new AgentTree(),
+      pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
+        ExtensionAPI,
+        "getAllTools"
+      >,
+      subsessionManager: { startChild } as unknown as Pick<
+        SubsessionManager,
+        "startChild" | "getSessionHandle" | "abortSession"
+      >,
+      groups: new OrchestrationGroupState(),
+    });
+
+    const result = detailsOf(
+      await run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
+    );
+    expect(result.accepted).toHaveLength(1);
+    expect(result.rejected).toEqual([]);
+    await vi.waitFor(() => expect(startChild).toHaveBeenCalledTimes(1));
+    expect(startChild.mock.calls[0]?.[0]?.toolSyncEnabled).toBe(false);
   });
 });
 

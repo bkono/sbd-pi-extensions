@@ -33,11 +33,11 @@ describe("applyStepLimit", () => {
     expect(abort).not.toHaveBeenCalled();
 
     expect(applyStepLimit({ ...input, count: 1 })).toBeUndefined();
-    expect(applyStepLimit({ ...input, count: 1 + STEP_LIMIT_GRACE_TURNS })).toBeUndefined();
+    expect(applyStepLimit({ ...input, count: 1 + STEP_LIMIT_GRACE_TURNS - 1 })).toBeUndefined();
     expect(steer).toHaveBeenCalledTimes(1);
     expect(abort).not.toHaveBeenCalled();
 
-    expect(applyStepLimit({ ...input, count: 1 + STEP_LIMIT_GRACE_TURNS + 1 })).toBe("abort");
+    expect(applyStepLimit({ ...input, count: 1 + STEP_LIMIT_GRACE_TURNS })).toBe("abort");
     expect(onAbort).toHaveBeenCalledTimes(1);
     expect(abort).toHaveBeenCalledTimes(1);
     expect(steer).toHaveBeenCalledTimes(1);

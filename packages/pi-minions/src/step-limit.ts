@@ -20,7 +20,7 @@ export interface ApplyStepLimitInput {
 }
 
 /**
- * One-shot wrap-up at `steps`, then force-abort after `steps + 2` turns.
+ * One-shot wrap-up at `steps`, then force-abort at `steps + STEP_LIMIT_GRACE_TURNS`.
  * Returns the action taken, if any.
  */
 export function applyStepLimit(input: ApplyStepLimitInput): "wrap-up" | "abort" | undefined {
@@ -34,7 +34,7 @@ export function applyStepLimit(input: ApplyStepLimitInput): "wrap-up" | "abort" 
     return "wrap-up";
   }
 
-  if (state.reached && count > steps + STEP_LIMIT_GRACE_TURNS) {
+  if (state.reached && count >= steps + STEP_LIMIT_GRACE_TURNS) {
     input.onAbort?.();
     input.abort();
     return "abort";

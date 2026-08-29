@@ -5,7 +5,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../agents.js";
-import { getConfig } from "../config.js";
+import { getConfig, type ResolvedConfig } from "../config.js";
 import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
@@ -200,6 +200,7 @@ function startRegisteredChild(
   toolCallId: string,
   parentToolNames: string[],
   child: RegisteredChild,
+  piConfig: ResolvedConfig,
 ): Promise<void> {
   const { tree, subsessionManager } = deps;
   const { id, name, task, config, parentModel } = child;
@@ -208,7 +209,6 @@ function startRegisteredChild(
   if (node && isTerminalStatus(node.status)) {
     return Promise.resolve();
   }
-  const piConfig = getConfig(ctx);
   const injected = injectBoundCommTools(deps, mailbox, group, id);
 
   return subsessionManager
@@ -356,7 +356,7 @@ export function orchestrate(deps: OrchestrateDeps) {
     }
 
     const { tree } = deps;
-    const piConfig = getConfig(ctx);
+    const piConfig = getConfig({ ...ctx, cwd: resolved.cwd });
     const accepted: OrchestrateResult["accepted"] = [];
     const rejected: OrchestrateResult["rejected"] = [];
     const registered: RegisteredChild[] = [];
@@ -455,6 +455,7 @@ export function orchestrate(deps: OrchestrateDeps) {
         toolCallId,
         parentToolNames,
         child,
+        piConfig,
       ).catch((err: unknown) => {
         const error = err instanceof Error ? err.message : String(err);
         logger.error("orchestrate", "detached-start", {

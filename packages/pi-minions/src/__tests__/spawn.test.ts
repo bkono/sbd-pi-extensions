@@ -357,7 +357,10 @@ describe("runMinionSession usage accumulator", () => {
     expect(steer).toHaveBeenCalledWith(expect.stringContaining("STEP LIMIT REACHED"));
     expect(abortSession).not.toHaveBeenCalled();
 
-    onTurnEnd?.(4);
+    onTurnEnd?.(2);
+    expect(abortSession).not.toHaveBeenCalled();
+
+    onTurnEnd?.(3);
     const result = await pending;
     expect(abortSession).toHaveBeenCalledWith("mn-steps");
     expect(steer).toHaveBeenCalledTimes(1);
