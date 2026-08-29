@@ -34,6 +34,9 @@ class FakeChildSession implements ChildSession {
   callOrder: string[] = [];
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
+  followUps: string[] = [];
+  followUpHold?: ReturnType<typeof createDeferred<void>>;
+  pendingFollowUps = 0;
   state = { messages: [] as unknown[] };
 
   constructor(
@@ -108,6 +111,7 @@ class FakeChildSession implements ChildSession {
     this.callOrder.push("abort");
     if (this.disposed) return;
     this.aborted = true;
+    this.followUpHold?.resolve();
     this.idleDeferred.resolve();
     this.promptDeferred.resolve();
   }
@@ -118,16 +122,43 @@ class FakeChildSession implements ChildSession {
   }
 
   async steer(_text: string): Promise<void> {}
-  async followUp(_text: string): Promise<void> {}
+
+  holdFollowUp(): void {
+    this.followUpHold = createDeferred();
+  }
+
+  releaseFollowUp(): void {
+    this.followUpHold?.resolve();
+  }
+
+  async followUp(text: string): Promise<void> {
+    if (this.disposed || this.aborted) {
+      throw new Error("Child is terminal; further mail is rejected");
+    }
+    this.followUps.push(text);
+    this.pendingFollowUps++;
+    try {
+      if (this.followUpHold) await this.followUpHold.promise;
+    } finally {
+      this.pendingFollowUps--;
+    }
+  }
 
   waitForIdle(): Promise<void> {
-    return this.idleDeferred.promise;
+    return (async () => {
+      await this.idleDeferred.promise;
+      while (this.pendingFollowUps > 0 && this.followUpHold) {
+        await this.followUpHold.promise;
+      }
+    })();
   }
 
   dispose(): void {
     this.callOrder.push("dispose");
     this.disposeCount++;
     this.disposed = true;
+    this.followUpHold?.resolve();
+    this.idleDeferred.resolve();
   }
 
   getSessionStats() {
@@ -422,5 +453,198 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(session.callOrder.indexOf("abort")).toBeLessThan(session.callOrder.indexOf("dispose"));
     expect(session.disposeCount).toBe(1);
     expect(session.aborted).toBe(true);
+  });
+});
+
+describe("single-winner mail vs terminal", () => {
+  const logs: Array<{ msg: string; data: Record<string, unknown> }> = [];
+
+  afterEach(() => {
+    logs.length = 0;
+    vi.restoreAllMocks();
+  });
+
+  function spyLogger() {
+    vi.spyOn(logger, "info").mockImplementation((scope, msg, data) => {
+      if (scope === "subsession") logs.push({ msg, data: (data ?? {}) as Record<string, unknown> });
+    });
+  }
+
+  function committedLogs() {
+    return logs.filter(
+      (entry) => entry.msg === "lifecycle" && entry.data.terminalLatchFired === true,
+    );
+  }
+
+  async function expectOneTerminal(
+    handle: { wait: () => Promise<{ class: string }> },
+    session: FakeChildSession,
+    winner: string,
+    eventClass: string,
+  ) {
+    const terminal = await handle.wait();
+    expect(terminal.class).toBe(eventClass);
+    expect(session.disposed).toBe(true);
+    const committed = committedLogs();
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.data).toMatchObject({
+      eventClass,
+      terminalLatchFired: true,
+      winner,
+      terminalEventCount: 1,
+    });
+    return terminal;
+  }
+
+  it("mail then settle → one settled after continuation idles; mail delivered", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-mail-settle-"));
+    const session = new FakeChildSession();
+    session.holdFollowUp();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-ms", cwd));
+
+    const mail = handle.followUp("peer hello");
+    await vi.waitFor(() => {
+      expect(session.followUps).toEqual(["peer hello"]);
+    });
+
+    session.emit({ type: "agent_settled" });
+    await Promise.resolve();
+    expect(manager.getTerminal("child-ms")).toBeUndefined();
+    expect(session.disposed).toBe(false);
+
+    session.releaseFollowUp();
+    session.resolveIdle();
+    await mail;
+    session.emit({ type: "agent_settled" });
+
+    await expectOneTerminal(handle, session, "mail-then-settle", "settled");
+    expect(session.followUps).toEqual(["peer hello"]);
+    await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
+  });
+
+  it("settle commit then mail → recipient-terminal; one terminal event", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-settle-mail-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-sm", cwd));
+
+    session.emit({ type: "agent_settled" });
+    await expectOneTerminal(handle, session, "settle", "settled");
+
+    await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
+    expect(session.followUps).toEqual([]);
+    expect(committedLogs()).toHaveLength(1);
+  });
+
+  it("failed then mail → recipient-terminal; one failed", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-fail-mail-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-fm", cwd));
+
+    session.rejectPrompt(new Error("provider exploded"));
+    await expectOneTerminal(handle, session, "fail", "failed");
+
+    await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
+    expect(session.followUps).toEqual([]);
+    expect(committedLogs()).toHaveLength(1);
+  });
+
+  it("mail then failed → one failed; mail delivered; no settle", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-mail-fail-"));
+    const session = new FakeChildSession();
+    session.holdFollowUp();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-mf", cwd));
+
+    const mail = handle.followUp("peer hello");
+    mail.catch(() => {});
+    await vi.waitFor(() => {
+      expect(session.followUps).toEqual(["peer hello"]);
+    });
+    expect(manager.getTerminal("child-mf")).toBeUndefined();
+
+    session.rejectPrompt(new Error("provider exploded"));
+    session.releaseFollowUp();
+    await expectOneTerminal(handle, session, "fail", "failed");
+    expect(session.followUps).toEqual(["peer hello"]);
+    await expect(mail).resolves.toBeUndefined();
+  });
+
+  it("shutdown then mail → recipient-terminal; winner shutdown", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-shut-mail-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-shm", cwd));
+
+    await manager.disposeAll();
+    await expectOneTerminal(handle, session, "shutdown", "aborted");
+
+    await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
+    expect(session.followUps).toEqual([]);
+    expect(committedLogs()).toHaveLength(1);
+  });
+
+  it("mail then shutdown → one aborted, winner shutdown; no settle", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-mail-shut-"));
+    const session = new FakeChildSession();
+    session.holdFollowUp();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-msh", cwd));
+
+    const mail = handle.followUp("peer hello");
+    mail.catch(() => {});
+    await vi.waitFor(() => {
+      expect(session.followUps).toEqual(["peer hello"]);
+    });
+    expect(manager.getTerminal("child-msh")).toBeUndefined();
+
+    await manager.disposeAll();
+    await expectOneTerminal(handle, session, "shutdown", "aborted");
+    expect(session.followUps).toEqual(["peer hello"]);
+    await expect(mail).resolves.toBeUndefined();
+  });
+
+  it("halt then mail → recipient-terminal; winner abort", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-halt-mail-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-hm", cwd));
+
+    handle.abort();
+    await expectOneTerminal(handle, session, "abort", "aborted");
+
+    await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
+    expect(session.followUps).toEqual([]);
+    expect(committedLogs()).toHaveLength(1);
+  });
+
+  it("mail then halt → one aborted, winner abort; no settle", async () => {
+    spyLogger();
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-mail-halt-"));
+    const session = new FakeChildSession();
+    session.holdFollowUp();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-mh", cwd));
+
+    const mail = handle.followUp("peer hello");
+    mail.catch(() => {});
+    await vi.waitFor(() => {
+      expect(session.followUps).toEqual(["peer hello"]);
+    });
+    expect(manager.getTerminal("child-mh")).toBeUndefined();
+
+    handle.abort();
+    await expectOneTerminal(handle, session, "abort", "aborted");
+    expect(session.followUps).toEqual(["peer hello"]);
+    await expect(mail).resolves.toBeUndefined();
   });
 });

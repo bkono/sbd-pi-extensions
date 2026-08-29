@@ -159,6 +159,9 @@ async function defaultCreateChildRuntime(
   };
 }
 
+/** First terminal commit wins. Logged; not a wait-state machine. */
+export type TerminalWinner = "settle" | "fail" | "abort" | "shutdown" | "mail-then-settle";
+
 interface ChildRecord {
   id: string;
   runtime: ChildRuntime;
@@ -173,6 +176,10 @@ interface ChildRecord {
   unsubscribe: () => void;
   abortCleanup?: () => void;
   disposePromise?: Promise<void>;
+  /** Accepted followUp continuations that have not gone idle yet. */
+  pendingMail: number;
+  /** True once any inbound mail was accepted on this run. */
+  mailAccepted: boolean;
 }
 
 export class SubsessionManager {
@@ -180,6 +187,7 @@ export class SubsessionManager {
   private activeHandles = new Map<string, MinionSessionHandle>();
   private children = new Map<string, ChildRecord>();
   private terminals = new Map<string, ChildTerminalEvent>();
+  private terminalWinners = new Map<string, TerminalWinner>();
   private metadataCache = new Map<string, MinionSessionMetadata>();
   private unsubscribers = new Map<string, () => void>();
   private shutdown = false;
@@ -260,6 +268,8 @@ export class SubsessionManager {
       currentFullText: "",
       turnCount: 0,
       unsubscribe: () => {},
+      pendingMail: 0,
+      mailAccepted: false,
     };
     this.children.set(id, child);
     this.activeSessions.set(id, session);
@@ -336,7 +346,7 @@ export class SubsessionManager {
           this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
           return;
         }
-        this.commitTerminal(id, this.makeTerminal(record, "settled"));
+        this.tryCommitIdle(id);
       })
       .catch((err) => {
         const record = this.children.get(id);
@@ -368,7 +378,7 @@ export class SubsessionManager {
 
   /**
    * Single-flight terminal latch. First caller wins so later mail/settle
-   * can share one winner. Returns true if this caller committed.
+   * share one winner. Returns true if this caller committed.
    */
   commitTerminal(id: string, event: ChildTerminalEvent): boolean {
     if (this.terminals.has(id)) {
@@ -376,12 +386,16 @@ export class SubsessionManager {
         childId: id,
         eventClass: event.class,
         terminalLatchFired: false,
+        winner: this.terminalWinners.get(id),
+        terminalEventCount: 1,
       });
       return false;
     }
 
-    this.terminals.set(id, event);
     const child = this.children.get(id);
+    const winner = this.inferWinner(child, event);
+    this.terminals.set(id, event);
+    this.terminalWinners.set(id, winner);
     if (child) child.terminal = event;
 
     const metadataStatus: MinionSessionMetadata["status"] =
@@ -409,6 +423,8 @@ export class SubsessionManager {
       childId: id,
       eventClass: event.class,
       terminalLatchFired: true,
+      winner,
+      terminalEventCount: 1,
     });
 
     void this.disposeChild(id);
@@ -469,6 +485,62 @@ export class SubsessionManager {
     return session;
   }
 
+  /**
+   * Accept inbound followUp against the terminal latch. Sync so a later
+   * settle in this turn cannot commit while mail is already accepted.
+   */
+  private acceptMail(id: string): ChildSession {
+    const session = this.requireLiveSession(id);
+    const child = this.children.get(id);
+    if (child) {
+      child.pendingMail += 1;
+      child.mailAccepted = true;
+    }
+    return session;
+  }
+
+  private releaseMail(id: string): void {
+    const child = this.children.get(id);
+    if (!child) return;
+    if (child.pendingMail > 0) child.pendingMail -= 1;
+    if (child.pendingMail === 0) this.tryCommitIdle(id);
+  }
+
+  /**
+   * Happy-path settle only. Abort/fail/shutdown commit immediately through
+   * the same latch. Pending accepted mail postpones settle until idle.
+   */
+  private tryCommitIdle(id: string): void {
+    const record = this.children.get(id);
+    if (!record || record.terminal || this.terminals.has(id)) return;
+    if (record.pendingMail > 0) {
+      logger.info("subsession", "lifecycle", {
+        childId: id,
+        eventClass: "mail-then-settle",
+        terminalLatchFired: false,
+        winner: "mail-then-settle",
+      });
+      return;
+    }
+    if (record.abortRequested) {
+      this.commitTerminal(id, this.makeTerminal(record, "aborted"));
+      return;
+    }
+    if (record.pendingFailure) {
+      this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
+      return;
+    }
+    this.commitTerminal(id, this.makeTerminal(record, "settled"));
+  }
+
+  private inferWinner(child: ChildRecord | undefined, event: ChildTerminalEvent): TerminalWinner {
+    if (this.shutdown) return "shutdown";
+    if (event.class === "aborted") return "abort";
+    if (event.class === "failed") return "fail";
+    if (child?.mailAccepted) return "mail-then-settle";
+    return "settle";
+  }
+
   private buildHandle(id: string, path: string): MinionSessionHandle {
     return {
       id,
@@ -477,7 +549,17 @@ export class SubsessionManager {
         await this.requireLiveSession(id).steer(text);
       },
       followUp: async (text: string) => {
-        await this.requireLiveSession(id).followUp(text);
+        const session = this.acceptMail(id);
+        try {
+          await session.followUp(text);
+          try {
+            await session.waitForIdle();
+          } catch {
+            // waitForIdle is best-effort; agent_settled is the primary idle signal.
+          }
+        } finally {
+          this.releaseMail(id);
+        }
       },
       abort: () => {
         this.abortChild(id);
@@ -634,12 +716,15 @@ export class SubsessionManager {
     }
 
     if (event.type === "agent_settled") {
-      const terminalClass = child.abortRequested
-        ? "aborted"
-        : child.pendingFailure
-          ? "failed"
-          : "settled";
-      this.commitTerminal(id, this.makeTerminal(child, terminalClass, child.pendingFailure));
+      if (child.abortRequested) {
+        this.commitTerminal(id, this.makeTerminal(child, "aborted"));
+        return;
+      }
+      if (child.pendingFailure) {
+        this.commitTerminal(id, this.makeTerminal(child, "failed", child.pendingFailure));
+        return;
+      }
+      this.tryCommitIdle(id);
       return;
     }
 

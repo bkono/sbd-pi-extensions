@@ -114,16 +114,27 @@ class FakeChildSession implements ChildSession {
   abortBash(): void {}
   followUps: string[] = [];
   steers: string[] = [];
+  disposed = false;
+  emit(event: ChildSessionEvent): void {
+    for (const listener of this.listeners) listener(event);
+  }
   async steer(text: string): Promise<void> {
     this.steers.push(text);
   }
   async followUp(text: string): Promise<void> {
+    if (this.disposed) {
+      throw new Error("Child is terminal; further mail is rejected");
+    }
     this.followUps.push(text);
   }
   waitForIdle(): Promise<void> {
     return this.idleDeferred.promise;
   }
-  dispose(): void {}
+  dispose(): void {
+    this.disposed = true;
+    this.idleDeferred.resolve();
+    this.promptDeferred.resolve();
+  }
   getSessionStats() {
     return { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 };
   }
@@ -1004,5 +1015,175 @@ describe("live vs disposed delivery", () => {
       parentTurnTriggered: false,
     });
     expect(sessions.get("mn-b")?.followUps).toHaveLength(1);
+  });
+});
+
+describe("mailbox vs child terminal single winner", () => {
+  it("mail then settle delivers and emits one settled", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const cwd = tempDir("pi-minions-mail-settle-mb-");
+    const tree = new AgentTree();
+    const groupId = "grp-race";
+    tree.add("mn-a", "alpha", "task a", { kind: "orchestrated", groupId, description: "A" });
+    tree.add("mn-b", "bravo", "task b", { kind: "orchestrated", groupId, description: "B" });
+
+    const sessions = new Map<string, FakeChildSession>();
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async (input) => {
+        const session = new FakeChildSession(input.customTools ?? []);
+        sessions.set(input.id, session);
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, `${input.id}.jsonl`),
+        };
+      },
+    });
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd }) }),
+      isLive: (id) => manager.isLive(id),
+      followUp: async (id, text) => {
+        const handle = manager.getSessionHandle(id);
+        if (!handle) throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        await handle.followUp(text);
+      },
+    });
+
+    await manager.startChild({
+      id: "mn-b",
+      name: "mn-b",
+      task: "do the work",
+      config: agentConfig,
+      spawnedBy: "test",
+      cwd,
+      modelRegistry: {} as never,
+      parentToolNames: ["read", "bash"],
+      toolSyncEnabled: false,
+    });
+    const handle = manager.getSessionHandle("mn-b");
+    expect(handle).toBeDefined();
+
+    const sent = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "mn-b",
+      groupId,
+      body: "keep going",
+    });
+    expect(sent.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(sessions.get("mn-b")?.followUps).toEqual([
+        formatMinionMail(PARENT_RECIPIENT_ID, "keep going"),
+      ]);
+    });
+    expect(manager.getTerminal("mn-b")).toBeUndefined();
+    expect(sessions.get("mn-b")?.disposed).toBe(false);
+
+    sessions.get("mn-b")?.emit({ type: "agent_settled" });
+    await Promise.resolve();
+    expect(manager.getTerminal("mn-b")).toBeUndefined();
+
+    sessions.get("mn-b")?.idleDeferred.resolve();
+    sessions.get("mn-b")?.emit({ type: "agent_settled" });
+    const terminal = await handle!.wait();
+    expect(terminal.class).toBe("settled");
+    expect(sessions.get("mn-b")?.disposed).toBe(true);
+
+    const committed = info.mock.calls.filter(
+      (call) =>
+        call[0] === "subsession" &&
+        call[1] === "lifecycle" &&
+        (call[2] as { terminalLatchFired?: boolean }).terminalLatchFired === true,
+    );
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.[2]).toMatchObject({
+      eventClass: "settled",
+      winner: "mail-then-settle",
+      terminalEventCount: 1,
+    });
+
+    const late = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "mn-b",
+      groupId,
+      body: "too late",
+    });
+    expect(late.status).toBe(COMM_SEND_STATUS.recipientTerminal);
+  });
+
+  it("settle then mail is recipient-terminal with one settle winner", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const cwd = tempDir("pi-minions-settle-mail-mb-");
+    const tree = new AgentTree();
+    const groupId = "grp-race";
+    tree.add("mn-b", "bravo", "task b", { kind: "orchestrated", groupId, description: "B" });
+
+    let session!: FakeChildSession;
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async (input) => {
+        session = new FakeChildSession(input.customTools ?? []);
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, `${input.id}.jsonl`),
+        };
+      },
+    });
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd }) }),
+      isLive: (id) => manager.isLive(id),
+      followUp: async (id, text) => {
+        const handle = manager.getSessionHandle(id);
+        if (!handle) throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        await handle.followUp(text);
+      },
+    });
+
+    const handle = await manager.startChild({
+      id: "mn-b",
+      name: "mn-b",
+      task: "do the work",
+      config: agentConfig,
+      spawnedBy: "test",
+      cwd,
+      modelRegistry: {} as never,
+      parentToolNames: ["read", "bash"],
+      toolSyncEnabled: false,
+    });
+
+    session.emit({ type: "agent_settled" });
+    await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
+    expect(session.disposed).toBe(true);
+
+    const late = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "mn-b",
+      groupId,
+      body: "too late",
+    });
+    expect(late.status).toBe(COMM_SEND_STATUS.recipientTerminal);
+    expect(session.followUps).toEqual([]);
+
+    const committed = info.mock.calls.filter(
+      (call) =>
+        call[0] === "subsession" &&
+        call[1] === "lifecycle" &&
+        (call[2] as { terminalLatchFired?: boolean }).terminalLatchFired === true,
+    );
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.[2]).toMatchObject({
+      eventClass: "settled",
+      winner: "settle",
+      terminalEventCount: 1,
+    });
   });
 });
