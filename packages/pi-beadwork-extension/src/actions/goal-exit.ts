@@ -50,6 +50,17 @@ export function shouldExitGoalOnIssueClose(
   return Boolean(epicId && issue.type === "epic" && issue.id === epicId);
 }
 
+export function shouldExitGoalOnClosedScopeDetail(
+  state: SessionState,
+  scopeDetail: Pick<BeadworkIssue, "id" | "type" | "status"> | undefined,
+): boolean {
+  return Boolean(
+    scopeDetail &&
+      scopeDetail.status === "closed" &&
+      shouldExitGoalOnIssueClose(state, scopeDetail),
+  );
+}
+
 export function buildGoalHaltPrompt(epicId: string): string {
   return [
     `Beadwork goal mode ended for epic ${epicId}.`,
@@ -167,6 +178,31 @@ export async function maybeExitGoalOnClosedIssue(input: {
     deps: input.deps,
     command: input.command,
     epicId,
+    parentBusy: input.parentBusy,
+  });
+}
+
+export async function maybeExitGoalOnClosedScopeDetail(input: {
+  ctx: ExtensionContext;
+  activation: ActivationState;
+  config: BeadworkConfig;
+  state: SessionState;
+  scopeDetail?: Pick<BeadworkIssue, "id" | "type" | "status">;
+  deps: GoalExitDeps;
+  parentBusy: boolean;
+}): Promise<SessionState> {
+  if (!shouldExitGoalOnClosedScopeDetail(input.state, input.scopeDetail) || !input.scopeDetail) {
+    return input.state;
+  }
+
+  return maybeExitGoalOnClosedIssue({
+    ctx: input.ctx,
+    activation: input.activation,
+    config: input.config,
+    state: input.state,
+    issue: input.scopeDetail,
+    deps: input.deps,
+    command: "close",
     parentBusy: input.parentBusy,
   });
 }

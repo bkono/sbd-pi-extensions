@@ -127,7 +127,7 @@ Stay in the tui session. Children live in this Pi process.
 
 When the scoped epic is closed through beadwork tools, goal mode exits. `/bw abandon` exits goal
 mode and queues a group halt without closing the epic. `/bw off` returns the session to
-neutral. There is no tmux pane to inspect.
+neutral and also queues a group halt. There is no tmux pane to inspect.
 
 ## Review policy
 
@@ -226,7 +226,7 @@ Core human workflow:
 - `/bw adopt [markdown] [--file path] [--title ...] [--land quick|branch|multi] [--apply]`
 - `/bw run <epic-id>`
 - `/bw abandon` — exit goal mode and halt the minion group; does not close the epic
-- `/bw off`
+- `/bw off` — return to neutral and queue a group halt
 
 Issue-management coverage: `blocked`, `list`, `history`, `create`, `update`, `dep`, `comment`,
 `label`, `start`, `close`, `reopen`, `defer`, `undefer`, `sync`.

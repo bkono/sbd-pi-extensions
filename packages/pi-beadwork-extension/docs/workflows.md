@@ -37,7 +37,7 @@ What that gives you:
 
 Use `/bw engage [scope]` or `/bw:scope <issue-id>` to jump straight into a text-command scope.
 Use `/bw abandon` to leave goal mode without closing the epic. Use `/bw off` to return to
-neutral.
+neutral; it also queues a group halt.
 
 ## Planning and `/bw adopt`
 
@@ -97,7 +97,8 @@ If the parent is mid-turn, the inject is follow-up. If idle, it triggers a turn.
 
 Same epic again re-injects that prompt. A different epic is rejected until the current goal exits.
 Goal mode exits when the scoped epic is closed via beadwork tools, when you `/bw abandon`
-(halt the group, leave the epic open), or when you `/bw off`.
+(halt the group, leave the epic open), or when you `/bw off` (reset to neutral and halt the
+group).
 
 Disk `mode=run` after `/new` or process death is interrupted, not auto-resumed. Run `/bw run`
 again.

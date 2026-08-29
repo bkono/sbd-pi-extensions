@@ -1010,6 +1010,69 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
   });
 
+  it("queues a group halt when /bw off leaves run mode", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-off-run",
+      isIdle: () => false,
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    harness.sentMessages.length = 0;
+    harness.sentUserMessages.length = 0;
+
+    await harness.invokeCommand("bw", "off", ctx);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-off-run",
+    );
+    expect(persisted.mode).toBe("neutral");
+    expect(persisted.goal).toBeUndefined();
+    expect(harness.sentUserMessages).toHaveLength(1);
+    expect(harness.sentUserMessages[0]?.options).toEqual({ deliverAs: "followUp" });
+    expect(String(harness.sentUserMessages[0]?.content ?? "")).toContain("/halt group");
+    expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
+  });
+
+  it("exits goal mode on status refresh when the scoped epic is already closed", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-refresh-closed",
+      isIdle: () => false,
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    adapterMock.show.mockResolvedValue({ ...runnableEpic(), status: "closed", children: [] });
+    harness.sentMessages.length = 0;
+    harness.sentUserMessages.length = 0;
+
+    await harness.invokeTool("beadwork_status", {}, ctx);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-refresh-closed",
+    );
+    expect(persisted.mode).not.toBe("run");
+    expect(persisted.goal).toBeUndefined();
+    expect(harness.sentUserMessages).toHaveLength(1);
+    expect(String(harness.sentUserMessages[0]?.content ?? "")).toContain("/halt group");
+  });
+
   it("does not import the deleted tmux orchestrator", async () => {
     const source = await readFile(new URL("../../index.ts", import.meta.url), "utf8");
     expect(source).not.toContain("runBoundedEpicLoop");

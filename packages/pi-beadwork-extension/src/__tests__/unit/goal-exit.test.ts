@@ -8,7 +8,9 @@ import {
   handleAbandonAction,
   injectGoalHaltContinuation,
   maybeExitGoalOnClosedIssue,
+  maybeExitGoalOnClosedScopeDetail,
   scopedGoalEpicId,
+  shouldExitGoalOnClosedScopeDetail,
   shouldExitGoalOnIssueClose,
 } from "../../actions/goal-exit.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
@@ -75,6 +77,35 @@ describe("scoped epic detection", () => {
     expect(shouldExitGoalOnIssueClose(running, issue({ type: "epic", id: "BW-200" }))).toBe(false);
     expect(
       shouldExitGoalOnIssueClose(session({ mode: "interactive" }), issue({ type: "epic" })),
+    ).toBe(false);
+  });
+
+  it("exits on a closed scoped epic, not on open epics, tickets, or missing detail", () => {
+    const running = session();
+    expect(
+      shouldExitGoalOnClosedScopeDetail(
+        running,
+        issue({ type: "epic", id: "BW-100", status: "closed" }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldExitGoalOnClosedScopeDetail(
+        running,
+        issue({ type: "epic", id: "BW-100", status: "open" }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldExitGoalOnClosedScopeDetail(
+        running,
+        issue({ type: "task", id: "BW-101", status: "closed" }),
+      ),
+    ).toBe(false);
+    expect(shouldExitGoalOnClosedScopeDetail(running, undefined)).toBe(false);
+    expect(
+      shouldExitGoalOnClosedScopeDetail(
+        session({ mode: "interactive" }),
+        issue({ type: "epic", status: "closed" }),
+      ),
     ).toBe(false);
   });
 });
@@ -211,6 +242,97 @@ describe("exitGoalMode", () => {
     expect(shouldExitGoalOnIssueClose(running, issue({ id: "group", type: "task" }))).toBe(false);
     expect(scopedGoalEpicId(running)).toBe("BW-100");
     expect(dropGoalMode(running).mode).toBe("interactive");
+  });
+});
+
+describe("maybeExitGoalOnClosedScopeDetail", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("exits goal mode when refresh sees the scoped epic already closed", async () => {
+    const logSpy = vi.spyOn(goalExitLog, "info");
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ ui, isIdle: () => true });
+    const pi = createInjector();
+    let stored = session();
+
+    const next = await maybeExitGoalOnClosedScopeDetail({
+      ctx,
+      activation: { kind: "active", repoRoot: ctx.cwd },
+      config: DEFAULT_CONFIG,
+      state: stored,
+      scopeDetail: issue({ type: "epic", id: "BW-100", status: "closed" }),
+      deps: {
+        pi,
+        writeSessionState: async (_ctx, _activation, _config, state) => {
+          stored = state;
+          return state;
+        },
+      },
+      parentBusy: false,
+    });
+
+    expect(next.mode).toBe("interactive");
+    expect(stored.mode).toBe("interactive");
+    expect(pi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customType: GOAL_HALT_CUSTOM_TYPE,
+        content: expect.stringContaining("/halt group"),
+      }),
+      { triggerTurn: true },
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "exit",
+      expect.objectContaining({
+        command: "close",
+        epicId: "BW-100",
+        previousMode: "run",
+        newMode: "interactive",
+        haltContinuationQueued: true,
+      }),
+    );
+  });
+
+  it("does not exit on a closed ticket or missing scopeDetail", async () => {
+    const pi = createInjector();
+    const ctx = createFakeExtensionContext({ ui: createFakeUi() });
+    const writeSessionState = vi.fn(async (_ctx, _activation, _config, state) => state);
+    const running = session();
+
+    const ticketState = await maybeExitGoalOnClosedScopeDetail({
+      ctx,
+      activation: { kind: "active", repoRoot: ctx.cwd },
+      config: DEFAULT_CONFIG,
+      state: running,
+      scopeDetail: issue({ type: "task", id: "BW-101", status: "closed" }),
+      deps: { pi, writeSessionState },
+      parentBusy: false,
+    });
+    const missingState = await maybeExitGoalOnClosedScopeDetail({
+      ctx,
+      activation: { kind: "active", repoRoot: ctx.cwd },
+      config: DEFAULT_CONFIG,
+      state: running,
+      deps: { pi, writeSessionState },
+      parentBusy: false,
+    });
+    const openState = await maybeExitGoalOnClosedScopeDetail({
+      ctx,
+      activation: { kind: "active", repoRoot: ctx.cwd },
+      config: DEFAULT_CONFIG,
+      state: running,
+      scopeDetail: issue({ type: "epic", id: "BW-100", status: "open" }),
+      deps: { pi, writeSessionState },
+      parentBusy: false,
+    });
+
+    expect(ticketState.mode).toBe("run");
+    expect(missingState.mode).toBe("run");
+    expect(openState.mode).toBe("run");
+    expect(writeSessionState).not.toHaveBeenCalled();
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 });
 

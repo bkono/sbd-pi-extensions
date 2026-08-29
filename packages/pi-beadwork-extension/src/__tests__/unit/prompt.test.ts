@@ -219,6 +219,40 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).not.toContain("Wait for the user.");
   });
 
+  it("does not inject run-loop guidance for an interrupted run", () => {
+    const text = appendix({
+      sessionState: { runInterrupted: true },
+      scopeDetail: {
+        id: "BW-100",
+        title: "Ship goal adapter",
+        description: "desc",
+        status: "open",
+        type: "epic",
+        priority: 1,
+        labels: [],
+        blockedBy: [],
+        blocks: [],
+        assignee: "",
+        createdAt: "2026-08-28T00:00:00.000Z",
+        updatedAt: "2026-08-28T00:00:00.000Z",
+        children: [],
+      },
+    });
+
+    expect(text).toBeDefined();
+    expect(text).toContain("[BEADWORK SESSION ACTIVE]");
+    expect(text).toContain("Current scope: epic:BW-100");
+    expect(text).toContain("## Scoped issue");
+    expect(text).toContain("Do not orchestrate");
+    expect(text).toContain("Wait for the user.");
+    expect(text).toContain("Resume only after explicit `/bw run <epic-id>`");
+    expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
+    expect(text).not.toContain(
+      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    );
+    expect(text).not.toContain("You are in beadwork run mode.");
+  });
+
   it("drops the run standing appendix after dropGoalMode", () => {
     const text = appendix({ sessionState: dropGoalMode(session()) });
     expect(text).toBeDefined();

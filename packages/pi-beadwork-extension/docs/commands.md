@@ -11,7 +11,7 @@ remain exposed under `/bw ...`. Common flows also have dedicated `/bw:*` aliases
 | `/bw status` / `/bw:status` | Show activation, mode, scope, and counts. |
 | `/bw engage [scope]` | Enter interactive mode, optionally scoped to a ticket or epic. |
 | `/bw scope <issue-id\|clear>` / `/bw:scope ...` | Retarget or clear interactive scope. |
-| `/bw off` / `/bw:off` | Return to neutral mode. |
+| `/bw off` / `/bw:off` | Return to neutral mode and queue a group halt. |
 | `/bw prime [--refresh]` | Show cached or refreshed `bw prime` guidance. |
 | `/bw ready [scope]` / `/bw:ready [scope]` | Show ready work, optionally scoped. |
 | `/bw blocked` | List currently blocked work. |

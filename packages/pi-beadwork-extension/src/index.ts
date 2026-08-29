@@ -7,7 +7,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { handleCleanupAction } from "./actions/cleanup.js";
-import { handleAbandonAction, maybeExitGoalOnClosedIssue } from "./actions/goal-exit.js";
+import {
+  handleAbandonAction,
+  maybeExitGoalOnClosedIssue,
+  maybeExitGoalOnClosedScopeDetail,
+} from "./actions/goal-exit.js";
 import { handleIssuesAction } from "./actions/issues.js";
 import { handleRunAction, parentIsBusy } from "./actions/run.js";
 import { handleScopeAction } from "./actions/scope.js";
@@ -320,12 +324,22 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   }> {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
-    const state = await readSessionState(ctx, activation, config);
+    let state = await readSessionState(ctx, activation, config);
 
     const [counts, scopeDetail] = await Promise.all([
       resolveCounts(ctx, activation, state),
       resolveScopeDetail(ctx, activation, state),
     ]);
+
+    state = await maybeExitGoalOnClosedScopeDetail({
+      ctx,
+      activation,
+      config,
+      state,
+      scopeDetail,
+      deps: { pi, writeSessionState },
+      parentBusy: parentIsBusy(ctx),
+    });
 
     updateStatusline(ctx, activation, state, config);
 
@@ -536,7 +550,10 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           deps: {
             loadConfig,
             detectActivation,
+            readState: readSessionState,
             resetState,
+            pi,
+            parentIsBusy,
           },
         })
       ) {

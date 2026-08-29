@@ -1,3 +1,4 @@
+import { isInterruptedRun } from "./session-state.js";
 import type { ActivationState, BeadworkIssueDetail, ReviewPolicy, SessionState } from "./types.js";
 
 const PRIME_MAX_CHARS = 8_000;
@@ -114,6 +115,15 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
   ];
 }
 
+function renderInterruptedRunGuidance(): string[] {
+  return [
+    "Beadwork run was interrupted.",
+    "Do not orchestrate.",
+    "Wait for the user.",
+    "Resume only after explicit `/bw run <epic-id>`.",
+  ];
+}
+
 function renderRoleVsTaskType(): string {
   return [
     "## Role vs task type",
@@ -224,11 +234,21 @@ export function buildBeadworkPromptAppendix(input: {
     return undefined;
   }
 
-  const reviewPolicy = selectReviewPolicy(sessionState);
   const scopeLine =
     sessionState.scope.kind === "none"
       ? "none"
       : `${sessionState.scope.kind}:${sessionState.scope.id}`;
+
+  if (isInterruptedRun(sessionState)) {
+    return [
+      "[BEADWORK SESSION ACTIVE]",
+      renderInterruptedRunGuidance().join("\n"),
+      `Current scope: ${scopeLine}`,
+      ...renderScopeSummary(scopeDetail),
+    ].join("\n\n");
+  }
+
+  const reviewPolicy = selectReviewPolicy(sessionState);
 
   const sections = [
     "[BEADWORK SESSION ACTIVE]",
