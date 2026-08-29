@@ -215,7 +215,13 @@ export default function (pi: ExtensionAPI): void {
     return { systemPrompt: `${event.systemPrompt}\n\n${hint}` };
   });
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_shutdown", async () => {
+    await subsessionManager?.disposeAll();
+    subsessionManager = undefined;
+  });
+
+  pi.on("session_start", async (_event, ctx) => {
+    await subsessionManager?.disposeAll();
     cachedCtx = ctx;
     cachedModel = ctx.model;
     cachedUi = ctx.ui;

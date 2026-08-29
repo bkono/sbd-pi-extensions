@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -14,6 +13,11 @@ import type { EventBus } from "./event-bus.js";
 import { MINION_COMPLETE_CHANNEL, MINION_PROGRESS_CHANNEL } from "./event-bus.js";
 import { getMinionsDir } from "./paths.js";
 import type {
+  ChildRuntime,
+  ChildSession,
+  ChildSessionEvent,
+  ChildTerminalEvent,
+  CreateChildRuntime,
   CreateMinionSessionOptions,
   MinionSessionHandle,
   MinionSessionMetadata,
@@ -25,33 +29,187 @@ export function shouldLoadExtensionInMinion(resolvedPath: string): boolean {
   return !MINION_EXTENSION_EXCLUDE_FRAGMENTS.some((fragment) => resolvedPath.includes(fragment));
 }
 
+/** Beadwork inspection tools every child may use. String names only; do not import beadwork. */
+export const BEADWORK_CHILD_INSPECTION_TOOLS = [
+  "beadwork_show",
+  "beadwork_list_issues",
+  "beadwork_issue_history",
+  "beadwork_ready",
+  "beadwork_blocked",
+  "beadwork_status",
+  "beadwork_prime",
+] as const;
+
+/** Beadwork mutating tools children must never have, even if late-registered. */
+export const BEADWORK_CHILD_DENIED_TOOLS = [
+  "beadwork_start_issue",
+  "beadwork_close_issue",
+  "beadwork_reopen_issue",
+] as const;
+
+export interface ChildToolAllowlistInput {
+  roleAllowlist?: readonly string[];
+  parentCodingTools?: readonly string[];
+  /** Orchestrated-only comm tools. Spawn leaves this empty so later tickets can union without rewriting. */
+  extraTools?: readonly string[];
+  currentActiveTools?: readonly string[];
+}
+
+/**
+ * Child tool formula (spawn and orchestrate):
+ *   (role allowlist if present, else parent coding tools)
+ *     ∪ beadwork inspection allowlist
+ *     ∪ extraTools (orchestrated comm hook)
+ *     − {beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue}
+ */
+export function computeChildActiveTools(input: ChildToolAllowlistInput): string[] {
+  const role = input.roleAllowlist?.filter((name) => name.length > 0) ?? [];
+  const parent = input.parentCodingTools?.filter((name) => name.length > 0) ?? [];
+  const current = input.currentActiveTools?.filter((name) => name.length > 0) ?? [];
+  const base = role.length > 0 ? role : parent.length > 0 ? parent : current;
+
+  const names = new Set<string>(base);
+  for (const tool of BEADWORK_CHILD_INSPECTION_TOOLS) names.add(tool);
+  for (const tool of input.extraTools ?? []) {
+    if (tool.length > 0) names.add(tool);
+  }
+  for (const tool of BEADWORK_CHILD_DENIED_TOOLS) names.delete(tool);
+  return [...names];
+}
+
+export function applyChildToolAllowlist(
+  session: Pick<ChildSession, "setActiveToolsByName" | "getActiveToolNames">,
+  input: ChildToolAllowlistInput,
+): string[] {
+  const names = computeChildActiveTools({
+    ...input,
+    currentActiveTools: input.currentActiveTools ?? session.getActiveToolNames(),
+  });
+  session.setActiveToolsByName(names);
+  return session.getActiveToolNames();
+}
+
+async function defaultCreateChildRuntime(
+  input: Parameters<CreateChildRuntime>[0],
+): Promise<{ runtime: ChildRuntime; sessionPath: string }> {
+  const minionsDir = getMinionsDir(input.cwd);
+  mkdirSync(minionsDir, { recursive: true });
+  const sessionPath = join(minionsDir, `${input.id}.${input.name}.jsonl`);
+  const sessionManager = SessionManager.create(input.cwd, minionsDir);
+  const actualPath = sessionManager.getSessionFile() ?? sessionPath;
+
+  const agentDir = getAgentDir();
+  const settingsManager = SettingsManager.create(input.cwd, agentDir);
+  const loader = new DefaultResourceLoader({
+    cwd: input.cwd,
+    agentDir,
+    settingsManager,
+    noExtensions: false,
+    noSkills: false,
+    noPromptTemplates: false,
+    noThemes: false,
+    systemPromptOverride: input.parentSystemPrompt
+      ? () => input.parentSystemPrompt ?? ""
+      : input.config.systemPrompt
+        ? () => input.config.systemPrompt
+        : undefined,
+    extensionsOverride: (base) => ({
+      ...base,
+      extensions: base.extensions.filter((ext) => shouldLoadExtensionInMinion(ext.resolvedPath)),
+    }),
+  });
+  await loader.reload();
+
+  const { session } = await createAgentSession({
+    cwd: input.cwd,
+    agentDir,
+    model: input.parentModel,
+    customTools: input.customTools,
+    sessionManager,
+    settingsManager,
+    resourceLoader: loader,
+  });
+
+  return {
+    sessionPath: actualPath,
+    runtime: {
+      session: session as unknown as ChildSession,
+      dispose: () => {
+        try {
+          session.abortBash();
+        } catch {
+          // Unmanaged processes cannot be guaranteed.
+        }
+        session.dispose();
+      },
+    },
+  };
+}
+
+interface ChildRecord {
+  id: string;
+  runtime: ChildRuntime;
+  session: ChildSession;
+  options: CreateMinionSessionOptions;
+  abortRequested: boolean;
+  pendingFailure?: string;
+  terminal?: ChildTerminalEvent;
+  waiters: Array<(event: ChildTerminalEvent) => void>;
+  currentFullText: string;
+  turnCount: number;
+  unsubscribe: () => void;
+  abortCleanup?: () => void;
+}
+
 export class SubsessionManager {
-  private activeSessions = new Map<string, AgentSession>();
+  private activeSessions = new Map<string, ChildSession>();
   private activeHandles = new Map<string, MinionSessionHandle>();
+  private children = new Map<string, ChildRecord>();
+  private terminals = new Map<string, ChildTerminalEvent>();
   private metadataCache = new Map<string, MinionSessionMetadata>();
   private unsubscribers = new Map<string, () => void>();
+  private shutdown = false;
+  private readonly createChildRuntime: CreateChildRuntime;
 
   constructor(
     private cwd: string,
     private parentSessionPath: string,
     public readonly eventBus?: EventBus,
-  ) {}
+    options?: { createChildRuntime?: CreateChildRuntime },
+  ) {
+    this.createChildRuntime = options?.createChildRuntime ?? defaultCreateChildRuntime;
+  }
 
   /** Emit progress events via EventBus for parent to receive */
   private emitProgress(id: string, progress: unknown): void {
     this.eventBus?.emit(MINION_PROGRESS_CHANNEL, { id, progress });
   }
 
+  /**
+   * Compatibility wrapper: start the child without waiting for terminal.
+   * Prefer `startChild()` + `handle.wait()`.
+   */
   async create(options: CreateMinionSessionOptions): Promise<MinionSessionHandle> {
-    const { id, name, task, config, spawnedBy, parentModel, parentSystemPrompt, signal } = options;
+    return this.startChild(options);
+  }
 
-    // Create minions directory
+  /**
+   * Start a child session and return a handle without awaiting completion.
+   * Foreground spawn waits via `handle.wait()`; orchestrate does not.
+   */
+  async startChild(options: CreateMinionSessionOptions): Promise<MinionSessionHandle> {
+    if (this.shutdown) {
+      throw new Error("SubsessionManager is shut down; further start is rejected");
+    }
+
+    const { id, name, task, config, spawnedBy, signal } = options;
+    if (this.activeHandles.has(id) && !this.terminals.has(id)) {
+      throw new Error(`Child ${id} is already running`);
+    }
+
     const minionsDir = getMinionsDir(this.cwd);
     mkdirSync(minionsDir, { recursive: true });
 
-    const sessionPath = join(minionsDir, `${id}.${name}.jsonl`);
-
-    // Create metadata
     const metadata: MinionSessionMetadata = {
       sessionId: id,
       parentSession: this.parentSessionPath,
@@ -63,255 +221,385 @@ export class SubsessionManager {
       status: "running",
     };
 
-    // Create the file-based session manager using static factory
-    // Use create() to create a new session file
-    const sessionManager = SessionManager.create(this.cwd, minionsDir);
-
-    // Store metadata in cache and write to separate metadata file
-    // (Don't modify pi's session file format - it uses {"type":"session",...})
-    const actualPath = sessionManager.getSessionFile() ?? sessionPath;
-    this.metadataCache.set(id, metadata);
-    this.writeMetadataFile(actualPath, metadata);
-
-    // Set up resource loader with extensions filtered to prevent recursion
-    const agentDir = getAgentDir();
-    const settingsManager = SettingsManager.create(this.cwd, agentDir);
-    const loader = new DefaultResourceLoader({
+    const { runtime, sessionPath } = await this.createChildRuntime({
       cwd: this.cwd,
-      agentDir,
-      settingsManager,
-      noExtensions: false,
-      noSkills: false,
-      noPromptTemplates: false,
-      noThemes: false,
-      systemPromptOverride: parentSystemPrompt
-        ? () => parentSystemPrompt
-        : config.systemPrompt
-          ? () => config.systemPrompt
-          : undefined,
-      extensionsOverride: (base) => ({
-        ...base,
-        extensions: base.extensions.filter((ext) => shouldLoadExtensionInMinion(ext.resolvedPath)),
-      }),
-    });
-    await loader.reload();
-
-    // Create the agent session
-    const { session } = await createAgentSession({
-      cwd: this.cwd,
-      agentDir,
-      model: parentModel,
+      id,
+      name,
+      config,
+      parentModel: options.parentModel,
+      parentSystemPrompt: options.parentSystemPrompt,
       customTools: options.customTools,
-      sessionManager,
-      settingsManager,
-      resourceLoader: loader,
     });
+    const session = runtime.session;
 
-    // Bind extensions to trigger session_start — required for extensions that
-    // register tools asynchronously.
-    // Without this call, session_start never fires and those tools never load.
-    await session.bindExtensions({ shutdownHandler: async () => {} });
+    this.metadataCache.set(id, metadata);
+    this.writeMetadataFile(sessionPath, metadata);
 
-    // Wait for async extension tools to stabilize before starting the session.
-    // Some extensions register tools asynchronously after session_start
-    // via fire-and-forget handlers. Configurable via toolSync settings.
-    if (options.toolSyncEnabled !== false) {
-      await this.waitForAsyncTools(id, session, options.parentToolNames, options.toolSyncMaxWait);
-    }
-
-    // Filter active tools if the agent config specifies a tool allowlist
-    if (config.tools && config.tools.length > 0) {
-      session.setActiveToolsByName(config.tools);
-    }
-
-    // Store the session for steer/halt operations
+    const child: ChildRecord = {
+      id,
+      runtime,
+      session,
+      options,
+      abortRequested: false,
+      waiters: [],
+      currentFullText: "",
+      turnCount: 0,
+      unsubscribe: () => {},
+    };
+    this.children.set(id, child);
     this.activeSessions.set(id, session);
 
-    // Track state for callbacks
-    let currentFullText = "";
-    let turnCount = 0;
-    let completed = false;
-
-    // Subscribe to session events for progress tracking and completion detection
-    const unsubscribe = session.subscribe((event) => {
-      // After completion/abort, drop all events — the parent tool call has
-      // already returned and emitting into it would throw
-      // "Agent listener invoked outside active run".
-      if (completed) return;
-
-      // Emit progress via EventBus for parent monitoring
-      this.emitProgress(id, event);
-
-      if (event.type === "tool_execution_start") {
-        const toolEvent = event as { args?: Record<string, unknown> };
-        options.onToolActivity?.({
-          type: "start",
-          toolName: event.toolName,
-          args: toolEvent.args,
-        });
-      }
-      if (event.type === "tool_execution_end") {
-        options.onToolActivity?.({ type: "end", toolName: event.toolName });
-      }
-      if (event.type === "tool_execution_update" && options.onToolOutput) {
-        const toolEvent = event as { partialResult?: { content?: Array<{ text?: string }> } };
-        const fullText: string = toolEvent.partialResult?.content?.[0]?.text ?? "";
-        options.onToolOutput(event.toolName, fullText);
-      }
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-        currentFullText += event.assistantMessageEvent.delta;
-        options.onTextDelta?.(event.assistantMessageEvent.delta, currentFullText);
-      }
-      if (event.type === "turn_end") {
-        turnCount++;
-        options.onTurnEnd?.(turnCount);
-        if (options.onUsageUpdate) {
-          try {
-            const stats = session.getSessionStats();
-            options.onUsageUpdate({
-              input: stats.tokens.input,
-              output: stats.tokens.output,
-              cacheRead: stats.tokens.cacheRead,
-              cacheWrite: stats.tokens.cacheWrite,
-              cost: stats.cost,
-            });
-          } catch {
-            // getSessionStats may not be available in all states
-          }
-        }
-      }
-      if (event.type === "agent_end" && !completed) {
-        completed = true;
-        const exitCode = 0; // Success - agent_end without error
-        this.updateStatus(id, "completed", exitCode);
-        options.onComplete?.({ exitCode, output: currentFullText, status: "completed" });
-        this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
-          id,
-          exitCode,
-          output: currentFullText,
-        });
-      }
+    await session.bindExtensions({
+      shutdownHandler: () => {
+        this.abortChild(id);
+      },
     });
+    this.applyTools(id);
 
-    // Store unsubscribe for cleanup
+    if (options.toolSyncEnabled !== false) {
+      await this.waitForAsyncTools(id, session, options.parentToolNames, options.toolSyncMaxWait);
+      this.applyTools(id);
+    }
+
+    const unsubscribe = session.subscribe((event) => this.handleChildEvent(id, event));
+    child.unsubscribe = unsubscribe;
     this.unsubscribers.set(id, unsubscribe);
 
-    // Wire abort signal
-    let abortCleanup: (() => void) | undefined;
+    const handle = this.buildHandle(id, sessionPath);
+    this.activeHandles.set(id, handle);
+
     if (signal) {
-      const onAbort = () => {
-        // Set completed BEFORE abort so any synchronous events from
-        // session.abort() are dropped by the subscribe guard above.
-        completed = true;
-        session.abort();
-        this.updateStatus(id, "aborted");
-        options.onComplete?.({ exitCode: 1, output: currentFullText, status: "aborted" });
-        this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
-          id,
-          exitCode: 1,
-          output: currentFullText,
-        });
-      };
+      const onAbort = () => this.abortChild(id);
       if (signal.aborted) {
-        completed = true;
-        session.abort();
-        this.updateStatus(id, "aborted");
-        options.onComplete?.({ exitCode: 1, output: currentFullText, status: "aborted" });
-        this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
-          id,
-          exitCode: 1,
-          output: currentFullText,
-        });
+        this.abortChild(id);
       } else {
         signal.addEventListener("abort", onAbort, { once: true });
-        abortCleanup = () => signal.removeEventListener("abort", onAbort);
+        child.abortCleanup = () => signal.removeEventListener("abort", onAbort);
       }
     }
 
-    // Clean up when session ends
-    const cleanup = () => {
-      unsubscribe();
-      this.unsubscribers.delete(id);
-      abortCleanup?.();
-      this.activeSessions.delete(id);
-      this.activeHandles.delete(id);
-    };
-
-    // Build handle and wire cleanup
-    const handle: MinionSessionHandle = {
-      id,
-      path: actualPath,
-      steer: async (text: string) => {
-        await session.steer(text);
-      },
-      abort: () => {
-        session.abort();
-        if (!completed) {
-          completed = true;
-          this.updateStatus(id, "aborted");
-          options.onComplete?.({ exitCode: 1, output: currentFullText, status: "aborted" });
-          this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
-            id,
-            exitCode: 1,
-            output: currentFullText,
-          });
-        }
-        cleanup();
-      },
-    };
-
-    this.activeHandles.set(id, handle);
-
-    if (signal?.aborted) {
-      cleanup();
-      logger.debug("subsession", "created-aborted", { id, name, path: actualPath });
+    if (child.terminal) {
+      logger.debug("subsession", "created-aborted", { id, name, path: sessionPath });
       return handle;
     }
 
-    // Start the session with the initial task
+    // Start without awaiting. Terminal is committed on agent_settled / abort / prompt failure,
+    // not on the first agent_end (retries, compaction, follow-ups may continue).
     session
       .prompt(task)
-      .then(() => {
-        // Session completed naturally
-        if (!completed) {
-          completed = true;
-          const exitCode = signal?.aborted ? 1 : 0;
-          const status = signal?.aborted ? "aborted" : "completed";
-          this.updateStatus(id, status, exitCode);
-          options.onComplete?.({ exitCode, output: currentFullText, status });
-          this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
-            id,
-            exitCode,
-            output: currentFullText,
-          });
+      .then(async () => {
+        if (this.terminals.has(id)) return;
+        try {
+          await session.waitForIdle();
+        } catch {
+          // waitForIdle is best-effort; agent_settled is the primary idle signal.
         }
-        cleanup();
+        const record = this.children.get(id);
+        if (!record || record.terminal) return;
+        if (record.abortRequested) {
+          this.commitTerminal(id, this.makeTerminal(record, "aborted"));
+          return;
+        }
+        if (record.pendingFailure) {
+          this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
+          return;
+        }
+        this.commitTerminal(id, this.makeTerminal(record, "settled"));
       })
       .catch((err) => {
-        // Session failed
-        if (!completed) {
-          completed = true;
-          const error = err instanceof Error ? err.message : String(err);
-          this.updateStatus(id, "failed", 1, error);
-          options.onComplete?.({ exitCode: 1, output: currentFullText, status: "failed", error });
-          this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
-            id,
-            exitCode: 1,
-            output: currentFullText,
-            error,
-          });
+        const record = this.children.get(id);
+        if (!record || record.terminal) return;
+        if (record.abortRequested) {
+          this.commitTerminal(id, this.makeTerminal(record, "aborted"));
+          return;
         }
-        cleanup();
+        const error = err instanceof Error ? err.message : String(err);
+        this.commitTerminal(id, this.makeTerminal(record, "failed", error));
       });
 
-    logger.debug("subsession", "created", { id, name, path: actualPath });
-
+    logger.debug("subsession", "started", { id, name, path: sessionPath });
     return handle;
+  }
+
+  waitForChild(id: string): Promise<ChildTerminalEvent> {
+    const existing = this.terminals.get(id);
+    if (existing) return Promise.resolve(existing);
+    const child = this.children.get(id);
+    if (!child) {
+      return Promise.reject(new Error(`Unknown child ${id}`));
+    }
+    if (child.terminal) return Promise.resolve(child.terminal);
+    return new Promise((resolve) => {
+      child.waiters.push(resolve);
+    });
+  }
+
+  /**
+   * Single-flight terminal latch. First caller wins so later mail/settle
+   * can share one winner. Returns true if this caller committed.
+   */
+  commitTerminal(id: string, event: ChildTerminalEvent): boolean {
+    if (this.terminals.has(id)) {
+      logger.info("subsession", "lifecycle", {
+        childId: id,
+        eventClass: event.class,
+        terminalLatchFired: false,
+      });
+      return false;
+    }
+
+    this.terminals.set(id, event);
+    const child = this.children.get(id);
+    if (child) child.terminal = event;
+
+    const metadataStatus: MinionSessionMetadata["status"] =
+      event.class === "settled" ? "completed" : event.class;
+    this.updateStatus(id, metadataStatus, event.exitCode, event.error);
+
+    child?.options.onComplete?.({
+      exitCode: event.exitCode,
+      output: event.output,
+      status: metadataStatus,
+      error: event.error,
+    });
+    this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
+      id,
+      exitCode: event.exitCode,
+      output: event.output,
+      error: event.error,
+      class: event.class,
+    });
+
+    for (const resolve of child?.waiters ?? []) resolve(event);
+    if (child) child.waiters = [];
+
+    logger.info("subsession", "lifecycle", {
+      childId: id,
+      eventClass: event.class,
+      terminalLatchFired: true,
+    });
+
+    void this.disposeChild(id);
+    return true;
+  }
+
+  getTerminal(id: string): ChildTerminalEvent | undefined {
+    return this.terminals.get(id);
+  }
+
+  isLive(id: string): boolean {
+    return this.activeHandles.has(id) && !this.terminals.has(id) && !this.shutdown;
+  }
+
+  /** Re-apply the child tool formula. Call after late-registered tools. */
+  applyTools(id: string): string[] {
+    const child = this.children.get(id);
+    if (!child) return [];
+    const names = applyChildToolAllowlist(child.session, {
+      roleAllowlist: child.options.config.tools,
+      parentCodingTools: child.options.parentToolNames,
+      extraTools: child.options.extraTools,
+    });
+    logger.info("subsession", "tools-filtered", { childId: id, tools: names });
+    return names;
+  }
+
+  /**
+   * Parent session_shutdown (quit, /new, resume, fork, reload) aborts and
+   * disposes every live child. Further start/mail is rejected.
+   */
+  async disposeAll(): Promise<void> {
+    this.shutdown = true;
+    const ids = [...this.children.keys()];
+    for (const id of ids) {
+      this.abortChild(id);
+      await this.disposeChild(id);
+    }
+  }
+
+  abortSession(id: string): boolean {
+    const handle = this.activeHandles.get(id);
+    if (handle) {
+      handle.abort();
+      return true;
+    }
+    return false;
+  }
+
+  private buildHandle(id: string, path: string): MinionSessionHandle {
+    return {
+      id,
+      path,
+      steer: async (text: string) => {
+        if (this.shutdown || this.terminals.has(id) || !this.activeHandles.has(id)) {
+          throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        }
+        const session = this.activeSessions.get(id);
+        if (!session) {
+          throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        }
+        await session.steer(text);
+      },
+      abort: () => {
+        this.abortChild(id);
+      },
+      wait: () => this.waitForChild(id),
+    };
+  }
+
+  private abortChild(id: string): void {
+    const child = this.children.get(id);
+    if (!child) return;
+    child.abortRequested = true;
+    this.commitTerminal(id, this.makeTerminal(child, "aborted"));
+    // Cooperative cancel only. A stuck in-process child (tight JS loop or hung
+    // native work) cannot be reaped here; the host Pi process must exit.
+    try {
+      child.session.abortBash?.();
+    } catch {
+      /* unmanaged processes cannot be guaranteed */
+    }
+    try {
+      void child.session.abort();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private async disposeChild(id: string): Promise<void> {
+    const child = this.children.get(id);
+    if (!child) {
+      this.activeHandles.delete(id);
+      this.activeSessions.delete(id);
+      return;
+    }
+
+    child.unsubscribe();
+    this.unsubscribers.delete(id);
+    child.abortCleanup?.();
+    this.activeSessions.delete(id);
+    this.activeHandles.delete(id);
+
+    try {
+      child.session.abortBash?.();
+    } catch {
+      /* unmanaged processes cannot be guaranteed */
+    }
+    try {
+      await child.runtime.dispose();
+    } catch {
+      try {
+        child.session.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    this.children.delete(id);
+  }
+
+  private handleChildEvent(id: string, event: ChildSessionEvent): void {
+    const child = this.children.get(id);
+    if (!child || child.terminal) return;
+
+    this.emitProgress(id, event);
+
+    if (event.type === "tool_execution_start" && event.toolName) {
+      child.options.onToolActivity?.({
+        type: "start",
+        toolName: event.toolName,
+        args: event.args,
+      });
+    }
+    if (event.type === "tool_execution_end" && event.toolName) {
+      child.options.onToolActivity?.({ type: "end", toolName: event.toolName });
+    }
+    if (event.type === "tool_execution_update" && event.toolName && child.options.onToolOutput) {
+      const fullText = event.partialResult?.content?.[0]?.text ?? "";
+      child.options.onToolOutput(event.toolName, fullText);
+    }
+    if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+      const delta = event.assistantMessageEvent.delta ?? "";
+      child.currentFullText += delta;
+      child.options.onTextDelta?.(delta, child.currentFullText);
+    }
+    if (event.type === "turn_end") {
+      child.turnCount++;
+      child.options.onTurnEnd?.(child.turnCount);
+      if (child.options.onUsageUpdate) {
+        try {
+          const stats = child.session.getSessionStats();
+          child.options.onUsageUpdate({
+            input: stats.tokens.input,
+            output: stats.tokens.output,
+            cacheRead: stats.tokens.cacheRead,
+            cacheWrite: stats.tokens.cacheWrite,
+            cost: stats.cost,
+          });
+        } catch {
+          // getSessionStats may not be available in all states
+        }
+      }
+    }
+    if (event.type === "auto_retry_end" && event.success === false) {
+      child.pendingFailure = event.finalError ?? "provider error";
+    }
+
+    const eventClass =
+      event.type === "agent_settled"
+        ? child.abortRequested
+          ? "aborted"
+          : child.pendingFailure
+            ? "failed"
+            : "settled"
+        : event.type;
+
+    if (event.type === "agent_end") {
+      // First agent_end is too early: retries, compaction, and queued continuations
+      // may still run. Wait for agent_settled / waitForIdle.
+      logger.info("subsession", "lifecycle", {
+        childId: id,
+        eventClass: "agent_end",
+        terminalLatchFired: false,
+        willRetry: event.willRetry === true,
+      });
+      return;
+    }
+
+    if (event.type === "agent_settled") {
+      const terminalClass = child.abortRequested
+        ? "aborted"
+        : child.pendingFailure
+          ? "failed"
+          : "settled";
+      this.commitTerminal(id, this.makeTerminal(child, terminalClass, child.pendingFailure));
+      return;
+    }
+
+    logger.debug("subsession", "lifecycle", {
+      childId: id,
+      eventClass,
+      terminalLatchFired: false,
+    });
+  }
+
+  private makeTerminal(
+    child: ChildRecord,
+    terminalClass: ChildTerminalEvent["class"],
+    error?: string,
+  ): ChildTerminalEvent {
+    const output = extractLastAssistantText(child.session.state.messages) || child.currentFullText;
+    return {
+      class: terminalClass,
+      exitCode: terminalClass === "settled" ? 0 : 1,
+      output,
+      error: terminalClass === "failed" ? error : terminalClass === "aborted" ? error : undefined,
+    };
   }
 
   private async waitForAsyncTools(
     id: string,
-    session: AgentSession,
+    session: ChildSession,
     parentToolNames?: string[],
     maxWait?: number,
   ): Promise<void> {
@@ -338,7 +626,6 @@ export class SubsessionManager {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
     }
 
-    // Timed out — log what's still missing but don't block session start
     const current = new Set(session.getAllTools().map((t) => t.name));
     const stillMissing = expected.filter((name) => !current.has(name));
     if (stillMissing.length > 0) {
@@ -409,21 +696,12 @@ export class SubsessionManager {
     return results.sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  getSession(id: string): AgentSession | undefined {
+  getSession(id: string): ChildSession | undefined {
     return this.activeSessions.get(id);
   }
 
   getSessionHandle(id: string): MinionSessionHandle | undefined {
     return this.activeHandles.get(id);
-  }
-
-  abortSession(id: string): boolean {
-    const handle = this.activeHandles.get(id);
-    if (handle) {
-      handle.abort();
-      return true;
-    }
-    return false;
   }
 
   /** Check if a session path is a minion session and return the minion ID */
@@ -640,4 +918,23 @@ export class SubsessionManager {
       });
     }
   }
+}
+
+function extractLastAssistantText(messages: unknown[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as Record<string, unknown> | undefined;
+    if (msg?.role !== "assistant") continue;
+
+    const content = msg.content;
+    if (typeof content === "string") return content.trim();
+
+    if (Array.isArray(content)) {
+      const text = content
+        .filter((b: { type: string; text?: string }) => b.type === "text" && b.text)
+        .map((b: { type: string; text?: string }) => b.text ?? "")
+        .join("");
+      if (text.trim()) return text.trim();
+    }
+  }
+  return "";
 }

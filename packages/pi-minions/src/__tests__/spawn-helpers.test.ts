@@ -44,5 +44,11 @@ describe("spawn helper regressions", () => {
     expect(shouldLoadExtensionInMinion("/repo/packages/pi-minions/src/index.ts")).toBe(false);
     expect(shouldLoadExtensionInMinion("/repo/packages/pi-om-extension/src/index.ts")).toBe(false);
     expect(shouldLoadExtensionInMinion("/repo/packages/pi-exa-extension/src/index.ts")).toBe(true);
+    expect(shouldLoadExtensionInMinion("/repo/packages/pi-beadwork-extension/src/index.ts")).toBe(
+      true,
+    );
+    expect(shouldLoadExtensionInMinion("/repo/packages/pi-hashline-readmap/src/index.ts")).toBe(
+      true,
+    );
   });
 });
