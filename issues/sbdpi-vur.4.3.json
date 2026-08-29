@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.2.6",
     "sbdpi-vur.2.7",
@@ -32,8 +32,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Prove one epic end-to-end with ticket review and no tmux",
   "type": "feature",
-  "updated_at": "2026-08-28T22:57:11Z"
+  "updated_at": "2026-08-29T02:47:09Z"
 }
