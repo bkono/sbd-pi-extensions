@@ -9,6 +9,8 @@
     "sbdpi-vur.3.4",
     "sbdpi-vur.4.3"
   ],
+  "closed_at": "2026-08-29T02:22:11Z",
+  "close_reason": "Live same-group followUp delivery + parent send_minion_message (b04e551) with enqueue + pending-depth cap (db8fd15). Review PASS after FAIL fix.",
   "created": "2026-08-28T21:31:28Z",
   "description": "Deliver addressed peer messages only to live children in the same group. Best effort, nonblocking. Include the **parent** `send_minion_message` tool (not installed on children).\n\n## Background\n\nNo durable mailbox, no exactly-once, no wait-for-reply, no parked sessions. Send returns immediately. Live recipient: steer/followUp at a child-safe boundary (may postpone idle). Terminal: recipient-terminal. Do not reroute through the parent. Peer messages do not start a parent turn.\n\nChild send tools are bound closures from the inject issue. This issue owns delivery + the parent-facing send tool.\n\n## Bounds (minions-local, not a rate-limit product)\n\n- Max message body bytes (pick one number, test the boundary).\n- Max in-memory queue depth per recipient (mailbox-full).\n- In-process message id for inspection/tests only — not a durable mail log, not an exactly-once key.\n\nNo per-minute rate limiter. No depth beyond the queue cap. No glob/mail-server.\n\n## Success criteria\n\n- Same-group live delivery (child→child and parent→child).\n- Cross-group, missing, terminal → closed reasons: recipient-terminal, invalid-recipient, group-not-open, mailbox-full.\n- Child cannot forge sender identity.\n- Peer-only send does not start a parent turn.\n\n## Test plan\n\n- Unit: ACL, identity from closure, body-size reject, queue-full reject.\n- Integration: live vs disposed; parent send vs child send.\n- Logging: in-process id, from, to, status, bytes, parent-turn-triggered=false for peer-only.\n\n## Considerations\n\nPeer chat can delay settlement. Halt is the escape. Mail vs settle is the sibling race issue.",
   "id": "sbdpi-vur.3.2",
@@ -24,8 +26,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Deliver nonblocking same-group messages to live children",
   "type": "feature",
-  "updated_at": "2026-08-29T01:34:01Z"
+  "updated_at": "2026-08-29T02:22:11Z"
 }
