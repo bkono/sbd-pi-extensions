@@ -7,6 +7,10 @@ Config is merged in this order:
 3. `~/.pi/beadwork-config.json`
 4. built-in defaults
 
+`/bw run` calls `assertGoalModeConfig`. Leftover supervisor keys and env vars are **errors**, not
+ignored. See [migration.md](./migration.md). Do not migrate `landing.validateCommands` into a
+validation gate.
+
 ## Full config shape
 
 ```json
@@ -15,63 +19,15 @@ Config is merged in this order:
     "showInactiveStatus": false
   },
   "storage": {
-    "sessionStateDir": ".pi/beadwork/session-state",
-    "workerRegistryFile": ".pi/beadwork/workers/registry.json",
-    "runtimeDir": ".pi/beadwork/workers/runtime"
+    "sessionStateDir": ".pi/beadwork/session-state"
   },
-  "tmux": {
-    "sessionName": "pi-bw",
-    "workerCommand": "pi",
-    "workerProvider": "anthropic",
-    "workerModel": "claude-opus-4.1"
-  },
-  "worktrees": {
-    "baseDir": "../sbd-pi-extensions-worktrees",
-    "cleanup": "keep",
-    "copyFiles": [
-      ".env",
-      ".mise.local.toml",
-      { "from": ".env.local", "to": ".env.local", "required": false }
-    ],
-    "setupCommands": ["mise trust", "npm install"],
-    "rerunSetupOnReuse": false
-  },
-  "workerExecution": {
-    "mode": "current-branch",
-    "maxLifetime": null,
-    "allowDetachedHead": false,
-    "review": {
-      "enabled": true
-    },
-    "selfReview": {
-      "enabled": true
-    }
-  },
-  "run": {
-    "defaultWorkers": 2,
-    "defaultUntil": "blocked",
-    "defaultMaxCycles": 12,
-    "pollIntervalMs": 2000
-  },
-  "landing": {
-    "policy": "auto",
-    "validateCommands": ["npm run lint", "npm run test", "npm run typecheck"],
-    "commandTimeoutMs": 600000,
-    "maxRebaseAttempts": 2,
-    "review": {
-      "enabled": false,
-      "provider": "openai",
-      "model": "gpt-5.4:high",
-      "commandTimeoutMs": 1800000,
-      "maxRemediationAttempts": 1,
-      "maxArtifactChars": 12000
-    }
-  },
-  "supervisor": {
-    "pollIntervalMs": 30000
+  "review": {
+    "policy": "ticket"
   }
 }
 ```
+
+Built-in defaults match that object (`review.provider` / `review.model` unset).
 
 ## Key details
 
@@ -80,443 +36,101 @@ Config is merged in this order:
 - default: `false`
 - when true, keeps a statusline visible even when beadwork is not active
 
-### `storage.*`
+Environment: `PI_BEADWORK_SHOW_INACTIVE_STATUS=1`
 
-Storage defaults live under `.pi/beadwork/`.
+### `storage.sessionStateDir`
 
-- `sessionStateDir` stores per-session mode/scope/prime/tracking state
-- `workerRegistryFile` stores the durable worker registry
-- `runtimeDir` stores per-worker runtime artifacts such as prompt/script/log/state files
+Per-session mode/scope/prime/goal state. Default: `.pi/beadwork/session-state`.
 
-### `tmux.*`
+Environment: `PI_BEADWORK_SESSION_STATE_DIR`
 
-- `sessionName` names the shared tmux session used for delegated workers
-- `workerCommand` is the base agent command used for workers and reviewer passes
-- `workerProvider` / `workerModel` override the provider/model for delegated worker launches
+`storage.workerRegistryFile` and `storage.runtimeDir` are rejected leftovers.
 
-#### Worker command normalization
+### `review.policy`
 
-When `workerCommand` resolves to `pi`, the extension normalizes it to JSON mode so progress can be streamed into `worker.log`.
+Values: `ticket` (default), `scope`, `none`.
 
-Examples:
+This is the policy `/bw run` stores on the goal and injects into the prompt. The standing appendix
+repeats it. It is not a structured-result gate and not a keyword classifier.
 
-- `pi` → `pi --mode json`
-- `pi --print` → `pi --mode json`
-- `pi --print --mode text` → `pi --mode text`
+| Policy   | Parent behavior |
+| -------- | --------------- |
+| `ticket` | Independent `reviewImplementation` child before close. Settlement is not acceptance. |
+| `scope`  | Close tickets from evidence. `reviewScope` before epic complete. Dependents may start before aggregate review. |
+| `none`   | No independent review children. Still judge from git and `bw` before close. |
 
-The extension strips `--print` when normalizing, because worker logging depends on JSON-mode output rather than print-mode transcripts.
+Environment: `PI_BEADWORK_REVIEW_POLICY`
 
-### `worktrees.*`
+Invalid values error (`must be "ticket", "scope", or "none"`).
 
-#### `baseDir`
+### `review.provider` / `review.model`
 
-Optional custom parent directory for delegated worktrees.
+Optional stored preferences. They do **not** launch a landing reviewer, do not run
+`validateCommands`, and are not auto-applied to `orchestrate` children. Pass `model` on each
+orchestrated task when a child should use a specific model.
 
-#### `cleanup`
-
-Values:
-
-- `keep`
-- `cleanup-after-landing`
-
-`cleanup-after-landing` only applies after successful orchestrator-owned landing.
-
-#### `copyFiles`
-
-Supports string or object entries.
-
-String example:
-
-```json
-[".env", ".mise.local.toml"]
-```
-
-Object example:
-
-```json
-[
-  { "from": ".env.local", "to": ".env.local", "required": false },
-  { "from": ".npmrc", "required": true }
-]
-```
-
-Rules:
-
-- paths are resolved relative to the repo root
-- by default the same relative path is used inside the worktree
-- string entries are optional by default
-- object entries can mark files as `required: true`
-
-#### `setupCommands`
-
-Commands run inside the delegated worktree after creation.
-
-Common examples:
-
-```json
-["mise trust", "npm install"]
-```
-
-#### `rerunSetupOnReuse`
-
-- default: `false`
-- when true, `copyFiles` and `setupCommands` run again even when an existing worktree is reused
-
-### `workerExecution.*`
-
-Controls where delegated workers run and which review gate applies after current-branch workers exit.
-
-#### `workerExecution.mode`
-
-Values:
-
-- `current-branch` — built-in default; launches the worker in the repo root/current branch and
-  does not create a worktree or merge-back branch.
-- `worktree` — explicit fallback; creates or reuses a per-ticket worktree/branch.
-
-Current-branch explicit config example:
-
-```json
-{
-  "workerExecution": {
-    "mode": "current-branch"
-  }
-}
-```
-
-Environment override:
-
-```sh
-PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch pi
-```
-
-Explicit worktree fallback example:
-
-```json
-{
-  "workerExecution": {
-    "mode": "worktree"
-  },
-  "worktrees": {
-    "baseDir": "../sbd-pi-extensions-worktrees"
-  }
-}
-```
-
-Or:
-
-```sh
-PI_BEADWORK_WORKER_EXECUTION_MODE=worktree \
-PI_BEADWORK_WORKTREE_BASE_DIR=../sbd-pi-extensions-worktrees \
-pi
-```
-
-#### `workerExecution.maxLifetime`
-
-Default: `null`.
-
-Accepts `null` or a non-negative millisecond value. Environment values use
-`PI_BEADWORK_WORKER_MAX_LIFETIME`; an empty string maps to `null`.
-
-The current implementation parses and stores this config, but worker supervision still primarily
-uses tmux/runtime exit state. Do not rely on it as an enforced kill switch unless the runtime
-implementation changes.
-
-#### `workerExecution.allowDetachedHead`
-
-Default: `false`.
-
-Current-branch mode rejects detached HEAD by default with an explicit error. Set this only when you
-want to allow `branchName=HEAD` launches and accept weaker branch-drift assumptions:
-
-```json
-{
-  "workerExecution": {
-    "mode": "current-branch",
-    "allowDetachedHead": true
-  }
-}
-```
-
-Environment:
-
-```sh
-PI_BEADWORK_WORKER_EXECUTION_MODE=current-branch \
-PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD=1 \
-pi
-```
-
-#### `workerExecution.review.enabled`
-
-Default: `true`.
-
-Controls the per-worker current-branch reviewer gate. It is separate from `landing.review.enabled`:
-
-- `workerExecution.review.enabled` affects current-branch worker verification.
-- `landing.review.enabled` affects worktree landing review before merge-back or deferred hold.
-
-Disabling one does not disable the other. Current-branch review shares the reviewer
-provider/model/timeout settings from `landing.review.*`, but it does not use
-`landing.review.maxArtifactChars`; that artifact budget only caps worktree landing review artifacts.
-
-#### `workerExecution.selfReview.enabled`
-
-Default: `true`.
-
-Controls the in-worker completion protocol. When enabled, a worker's first
-`beadwork_worker_done` call records a self-review request and returns a focused review prompt in the
-same session. The worker then fixes anything it finds and calls `beadwork_worker_done` again with
-`self_review_completed: true`; that final call closes/syncs the ticket and requests Pi shutdown so the
-same tmux pane exits through the normal worker script lifecycle.
-
-Disable with:
-
-```sh
-PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED=0 pi
-```
-
-### `run.*`
-
-These control bounded `/bw run` behavior.
-
-- `defaultWorkers` — default worker concurrency
-- `defaultUntil` — default stop condition (`blocked` or `empty`)
-- `defaultMaxCycles` — max cycles before the current invocation stops
-- `pollIntervalMs` — loop sleep interval inside the active bounded run
-
-This is separate from background supervisor polling.
-
-### `landing.*`
-
-#### `landing.policy`
-
-Values:
-
-- `auto`
-- `deferred`
-
-`auto` merges back as soon as validation/review conditions are satisfied.
-
-`deferred` validates and holds the worker unmerged until `/bw land` is requested.
-
-#### `landing.validateCommands`
-
-Runs inside the delegated worktree after worker exit.
-
-Default:
-
-```json
-["npm run lint", "npm run test", "npm run typecheck"]
-```
-
-#### `landing.commandTimeoutMs`
-
-Timeout for each validation command.
-
-#### `landing.maxRebaseAttempts`
-
-How many times the orchestrator will try to refresh a drifted worker through rebase + validation + merge-back before moving to `attention`.
-
-### `landing.review.*`
-
-#### `enabled`
-
-Turns on reviewer-agent gating before worktree merge-back or before declaring a deferred worktree worker ready to land. It does not control current-branch per-worker review; use `workerExecution.review.enabled` for that.
-
-Reviewer runs are exploratory by default. When the base command is `pi`, the orchestrator keeps the normal tool/extension/skill surface instead of forcing reviewer isolation flags.
-
-#### `provider` / `model`
-
-Reviewer-specific provider/model overrides.
-
-If unset, they fall back to:
-
-- `tmux.workerProvider`
-- `tmux.workerModel`
-
-This lets you do things like:
-
-- worker: `claude-opus-4.1`
-- reviewer: `gpt-5.4:high`
-
-#### `commandTimeoutMs`
-
-Default: `1800000` ms (**30 minutes**).
-
-This was intentionally raised so slower, larger `gpt-5.4:high` reviews can complete without getting killed early.
-
-#### `maxRemediationAttempts`
-
-How many orchestrator remediation passes are allowed after valid reviewer-requested changes.
-
-#### `maxArtifactChars`
-
-Caps the worktree landing review artifacts bundled into the reviewer prompt, especially:
-
-- commit summaries
-- diff stats
-- unified diff content
-
-The reviewer prompt still includes ticket/epic context, the mandatory validation commands, and instructions to finish with a machine-readable `<review_report>` handoff.
-
-This does **not** cap all prompt content. Ticket descriptions, epic descriptions, and other structured
-context are bounded separately. Current-branch per-worker review does not use this artifact budget.
-
-##### Compatibility alias
-
-The extension still accepts the legacy field:
-
-```json
-{
-  "landing": {
-    "review": {
-      "maxContextChars": 12000
-    }
-  }
-}
-```
-
-But `maxArtifactChars` is the preferred name now.
-
-### `supervisor.pollIntervalMs`
-
-Default: `30000` ms.
-
-This controls the parent session's periodic background supervision interval for:
-
-- tracked delegated workers
-- persisted `/bw run` state
-
-It is different from `run.pollIntervalMs`, which is the inner sleep interval of an actively executing bounded `/bw run` command.
+Environment: `PI_BEADWORK_REVIEW_PROVIDER`, `PI_BEADWORK_REVIEW_MODEL`
 
 ## Environment variables
 
-Supported environment overrides:
+Supported:
 
 - `PI_BEADWORK_SHOW_INACTIVE_STATUS`
 - `PI_BEADWORK_SESSION_STATE_DIR`
-- `PI_BEADWORK_WORKER_REGISTRY_FILE`
-- `PI_BEADWORK_RUNTIME_DIR`
-- `PI_BEADWORK_TMUX_SESSION_NAME`
-- `PI_BEADWORK_WORKER_COMMAND`
-- `PI_BEADWORK_WORKER_PROVIDER`
-- `PI_BEADWORK_WORKER_MODEL`
-- `PI_BEADWORK_WORKTREE_BASE_DIR`
-- `PI_BEADWORK_WORKER_EXECUTION_MODE`
-- `PI_BEADWORK_WORKER_MAX_LIFETIME`
-- `PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD`
-- `PI_BEADWORK_WORKER_REVIEW_ENABLED`
-- `PI_BEADWORK_DEFAULT_WORKERS`
-- `PI_BEADWORK_DEFAULT_MAX_CYCLES`
-- `PI_BEADWORK_POLL_INTERVAL_MS`
-- `PI_BEADWORK_VALIDATE_TIMEOUT_MS`
-- `PI_BEADWORK_MAX_REBASE_ATTEMPTS`
-- `PI_BEADWORK_LANDING_POLICY`
-- `PI_BEADWORK_REVIEW_ENABLED`
+- `PI_BEADWORK_REVIEW_POLICY`
 - `PI_BEADWORK_REVIEW_PROVIDER`
 - `PI_BEADWORK_REVIEW_MODEL`
-- `PI_BEADWORK_REVIEW_TIMEOUT_MS`
-- `PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS`
-- `PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS`
+
+## Rejected leftovers
+
+Any of these present in project/global JSON or the environment causes `/bw run` to error with
+`SupervisorConfigError` listing every leftover:
+
+JSON families: `tmux`, `worktrees`, `landing`, `supervisor`, `workerExecution`.
+
+JSON keys: `run.defaultWorkers`, `run.defaultUntil`, `run.defaultMaxCycles`, `run.pollIntervalMs`,
+`storage.workerRegistryFile`, `storage.runtimeDir`.
+
+Env vars (non-exhaustive of the code list; the error prints the exact names):
+
+- `PI_BEADWORK_TMUX_SESSION_NAME`, `PI_BEADWORK_WORKER_COMMAND`, `PI_BEADWORK_WORKER_*`
+- `PI_BEADWORK_WORKTREE_BASE_DIR`, `PI_BEADWORK_WORKER_EXECUTION_MODE`
+- `PI_BEADWORK_DEFAULT_WORKERS`, `PI_BEADWORK_DEFAULT_MAX_CYCLES`, `PI_BEADWORK_POLL_INTERVAL_MS`
+- `PI_BEADWORK_LANDING_POLICY`, `PI_BEADWORK_VALIDATE_TIMEOUT_MS`
+- `PI_BEADWORK_REVIEW_ENABLED`, `PI_BEADWORK_REVIEW_TIMEOUT_MS`,
+  `PI_BEADWORK_REVIEW_MAX_REMEDIATION_ATTEMPTS`, `PI_BEADWORK_REVIEW_MAX_ARTIFACT_CHARS`,
+  `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS`
 - `PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS`
 
-Legacy compatibility alias:
+Error text includes: `/bw run is a standing appendix plus injected prompt, not a polling
+supervisor.` and `Do not migrate landing.validateCommands into a validation gate.`
 
-- `PI_BEADWORK_REVIEW_MAX_CONTEXT_CHARS`
-
-## Example profiles
-
-### Minimal practical dogfood config
+## Example: ticket review (default)
 
 ```json
 {
-  "worktrees": {
-    "copyFiles": [".env", ".mise.local.toml"],
-    "setupCommands": ["mise trust", "npm install"]
-  },
-  "landing": {
-    "validateCommands": ["npm run lint", "npm run test", "npm run typecheck"]
+  "review": {
+    "policy": "ticket"
   }
 }
 ```
 
-### Current-branch workers by repo default
+## Example: scope review
 
 ```json
 {
-  "workerExecution": {
-    "mode": "current-branch",
-    "allowDetachedHead": false,
-    "review": {
-      "enabled": true
-    }
+  "review": {
+    "policy": "scope"
   }
 }
 ```
 
-### Explicit worktree fallback
+## Example: no independent review children
 
 ```json
 {
-  "workerExecution": {
-    "mode": "worktree"
-  },
-  "worktrees": {
-    "baseDir": "../sbd-pi-extensions-worktrees",
-    "cleanup": "keep"
+  "review": {
+    "policy": "none"
   }
 }
 ```
-
-One-shell fallback:
-
-```sh
-PI_BEADWORK_WORKER_EXECUTION_MODE=worktree \
-PI_BEADWORK_WORKTREE_BASE_DIR=../sbd-pi-extensions-worktrees \
-pi
-```
-
-### Deferred landing + human testing gate
-
-```json
-{
-  "landing": {
-    "policy": "deferred"
-  },
-  "worktrees": {
-    "cleanup": "keep"
-  }
-}
-```
-
-### Independent reviewer model
-
-```json
-{
-  "tmux": {
-    "workerProvider": "anthropic",
-    "workerModel": "claude-opus-4.1"
-  },
-  "landing": {
-    "review": {
-      "enabled": true,
-      "provider": "openai",
-      "model": "gpt-5.4:high",
-      "commandTimeoutMs": 1800000,
-      "maxArtifactChars": 16000
-    }
-  }
-}
-```
-
-### Faster background supervision
-
-```json
-{
-  "supervisor": {
-    "pollIntervalMs": 10000
-  }
-}
-```
-
-Use this carefully. Shorter intervals mean more frequent parent-session work while the session is idle.

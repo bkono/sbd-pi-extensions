@@ -1,15 +1,13 @@
 # Documentation index
 
 This folder holds the deeper reference material for `@solvedbydev/pi-beadwork-extension`.
-Start with the package [README](../README.md) for the overview, dashboard-first quickstart, and config examples.
+Start with the package [README](../README.md) for the overview and `/bw run` quickstart on tui
+with minions enabled.
 
 Then use these deeper docs as needed:
 
-- [workflows.md](./workflows.md) — dashboard-first operator flow, delegated workers, deferred landing, reviewer gating, `/bw run`
-- [current-branch-mode.md](./current-branch-mode.md) — current-branch execution, attribution, detached HEAD behavior, and worktree fallback
-- [worker-conventions.md](./worker-conventions.md) — commit messages, atomic commits, handoff comments, and shared-checkout etiquette
-- [execution-modes.md](./execution-modes.md) — current-branch vs worktree behavior and config examples
-- [configuration.md](./configuration.md) — config keys, environment variables, examples, compatibility aliases
-- [commands.md](./commands.md) — slash command reference, dashboard controls, worker states, and tool surface
-- [current-branch-e2e.md](./current-branch-e2e.md) — deterministic current-branch swarm smoke scripts and artifact layout
-- [tui-proposal.md](./tui-proposal.md) — design notes and future TUI backlog beyond the shipped dashboard/workflow
+- [workflows.md](./workflows.md) — dashboard-first operator flow, goal mode, review policy, checkout
+- [configuration.md](./configuration.md) — config keys, environment variables, rejected leftovers
+- [migration.md](./migration.md) — removed tmux workers, flags, tools, and leftover config
+- [commands.md](./commands.md) — slash command reference, dashboard controls, and tool surface
+- [worker-conventions.md](./worker-conventions.md) — shared-checkout commit and handoff habits

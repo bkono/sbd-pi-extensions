@@ -2,6 +2,10 @@
 
 Date: 2026-04-13
 
+> **Historical.** tmux-backed workers were removed. Current operator usage:
+> `packages/pi-beadwork-extension/README.md` (`/bw run <epic-id>` on tui with minions).
+
+
 ## Goal
 
 Understand the workflow beadwork is trying to teach agents via its prompt chain, then assess how that workflow could be baked deeply into a pi extension in this repo, using a tmux-based worker model first. Future bespoke terminal integrations (for example Ghostty or WezTerm) can stay possible, but they should not shape the initial architecture or dependency choices.
