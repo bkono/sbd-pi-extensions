@@ -1182,6 +1182,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           isBare: options.isBare === true,
           ctx,
           deps: {
+            pi,
             adapter,
             refreshStatus,
             requireActive,
@@ -1298,6 +1299,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           parsed,
           ctx,
           deps: {
+            pi,
             adapter,
             requireActive,
             ensurePrime,

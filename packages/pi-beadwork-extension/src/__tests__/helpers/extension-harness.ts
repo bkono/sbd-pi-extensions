@@ -176,13 +176,20 @@ export function createFakeUi(): FakeUi {
 }
 
 export function createFakeExtensionContext(
-  overrides: { cwd?: string; sessionId?: string; ui?: FakeUi } = {},
+  overrides: {
+    cwd?: string;
+    sessionId?: string;
+    ui?: FakeUi;
+    mode?: "tui" | "rpc" | "json" | "print";
+    isIdle?: () => boolean;
+  } = {},
 ): ExtensionCommandContext {
   const sessionId = overrides.sessionId ?? "test-session-123";
   const ui = overrides.ui ?? createFakeUi();
 
   const ctx = {
     cwd: overrides.cwd ?? process.cwd(),
+    mode: overrides.mode ?? "tui",
     sessionManager: {
       getSessionId: () => sessionId,
       getBranch: () => [],
@@ -203,7 +210,7 @@ export function createFakeExtensionContext(
     modelRegistry: {},
     model: undefined,
     signal: undefined,
-    isIdle: () => true,
+    isIdle: overrides.isIdle ?? (() => true),
     abort: () => {},
     hasPendingMessages: () => false,
     shutdown: () => {},
