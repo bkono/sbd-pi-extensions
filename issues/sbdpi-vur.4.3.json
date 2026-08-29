@@ -14,6 +14,8 @@
     "sbdpi-vur.4",
     "sbdpi-vur.4.5"
   ],
+  "closed_at": "2026-08-29T03:11:34Z",
+  "close_reason": "Ticket-policy epic e2e on 4.2 harness (3a96c23). Review PASS. Exercises 3.2–3.5; settlement does not close; 4.6 untouched.",
   "created": "2026-08-28T21:31:30Z",
   "description": "Full **ticket-policy** epic fixture (published-cutover proof). Scope policy is a sibling over the **4.2 harness**, not a branch in this script.\n\n## Background\n\nScript the parent (deterministic fake completions). No paid LLM.\n\n## Scenario (ticket policy only)\n\n1. Epic with two parallel tickets and one dependent.\n2. `/bw run` inject, one open group.\n3. Two implementation children on shared branch.\n4. Overlap notice fires; execution **continues** (no pause, no worktree).\n5. One live child → parent question (`parentMessage`); parent answers via `send_minion_message`; child continues; then **one** settle (mail/settle single winner).\n6. Settlement does not close.\n7. Reviewer is **not** started while that ticket’s implementer is still live.\n8. Review child on one clean ticket and one with findings; scripted parent: **fix** (re-review required), **file** (durable nonblocking follow-up issue), **reject** (rationale recorded).\n9. Consequential decisions appear in the parent recap and/or ordinary `bw comment`.\n10. Dependent unlocks only after parent closed the blocker ticket (`bw ready`), never because a child settled.\n11. Epic close exits run; halt continuation forgets group.\n12. No tmux, no automatic worktree, no landing/registry/worker tools.\n\n## Success criteria\n\n- tmux binary not required.\n- Packet coalescing if two completions are near-simultaneous.\n- Quality commands run as implementer/reviewer actions, not a beadwork runner.\n\n## Test plan / logging\n\nStructured logs: timestamp, step, policy=ticket, issue ids, child ids, group id, event class, packet seq, bw status.\n\nFailure bundle (harness): last packets, fleet, `bw ready`, `bw show` epic, active tools, PATH tmux probe.\n\n## Considerations\n\nShare 4.2’s scripted-parent helper. Separate scenario file from 4.6 so the two e2es can proceed in parallel.",
   "id": "sbdpi-vur.4.3",
@@ -32,8 +34,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Prove one epic end-to-end with ticket review and no tmux",
   "type": "feature",
-  "updated_at": "2026-08-29T02:47:09Z"
+  "updated_at": "2026-08-29T03:11:34Z"
 }
