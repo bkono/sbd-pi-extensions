@@ -40,7 +40,7 @@ import { AgentTree } from "./tree.js";
 
 const LearnMinionsParams = Type.Object(
   {},
-  { description: "Return the built-in pi-minions foreground delegation skill." },
+  { description: "Return the built-in pi-minions spawn and orchestrate skill." },
 );
 
 export default function (pi: ExtensionAPI): void {
@@ -216,7 +216,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "learn_minions",
     label: "Learn Minions",
-    description: "Return concise guidance for using pi-minions foreground delegation.",
+    description: "Return concise guidance for using pi-minions spawn and orchestrate.",
     promptSnippet: "Learn how to use pi-minions",
     parameters: LearnMinionsParams,
     execute: async () => ({
