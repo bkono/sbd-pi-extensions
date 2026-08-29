@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-29T21:02:11Z",
+  "description": "Wire AgentConfig.thinking from user/project minion frontmatter into the actual child AgentSession, add a regression test, then validate package quality gates. This is needed so ~/.pi/agent/agents role definitions can reliably select medium/high/xhigh reasoning.",
+  "id": "sbdpi-nqr",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Honor minion role thinking metadata in child sessions",
+  "type": "task",
+  "updated_at": "2026-08-29T21:02:11Z"
+}
