@@ -12,7 +12,12 @@ import {
 } from "./delegation.js";
 import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
-import { ORCHESTRATION_LIFECYCLE_CHANNEL, OrchestrationGroupState } from "./orchestration/index.js";
+import {
+  createLifecyclePacketDispatcher,
+  ORCHESTRATION_LIFECYCLE_CHANNEL,
+  OrchestrationGroupState,
+  type OrchestrationLifecycleEvent,
+} from "./orchestration/index.js";
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
 import { getMinionsSkill } from "./skill.js";
@@ -45,6 +50,13 @@ export default function (pi: ExtensionAPI): void {
   let cachedModel: Model<any> | undefined;
 
   const eventBus = new EventBus();
+  const packets = createLifecyclePacketDispatcher({
+    getTree: () => tree,
+    sendMessage: (message, options) => pi.sendMessage(message, options),
+  });
+  eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
+    packets.enqueue(event);
+  });
 
   let toolCallCount = 0;
   let lastHintTime = 0;
@@ -255,11 +267,13 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async () => {
+    packets.close();
     await subsessionManager?.disposeAll();
     subsessionManager = undefined;
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    packets.close();
     await subsessionManager?.disposeAll();
     cachedCtx = ctx;
     cachedModel = ctx.model;
@@ -274,6 +288,7 @@ export default function (pi: ExtensionAPI): void {
 
     tree = new AgentTree();
     groups = new OrchestrationGroupState();
+    packets.open();
 
     for (const metadata of subsessionManager.list()) {
       if (metadata.parentSession === parentSessionPath) {

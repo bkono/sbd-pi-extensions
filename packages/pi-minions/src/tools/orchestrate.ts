@@ -212,6 +212,7 @@ function startRegisteredChild(
         groupId: group.groupId,
         childId: id,
         error: terminal.error,
+        output: terminal.output || undefined,
       });
     })
     .catch((err: unknown) => {
@@ -354,6 +355,7 @@ export function orchestrate(deps: OrchestrateDeps) {
         domain: spec.domain,
         agentName: role ?? "ephemeral",
         model: descriptor.model ?? (parentModel ? formatModelReference(parentModel) : undefined),
+        completionNudge: config.completionNudge,
       });
 
       accepted.push({ childId: id, description, state: "starting" });

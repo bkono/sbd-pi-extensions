@@ -12,3 +12,14 @@ export {
   type ResolveGroupInput,
   type ResolveGroupResult,
 } from "./group-state.js";
+export {
+  CHILD_OUTPUT_CHAR_CAP,
+  type ChangedChildPacket,
+  createLifecyclePacketDispatcher,
+  formatLifecyclePacket,
+  LIFECYCLE_PACKET_CUSTOM_TYPE,
+  type LifecyclePacketDetails,
+  LifecyclePacketDispatcher,
+  type LifecyclePacketDispatcherDeps,
+  type StillRunningChildPacket,
+} from "./packets.js";

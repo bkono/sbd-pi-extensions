@@ -120,6 +120,8 @@ export interface AgentNode {
   description?: string;
   /** Opaque domain metadata. Not parsed as ticket semantics. */
   domain?: OrchestrationDomain;
+  /** Role completion_nudge snapshot for parent packets when taskType is absent. */
+  completionNudge?: string;
   /** Full child output. Canonical large text for show_minion, not packets. */
   output?: string;
   /** Parent-visible messages. Empty until messaging writes. */

@@ -25,6 +25,7 @@ export interface AddAgentOptions {
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
+  completionNudge?: string;
 }
 
 export class AgentTree {
@@ -82,6 +83,7 @@ export class AgentTree {
       taskType: options.taskType,
       description: options.description,
       domain: options.domain,
+      completionNudge: options.completionNudge,
     };
     this.nodes.set(id, node);
 
