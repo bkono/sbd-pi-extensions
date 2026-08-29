@@ -239,15 +239,15 @@ describe("pi beadwork extension", () => {
     expect(harness.commands.has("bw:list")).toBe(true);
     expect(harness.commands.has("bw:show")).toBe(true);
     expect(harness.commands.has("bw:scope")).toBe(true);
-    expect(harness.commands.has("bw:workers")).toBe(true);
-    expect(harness.commands.has("bw:delegate")).toBe(true);
-    expect(harness.commands.has("bw:land")).toBe(true);
-    expect(harness.commands.has("bw:cancel")).toBe(true);
-    expect(harness.commands.has("bw:cleanup")).toBe(true);
     expect(harness.commands.has("bw:run")).toBe(true);
     expect(harness.commands.has("bw:abandon")).toBe(true);
     expect(harness.commands.has("bw:off")).toBe(true);
     expect(harness.commands.has("bw:adopt")).toBe(true);
+    expect(harness.commands.has("bw:workers")).toBe(false);
+    expect(harness.commands.has("bw:delegate")).toBe(false);
+    expect(harness.commands.has("bw:land")).toBe(false);
+    expect(harness.commands.has("bw:cancel")).toBe(false);
+    expect(harness.commands.has("bw:cleanup")).toBe(false);
   });
 
   it("registers inspection and mutation tools without deleted worker tools", async () => {
@@ -461,7 +461,8 @@ describe("pi beadwork extension", () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
 
     const items = (await harness.getCommandCompletions("bw", "de")) as Array<{ value: string }>;
-    expect(items.map((item) => item.value)).toContain("delegate");
+    expect(items.map((item) => item.value)).toEqual(expect.arrayContaining(["dep", "defer"]));
+    expect(items.map((item) => item.value)).not.toContain("delegate");
     expect(items.map((item) => item.value)).not.toContain("run");
   });
 

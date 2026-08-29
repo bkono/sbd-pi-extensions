@@ -16,6 +16,7 @@ remain exposed under `/bw ...`. Common flows also have dedicated `/bw:*` aliases
 | `/bw ready [scope]` / `/bw:ready [scope]` | Show ready work, optionally scoped. |
 | `/bw blocked` | List currently blocked work. |
 | `/bw run <epic-id>` / `/bw:run ...` | Enter goal mode: inject a prompt; standing appendix is policy. Persistent host only. |
+| `/bw abandon` / `/bw:abandon` | Exit goal mode and halt the minion group without closing the epic. |
 | `/bw adopt [markdown] [--file path] [--title ...] [--land quick\|branch\|multi] [--apply]` / `/bw:adopt ...` | Turn an explicit markdown plan into a preview or graph-materialization flow. |
 
 ## Dashboard controls
@@ -122,5 +123,5 @@ Background work: minions `orchestrate`. Foreground wait: minions `spawn`.
 
 ## Removed / Migration
 
-Do not use `/bw delegate`, `/bw workers`, `/bw land`, `/bw cancel`, or the deleted worker tools as
-current launch/supervision. See [migration.md](./migration.md).
+`/bw delegate`, `/bw workers`, `/bw land`, `/bw cancel`, and `/bw cleanup` are not registered.
+See [migration.md](./migration.md).

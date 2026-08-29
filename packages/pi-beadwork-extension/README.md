@@ -125,8 +125,9 @@ Stay in the tui session. Children live in this Pi process.
 - Inspect children with minions `list_minions` / `show_minion` (or `/minions`, `/halt`)
 - Child settlement is **evidence**, not acceptance. The parent closes tickets after it judges.
 
-When the scoped epic is closed through beadwork tools, goal mode exits. `/bw off` returns the
-session to neutral. There is no tmux pane to inspect.
+When the scoped epic is closed through beadwork tools, goal mode exits. `/bw abandon` exits goal
+mode and queues a group halt without closing the epic. `/bw off` returns the session to
+neutral. There is no tmux pane to inspect.
 
 ## Review policy
 
@@ -176,6 +177,7 @@ See [docs/worker-conventions.md](./docs/worker-conventions.md).
 - children are in-process Pi sessions owned by minions
 - parent exit, `/new`, or process death disposes children
 - leftover disk `mode=run` is **interrupted**, not auto-resumed — run `/bw run <epic-id>` again
+- `/bw abandon` exits goal mode and queues `/halt group`; the epic stays open
 - a stuck child: `/halt <id|all>`. If that is not enough, exit the parent Pi process
 - one goal and one open orchestration group per parent session
 
@@ -223,14 +225,14 @@ Core human workflow:
 - `/bw show <id>`
 - `/bw adopt [markdown] [--file path] [--title ...] [--land quick|branch|multi] [--apply]`
 - `/bw run <epic-id>`
+- `/bw abandon` — exit goal mode and halt the minion group; does not close the epic
 - `/bw off`
 
 Issue-management coverage: `blocked`, `list`, `history`, `create`, `update`, `dep`, `comment`,
 `label`, `start`, `close`, `reopen`, `defer`, `undefer`, `sync`.
 
-Dedicated aliases such as `/bw:status`, `/bw:scope`, `/bw:run`, `/bw:off`, and `/bw:adopt` stay
-registered. Do not use leftover worker aliases (`/bw:delegate`, `/bw:workers`, `/bw:land`, …) as
-current launch/supervision.
+Dedicated aliases such as `/bw:status`, `/bw:scope`, `/bw:run`, `/bw:abandon`, `/bw:off`, and
+`/bw:adopt` stay registered.
 
 Full reference: [docs/commands.md](./docs/commands.md).
 

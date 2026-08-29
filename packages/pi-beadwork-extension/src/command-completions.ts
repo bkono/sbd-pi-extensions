@@ -4,22 +4,6 @@ import type { BeadworkAdapter } from "./bw.js";
 import { BEADWORK_ALIAS_COMMANDS, type BeadworkAliasSubcommand } from "./command-aliases.js";
 import type { ActivationState, BeadworkIssue } from "./types.js";
 
-type CompletionWorker = {
-  ticketId: string;
-  workerId: string;
-  status: string;
-  cleanupStatus?: string;
-  executionMode?: string;
-};
-
-function isSuccessfulTerminalWorker(worker: CompletionWorker): boolean {
-  return (
-    (worker.executionMode === "current-branch" && worker.status === "verified") ||
-    ((worker.executionMode === "worktree" || worker.executionMode === undefined) &&
-      worker.status === "landed")
-  );
-}
-
 const MAIN_COMMANDS: Array<{
   value: string;
   label: string;
@@ -30,11 +14,6 @@ const MAIN_COMMANDS: Array<{
   { value: "list", label: "list", description: "List beadwork issues" },
   { value: "show", label: "show", description: "Show one issue" },
   { value: "scope", label: "scope", description: "Set or clear scope" },
-  { value: "workers", label: "workers", description: "Inspect workers" },
-  { value: "delegate", label: "delegate", description: "Delegate a ticket" },
-  { value: "land", label: "land", description: "Land a worker" },
-  { value: "cancel", label: "cancel", description: "Cancel an active worker" },
-  { value: "cleanup", label: "cleanup", description: "Cleanup landed worker artifacts" },
   { value: "run", label: "run", description: "Start goal mode for an epic" },
   {
     value: "abandon",
@@ -73,44 +52,26 @@ const OPTION_COMPLETIONS: Record<string, AutocompleteItem[]> = {
     { value: "--deferred", label: "--deferred", description: "Only deferred issues" },
     { value: "--overdue", label: "--overdue", description: "Only overdue issues" },
   ],
-  delegate: [{ value: "--model", label: "--model", description: "Override worker model" }],
   run: [],
   abandon: [],
-  off: [
-    { value: "--stop-workers", label: "--stop-workers", description: "Stop active workers first" },
-    {
-      value: "--all-workers",
-      label: "--all-workers",
-      description: "Stop workers across all epics",
-    },
-    {
-      value: "--leave-workers",
-      label: "--leave-workers",
-      description: "Reset session but keep workers running",
-    },
-  ],
+  off: [],
   adopt: [
     { value: "--file", label: "--file", description: "Read markdown from a file" },
     { value: "--title", label: "--title", description: "Override root title" },
     { value: "--land", label: "--land", description: "Choose quick, branch, or multi" },
     { value: "--apply", label: "--apply", description: "Apply the adoption plan" },
   ],
-  cleanup: [],
-  cancel: [],
-  land: [],
   show: [],
   history: [],
   scope: [],
   ready: [],
   status: [],
-  workers: [],
 };
 
 export type CompletionFactoryDeps = {
   adapter: Pick<BeadworkAdapter, "ready" | "list">;
   detectActivation: (cwd: string) => Promise<ActivationState>;
   getCwd?: () => string;
-  getWorkers?: () => Promise<CompletionWorker[]>;
 };
 
 function filterItems(prefix: string, items: AutocompleteItem[]): AutocompleteItem[] | null {
@@ -162,47 +123,12 @@ async function listIssueCandidates(
   }));
 }
 
-async function readyTicketItems(deps: CompletionFactoryDeps): Promise<AutocompleteItem[] | null> {
-  const cwd = deps.getCwd?.() ?? process.cwd();
-  const activation = await deps.detectActivation(cwd);
-  if (activation.kind !== "active") {
-    return null;
-  }
-
-  const ready = (await deps.adapter.ready(cwd)).filter((issue) => issue.type !== "epic");
-  if (ready.length === 0) {
-    return null;
-  }
-
-  return ready.map((issue) => ({
-    value: issue.id,
-    label: `${issue.id} · ${issue.status}`,
-    description: issue.title,
-  }));
-}
-
 async function epicItems(deps: CompletionFactoryDeps): Promise<AutocompleteItem[] | null> {
   return listIssueCandidates(deps, (issues) => issues.filter((issue) => issue.type === "epic"));
 }
 
 async function issueItems(deps: CompletionFactoryDeps): Promise<AutocompleteItem[] | null> {
   return listIssueCandidates(deps, (issues) => issues);
-}
-
-async function workerItems(
-  deps: CompletionFactoryDeps,
-  predicate: (worker: CompletionWorker) => boolean,
-): Promise<AutocompleteItem[] | null> {
-  const workers = deps.getWorkers ? (await deps.getWorkers()).filter(predicate) : [];
-  if (workers.length === 0) {
-    return null;
-  }
-
-  return workers.map((worker) => ({
-    value: worker.ticketId,
-    label: `${worker.ticketId} · ${worker.status}`,
-    description: worker.workerId,
-  }));
 }
 
 export function createBeadworkCommandCompletionFactory(deps: CompletionFactoryDeps): {
@@ -222,41 +148,12 @@ export function createBeadworkCommandCompletionFactory(deps: CompletionFactoryDe
     }
 
     switch (subcommand) {
-      case "delegate":
-        return filterItems(trimmed, (await readyTicketItems(deps)) ?? []);
       case "run":
         return filterItems(trimmed, (await epicItems(deps)) ?? []);
       case "show":
       case "scope":
       case "ready":
         return filterItems(trimmed, (await issueItems(deps)) ?? []);
-      case "land":
-        return filterItems(
-          trimmed,
-          (await workerItems(
-            deps,
-            (worker) =>
-              worker.status === "held" ||
-              worker.status === "attention" ||
-              worker.status === "exited",
-          )) ?? [],
-        );
-      case "cancel":
-        return filterItems(
-          trimmed,
-          (await workerItems(
-            deps,
-            (worker) => worker.status === "launching" || worker.status === "running",
-          )) ?? [],
-        );
-      case "cleanup":
-        return filterItems(
-          trimmed,
-          (await workerItems(
-            deps,
-            (worker) => isSuccessfulTerminalWorker(worker) && worker.cleanupStatus !== "cleaned",
-          )) ?? [],
-        );
       default:
         return filterItems(trimmed, OPTION_COMPLETIONS[subcommand] ?? []);
     }

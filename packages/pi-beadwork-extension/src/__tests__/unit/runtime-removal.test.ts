@@ -138,6 +138,21 @@ describe("worker runtime removal", () => {
     }
   });
 
+  it("does not register leftover worker slash aliases", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const leftover = ["bw:workers", "bw:delegate", "bw:land", "bw:cancel", "bw:cleanup"];
+
+    for (const name of leftover) {
+      const ok = !harness.commands.has(name);
+      console.info("[removal-probe]", {
+        name: `live-alias-absent:${name}`,
+        ok,
+        detail: ok ? "unregistered" : "still registered",
+      });
+      expect(harness.commands.has(name)).toBe(false);
+    }
+  });
+
   it("registers retained parent tools and not deleted worker tools", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const names = [...harness.tools.keys()];

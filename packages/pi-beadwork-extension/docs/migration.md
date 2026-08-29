@@ -94,9 +94,9 @@ stash/reset/clean unrelated state. See [worker-conventions.md](./worker-conventi
 
 ## Leftover slash aliases
 
-`/bw:delegate`, `/bw:workers`, `/bw:land`, `/bw:cancel`, and `/bw:cleanup` may still autocomplete
-(CLI aliases are a separate surface). They do **not** launch tmux workers. Do not treat them as
-current usage. Use `/bw run`, minions inspect/halt, and beadwork issue commands.
+`/bw:delegate`, `/bw:workers`, `/bw:land`, `/bw:cancel`, and `/bw:cleanup` are not registered.
+They do not autocomplete and they do not launch tmux workers. Use `/bw run`, minions
+inspect/halt, and beadwork issue commands.
 
 ## tmux worker launch (historical)
 

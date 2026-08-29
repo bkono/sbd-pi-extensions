@@ -676,7 +676,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id> [--model provider/model]|land <ticket-id|worker-id>|cancel <ticket-id|worker-id>|cleanup <ticket-id|worker-id>|run <epic-id>|abandon|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|run <epic-id>|abandon|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off]",
         "info",
       );
     } catch (error) {
@@ -685,7 +685,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   }
 
   pi.registerCommand(COMMAND_NAME, {
-    description: "Open the beadwork dashboard or run beadwork session/worker commands",
+    description: "Open the beadwork dashboard or run beadwork session commands",
     getArgumentCompletions: (prefix) => commandCompletions.getMainCommandCompletions(prefix),
     handler: async (args, ctx) => {
       const trimmed = args.trim();

@@ -7,11 +7,6 @@ export type BeadworkAliasSubcommand =
   | "list"
   | "show"
   | "scope"
-  | "workers"
-  | "delegate"
-  | "land"
-  | "cancel"
-  | "cleanup"
   | "run"
   | "abandon"
   | "off"
@@ -27,15 +22,6 @@ export const BEADWORK_ALIAS_COMMANDS: Array<{
   { name: "bw:list", subcommand: "list", description: "List beadwork issues" },
   { name: "bw:show", subcommand: "show", description: "Show one beadwork issue" },
   { name: "bw:scope", subcommand: "scope", description: "Set or clear beadwork scope" },
-  { name: "bw:workers", subcommand: "workers", description: "Inspect beadwork workers" },
-  { name: "bw:delegate", subcommand: "delegate", description: "Delegate a beadwork ticket" },
-  { name: "bw:land", subcommand: "land", description: "Land a deferred worker" },
-  { name: "bw:cancel", subcommand: "cancel", description: "Cancel an active worker" },
-  {
-    name: "bw:cleanup",
-    subcommand: "cleanup",
-    description: "Cleanup landed worker artifacts",
-  },
   { name: "bw:run", subcommand: "run", description: "Start goal mode for an epic" },
   {
     name: "bw:abandon",
