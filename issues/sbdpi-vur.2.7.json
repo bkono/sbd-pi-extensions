@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.2.3",
     "sbdpi-vur.2.4",
@@ -27,8 +27,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Delete tmux, orchestrator, worktree, registry, and worker action modules",
   "type": "chore",
-  "updated_at": "2026-08-28T22:57:12Z"
+  "updated_at": "2026-08-29T00:47:40Z"
 }
