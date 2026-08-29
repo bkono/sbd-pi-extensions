@@ -364,9 +364,7 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(text).toContain("`lint` / `test` / `typecheck`");
     expect(text).toContain("Beadwork does not own a validation gate.");
     expect(text).toContain("Do not classify review findings with a keyword matcher.");
-    expect(text).toContain(
-      "Do not use tmux, `beadwork_delegate`, `beadwork_worker_done`, landing, `--workers`, or polling.",
-    );
+    expect(text).toContain("Do not use tmux, landing, `--workers`, or polling.");
   });
 
   it("does not advertise deleted worker tools on the available-tools line", () => {

@@ -52,7 +52,7 @@ Beadwork does not own a validation gate.
 
 ## Do not
 
-Do not use tmux, `beadwork_delegate`, `beadwork_worker_done`, landing, `--workers`, or polling.
+Do not use tmux, landing, `--workers`, or polling.
 Do not classify review findings with a keyword matcher.
 
 Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_blocked, beadwork_list_issues, beadwork_issue_history, beadwork_show, beadwork_create_issue, beadwork_update_issue, beadwork_add_dependency, beadwork_remove_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue, beadwork_comment_issue, beadwork_label_issue, beadwork_defer_issue, beadwork_undefer_issue, beadwork_sync.

@@ -2,12 +2,23 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { tokenizeArgs } from "./argv.js";
 import type { BeadworkAdapter } from "./bw.js";
 import { BEADWORK_ALIAS_COMMANDS, type BeadworkAliasSubcommand } from "./command-aliases.js";
-import {
-  type ActivationState,
-  type BeadworkIssue,
-  isSuccessfulTerminalWorker,
-  type WorkerRuntime,
-} from "./types.js";
+import type { ActivationState, BeadworkIssue } from "./types.js";
+
+type CompletionWorker = {
+  ticketId: string;
+  workerId: string;
+  status: string;
+  cleanupStatus?: string;
+  executionMode?: string;
+};
+
+function isSuccessfulTerminalWorker(worker: CompletionWorker): boolean {
+  return (
+    (worker.executionMode === "current-branch" && worker.status === "verified") ||
+    ((worker.executionMode === "worktree" || worker.executionMode === undefined) &&
+      worker.status === "landed")
+  );
+}
 
 const MAIN_COMMANDS: Array<{
   value: string;
@@ -93,7 +104,7 @@ export type CompletionFactoryDeps = {
   adapter: Pick<BeadworkAdapter, "ready" | "list">;
   detectActivation: (cwd: string) => Promise<ActivationState>;
   getCwd?: () => string;
-  getWorkers?: () => Promise<WorkerRuntime[]>;
+  getWorkers?: () => Promise<CompletionWorker[]>;
 };
 
 function filterItems(prefix: string, items: AutocompleteItem[]): AutocompleteItem[] | null {
@@ -174,7 +185,7 @@ async function issueItems(deps: CompletionFactoryDeps): Promise<AutocompleteItem
 
 async function workerItems(
   deps: CompletionFactoryDeps,
-  predicate: (worker: WorkerRuntime) => boolean,
+  predicate: (worker: CompletionWorker) => boolean,
 ): Promise<AutocompleteItem[] | null> {
   const workers = deps.getWorkers ? (await deps.getWorkers()).filter(predicate) : [];
   if (workers.length === 0) {

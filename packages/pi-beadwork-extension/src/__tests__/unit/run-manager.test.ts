@@ -59,7 +59,6 @@ function createSnapshot(overrides: Partial<DashboardStatusSnapshot> = {}): Dashb
     counts: overrides.counts ?? { ready: 2, blocked: 1, inProgress: 1, scopedReady: 1 },
     scopeDetail: overrides.scopeDetail,
     config: overrides.config ?? DEFAULT_CONFIG,
-    workerSummary: overrides.workerSummary,
   };
 }
 

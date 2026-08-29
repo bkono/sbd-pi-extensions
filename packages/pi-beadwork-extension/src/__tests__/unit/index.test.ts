@@ -1,30 +1,16 @@
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import beadworkExtension from "../../index.js";
-import {
-  loadWorkerRegistry,
-  resolveWorkerRegistryPath,
-  saveWorkerRegistry,
-} from "../../registry.js";
-import { loadSessionState, resolveSessionStateDir, saveSessionState } from "../../session-state.js";
-import type { WorkerRuntime } from "../../types.js";
+import { loadSessionState, resolveSessionStateDir } from "../../session-state.js";
 import {
   createExtensionTestHarness,
   createFakeExtensionContext,
   createFakeUi,
 } from "../helpers/extension-harness.js";
 
-const {
-  detectActivationMock,
-  adapterMock,
-  createBeadworkAdapterMock,
-  runBoundedEpicLoopMock,
-  launchTicketWorkerMock,
-  requestWorkerLandingMock,
-  inspectWorkerRuntimeMock,
-} = vi.hoisted(() => ({
+const { detectActivationMock, adapterMock, createBeadworkAdapterMock } = vi.hoisted(() => ({
   detectActivationMock: vi.fn(),
   adapterMock: {
     prime: vi.fn(),
@@ -48,10 +34,6 @@ const {
     getCounts: vi.fn(),
   },
   createBeadworkAdapterMock: vi.fn(),
-  runBoundedEpicLoopMock: vi.fn(),
-  launchTicketWorkerMock: vi.fn(),
-  inspectWorkerRuntimeMock: vi.fn(),
-  requestWorkerLandingMock: vi.fn(),
 }));
 
 vi.mock("@earendil-works/pi-ai", () => ({
@@ -72,82 +54,6 @@ vi.mock("../../bw.js", () => ({
   createBeadworkAdapter: createBeadworkAdapterMock,
 }));
 
-vi.mock("../../orchestrator.js", async () => {
-  const actual =
-    await vi.importActual<typeof import("../../orchestrator.js")>("../../orchestrator.js");
-
-  return {
-    ...actual,
-    runBoundedEpicLoop: runBoundedEpicLoopMock,
-    launchTicketWorker: launchTicketWorkerMock,
-    requestWorkerLanding: requestWorkerLandingMock,
-    inspectWorkerRuntime: (input: Parameters<typeof actual.inspectWorkerRuntime>[0]) => {
-      const implementation = inspectWorkerRuntimeMock.getMockImplementation();
-      return implementation ? implementation(input) : actual.inspectWorkerRuntime(input);
-    },
-  };
-});
-
-function createRunSummary(
-  stopReason: "completed" | "blocked" | "empty" | "max-cycles" | "attention",
-) {
-  return {
-    epicId: "BW-100",
-    stopReason,
-    cycles: 1,
-    launched: [],
-    activeWorkerIds: [],
-    workerSummary: {
-      total: 0,
-      active: 0,
-      launching: 0,
-      running: 0,
-      exited: 0,
-      held: 0,
-      landed: 0,
-      verified: 0,
-      successfulTerminal: 0,
-      failed: 0,
-      attention: 0,
-      cleaned: 0,
-    },
-    notes: [],
-    cycleSummaries: [],
-  };
-}
-
-function createWorkerRuntime(tempDir: string) {
-  const runtimeDir = path.join(tempDir, ".pi", "beadwork", "workers", "runtime", "bw-101-worker");
-  return {
-    workerId: "bw-101-worker",
-    ticketId: "BW-101",
-    epicId: "BW-100",
-    ticketTitle: "Task",
-    ticketStatus: "open",
-    executionMode: "worktree",
-    checkoutPath: path.join(tempDir, "worktree"),
-    branchName: "BW-101/task",
-    worktreePath: path.join(tempDir, "worktree"),
-    backend: "tmux" as const,
-    tmuxSession: "pi-bw",
-    tmuxWindow: "bw-101",
-    tmuxPane: "pending",
-    runtimeDir,
-    promptFile: path.join(runtimeDir, "handoff.txt"),
-    scriptFile: path.join(runtimeDir, "launch.sh"),
-    logFile: path.join(runtimeDir, "worker.log"),
-    stateFile: path.join(runtimeDir, "state.txt"),
-    exitCodeFile: path.join(runtimeDir, "exit-code.txt"),
-    finishedAtFile: path.join(runtimeDir, "finished-at.txt"),
-    launchCommand: `bash ${path.join(runtimeDir, "launch.sh")}`,
-    workerCommand: "pi",
-    cleanupPolicy: "keep" as const,
-    status: "launching" as const,
-    startedAt: "2026-04-14T00:00:00.000Z",
-    updatedAt: "2026-04-14T00:00:01.000Z",
-  };
-}
-
 describe("pi beadwork extension", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -155,8 +61,6 @@ describe("pi beadwork extension", () => {
     vi.unstubAllEnvs();
     createBeadworkAdapterMock.mockReturnValue(adapterMock);
     adapterMock.prime.mockResolvedValue("prime guidance");
-    launchTicketWorkerMock.mockReset();
-    requestWorkerLandingMock.mockReset();
     adapterMock.ready.mockResolvedValue([]);
     adapterMock.blocked.mockResolvedValue([]);
     adapterMock.list.mockResolvedValue([]);
@@ -282,16 +186,11 @@ describe("pi beadwork extension", () => {
       inProgress: 1,
       scopedReady: 1,
     });
-    runBoundedEpicLoopMock.mockResolvedValue(createRunSummary("blocked"));
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
-    delete process.env.PI_BEADWORK_WORKER_ID;
-    delete process.env.PI_BEADWORK_TICKET_ID;
-    delete process.env.PI_BEADWORK_WORKER_REGISTRY_FILE;
-    delete process.env.PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED;
   });
 
   it("registers the /bw command", async () => {
@@ -404,71 +303,6 @@ describe("pi beadwork extension", () => {
     expect(rendered).toContain("Scoped epic");
   });
 
-  it("opens the delegate clarify modal from the issue explorer", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-dashboard-delegate-modal",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    adapterMock.ready.mockResolvedValue([
-      {
-        id: "BW-101",
-        title: "Delegable ticket",
-        description: "description",
-        status: "open",
-        type: "task",
-        priority: 2,
-        labels: [],
-        blockedBy: [],
-        blocks: [],
-        assignee: "",
-        parentId: "BW-100",
-        createdAt: "2026-04-13T00:00:00.000Z",
-        updatedAt: "2026-04-13T00:00:00.000Z",
-      },
-    ]);
-    adapterMock.show.mockResolvedValue({
-      id: "BW-101",
-      title: "Delegable ticket",
-      description: "description",
-      status: "open",
-      type: "task",
-      priority: 2,
-      labels: [],
-      blockedBy: [],
-      blocks: [],
-      assignee: "",
-      parentId: "BW-100",
-      createdAt: "2026-04-13T00:00:00.000Z",
-      updatedAt: "2026-04-13T00:00:00.000Z",
-      children: [],
-    });
-
-    await harness.invokeCommand("bw", "", ctx);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const dashboard = ui.customCalls[0]?.component as
-      | { handleInput: (data: string) => void }
-      | undefined;
-    dashboard?.handleInput("d");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const modal = ui.customCalls[1]?.component as
-      | { render: (width: number) => string[] }
-      | undefined;
-    const rendered = modal?.render(80).join("\n") ?? "";
-    expect(ui.customCalls).toHaveLength(2);
-    expect(rendered).toContain("Delegate ticket");
-    expect(rendered).toContain("BW-101 · Delegable ticket");
-  });
-
   it("starts goal mode from the issue explorer without a run-clarify modal", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -540,7 +374,6 @@ describe("pi beadwork extension", () => {
     });
 
     expect(ui.customCalls).toHaveLength(1);
-    expect(runBoundedEpicLoopMock).not.toHaveBeenCalled();
     expect(
       ui.notifications.some((entry) => entry.message.includes("Goal mode started for BW-100")),
     ).toBe(true);
@@ -842,786 +675,6 @@ describe("pi beadwork extension", () => {
     expect(message).toContain("Queued an LLM-guided decomposition turn");
   });
 
-  it("shows worker diagnostics with landing, cleanup, and follow-up details", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-workers" });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "landed" as const,
-      ticketStatus: "closed",
-      validationStatus: "passed" as const,
-      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
-      cleanupPolicy: "cleanup-after-landing" as const,
-      cleanupStatus: "cleaned" as const,
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingAheadCount: 0,
-      landingBehindCount: 3,
-      landingVerification:
-        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    await harness.invokeCommand("bw", "workers BW-100", ctx);
-
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("Workers for BW-100:");
-    expect(message).toContain("Summary: total=1");
-    expect(message).toContain("landing:verified");
-    expect(message).toContain("cleanup:cleaned");
-    expect(message).toContain("Next: No action needed.");
-  });
-
-  it("lists workers as text instead of a TUI overlay from /bw:workers", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-workers-overlay",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "held" as const,
-      ticketStatus: "closed",
-      validationStatus: "passed" as const,
-      landingAheadCount: 2,
-      landingBehindCount: 0,
-      landingVerification: "Validated and held. Ready to land.",
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    await harness.invokeCommand("bw:workers", "", ctx);
-
-    expect(ui.customCalls).toHaveLength(0);
-    expect(ui.notifications.at(-1)?.message ?? "").toContain("Workers:");
-    expect(ui.notifications.at(-1)?.message ?? "").toContain("BW-101");
-  });
-
-  it("does not say landed cleanly when validation is still pending", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-worker-pending-validation",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    await mkdir(path.join(tempDir, ".pi"), { recursive: true });
-    await writeFile(
-      path.join(tempDir, ".pi", "beadwork-config.json"),
-      `${JSON.stringify({ landing: { validateCommands: [] } }, null, 2)}\n`,
-      "utf8",
-    );
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "landed" as const,
-      ticketStatus: "closed",
-      cleanupPolicy: "keep" as const,
-      validationStatus: "pending" as const,
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingAheadCount: 0,
-      landingBehindCount: 1,
-      landingVerification:
-        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
-    await saveSessionState(stateDir, "session-worker-pending-validation", {
-      mode: "neutral",
-      scope: { kind: "none" },
-      updatedAt: "2026-04-14T00:00:00.000Z",
-      trackedWorkerIds: [worker.workerId],
-    });
-
-    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
-
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("appears integrated, but validation is still pending");
-    expect(message).not.toContain("landed cleanly");
-  });
-
-  it("uses execution-mode-specific wording in worker supervision notices", async () => {
-    inspectWorkerRuntimeMock.mockImplementation(async (input) => input.worker);
-
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
-    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const currentWorker = (workerId: string, overrides: Partial<WorkerRuntime>): WorkerRuntime => {
-      const {
-        cleanupPolicy: _cleanupPolicy,
-        worktreePath: _worktreePath,
-        ...worker
-      } = createWorkerRuntime(tempDir);
-
-      return {
-        ...worker,
-        workerId,
-        ticketId: `BW-${workerId}`,
-        executionMode: "current-branch",
-        checkoutPath: tempDir,
-        branchName: "main",
-        launchHead: "abc123",
-        ...overrides,
-      } as WorkerRuntime;
-    };
-
-    const worktreeWorker = (workerId: string, overrides: Partial<WorkerRuntime>): WorkerRuntime =>
-      ({
-        ...createWorkerRuntime(tempDir),
-        workerId,
-        ticketId: `BW-${workerId}`,
-        ...overrides,
-      }) as WorkerRuntime;
-
-    async function noticeFor(worker: WorkerRuntime): Promise<string> {
-      const sessionId = `session-${worker.workerId}`;
-      const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId });
-      const before = ui.notifications.length;
-
-      await saveWorkerRegistry(registryPath, [worker]);
-      await saveSessionState(stateDir, sessionId, {
-        mode: "neutral",
-        scope: { kind: "none" },
-        updatedAt: "2026-04-14T00:00:00.000Z",
-        trackedWorkerIds: [worker.workerId],
-      });
-
-      await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
-
-      return ui.notifications.slice(before).at(-1)?.message ?? "";
-    }
-
-    const currentValidation = await noticeFor(
-      currentWorker("current-validation", {
-        status: "running",
-        remediationStatus: "running",
-        validationStatus: "failed",
-      }),
-    );
-    expect(currentValidation).toContain("running in the current checkout");
-    expect(currentValidation).not.toContain("existing worktree");
-
-    const worktreeValidation = await noticeFor(
-      worktreeWorker("worktree-validation", {
-        status: "running",
-        remediationStatus: "running",
-        validationStatus: "failed",
-      }),
-    );
-    expect(worktreeValidation).toContain("running in the existing worktree");
-
-    const currentReview = await noticeFor(
-      currentWorker("current-review", {
-        status: "running",
-        reviewStatus: "remediation-in-progress",
-      }),
-    );
-    expect(currentReview).toContain("before current-branch verification");
-    expect(currentReview).not.toContain("before merge-back");
-
-    const worktreeReview = await noticeFor(
-      worktreeWorker("worktree-review", {
-        status: "running",
-        reviewStatus: "remediation-in-progress",
-      }),
-    );
-    expect(worktreeReview).toContain("before merge-back");
-
-    const currentClosed = await noticeFor(
-      currentWorker("current-closed", {
-        status: "running",
-        ticketStatus: "closed",
-      }),
-    );
-    expect(currentClosed).toContain("current-branch verification can run");
-    expect(currentClosed).not.toContain("landing can be verified");
-
-    const worktreeClosed = await noticeFor(
-      worktreeWorker("worktree-closed", {
-        status: "running",
-        ticketStatus: "closed",
-      }),
-    );
-    expect(worktreeClosed).toContain("landing can be verified");
-
-    const currentExited = await noticeFor(
-      currentWorker("current-exited", {
-        status: "exited",
-        ticketStatus: "closed",
-      }),
-    );
-    expect(currentExited).toContain("current-branch verification still needs review");
-    expect(currentExited).not.toContain("landing still needs review");
-
-    const worktreeExited = await noticeFor(
-      worktreeWorker("worktree-exited", {
-        status: "exited",
-        ticketStatus: "closed",
-      }),
-    );
-    expect(worktreeExited).toContain("worktree landing still needs review");
-
-    const currentRequest = await noticeFor(
-      currentWorker("current-request", {
-        status: "exited",
-        ticketStatus: "open",
-        landingRequestedAt: "2026-04-14T01:00:00.000Z",
-      }),
-    );
-    expect(currentRequest).toContain("explicit current-branch verification request in flight");
-    expect(currentRequest).not.toContain("landing request in flight");
-
-    const worktreeRequest = await noticeFor(
-      worktreeWorker("worktree-request", {
-        status: "exited",
-        ticketStatus: "open",
-        landingRequestedAt: "2026-04-14T01:00:00.000Z",
-      }),
-    );
-    expect(worktreeRequest).toContain("explicit landing request in flight");
-  });
-
-  it("shows explicit launch guidance after /bw delegate", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-delegate-guidance",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    launchTicketWorkerMock.mockResolvedValue({
-      ...createWorkerRuntime(tempDir),
-      status: "running",
-      ticketStatus: "open",
-      workerId: "bw-101-worker",
-    });
-
-    await harness.invokeCommand("bw", "delegate BW-101", ctx);
-
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain(
-      "Launched worktree worker bw-101-worker for BW-101 in the background",
-    );
-    expect(message).toContain("[worktree]");
-    expect(message).toContain("at worktreePath");
-    expect(message).toContain("stay in the current pane");
-    expect(message).toContain("background supervision keeps checking every 30s");
-    expect(message).toContain("Follow streamed worker activity in");
-    expect(message).toContain("when worktree landing is completed");
-    expect(message).toContain(path.join(tempDir, ".pi", "beadwork", "workers", "runtime"));
-  });
-
-  it("shows current-branch launch guidance after /bw delegate", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-delegate-current-branch-guidance",
-    });
-    const {
-      cleanupPolicy: _cleanupPolicy,
-      worktreePath: _worktreePath,
-      ...worker
-    } = createWorkerRuntime(tempDir);
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    launchTicketWorkerMock.mockResolvedValue({
-      ...worker,
-      executionMode: "current-branch",
-      checkoutPath: tempDir,
-      branchName: "main",
-      launchHead: "abc123",
-      status: "running",
-      ticketStatus: "open",
-      workerId: "bw-101-worker",
-    });
-
-    await harness.invokeCommand("bw", "delegate BW-101", ctx);
-
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain(
-      "Launched current-branch worker bw-101-worker for BW-101 in the background",
-    );
-    expect(message).toContain("[current-branch]");
-    expect(message).toContain(`checkoutPath ${tempDir} (repo root)`);
-    expect(message).toContain("when current-branch verification is completed");
-    expect(message).not.toContain("landing is");
-    expect(message).not.toContain("worktreePath");
-  });
-
-  it("passes one-off provider/model overrides through /bw delegate", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      sessionId: "session-delegate-model-override",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    launchTicketWorkerMock.mockResolvedValue({
-      ...createWorkerRuntime(tempDir),
-      status: "running",
-      ticketStatus: "open",
-      workerId: "bw-101-worker",
-    });
-
-    await harness.invokeCommand("bw", "delegate BW-101 --model cursor/composer-2", ctx);
-
-    expect(launchTicketWorkerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ticketId: "BW-101",
-        workerProviderOverride: "cursor",
-        workerModelOverride: "composer-2",
-      }),
-    );
-  });
-
-  it("allows explicit landing requests for deferred workers", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-land-worker",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [
-        {
-          ...createWorkerRuntime(tempDir),
-          status: "held" as const,
-          ticketStatus: "closed",
-          validationStatus: "passed" as const,
-          landingAheadCount: 2,
-          landingBehindCount: 0,
-          landingVerification: "Validated and held. Ready to land.",
-        },
-      ],
-    );
-    requestWorkerLandingMock.mockResolvedValue({
-      ...createWorkerRuntime(tempDir),
-      status: "landed",
-      ticketStatus: "closed",
-      validationStatus: "passed",
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingAheadCount: 0,
-      landingBehindCount: 0,
-      landingVerification: "Landing verified: worktree is clean and worker HEAD matches repo HEAD.",
-    });
-
-    await harness.invokeCommand("bw", "land BW-101", ctx);
-
-    expect(requestWorkerLandingMock).toHaveBeenCalledWith(
-      expect.objectContaining({ ticketId: "BW-101" }),
-    );
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("landed successfully");
-    expect(message).toContain("BW-101 [worktree]");
-  });
-
-  it("rejects landing requests while the worker is still active", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-land-worker-active",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "running" as const,
-      ticketStatus: "open",
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    await harness.invokeCommand("bw", "land BW-101", ctx);
-
-    expect(requestWorkerLandingMock).not.toHaveBeenCalled();
-    expect(ui.notifications.at(-1)?.message).toContain(
-      "Cannot land BW-101: worker is still active.",
-    );
-  });
-
-  it("queues landing retries for background supervision instead of refreshing synchronously", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-land-worker-queued",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [
-        {
-          ...createWorkerRuntime(tempDir),
-          status: "held" as const,
-          ticketStatus: "closed",
-          validationStatus: "passed" as const,
-          landingAheadCount: 2,
-          landingBehindCount: 1,
-          landingVerification: "Validated and held. Landing needs refresh before merge-back.",
-        },
-      ],
-    );
-    requestWorkerLandingMock.mockResolvedValue({
-      ...createWorkerRuntime(tempDir),
-      status: "exited",
-      ticketStatus: "closed",
-      landingRequestedAt: "2026-04-16T16:00:00.000Z",
-      validationStatus: "pending",
-      validationSummary:
-        "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.",
-      landingVerification:
-        "Explicit landing request queued. Background supervision will rerun validation and merge-back in the background.",
-    });
-
-    await harness.invokeCommand("bw", "land BW-101", ctx);
-
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("Queued worktree landing retry for BW-101 [worktree]");
-    expect(message).toContain("Background supervision will keep validating/reviewing/merging");
-
-    const persisted = await loadSessionState(
-      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
-      "session-land-worker-queued",
-    );
-    expect(persisted.trackedWorkerIds).toContain("bw-101-worker");
-    expect(ui.statuses.get("beadwork")).toContain("bw");
-    expect(ui.statuses.get("beadwork")).not.toContain("tracked");
-    expect(ui.statuses.get("beadwork")).not.toMatch(/workers \d/);
-  });
-
-  it("uses current-branch verification wording for explicit verification requests", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-land-current-branch-worker",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-    const {
-      cleanupPolicy: _cleanupPolicy,
-      worktreePath: _worktreePath,
-      ...currentBase
-    } = createWorkerRuntime(tempDir);
-    const currentWorker = {
-      ...currentBase,
-      executionMode: "current-branch" as const,
-      checkoutPath: tempDir,
-      branchName: "main",
-      launchHead: "abc123",
-      status: "exited" as const,
-      ticketStatus: "closed",
-    } as WorkerRuntime;
-
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [currentWorker],
-    );
-    requestWorkerLandingMock.mockResolvedValue({
-      ...currentWorker,
-      status: "verified",
-      validationStatus: "passed",
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingVerification: "Current-branch worker verified.",
-    });
-
-    await harness.invokeCommand("bw", "land BW-101", ctx);
-
-    const message = ui.notifications.at(-1)?.message ?? "";
-    expect(message).toContain("BW-101 [current-branch] verified successfully");
-    expect(message).toContain("Current-branch worker verified successfully");
-    expect(message).not.toContain("landed successfully");
-    expect(message).not.toContain("merge-back");
-    expect(message).not.toContain("worktree");
-  });
-
-  it("rejects cleanup when the worker is configured for automatic cleanup", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-cleanup-restricted",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "landed" as const,
-      ticketStatus: "closed",
-      cleanupPolicy: "cleanup-after-landing" as const,
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingVerification: "Landing verified.",
-      landingBehindCount: 1,
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    await harness.invokeCommand("bw", "cleanup BW-101", ctx);
-
-    expect(ui.notifications.at(-1)?.message).toContain(
-      "Cannot cleanup BW-101: cleanup policy is cleanup-after-landing.",
-    );
-  });
-
-  it("cleans runtime artifacts for verified current-branch workers", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-cleanup-current-branch",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      executionMode: "current-branch" as const,
-      checkoutPath: tempDir,
-      branchName: "feature/current-branch-worker",
-      launchHead: "abc1234",
-      worktreePath: undefined,
-      status: "verified" as const,
-      ticketStatus: "closed",
-      cleanupPolicy: undefined,
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingVerification: "Current-branch worker verified.",
-    };
-    await mkdir(worker.runtimeDir, { recursive: true });
-    await writeFile(worker.logFile, "worker log");
-    await saveWorkerRegistry(registryPath, [worker]);
-
-    await harness.invokeCommand("bw", "cleanup BW-101", ctx);
-
-    await expect(access(worker.runtimeDir)).rejects.toThrow();
-    const [persisted] = await loadWorkerRegistry(registryPath);
-    expect(persisted).toMatchObject({
-      workerId: worker.workerId,
-      status: "verified",
-      cleanupStatus: "cleaned",
-    });
-    expect(ui.notifications.at(-1)?.message).toContain(
-      "Cleanup completed for BW-101: current-branch runtime removed.",
-    );
-  });
-
-  it("tracks delegated workers from a neutral session and notifies once when they land", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-worker-tracking",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "landed" as const,
-      ticketStatus: "closed",
-      validationStatus: "passed" as const,
-      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
-      cleanupPolicy: "keep" as const,
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingAheadCount: 0,
-      landingBehindCount: 1,
-      landingVerification:
-        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
-    await saveSessionState(stateDir, "session-worker-tracking", {
-      mode: "neutral",
-      scope: { kind: "none" },
-      updatedAt: "2026-04-14T00:00:00.000Z",
-      trackedWorkerIds: [worker.workerId],
-    });
-
-    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
-
-    expect(ui.notifications.at(-1)?.message).toContain(
-      "Delegated ticket BW-101 completed successfully",
-    );
-    expect(ui.notifications.at(-1)?.message).toContain("[worktree]");
-
-    const persisted = await loadSessionState(stateDir, "session-worker-tracking");
-    expect(persisted.trackedWorkerIds).toBeUndefined();
-    expect(persisted.workerNotices?.[worker.workerId]).toContain("landed");
-
-    const notificationCount = ui.notifications.length;
-    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
-    expect(ui.notifications).toHaveLength(notificationCount);
-  });
-
-  it("does not re-notify identical review-blocked workers when only landingRequestedAt changes", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-worker-attention-dedupe",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
-    const registryPath = resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json");
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "attention" as const,
-      ticketStatus: "closed",
-      validationStatus: "passed" as const,
-      reviewStatus: "review-blocked" as const,
-      reviewSummary: "Reviewer gate failed: output was malformed.",
-      landingVerification: "Landing blocked: reviewer gate failed (output was malformed).",
-      lastError: "Reviewer gate failed: output was malformed.",
-      landingRequestedAt: "2026-04-16T17:40:00.000Z",
-    };
-
-    await saveWorkerRegistry(registryPath, [worker]);
-    await saveSessionState(stateDir, "session-worker-attention-dedupe", {
-      mode: "neutral",
-      scope: { kind: "none" },
-      updatedAt: "2026-04-16T17:40:00.000Z",
-      trackedWorkerIds: [worker.workerId],
-    });
-
-    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
-    const firstWarningCount = ui.notifications.length;
-    expect(ui.notifications.at(-1)?.message).toContain("Delegated ticket BW-101");
-
-    await saveWorkerRegistry(registryPath, [
-      {
-        ...worker,
-        landingRequestedAt: "2026-04-16T17:41:00.000Z",
-        updatedAt: "2026-04-16T17:41:00.000Z",
-      },
-    ]);
-
-    await harness.dispatch("turn_end", { reason: "assistant" }, ctx);
-    expect(ui.notifications).toHaveLength(firstWarningCount);
-  });
-
-  it("tracks delegated workers in the background without manual polling", async () => {
-    vi.stubEnv("PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS", "10");
-
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: tempDir,
-      ui,
-      sessionId: "session-background-worker-tracking",
-    });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = {
-      ...createWorkerRuntime(tempDir),
-      status: "landed" as const,
-      ticketStatus: "closed",
-      validationStatus: "passed" as const,
-      validationSummary: "Validation passed: npm run lint, npm run test, npm run typecheck.",
-      cleanupPolicy: "keep" as const,
-      landingVerifiedAt: "2026-04-14T01:00:00.000Z",
-      landingAheadCount: 0,
-      landingBehindCount: 1,
-      landingVerification:
-        "Landing verified: worktree is clean and worker HEAD is fully contained in repo HEAD.",
-    };
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
-    await saveSessionState(stateDir, "session-background-worker-tracking", {
-      mode: "neutral",
-      scope: { kind: "none" },
-      updatedAt: "2026-04-14T00:00:00.000Z",
-      trackedWorkerIds: [worker.workerId],
-    });
-
-    await harness.dispatch("session_start", { reason: "startup" }, ctx);
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-
-    expect(
-      ui.notifications.some((entry) =>
-        entry.message.includes("Delegated ticket BW-101 completed successfully"),
-      ),
-    ).toBe(true);
-    expect(ui.notifications.some((entry) => entry.message.includes("[worktree]"))).toBe(true);
-
-    const persisted = await loadSessionState(stateDir, "session-background-worker-tracking");
-    expect(persisted.trackedWorkerIds).toBeUndefined();
-
-    await harness.dispatch("session_shutdown", { reason: "shutdown" }, ctx);
-  });
-
   it("persists a V1 goal and injects a parent prompt on /bw run", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
@@ -1666,7 +719,6 @@ describe("pi beadwork extension", () => {
 
     await harness.invokeCommand("bw", "run BW-100", ctx);
 
-    expect(runBoundedEpicLoopMock).not.toHaveBeenCalled();
     expect(harness.sentMessages).toHaveLength(1);
     const injected = harness.sentMessages[0];
     expect(injected?.options).toEqual({ triggerTurn: true });
@@ -1728,7 +780,6 @@ describe("pi beadwork extension", () => {
     });
 
     await harness.invokeCommand("bw", "run BW-100", ctx);
-    expect(runBoundedEpicLoopMock).not.toHaveBeenCalled();
     expect(
       ui.notifications.some((entry) =>
         entry.message.includes("Background supervision remains armed"),
@@ -1736,37 +787,9 @@ describe("pi beadwork extension", () => {
     ).toBe(false);
 
     await new Promise((resolve) => setTimeout(resolve, 1_100));
-    expect(runBoundedEpicLoopMock).not.toHaveBeenCalled();
-
-    await harness.dispatch("session_shutdown", { reason: "shutdown" }, ctx);
   });
 
-  it("warns before /bw off when active workers are still running", async () => {
-    const harness = await createExtensionTestHarness(beadworkExtension);
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-off-warn" });
-
-    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
-
-    const worker = createWorkerRuntime(tempDir);
-    await mkdir(worker.runtimeDir, { recursive: true });
-    await writeFile(worker.stateFile, "running\n", "utf8");
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
-    await harness.invokeCommand("bw", "engage BW-100", ctx);
-    await harness.invokeCommand("bw", "off", ctx);
-
-    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
-    const persisted = await loadSessionState(stateDir, "session-off-warn");
-    expect(persisted.mode).toBe("interactive");
-    expect(ui.notifications.at(-1)?.message).toContain("Active beadwork workers are still running");
-  });
-
-  it("can reset the session while leaving active workers running", async () => {
+  it("resets the session with /bw off", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
     const ui = createFakeUi();
@@ -1774,24 +797,22 @@ describe("pi beadwork extension", () => {
 
     detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
 
-    const worker = createWorkerRuntime(tempDir);
-    await mkdir(worker.runtimeDir, { recursive: true });
-    await writeFile(worker.stateFile, "running\n", "utf8");
-    await saveWorkerRegistry(
-      resolveWorkerRegistryPath(tempDir, ".pi/beadwork/workers/registry.json"),
-      [worker],
-    );
-
     await harness.dispatch("session_start", { reason: "startup" }, ctx);
-    await harness.invokeCommand("bw", "off --leave-workers", ctx);
+    await harness.invokeCommand("bw", "engage BW-100", ctx);
+    await harness.invokeCommand("bw", "off", ctx);
 
     const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
     const persisted = await loadSessionState(stateDir, "session-off");
     expect(persisted.mode).toBe("neutral");
     expect(persisted.scope).toEqual({ kind: "none" });
-    expect(ui.notifications.at(-2)?.message).toBe(
-      "Beadwork session mode reset to neutral; active workers were left running.",
-    );
-    expect(ui.notifications.at(-1)?.message).toContain("Mode: neutral");
+    expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
+  });
+
+  it("does not import the deleted tmux orchestrator", async () => {
+    const source = await readFile(new URL("../../index.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("runBoundedEpicLoop");
+    expect(source).not.toContain('from "./orchestrator.js"');
+    expect(source).not.toContain('from "./tmux.js"');
+    expect(source).not.toContain('from "./registry.js"');
   });
 });

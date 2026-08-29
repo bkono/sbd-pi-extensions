@@ -9,8 +9,6 @@ import type {
   BeadworkCounts,
   BeadworkIssueDetail,
   SessionState,
-  WorkerRuntime,
-  WorkerSummary,
 } from "../types.js";
 import {
   renderSurface,
@@ -40,8 +38,6 @@ export type DashboardStatusSnapshot = {
   state: SessionState;
   counts?: BeadworkCounts;
   scopeDetail?: BeadworkIssueDetail;
-  workerSummary?: WorkerSummary;
-  workers?: WorkerRuntime[];
   config?: BeadworkConfig;
 };
 
@@ -258,8 +254,6 @@ class DashboardComponent implements Component {
     this.model.state = snapshot.state;
     this.model.counts = snapshot.counts;
     this.model.scopeDetail = snapshot.scopeDetail;
-    this.model.workerSummary = snapshot.workerSummary;
-    this.model.workers = snapshot.workers;
     this.model.config = snapshot.config;
     this.issueExplorer?.setSessionState(snapshot.state);
     this.requestRender();

@@ -8,15 +8,12 @@ import {
   type DashboardTabId,
   openBeadworkDashboard,
 } from "../tui/dashboard.js";
-import { openDelegateClarify } from "../tui/delegate-clarify.js";
 import type {
   ActivationState,
   BeadworkConfig,
   BeadworkIssueDetail,
   SessionState,
-  WorkerRuntime,
 } from "../types.js";
-import { executeDelegateAction } from "./delegate.js";
 import { createIssueExplorerDataSource } from "./issues.js";
 import { executeRunAction, type GoalPromptInjector } from "./run.js";
 import { clearInteractiveScope, setInteractiveScope } from "./scope.js";
@@ -57,19 +54,6 @@ export type StatusActionDeps = {
     activation: ActivationState,
     state: SessionState,
   ) => Promise<DashboardStatusSnapshot["counts"]>;
-  inspectWorkers: (
-    ctx: ExtensionCommandContext,
-    activation: ActivationState,
-    config: BeadworkConfig,
-    options?: { epicId?: string; workerIds?: string[] },
-  ) => Promise<WorkerRuntime[]>;
-  syncWorkerTracking: (
-    ctx: ExtensionCommandContext,
-    activation: ActivationState,
-    config: BeadworkConfig,
-    state: SessionState,
-    workers: WorkerRuntime[],
-  ) => Promise<SessionState>;
 };
 
 export async function handleStatusAction(input: {
@@ -150,21 +134,6 @@ export async function handleStatusAction(input: {
                   deps,
                 });
                 ctx.ui.notify("Beadwork scope cleared; repo-wide browsing active.", "info");
-                return deps.refreshStatus(ctx);
-              },
-              onDelegateIntent: async (issue: BeadworkIssueDetail) => {
-                const clarify = await openDelegateClarify(ctx, { issue });
-                if (!clarify) {
-                  return undefined;
-                }
-
-                await executeDelegateAction({
-                  ctx,
-                  deps,
-                  ticketId: clarify.ticketId,
-                  epicId: clarify.epicId,
-                  modelOverride: clarify.modelOverride,
-                });
                 return deps.refreshStatus(ctx);
               },
               onRunIntent: async (issue: BeadworkIssueDetail) => {

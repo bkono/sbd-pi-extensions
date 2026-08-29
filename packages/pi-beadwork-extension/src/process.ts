@@ -215,25 +215,3 @@ export const defaultProcessRunner: ProcessRunner = async (
     }
   });
 };
-
-export function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-export function slugify(value: string, maxLength = 48): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, maxLength)
-    .replace(/-+$/g, "");
-
-  return slug || "work";
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}

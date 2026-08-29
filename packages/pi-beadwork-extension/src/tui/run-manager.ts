@@ -41,8 +41,9 @@ function describeReviewPolicy(
     return styledDim(theme, "unavailable");
   }
 
-  const ticketReview = config.landing.review.enabled || config.workerExecution.review.enabled;
-  return ticketReview ? styledAccent(theme, "ticket") : styledDim(theme, "none");
+  return config.review.policy === "none"
+    ? styledDim(theme, "none")
+    : styledAccent(theme, config.review.policy);
 }
 
 function describeGoalState(theme: Theme, snapshot: Pick<DashboardStatusSnapshot, "state">): string {

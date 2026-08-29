@@ -2,48 +2,36 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { BEADWORK_ALIAS_COMMANDS } from "../../command-aliases.js";
 import { createBeadworkCommandCompletionFactory } from "../../command-completions.js";
-import type { BeadworkIssue, WorkerRuntime } from "../../types.js";
+import type { BeadworkIssue } from "../../types.js";
 
-function worker(overrides: Partial<WorkerRuntime>): WorkerRuntime {
+function worker(
+  overrides: Partial<{
+    workerId: string;
+    ticketId: string;
+    status: string;
+    cleanupStatus?: string;
+    executionMode?: string;
+  }> = {},
+) {
   return {
-    executionMode: "worktree",
-    checkoutPath: "/tmp/worktree",
-    branchName: "BW-200/task",
-    worktreePath: "/tmp/worktree",
     workerId: "bw-200-worker",
     ticketId: "BW-200",
-    ticketTitle: "Task",
-    backend: "tmux",
-    tmuxSession: "pi-bw",
-    tmuxWindow: "bw-200",
-    tmuxPane: "%1",
-    runtimeDir: "/tmp/runtime",
-    promptFile: "/tmp/runtime/handoff.txt",
-    scriptFile: "/tmp/runtime/launch.sh",
-    logFile: "/tmp/runtime/worker.log",
-    stateFile: "/tmp/runtime/state.txt",
-    exitCodeFile: "/tmp/runtime/exit-code.txt",
-    finishedAtFile: "/tmp/runtime/finished-at.txt",
-    launchCommand: "bash /tmp/runtime/launch.sh",
-    workerCommand: "pi",
-    cleanupPolicy: "keep",
     status: "running",
-    startedAt: "2026-05-08T00:00:00.000Z",
-    updatedAt: "2026-05-08T00:00:00.000Z",
+    executionMode: "worktree",
     ...overrides,
   };
 }
 
-function currentBranchWorker(overrides: Partial<WorkerRuntime>): WorkerRuntime {
-  const { cleanupPolicy: _cleanupPolicy, worktreePath: _worktreePath, ...base } = worker({});
-  return {
-    ...base,
-    executionMode: "current-branch",
-    checkoutPath: "/repo",
-    branchName: "main",
-    launchHead: "abc123",
-    ...overrides,
-  };
+function currentBranchWorker(
+  overrides: Partial<{
+    workerId: string;
+    ticketId: string;
+    status: string;
+    cleanupStatus?: string;
+    executionMode?: string;
+  }> = {},
+) {
+  return worker({ executionMode: "current-branch", ...overrides });
 }
 
 function issue(overrides: Partial<BeadworkIssue>): BeadworkIssue {

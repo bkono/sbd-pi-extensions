@@ -8,12 +8,7 @@ import {
   openBeadworkDashboard,
 } from "../../tui/dashboard.js";
 import type { IssueExplorerDataSource } from "../../tui/issue-explorer.js";
-import type {
-  BeadworkIssue,
-  BeadworkIssueDetail,
-  SessionState,
-  WorkerRuntime,
-} from "../../types.js";
+import type { BeadworkIssue, BeadworkIssueDetail, SessionState } from "../../types.js";
 import { createFakeExtensionContext, createFakeUi } from "../helpers/extension-harness.js";
 
 function createIssue(overrides: Partial<BeadworkIssue> = {}): BeadworkIssue {
@@ -59,63 +54,12 @@ function createState(overrides: Partial<SessionState> = {}): SessionState {
   };
 }
 
-function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
-  return {
-    workerId: overrides.workerId ?? "bw-101-worker",
-    ticketId: overrides.ticketId ?? "BW-101",
-    epicId: overrides.epicId ?? "BW-100",
-    ticketTitle: overrides.ticketTitle ?? "Task",
-    ticketStatus: overrides.ticketStatus ?? "open",
-    executionMode: "worktree",
-    checkoutPath: overrides.checkoutPath ?? overrides.worktreePath ?? "/tmp/worktree",
-    branchName: overrides.branchName ?? "BW-101/task",
-    worktreePath: overrides.worktreePath ?? "/tmp/worktree",
-    backend: overrides.backend ?? "tmux",
-    tmuxSession: overrides.tmuxSession ?? "pi-bw",
-    tmuxWindow: overrides.tmuxWindow ?? "bw-101",
-    tmuxPane: overrides.tmuxPane ?? "%42",
-    runtimeDir: overrides.runtimeDir ?? "/tmp/runtime",
-    promptFile: overrides.promptFile ?? "/tmp/runtime/handoff.txt",
-    scriptFile: overrides.scriptFile ?? "/tmp/runtime/launch.sh",
-    logFile: overrides.logFile ?? "/tmp/runtime/worker.log",
-    stateFile: overrides.stateFile ?? "/tmp/runtime/state.txt",
-    exitCodeFile: overrides.exitCodeFile ?? "/tmp/runtime/exit-code.txt",
-    finishedAtFile: overrides.finishedAtFile ?? "/tmp/runtime/finished-at.txt",
-    launchCommand: overrides.launchCommand ?? "bash /tmp/runtime/launch.sh",
-    workerCommand: overrides.workerCommand ?? "pi",
-    cleanupPolicy: overrides.cleanupPolicy ?? "keep",
-    status: overrides.status ?? "running",
-    startedAt: overrides.startedAt ?? "2026-04-19T00:00:00.000Z",
-    updatedAt: overrides.updatedAt ?? "2026-04-19T00:00:01.000Z",
-    ...overrides,
-  };
-}
-
-function createWorkerSummary(overrides: Partial<DashboardStatusSnapshot["workerSummary"]> = {}) {
-  return {
-    total: overrides.total ?? 0,
-    active: overrides.active ?? 0,
-    launching: overrides.launching ?? 0,
-    running: overrides.running ?? 0,
-    exited: overrides.exited ?? 0,
-    held: overrides.held ?? 0,
-    landed: overrides.landed ?? 0,
-    verified: overrides.verified ?? 0,
-    successfulTerminal: overrides.successfulTerminal ?? 0,
-    failed: overrides.failed ?? 0,
-    attention: overrides.attention ?? 0,
-    cleaned: overrides.cleaned ?? 0,
-  };
-}
-
 function createSnapshot(overrides: Partial<DashboardStatusSnapshot> = {}): DashboardStatusSnapshot {
   return {
     activation: overrides.activation ?? { kind: "active", repoRoot: "/repo" },
     state: overrides.state ?? createState(),
     counts: overrides.counts ?? { ready: 1, blocked: 0, inProgress: 0, scopedReady: 0 },
     scopeDetail: overrides.scopeDetail,
-    workerSummary: overrides.workerSummary ?? createWorkerSummary(),
-    workers: overrides.workers ?? [],
     config: overrides.config ?? DEFAULT_CONFIG,
   };
 }
@@ -195,17 +139,14 @@ describe("dashboard", () => {
       parentId: "BW-100",
     });
     const ticketDetail = createDetail(ticket);
-    const worker = createWorker({ ticketTitle: "Delegable ticket", status: "running" });
     const dataSource: IssueExplorerDataSource = {
       loadLevel: vi.fn().mockResolvedValue({ items: [ticket], currentDetail: undefined }),
       loadDetail: vi.fn().mockResolvedValue(ticketDetail),
     };
     const onDelegateIntent = vi.fn().mockResolvedValue(
       createSnapshot({
-        state: createState({ trackedWorkerIds: [worker.workerId] }),
+        state: createState({ trackedWorkerIds: ["bw-101-worker"] }),
         counts: { ready: 0, blocked: 0, inProgress: 1, scopedReady: 0 },
-        workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
-        workers: [worker],
       }),
     );
     const ui = createFakeUi();
@@ -249,7 +190,6 @@ describe("dashboard", () => {
   it("renders the run tab as a goal summary with no minion rows", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
     const epicDetail = createDetail(epic, [createIssue({ id: "BW-101", parentId: "BW-100" })]);
-    const worker = createWorker({ ticketTitle: "Runnable ticket", status: "running" });
     const dataSource: IssueExplorerDataSource = {
       loadLevel: vi.fn().mockResolvedValue({ items: [epic], currentDetail: undefined }),
       loadDetail: vi.fn().mockResolvedValue(epicDetail),
@@ -259,29 +199,36 @@ describe("dashboard", () => {
         state: createState({
           mode: "run",
           scope: { kind: "epic", id: "BW-100", title: "Runnable epic" },
-          runOptions: {
-            workers: 2,
-            until: "blocked",
-            dryRun: false,
-            noSpawn: false,
-            maxCycles: 4,
-          },
           recentRunSummary: {
             epicId: "BW-100",
             stopReason: "max-cycles",
             cycles: 1,
             launched: ["BW-101"],
-            activeWorkerIds: [worker.workerId],
-            workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
+            activeWorkerIds: ["bw-101-worker"],
+            workerSummary: {
+              total: 1,
+              active: 1,
+              launching: 0,
+              running: 1,
+              exited: 0,
+              held: 0,
+              landed: 0,
+              verified: 0,
+              successfulTerminal: 0,
+              failed: 0,
+              attention: 0,
+              cleaned: 0,
+            },
             notes: ["cycle still active"],
             cycleSummaries: [
               {
                 cycle: 1,
                 ready: ["BW-101"],
                 launched: ["BW-101"],
-                running: [worker.workerId],
+                running: ["bw-101-worker"],
                 held: [],
                 landed: [],
+                verified: [],
                 failed: [],
                 attention: [],
                 exited: [],
@@ -291,8 +238,6 @@ describe("dashboard", () => {
         }),
         counts: { ready: 1, blocked: 0, inProgress: 1, scopedReady: 1 },
         scopeDetail: epicDetail,
-        workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
-        workers: [worker],
       }),
     );
     const ui = createFakeUi();

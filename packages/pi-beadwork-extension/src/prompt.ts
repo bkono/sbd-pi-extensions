@@ -205,7 +205,7 @@ function renderDoNot(): string {
   return [
     "## Do not",
     "",
-    "Do not use tmux, `beadwork_delegate`, `beadwork_worker_done`, landing, `--workers`, or polling.",
+    "Do not use tmux, landing, `--workers`, or polling.",
     "Do not classify review findings with a keyword matcher.",
   ].join("\n");
 }

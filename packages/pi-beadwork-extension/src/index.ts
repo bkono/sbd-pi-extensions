@@ -7,13 +7,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { handleCleanupAction } from "./actions/cleanup.js";
-import { handleDelegateAction } from "./actions/delegate.js";
 import { handleIssuesAction } from "./actions/issues.js";
-import { handleLandingAction } from "./actions/landing.js";
 import { handleRunAction } from "./actions/run.js";
 import { handleScopeAction } from "./actions/scope.js";
 import { handleStatusAction } from "./actions/status.js";
-import { handleWorkersAction } from "./actions/workers.js";
 import { detectActivation } from "./activation.js";
 import { parseArgv } from "./argv.js";
 import { createBeadworkAdapter } from "./bw.js";
@@ -23,12 +20,6 @@ import { showAdoptionPreview, showAdoptionResult, showStatus } from "./commands.
 import { loadConfig } from "./config.js";
 import { COMMAND_NAME, DEFAULT_SESSION_STATE } from "./constants.js";
 import {
-  inspectWorkerRuntime,
-  listWorkers,
-  runBoundedEpicLoop,
-  type WorkerLifecycleEvent,
-} from "./orchestrator.js";
-import {
   applyAdoptionPlan,
   buildAdoptionDecompositionPrompt,
   buildAdoptionPlan,
@@ -37,12 +28,6 @@ import {
   resolvePlanSource,
 } from "./plan-adoption.js";
 import { buildBeadworkPromptAppendix } from "./prompt.js";
-import {
-  loadWorkerRegistry,
-  resolveWorkerRegistryPath,
-  summarizeWorkers,
-  upsertWorkerRuntime,
-} from "./registry.js";
 import {
   loadSessionState,
   resetSessionState,
@@ -57,15 +42,10 @@ import type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
-  RunSummary,
   SessionRunOptions,
   SessionScope,
   SessionState,
-  WorkerRuntime,
-  WorkerSummary,
 } from "./types.js";
-import { isSuccessfulTerminalWorker } from "./types.js";
-import { inspectWorker } from "./worker-diagnostics.js";
 
 export type { AttributionCommitEvidence, AttributionEvidencePack } from "./attribution.js";
 export { buildAttributionEvidencePack } from "./attribution.js";
@@ -86,16 +66,12 @@ export type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
-  LandingPolicy,
   RunOptions,
   RunSummary,
   SessionMode,
   SessionRunOptions,
   SessionScope,
   SessionState,
-  WorkerRuntime,
-  WorkerSummary,
-  WorktreeCopyRule,
 } from "./types.js";
 
 function buildDefaultSessionState(): SessionState {
@@ -201,356 +177,9 @@ function _normalizeDependencyPair(args: string[]): { blockerId: string; blockedI
   return { blockerId: first, blockedId: second };
 }
 
-function sameStringArray(left: string[] | undefined, right: string[] | undefined): boolean {
-  const normalizedLeft = [...(left ?? [])].sort();
-  const normalizedRight = [...(right ?? [])].sort();
-  if (normalizedLeft.length !== normalizedRight.length) {
-    return false;
-  }
-
-  return normalizedLeft.every((entry, index) => entry === normalizedRight[index]);
-}
-
-function sameNoticeMap(
-  left: Record<string, string> | undefined,
-  right: Record<string, string> | undefined,
-): boolean {
-  const leftEntries = Object.entries(left ?? {}).sort(([leftKey], [rightKey]) =>
-    leftKey.localeCompare(rightKey),
-  );
-  const rightEntries = Object.entries(right ?? {}).sort(([leftKey], [rightKey]) =>
-    leftKey.localeCompare(rightKey),
-  );
-
-  if (leftEntries.length !== rightEntries.length) {
-    return false;
-  }
-
-  return leftEntries.every(
-    ([leftKey, leftValue], index) =>
-      leftKey === rightEntries[index]?.[0] && leftValue === rightEntries[index]?.[1],
-  );
-}
-
-function shouldSuperviseInBackground(activation: ActivationState, state: SessionState): boolean {
-  if (activation.kind !== "active" || !activation.repoRoot) {
-    return false;
-  }
-
-  if (
-    state.mode === "run" &&
-    state.scope.kind === "epic" &&
-    state.runOptions &&
-    state.runOptions.dryRun !== true
-  ) {
-    return true;
-  }
-
-  return Boolean(state.trackedWorkerIds && state.trackedWorkerIds.length > 0);
-}
-
-function buildRunSupervisorNotice(
-  summary: RunSummary,
-): { level: "info" | "warning"; message: string } | undefined {
-  if (summary.stopReason === "completed") {
-    return {
-      level: "info",
-      message: `Background /bw run finished for ${summary.epicId}: all scoped work is closed.`,
-    };
-  }
-
-  if (summary.stopReason === "empty" || summary.stopReason === "blocked") {
-    return {
-      level: "info",
-      message: `Background /bw run paused for ${summary.epicId}: no additional scoped ready work is available right now.`,
-    };
-  }
-
-  if (summary.stopReason === "attention") {
-    return {
-      level: "warning",
-      message: `Background /bw run paused for ${summary.epicId}: operator attention is required before more tickets can be launched.`,
-    };
-  }
-
-  return undefined;
-}
-
-function buildSupervisorRunSummary(state: SessionState, config: BeadworkConfig): SessionRunOptions {
-  const persisted = state.runOptions ?? state.lastRunOptions;
-  return {
-    workers:
-      persisted?.workers && persisted.workers > 0 ? persisted.workers : config.run.defaultWorkers,
-    until: persisted?.until ?? config.run.defaultUntil,
-    noSpawn: persisted?.noSpawn === true,
-    dryRun: false,
-    maxCycles:
-      persisted?.maxCycles && persisted.maxCycles > 0
-        ? persisted.maxCycles
-        : config.run.defaultMaxCycles,
-  };
-}
-
-function ensureLifecycleModeLabel(event: WorkerLifecycleEvent): string {
-  const mode = `[${event.executionMode}]`;
-  if (event.message.includes(mode)) {
-    return event.message;
-  }
-  return event.message
-    .replace(`Delegated ticket ${event.ticketId}`, `Delegated ticket ${event.ticketId} ${mode}`)
-    .replace(`delegated ticket ${event.ticketId}`, `delegated ticket ${event.ticketId} ${mode}`)
-    .replace(`for ${event.ticketId}`, `for ${event.ticketId} ${mode}`);
-}
-
-function buildLifecycleEventNotice(event: WorkerLifecycleEvent): {
-  level: "info" | "warning";
-  message: string;
-} {
-  switch (event.type) {
-    case "post-exit-started":
-    case "remediation-started":
-      return { level: "info", message: ensureLifecycleModeLabel(event) };
-  }
-}
-
-function workerModeNotice(worker: WorkerRuntime): string {
-  return `[${worker.executionMode}]`;
-}
-
-function remediationCheckoutLabel(worker: WorkerRuntime): string {
-  return worker.executionMode === "worktree" ? "the existing worktree" : "the current checkout";
-}
-
-function reviewRemediationTarget(worker: WorkerRuntime): string {
-  return worker.executionMode === "worktree" ? "merge-back" : "current-branch verification";
-}
-
-function postExitVerificationWaitMessage(worker: WorkerRuntime): string {
-  return worker.executionMode === "worktree"
-    ? "landing can be verified"
-    : "current-branch verification can run";
-}
-
-function postExitReviewSubject(worker: WorkerRuntime): string {
-  return worker.executionMode === "worktree" ? "worktree landing" : "current-branch verification";
-}
-
-function refreshTarget(worker: WorkerRuntime): string {
-  return worker.executionMode === "worktree" ? "merge-back" : "current-branch verification";
-}
-
-function explicitWorkerRequestLabel(worker: WorkerRuntime): string {
-  return worker.executionMode === "worktree"
-    ? "explicit landing request"
-    : "explicit current-branch verification request";
-}
-
-function buildWorkerNotice(input: {
-  worker: WorkerRuntime;
-  inspection: ReturnType<typeof inspectWorker>;
-}): { key: string; level: "info" | "warning"; message: string } | undefined {
-  const { worker, inspection } = input;
-  const mode = workerModeNotice(worker);
-  const key = [
-    worker.status,
-    worker.ticketStatus ?? "",
-    inspection.validation.state,
-    inspection.review.state,
-    inspection.landing.state,
-    inspection.cleanup.state,
-    worker.validationSummary ?? "",
-    worker.reviewSummary ?? "",
-    worker.landingVerification ?? "",
-    worker.lastError ?? "",
-  ].join("|");
-
-  if (
-    worker.landingRequestedAt &&
-    !worker.landingVerifiedAt &&
-    (inspection.validation.state === "pending" ||
-      inspection.review.state === "pending" ||
-      worker.ticketStatus !== "closed")
-  ) {
-    const reviewLogFile = path.join(worker.runtimeDir, "review.log");
-    const detail =
-      inspection.review.state === "pending"
-        ? ` Follow reviewer output in ${reviewLogFile}.`
-        : inspection.validation.state === "pending"
-          ? ` Follow orchestrator progress in ${worker.logFile}.`
-          : "";
-    const requestLabel = explicitWorkerRequestLabel(worker);
-    return {
-      key,
-      level: "info",
-      message:
-        `Delegated ticket ${worker.ticketId} ${mode} has an ${requestLabel} in flight. ${inspection.followUp.action}${detail}`.trim(),
-    };
-  }
-
-  if (worker.status === "running" && worker.remediationStatus === "running") {
-    return {
-      key,
-      level: "info",
-      message:
-        `Delegated ticket ${worker.ticketId} ${mode} failed validation, and an automatic remediation pass is now running in ${remediationCheckoutLabel(worker)}. ` +
-        `Follow streamed worker activity in ${worker.logFile}.`,
-    };
-  }
-
-  if (worker.status === "running" && worker.reviewStatus === "remediation-in-progress") {
-    return {
-      key,
-      level: "info",
-      message:
-        `Delegated ticket ${worker.ticketId} ${mode} is remediating reviewer-requested changes before ${reviewRemediationTarget(worker)}. ` +
-        `Follow streamed worker activity in ${worker.logFile}.`,
-    };
-  }
-
-  if (worker.status === "running" && worker.ticketStatus === "closed") {
-    return {
-      key,
-      level: "info",
-      message: `Delegated ticket ${worker.ticketId} ${mode} was closed in the worker and is waiting for process exit so ${postExitVerificationWaitMessage(worker)}.`,
-    };
-  }
-
-  if (worker.status === "failed") {
-    return {
-      key,
-      level: "warning",
-      message: `Delegated ticket ${worker.ticketId} ${mode} failed. ${inspection.followUp.action}`,
-    };
-  }
-
-  if (worker.status === "attention") {
-    return {
-      key,
-      level: "warning",
-      message: `Delegated ticket ${worker.ticketId} ${mode} needs attention. ${inspection.followUp.action}`,
-    };
-  }
-
-  if (worker.status === "exited") {
-    if (worker.ticketStatus !== "closed") {
-      return {
-        key,
-        level: "warning",
-        message: `Delegated ticket ${worker.ticketId} ${mode} exited before the ticket was closed. ${inspection.followUp.action}`,
-      };
-    }
-
-    const detail = inspection.landing.detail ? ` ${inspection.landing.detail}` : "";
-    return {
-      key,
-      level: "warning",
-      message:
-        `Delegated ticket ${worker.ticketId} ${mode} finished, but ${postExitReviewSubject(worker)} still needs review. ${inspection.followUp.action}${detail}`.trim(),
-    };
-  }
-
-  if (worker.status === "held") {
-    if (inspection.landing.state === "ready-to-land") {
-      const review =
-        inspection.review.state === "approved"
-          ? " Reviewer approved."
-          : inspection.review.state === "nits-only"
-            ? " Reviewer approved with non-blocking nits."
-            : "";
-      return {
-        key,
-        level: "info",
-        message:
-          `Delegated ticket ${worker.ticketId} ${mode} is validated and held in deferred-landing mode.${review} ` +
-          `It is ready to land when requested with /bw land ${worker.ticketId}.`,
-      };
-    }
-
-    if (inspection.landing.state === "needs-refresh") {
-      return {
-        key,
-        level: "warning",
-        message:
-          `Delegated ticket ${worker.ticketId} ${mode} is validated and held, but repo drift means it needs refresh before ${refreshTarget(worker)}. ` +
-          inspection.followUp.action,
-      };
-    }
-
-    return {
-      key,
-      level: "warning",
-      message: `Delegated ticket ${worker.ticketId} ${mode} is held and needs attention. ${inspection.followUp.action}`,
-    };
-  }
-
-  if (isSuccessfulTerminalWorker(worker) && worker.status === "verified") {
-    return {
-      key,
-      level: "info",
-      message: `Delegated ticket ${worker.ticketId} completed successfully ${mode}: current branch verified. ${inspection.followUp.action}`,
-    };
-  }
-  if (worker.status === "landed") {
-    if (inspection.validation.state === "pending") {
-      return {
-        key,
-        level: "warning",
-        message: `Delegated ticket ${worker.ticketId} ${mode} appears integrated, but validation is still pending. ${inspection.followUp.action}`,
-      };
-    }
-
-    if (inspection.validation.state === "failed") {
-      return {
-        key,
-        level: "warning",
-        message: `Delegated ticket ${worker.ticketId} ${mode} appears integrated, but validation failed. ${inspection.followUp.action}`,
-      };
-    }
-
-    if (inspection.cleanup.state === "cleaned") {
-      return {
-        key,
-        level: "info",
-        message:
-          `Delegated ticket ${worker.ticketId} completed successfully ${mode}: validation passed, ` +
-          "changes were merged back into the repo branch, and cleanup completed.",
-      };
-    }
-
-    if (inspection.cleanup.state === "failed") {
-      return {
-        key,
-        level: "warning",
-        message: `Delegated ticket ${worker.ticketId} ${mode} landed, but cleanup failed. ${inspection.followUp.action}`,
-      };
-    }
-
-    const validation =
-      inspection.validation.state === "passed" ? " Validation passed before merge-back." : "";
-    const review =
-      inspection.review.state === "approved"
-        ? " Reviewer approved the merge-back."
-        : inspection.review.state === "nits-only"
-          ? " Reviewer approved with non-blocking nits."
-          : "";
-    return {
-      key,
-      level: "info",
-      message:
-        `Delegated ticket ${worker.ticketId} completed successfully ${mode}: changes were merged back into the repo branch.${validation}${review} ${inspection.followUp.action}`.trim(),
-    };
-  }
-
-  return undefined;
-}
-
 export default function piBeadworkExtension(pi: ExtensionAPI): void {
   const adapter = createBeadworkAdapter();
   const stateCache = new Map<string, SessionState>();
-  const backgroundSupervisors = new Map<
-    string,
-    { timer: ReturnType<typeof setInterval>; running: boolean }
-  >();
 
   function getStateDir(
     ctx: ExtensionContext,
@@ -619,124 +248,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       persisted = normalized;
     }
 
-    reconcileBackgroundSupervisor(ctx, activation, config, persisted);
     return persisted;
-  }
-
-  function stopBackgroundSupervisor(sessionId: string): void {
-    const existing = backgroundSupervisors.get(sessionId);
-    if (!existing) {
-      return;
-    }
-
-    clearInterval(existing.timer);
-    backgroundSupervisors.delete(sessionId);
-  }
-
-  function reconcileBackgroundSupervisor(
-    ctx: ExtensionContext,
-    activation: ActivationState,
-    config: BeadworkConfig,
-    state: SessionState,
-  ): void {
-    const sessionId = ctx.sessionManager.getSessionId();
-    if (!shouldSuperviseInBackground(activation, state)) {
-      stopBackgroundSupervisor(sessionId);
-      return;
-    }
-
-    if (backgroundSupervisors.has(sessionId)) {
-      return;
-    }
-
-    const timer = setInterval(
-      () => {
-        void runBackgroundSupervisorTick(ctx);
-      },
-      Math.max(1_000, config.supervisor.pollIntervalMs),
-    );
-    backgroundSupervisors.set(sessionId, { timer, running: false });
-  }
-
-  async function runBackgroundSupervisorTick(ctx: ExtensionContext): Promise<void> {
-    const sessionId = ctx.sessionManager.getSessionId();
-    const supervisor = backgroundSupervisors.get(sessionId);
-    if (!supervisor || supervisor.running) {
-      return;
-    }
-
-    if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-      return;
-    }
-
-    supervisor.running = true;
-
-    try {
-      const config = loadConfig(ctx.cwd);
-      const activation = await detectActivation(ctx.cwd);
-      let state = await readSessionState(ctx, activation, config);
-
-      if (!shouldSuperviseInBackground(activation, state)) {
-        stopBackgroundSupervisor(sessionId);
-        return;
-      }
-
-      if (
-        state.mode === "run" &&
-        state.scope.kind === "epic" &&
-        state.runOptions &&
-        state.runOptions.dryRun !== true &&
-        activation.kind === "active"
-      ) {
-        const summary = await runBoundedEpicLoop({
-          cwd: ctx.cwd,
-          repoRoot: activation.repoRoot ?? ctx.cwd,
-          config,
-          adapter,
-          epicId: state.scope.id,
-          options: {
-            ...buildSupervisorRunSummary(state, config),
-            maxCycles: 1,
-            pollIntervalMs: 0,
-          },
-          prime: state.prime?.content,
-        });
-
-        const status = await refreshStatus(ctx);
-        state = status.state;
-
-        const runNotice = buildRunSupervisorNotice(summary);
-        if (summary.stopReason !== "max-cycles") {
-          const paused = await writeSessionState(ctx, activation, config, {
-            ...state,
-            mode: "interactive",
-            runOptions: undefined,
-            recentRunSummary: summary,
-          });
-          updateStatusline(ctx, activation, paused, config);
-          if (runNotice) {
-            ctx.ui.notify(runNotice.message, runNotice.level);
-          }
-          return;
-        }
-
-        const continued = await writeSessionState(ctx, activation, config, {
-          ...state,
-          recentRunSummary: summary,
-        });
-        updateStatusline(ctx, activation, continued, config);
-        return;
-      }
-
-      await refreshStatus(ctx);
-    } catch (error) {
-      ctx.ui.notify(`Beadwork background supervision failed: ${humanizeError(error)}`, "warning");
-    } finally {
-      const current = backgroundSupervisors.get(sessionId);
-      if (current) {
-        current.running = false;
-      }
-    }
   }
 
   async function resolveScopeDetail(
@@ -798,69 +310,25 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     });
   }
 
-  async function resolveWorkerSummary(
-    activation: ActivationState,
-    config: BeadworkConfig,
-    epicId?: string,
-  ): Promise<WorkerSummary | undefined> {
-    if (activation.kind !== "active" || !activation.repoRoot) {
-      return undefined;
-    }
-
-    const registryPath = resolveWorkerRegistryPath(
-      activation.repoRoot,
-      config.storage.workerRegistryFile,
-    );
-    const workers = await loadWorkerRegistry(registryPath);
-    const scoped = epicId ? workers.filter((worker) => worker.epicId === epicId) : workers;
-    return summarizeWorkers(scoped);
-  }
-
   async function refreshStatus(ctx: ExtensionContext): Promise<{
     activation: ActivationState;
     state: SessionState;
     counts?: BeadworkCounts;
     scopeDetail?: BeadworkIssueDetail;
-    workerSummary?: WorkerSummary;
-    workers?: WorkerRuntime[];
     config?: BeadworkConfig;
   }> {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
-    let state = await readSessionState(ctx, activation, config);
-    const scopedEpicId = state.scope.kind === "epic" ? state.scope.id : undefined;
-    const trackedWorkerIds = state.trackedWorkerIds;
-    const shouldInspectWorkers =
-      activation.kind === "active" &&
-      (state.mode !== "neutral" || (trackedWorkerIds !== undefined && trackedWorkerIds.length > 0));
+    const state = await readSessionState(ctx, activation, config);
 
     const [counts, scopeDetail] = await Promise.all([
       resolveCounts(ctx, activation, state),
       resolveScopeDetail(ctx, activation, state),
     ]);
 
-    let workerSummary: WorkerSummary | undefined;
-    let workers: WorkerRuntime[] | undefined;
-    if (shouldInspectWorkers) {
-      const inspectedWorkers = await inspectWorkers(ctx, activation, config, {
-        epicId: scopedEpicId,
-        workerIds: state.mode === "neutral" ? trackedWorkerIds : undefined,
-      });
-      state = await syncWorkerTracking(ctx, activation, config, state, inspectedWorkers);
-      workerSummary = summarizeWorkers(inspectedWorkers);
-    } else {
-      workerSummary = await resolveWorkerSummary(activation, config, scopedEpicId);
-    }
-
-    if (activation.kind === "active" && activation.repoRoot) {
-      workers = await loadWorkerRegistry(
-        resolveWorkerRegistryPath(activation.repoRoot, config.storage.workerRegistryFile),
-      );
-    }
-
     updateStatusline(ctx, activation, state, config);
 
-    return { activation, state, counts, scopeDetail, workerSummary, workers, config };
+    return { activation, state, counts, scopeDetail, config };
   }
 
   async function resetState(ctx: ExtensionCommandContext): Promise<SessionState> {
@@ -938,169 +406,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     };
   }
 
-  function shouldKeepWorkerTracked(
-    worker: WorkerRuntime,
-    inspection: ReturnType<typeof inspectWorker>,
-  ): boolean {
-    if (
-      worker.status === "launching" ||
-      worker.status === "running" ||
-      worker.status === "held" ||
-      inspection.followUp.needsAttention
-    ) {
-      return true;
-    }
-
-    if (worker.landingRequestedAt && !worker.landingVerifiedAt) {
-      return true;
-    }
-
-    return (
-      worker.ticketStatus === "closed" &&
-      worker.status === "exited" &&
-      (worker.validationStatus === "pending" || worker.reviewStatus === "pending")
-    );
-  }
-
-  async function trackWorkerForBackground(
-    ctx: ExtensionContext,
-    activation: ActivationState,
-    config: BeadworkConfig,
-    state: SessionState,
-    worker: WorkerRuntime,
-  ): Promise<SessionState> {
-    const trackedWorkerIds = [
-      ...new Set([...(state.trackedWorkerIds ?? []), worker.workerId]),
-    ].sort();
-    const workerNotices = { ...(state.workerNotices ?? {}) };
-    delete workerNotices[worker.workerId];
-
-    const nextState = await writeSessionState(ctx, activation, config, {
-      ...state,
-      trackedWorkerIds,
-      workerNotices: Object.keys(workerNotices).length > 0 ? workerNotices : undefined,
-    });
-    updateStatusline(ctx, activation, nextState, config);
-    return nextState;
-  }
-
-  async function inspectWorkers(
-    ctx: ExtensionContext,
-    activation: ActivationState,
-    config: BeadworkConfig,
-    options: {
-      epicId?: string;
-      workerIds?: string[];
-    } = {},
-  ): Promise<WorkerRuntime[]> {
-    if (activation.kind !== "active" || !activation.repoRoot) {
-      return [];
-    }
-
-    const selectedIds = options.workerIds ? new Set(options.workerIds) : undefined;
-    const workers = (
-      await listWorkers({
-        repoRoot: activation.repoRoot,
-        config,
-        epicId: options.epicId,
-      })
-    ).filter((worker) => (selectedIds ? selectedIds.has(worker.workerId) : true));
-
-    const registryPath = resolveWorkerRegistryPath(
-      activation.repoRoot,
-      config.storage.workerRegistryFile,
-    );
-
-    const inspected = await Promise.all(
-      workers.map((worker) =>
-        inspectWorkerRuntime({
-          cwd: ctx.cwd,
-          repoRoot: activation.repoRoot ?? ctx.cwd,
-          worker,
-          adapter,
-          config,
-          awaitOrchestration: false,
-          onLifecycleEvent: (event) => {
-            const notice = buildLifecycleEventNotice(event);
-            ctx.ui.notify(notice.message, notice.level);
-          },
-          onWorkerUpdate: async (nextWorker) => {
-            await upsertWorkerRuntime(registryPath, nextWorker);
-          },
-        }),
-      ),
-    );
-
-    await Promise.all(inspected.map((worker) => upsertWorkerRuntime(registryPath, worker)));
-    const latest = await loadWorkerRegistry(registryPath);
-    const scoped = options.epicId
-      ? latest.filter((worker) => worker.epicId === options.epicId)
-      : latest;
-    return selectedIds ? scoped.filter((worker) => selectedIds.has(worker.workerId)) : scoped;
-  }
-
-  async function syncWorkerTracking(
-    ctx: ExtensionContext,
-    activation: ActivationState,
-    config: BeadworkConfig,
-    state: SessionState,
-    workers: WorkerRuntime[],
-  ): Promise<SessionState> {
-    const previousNotices = state.workerNotices;
-    const nextNotices: Record<string, string> = {};
-    const nextTrackedWorkerIds: string[] = [];
-    const notifications: Array<{ level: "info" | "warning"; message: string }> = [];
-
-    const inspections = workers.map((worker) => {
-      const inspection = inspectWorker(worker);
-      const notice = buildWorkerNotice({ worker, inspection });
-      const keepTracked = shouldKeepWorkerTracked(worker, inspection);
-      return { worker, inspection, notice, keepTracked };
-    });
-
-    for (const entry of inspections) {
-      if (entry.keepTracked) {
-        nextTrackedWorkerIds.push(entry.worker.workerId);
-      }
-
-      if (!entry.notice) {
-        continue;
-      }
-
-      nextNotices[entry.worker.workerId] = entry.notice.key;
-      if (previousNotices?.[entry.worker.workerId] === entry.notice.key) {
-        continue;
-      }
-
-      notifications.push({
-        level: entry.notice.level,
-        message: entry.notice.message,
-      });
-    }
-
-    const normalizedTrackedWorkerIds =
-      nextTrackedWorkerIds.length > 0 ? [...new Set(nextTrackedWorkerIds)].sort() : undefined;
-    const normalizedNotices = Object.keys(nextNotices).length > 0 ? nextNotices : undefined;
-
-    let nextState = state;
-    if (
-      !sameStringArray(state.trackedWorkerIds, normalizedTrackedWorkerIds) ||
-      !sameNoticeMap(state.workerNotices, normalizedNotices)
-    ) {
-      nextState = await writeSessionState(ctx, activation, config, {
-        ...state,
-        trackedWorkerIds: normalizedTrackedWorkerIds,
-        workerNotices: normalizedNotices,
-      });
-    }
-
-    for (const notification of notifications) {
-      ctx.ui.notify(notification.message, notification.level);
-    }
-
-    return nextState;
-  }
-
   pi.on("session_start", async (_event, ctx) => {
     const config = loadConfig(ctx.cwd);
     const activation = await detectActivation(ctx.cwd);
@@ -1111,10 +416,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
 
   pi.on("turn_end", async (_event, ctx) => {
     await refreshStatus(ctx);
-  });
-
-  pi.on("session_shutdown", async (_event, ctx) => {
-    stopBackgroundSupervisor(ctx.sessionManager.getSessionId());
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -1152,18 +453,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     adapter,
     detectActivation,
     getCwd: () => process.cwd(),
-    getWorkers: async () => {
-      const cwd = process.cwd();
-      const config = loadConfig(cwd);
-      const activation = await detectActivation(cwd);
-      if (activation.kind !== "active" || !activation.repoRoot) {
-        return [];
-      }
-
-      return loadWorkerRegistry(
-        resolveWorkerRegistryPath(activation.repoRoot, config.storage.workerRegistryFile),
-      );
-    },
   });
 
   async function dispatchBeadworkCommand(
@@ -1190,8 +479,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             setSessionMode,
             writeSessionState,
             resolveCounts,
-            inspectWorkers,
-            syncWorkerTracking,
           },
         })
       ) {
@@ -1229,53 +516,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       }
 
       if (
-        await handleWorkersAction({
-          subcommand,
-          parsed,
-          ctx,
-          deps: {
-            requireActive,
-            inspectWorkers,
-            syncWorkerTracking,
-          },
-        })
-      ) {
-        return;
-      }
-
-      if (
-        await handleDelegateAction({
-          subcommand,
-          parsed,
-          ctx,
-          deps: {
-            adapter,
-            requireActive,
-            ensurePrime,
-            inspectWorkers,
-            syncWorkerTracking,
-          },
-        })
-      ) {
-        return;
-      }
-
-      if (
-        await handleLandingAction({
-          subcommand,
-          parsed,
-          ctx,
-          deps: {
-            adapter,
-            requireActive,
-            trackWorkerForBackground,
-          },
-        })
-      ) {
-        return;
-      }
-
-      if (
         await handleCleanupAction({
           subcommand,
           parsed,
@@ -1283,10 +523,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           deps: {
             loadConfig,
             detectActivation,
-            readSessionState,
             resetState,
-            inspectWorkers,
-            requireActive,
           },
         })
       ) {
