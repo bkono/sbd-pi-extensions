@@ -5,6 +5,8 @@
     "sbdpi-vur.2",
     "sbdpi-vur.2.2"
   ],
+  "closed_at": "2026-08-29T00:02:28Z",
+  "close_reason": "Landed Goal record, interrupted run, supervisor reject (99e13e5) plus landing-review env reject (ac7a6c7). Review PASS after FAIL fix.",
   "created": "2026-08-28T21:31:26Z",
   "description": "Add Beadwork goal record and reject supervisor config, without deleting WorkerRuntime types yet (orchestrator.ts still exists until delete-runtime).\n\n## Background\n\n`/bw run` currently stores SessionRunOptions and a polling supervisor. Replace with Goal `{ goalId, scopeIds (exactly one epic in V1), reviewPolicy, startedAt }` and `run` = standing appendix + injected prompt, not a loop.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/types.ts` (add Goal; keep old worker types until delete-runtime)\n- `src/config.ts`\n- `src/session-state.ts`\n- tests\n\n## Reject (actionable, aggregated; refuse goal-mode start)\n\nJSON families:\n\n- all `tmux.*`\n- all `worktrees.*`\n- all `landing.*` including `validateCommands` (not migrated into a new gate)\n- all `supervisor.*`\n- `workerExecution.*`\n- `run.defaultWorkers`, `run.defaultUntil`, `run.defaultMaxCycles`, `run.pollIntervalMs`\n- `storage.workerRegistryFile`, `storage.runtimeDir`\n\nCorresponding env vars (reject, do not ignore):\n\n- `PI_BEADWORK_WORKER_REGISTRY_FILE`, `PI_BEADWORK_RUNTIME_DIR`\n- `PI_BEADWORK_TMUX_SESSION_NAME`, `PI_BEADWORK_WORKER_COMMAND`, `PI_BEADWORK_WORKER_PROVIDER`, `PI_BEADWORK_WORKER_MODEL`\n- `PI_BEADWORK_WORKTREE_BASE_DIR`\n- `PI_BEADWORK_WORKER_EXECUTION_MODE`, `PI_BEADWORK_WORKER_MAX_LIFETIME`, `PI_BEADWORK_WORKER_ALLOW_DETACHED_HEAD`\n- `PI_BEADWORK_WORKER_REVIEW_ENABLED`, `PI_BEADWORK_WORKER_SELF_REVIEW_ENABLED`\n- `PI_BEADWORK_DEFAULT_WORKERS`, `PI_BEADWORK_DEFAULT_MAX_CYCLES`, `PI_BEADWORK_POLL_INTERVAL_MS`\n- `PI_BEADWORK_VALIDATE_TIMEOUT_MS`, `PI_BEADWORK_MAX_REBASE_ATTEMPTS`, `PI_BEADWORK_LANDING_POLICY`\n- `PI_BEADWORK_SUPERVISOR_POLL_INTERVAL_MS`\n\n## Retain\n\n- `PI_BEADWORK_SHOW_INACTIVE_STATUS` / `ui.showInactiveStatus`\n- `PI_BEADWORK_SESSION_STATE_DIR` / `storage.sessionStateDir` (cache only)\n- review policy `ticket | scope | none` and reviewer role/model **only** if mapping from old review settings is unambiguous display/prompt config — never a validation runner, never silent backend selection\n\nDo not map `landing.review` / worker-review onto a beadwork command runner. Do not migrate `landing.validateCommands`.\n\n## Behavior\n\n- Persisted `mode: \"run\"` after `/new` or process death is **interrupted**: no auto-inject, no live workers. User `/bw run` again. Stop persisting `trackedWorkerIds` / `runOptions`.\n\n## Success criteria\n\n- Config with tmux.sessionName fails goal-mode start with aggregated errors.\n- Clean config loads; Goal round-trips; rehydrated run is not live.\n- WorkerRuntime types still compile.\n\n## Test plan\n\n- Unit: each removed JSON family and env var listed above.\n- Unit: retained keys still load.\n- Unit: interrupted run flag.\n- Log: rejected key names.\n\n## Considerations\n\nOwns types.ts/config.ts/session-state.ts. Do not rewrite prompt.ts or actions/run.ts.",
   "id": "sbdpi-vur.2.1",
@@ -20,8 +22,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add goal record, interrupted run, and reject supervisor config",
   "type": "task",
-  "updated_at": "2026-08-28T23:45:24Z"
+  "updated_at": "2026-08-29T00:02:28Z"
 }
