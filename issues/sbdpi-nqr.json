@@ -6,9 +6,15 @@
   "description": "Wire AgentConfig.thinking from user/project minion frontmatter into the actual child AgentSession, add a regression test, then validate package quality gates. This is needed so ~/.pi/agent/agents role definitions can reliably select medium/high/xhigh reasoning.",
   "id": "sbdpi-nqr",
   "labels": [],
+  "comments": [
+    {
+      "text": "Added child-session wiring for AgentConfig.thinking and a regression test that captures the thinking level at prompt invocation. Global role definitions created under ~/.pi/agent/agents for debugger, general-coder, and hard-problem-coder using direct Pi provider names plus completion_nudge steering. Full repo lint (671 files), tests (433 files / 2174 tests), and typecheck passed.",
+      "timestamp": "2026-08-29T21:09:02Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Honor minion role thinking metadata in child sessions",
   "type": "task",
-  "updated_at": "2026-08-29T21:02:16Z"
+  "updated_at": "2026-08-29T21:09:02Z"
 }
