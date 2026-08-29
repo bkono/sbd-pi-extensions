@@ -40,6 +40,69 @@ const TASK_TYPE_NEXT_QUESTIONS: Record<(typeof GOAL_TASK_TYPES)[number], RegExp[
   ],
 };
 
+type RequiredPhrase = {
+  name: string;
+  needle: string | RegExp;
+};
+
+/** Fail CI if a review-policy instruction is deleted. */
+const POLICY_REQUIRED_PHRASES: Record<ReviewPolicy, readonly RequiredPhrase[]> = {
+  ticket: [
+    {
+      name: "independent reviewImplementation before close",
+      needle: "Launch an independent `reviewImplementation` child before closing that ticket.",
+    },
+    {
+      name: "do not close from implementer settlement",
+      needle: "Do not close from implementer settlement alone.",
+    },
+  ],
+  scope: [
+    {
+      name: "close from evidence without per-ticket review",
+      needle:
+        "You may close individual tickets from evidence without an independent per-ticket review child.",
+    },
+    {
+      name: "reviewScope before epic complete",
+      needle: "Launch a `reviewScope` child before declaring the epic complete.",
+    },
+    {
+      name: "dependents may start before aggregate review",
+      needle: SCOPE_POLICY_TRADEOFF,
+    },
+  ],
+  none: [
+    {
+      name: "skip independent review children",
+      needle: "Skip independent review children.",
+    },
+  ],
+};
+
+const REVIEWER_TASK_GUIDANCE_PHRASES: readonly RequiredPhrase[] = [
+  { name: "named commits", needle: "named commits" },
+  { name: "ticket id", needle: "the ticket id" },
+  { name: "git show", needle: "`git show`" },
+  {
+    name: "do not start review of A while implementing",
+    needle: "Do not start review of ticket A while A's implementer is still live.",
+  },
+];
+
+const ANTI_CLASSIFIER_PHRASES: readonly RequiredPhrase[] = [
+  { name: "no keyword classifier", needle: /no keyword classifier/i },
+  {
+    name: "no keyword matcher",
+    needle: "Do not classify review findings with a keyword matcher.",
+  },
+];
+
+const FORBIDDEN_REVIEW_LANGUAGE: readonly { name: string; needle: RegExp }[] = [
+  { name: "regex classifier", needle: /regex\s+classifier/i },
+  { name: "structured-result gate", needle: /structured[- ]results?(?:\s+gate)?/i },
+];
+
 function goal(reviewPolicy: ReviewPolicy): Goal {
   return {
     goalId: "goal-BW-100",
@@ -77,6 +140,31 @@ function availableToolsLine(text: string): string {
   const line = text.split("\n").find((entry) => entry.startsWith("Available beadwork tools:"));
   expect(line).toBeDefined();
   return line ?? "";
+}
+
+function expectPhrase(text: string, label: string, needle: string | RegExp): void {
+  if (typeof needle === "string") {
+    expect(text, label).toContain(needle);
+    return;
+  }
+  expect(text, label).toMatch(needle);
+}
+
+function assertReviewPolicyPhrases(policy: ReviewPolicy, text: string): void {
+  const required: RequiredPhrase[] = [
+    ...POLICY_REQUIRED_PHRASES[policy],
+    ...REVIEWER_TASK_GUIDANCE_PHRASES,
+    ...ANTI_CLASSIFIER_PHRASES,
+  ];
+  const matched: string[] = [];
+  for (const phrase of required) {
+    expectPhrase(text, `${policy}: missing ${phrase.name}`, phrase.needle);
+    matched.push(phrase.name);
+  }
+  for (const phrase of FORBIDDEN_REVIEW_LANGUAGE) {
+    expect(text, `${policy}: must not contain ${phrase.name}`).not.toMatch(phrase.needle);
+  }
+  console.log(`review policy: ${policy}; matched required phrases: ${matched.join(", ")}`);
 }
 
 describe("buildBeadworkPromptAppendix modes", () => {
@@ -163,7 +251,6 @@ describe("buildBeadworkPromptAppendix review policies", () => {
       goal: goal(policy),
     });
     const selected = selectReviewPolicy(state);
-    console.log("review policy branch:", selected);
 
     const text = buildBeadworkPromptAppendix({
       activation: ACTIVE,
@@ -178,21 +265,26 @@ describe("buildBeadworkPromptAppendix review policies", () => {
 
     expect(text).toContain("Review policies: `ticket` (default), `scope`, and `none`.");
     expect(text).toContain(`Review policy branch: ${policy}`);
+    assertReviewPolicyPhrases(policy, text);
     await expect(text).toMatchFileSnapshot(`../goldens/prompt-appendix-run-${policy}.md`);
   });
 
   it("defaults interactive sessions without a goal to ticket policy", async () => {
     const state = session({ mode: "interactive", goal: undefined });
     const selected = selectReviewPolicy(state);
-    console.log("review policy branch:", selected);
 
     const text = buildBeadworkPromptAppendix({
       activation: ACTIVE,
       sessionState: state,
     });
     expect(selected).toBe(DEFAULT_REVIEW_POLICY);
+    expect(text).toBeDefined();
+    if (!text) {
+      return;
+    }
     expect(text).toContain("Review policy branch: ticket");
     expect(text).toContain("Launch an independent `reviewImplementation` child before closing");
+    assertReviewPolicyPhrases("ticket", text);
     await expect(text).toMatchFileSnapshot("../goldens/prompt-appendix-interactive-ticket.md");
   });
 
@@ -224,6 +316,35 @@ describe("buildBeadworkPromptAppendix review policies", () => {
     expect(text).not.toContain("Launch an independent `reviewImplementation` child before closing");
     expect(text).not.toContain(SCOPE_POLICY_TRADEOFF);
   });
+
+  it("states reviewer child-task composition for every policy", () => {
+    for (const policy of REVIEW_POLICIES) {
+      const text = appendix({ sessionState: { goal: goal(policy) } });
+      expect(text, policy).toBeDefined();
+      if (!text) {
+        continue;
+      }
+      for (const phrase of REVIEWER_TASK_GUIDANCE_PHRASES) {
+        expectPhrase(text, `${policy}: missing ${phrase.name}`, phrase.needle);
+      }
+    }
+  });
+
+  it("rejects regex classifier and structured-result gate language", () => {
+    for (const policy of REVIEW_POLICIES) {
+      const text = appendix({ sessionState: { goal: goal(policy) } });
+      expect(text, policy).toBeDefined();
+      if (!text) {
+        continue;
+      }
+      for (const phrase of FORBIDDEN_REVIEW_LANGUAGE) {
+        expect(text, `${policy}: must not contain ${phrase.name}`).not.toMatch(phrase.needle);
+      }
+      for (const phrase of ANTI_CLASSIFIER_PHRASES) {
+        expectPhrase(text, `${policy}: missing ${phrase.name}`, phrase.needle);
+      }
+    }
+  });
 });
 
 describe("buildBeadworkPromptAppendix standing constraints", () => {
@@ -234,12 +355,15 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(text).toContain("Attach domain metadata:");
     expect(text).toContain('source "beadwork"');
     expect(text).toContain("workItemId (ticket id)");
+    expect(text).toContain("named commits");
+    expect(text).toContain("the ticket id");
     expect(text).toContain("`git show`");
     expect(text).toContain("Do not tell them to read the whole dirty workspace.");
     expect(text).toContain("Do not start review of ticket A while A's implementer is still live.");
     expect(text).toContain("That is an instruction, not a lock.");
     expect(text).toContain("`lint` / `test` / `typecheck`");
     expect(text).toContain("Beadwork does not own a validation gate.");
+    expect(text).toContain("Do not classify review findings with a keyword matcher.");
     expect(text).toContain(
       "Do not use tmux, `beadwork_delegate`, `beadwork_worker_done`, landing, `--workers`, or polling.",
     );
