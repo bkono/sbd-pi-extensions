@@ -409,6 +409,7 @@ describe("integration: orchestrate lifecycle to followUp", () => {
         id: opts.id,
         path: join(cwd, `${opts.id}.jsonl`),
         steer: async () => {},
+        followUp: async () => {},
         abort: () => {},
         wait: () => waiter.promise,
       };
@@ -478,6 +479,7 @@ describe("integration: orchestrate lifecycle to followUp", () => {
           id: options.id,
           path: join(cwd, `${options.id}.jsonl`),
           steer: async () => {},
+          followUp: async () => {},
           abort: () => {},
           wait: () => spawnWaiter.promise,
         }),

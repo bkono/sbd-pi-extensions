@@ -37,6 +37,8 @@ export interface ChildSession {
   abort(): void | Promise<void>;
   abortBash?: () => void;
   steer(text: string): Promise<void>;
+  /** Child-safe queued continuation. Pi delivers after the current tool/steer drain. */
+  followUp(text: string): Promise<void>;
   waitForIdle(): Promise<void>;
   dispose(): void;
   getSessionStats(): {
@@ -82,6 +84,7 @@ export interface MinionSessionHandle {
   id: string;
   path: string;
   steer(text: string): Promise<void>;
+  followUp(text: string): Promise<void>;
   abort(): void;
   wait(): Promise<ChildTerminalEvent>;
 }

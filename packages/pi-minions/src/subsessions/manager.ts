@@ -458,19 +458,26 @@ export class SubsessionManager {
     return false;
   }
 
+  private requireLiveSession(id: string): ChildSession {
+    if (this.shutdown || this.terminals.has(id) || !this.activeHandles.has(id)) {
+      throw new Error(`Child ${id} is terminal; further mail is rejected`);
+    }
+    const session = this.activeSessions.get(id);
+    if (!session) {
+      throw new Error(`Child ${id} is terminal; further mail is rejected`);
+    }
+    return session;
+  }
+
   private buildHandle(id: string, path: string): MinionSessionHandle {
     return {
       id,
       path,
       steer: async (text: string) => {
-        if (this.shutdown || this.terminals.has(id) || !this.activeHandles.has(id)) {
-          throw new Error(`Child ${id} is terminal; further mail is rejected`);
-        }
-        const session = this.activeSessions.get(id);
-        if (!session) {
-          throw new Error(`Child ${id} is terminal; further mail is rejected`);
-        }
-        await session.steer(text);
+        await this.requireLiveSession(id).steer(text);
+      },
+      followUp: async (text: string) => {
+        await this.requireLiveSession(id).followUp(text);
       },
       abort: () => {
         this.abortChild(id);

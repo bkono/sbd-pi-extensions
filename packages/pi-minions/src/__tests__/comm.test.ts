@@ -10,15 +10,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
 import {
   COMM_SEND_STATUS,
+  createSendMinionMessageTool,
+  formatMinionMail,
   injectOrchestratedCommTools,
   LIST_MINION_PEERS_TOOL,
   ListMinionPeersParams,
+  MAX_MAILBOX_QUEUE_DEPTH,
+  MAX_MINION_MESSAGE_BYTES,
   MinionCommMailbox,
   ORCHESTRATED_COMM_TOOL_NAMES,
   OrchestrationGroupState,
   PARENT_ONLY_MINION_TOOLS,
   PARENT_RECIPIENT_ID,
+  SEND_MINION_MESSAGE_TOOL,
   SEND_MINION_PEER_TOOL,
+  SendMinionMessageParams,
   SendMinionPeerParams,
 } from "../orchestration/index.js";
 import {
@@ -106,7 +112,14 @@ class FakeChildSession implements ChildSession {
     this.idleDeferred.resolve();
   }
   abortBash(): void {}
-  async steer(_text: string): Promise<void> {}
+  followUps: string[] = [];
+  steers: string[] = [];
+  async steer(text: string): Promise<void> {
+    this.steers.push(text);
+  }
+  async followUp(text: string): Promise<void> {
+    this.followUps.push(text);
+  }
   waitForIdle(): Promise<void> {
     return this.idleDeferred.promise;
   }
@@ -160,6 +173,31 @@ function groupTree(): { tree: AgentTree; childId: string; peerId: string; groupI
   return { tree, childId, peerId, groupId };
 }
 
+function liveMailbox(
+  tree: AgentTree,
+  groupId: string,
+  liveIds: string[],
+  open = true,
+): {
+  mailbox: MinionCommMailbox;
+  followUps: Array<{ id: string; text: string }>;
+  groups: { getOpenGroup: () => { groupId: string; cwd: string } | undefined };
+} {
+  const followUps: Array<{ id: string; text: string }> = [];
+  const groups = {
+    getOpenGroup: () => (open ? { groupId, cwd: "/tmp" } : undefined),
+  };
+  const mailbox = new MinionCommMailbox({
+    getTree: () => tree,
+    getGroups: () => groups,
+    isLive: (id) => liveIds.includes(id),
+    followUp: async (id, text) => {
+      followUps.push({ id, text });
+    },
+  });
+  return { mailbox, followUps, groups };
+}
+
 async function execTool(
   tool: ToolDefinition,
   params: unknown,
@@ -178,7 +216,7 @@ describe("injectOrchestratedCommTools", () => {
   it("binds list and send with childId closed over, not a from parameter", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const { tree, childId, peerId, groupId } = groupTree();
-    const mailbox = new MinionCommMailbox();
+    const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
     const injected = injectOrchestratedCommTools({
       childId,
       groupId,
@@ -196,6 +234,8 @@ describe("injectOrchestratedCommTools", () => {
     }
     expect(Object.keys(SendMinionPeerParams.properties).sort()).toEqual(["body", "to"]);
     expect(Object.keys(SendMinionPeerParams.properties)).not.toContain("from");
+    expect(Object.keys(SendMinionMessageParams.properties).sort()).toEqual(["body", "to"]);
+    expect(Object.keys(SendMinionMessageParams.properties)).not.toContain("from");
     expect(Object.keys(ListMinionPeersParams.properties)).toEqual([]);
 
     expect(info).toHaveBeenCalledWith(
@@ -220,6 +260,7 @@ describe("injectOrchestratedCommTools", () => {
       from: childId,
       to: peerId,
       groupId,
+      parentTurnTriggered: false,
     });
     expect(sent.details).not.toMatchObject({ from: "forged-id" });
     expect(mailbox.list()).toEqual([
@@ -227,6 +268,19 @@ describe("injectOrchestratedCommTools", () => {
     ]);
     expect(mailbox.list()[0]?.from).toBe(childId);
     expect(mailbox.list()[0]?.from).not.toBe("forged-id");
+    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "hello peer") }]);
+    expect(info).toHaveBeenCalledWith(
+      "comm",
+      "send",
+      expect.objectContaining({
+        messageId: mailbox.list()[0]?.id,
+        from: childId,
+        to: peerId,
+        status: COMM_SEND_STATUS.queued,
+        bytes: Buffer.byteLength("hello peer", "utf8"),
+        parentTurnTriggered: false,
+      }),
+    );
   });
 
   it("lists group peers including parent and terminal members, excluding spawn", async () => {
@@ -275,8 +329,8 @@ describe("injectOrchestratedCommTools", () => {
   });
 
   it("queues parent send and rejects terminal, spawn, and cross-group recipients", async () => {
-    const { tree, childId, groupId } = groupTree();
-    const mailbox = new MinionCommMailbox();
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
     const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
@@ -285,7 +339,9 @@ describe("injectOrchestratedCommTools", () => {
       status: COMM_SEND_STATUS.queued,
       from: childId,
       to: PARENT_RECIPIENT_ID,
+      parentTurnTriggered: false,
     });
+    expect(followUps).toEqual([]);
 
     const toTerminal = await execTool(send, { to: "mn-done", body: "too late" });
     expect(toTerminal.details).toMatchObject({
@@ -302,7 +358,11 @@ describe("injectOrchestratedCommTools", () => {
     const toSelf = await execTool(send, { to: childId, body: "nope" });
     expect(toSelf.details).toMatchObject({ status: COMM_SEND_STATUS.invalidRecipient });
 
+    const missing = await execTool(send, { to: "mn-nobody", body: "nope" });
+    expect(missing.details).toMatchObject({ status: COMM_SEND_STATUS.invalidRecipient });
+
     expect(mailbox.list().map((message) => message.to)).toEqual([PARENT_RECIPIENT_ID]);
+    expect(followUps).toEqual([]);
   });
 
   it("does not inject when kind is spawn", () => {
@@ -437,6 +497,7 @@ describe("orchestrated vs spawn session tool names", () => {
             id: opts.id,
             path: join(cwd, `${opts.id}.jsonl`),
             steer: async () => {},
+            followUp: async () => {},
             abort: () => {},
             wait: () => new Promise(() => {}),
           };
@@ -483,5 +544,222 @@ describe("orchestrated vs spawn session tool names", () => {
         kind: "orchestrated",
       }),
     );
+  });
+});
+
+describe("mailbox bounds and closed reasons", () => {
+  it("rejects a body over the UTF-8 byte cap at the boundary", async () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [peerId]);
+    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+
+    const atCap = "a".repeat(MAX_MINION_MESSAGE_BYTES);
+    const over = "a".repeat(MAX_MINION_MESSAGE_BYTES + 1);
+    const ok = await execTool(send, { to: peerId, body: atCap });
+    expect(ok.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      bytes: MAX_MINION_MESSAGE_BYTES,
+    });
+
+    const rejected = await execTool(send, { to: peerId, body: over });
+    expect(rejected.details).toMatchObject({
+      status: COMM_SEND_STATUS.bodyTooLarge,
+      bytes: MAX_MINION_MESSAGE_BYTES + 1,
+      parentTurnTriggered: false,
+    });
+    expect(mailbox.list()).toHaveLength(1);
+  });
+
+  it("rejects mailbox-full at the per-recipient depth cap", async () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [childId, peerId]);
+    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+
+    for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
+      const result = await execTool(send, { to: peerId, body: `msg-${i}` });
+      expect(result.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
+    }
+    const full = await execTool(send, { to: peerId, body: "overflow" });
+    expect(full.details).toMatchObject({
+      status: COMM_SEND_STATUS.mailboxFull,
+      parentTurnTriggered: false,
+    });
+    expect(mailbox.depthFor(peerId)).toBe(MAX_MAILBOX_QUEUE_DEPTH);
+
+    const toParent = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "still ok" });
+    expect(toParent.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
+  });
+
+  it("rejects group-not-open when the bound group is not the open group", async () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [peerId], false);
+    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+    const result = await execTool(send, { to: peerId, body: "hello" });
+    expect(result.details).toMatchObject({
+      status: COMM_SEND_STATUS.groupNotOpen,
+      from: childId,
+      parentTurnTriggered: false,
+    });
+    expect(mailbox.list()).toEqual([]);
+  });
+});
+
+describe("parent send_minion_message", () => {
+  it("delivers parent→child via followUp, ignores forged from, and does not start a parent turn", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps, groups } = liveMailbox(tree, groupId, [childId, peerId]);
+    const tool = createSendMinionMessageTool({ mailbox, groups });
+    expect(tool.name).toBe(SEND_MINION_MESSAGE_TOOL);
+
+    const sent = await execTool(tool, { to: peerId, body: "from parent", from: "forged-id" });
+    expect(sent.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      from: PARENT_RECIPIENT_ID,
+      to: peerId,
+      groupId,
+      parentTurnTriggered: false,
+    });
+    expect(sent.details).not.toMatchObject({ from: "forged-id" });
+    expect(followUps).toEqual([
+      { id: peerId, text: formatMinionMail(PARENT_RECIPIENT_ID, "from parent") },
+    ]);
+    expect(info).toHaveBeenCalledWith(
+      "comm",
+      "send",
+      expect.objectContaining({
+        from: PARENT_RECIPIENT_ID,
+        to: peerId,
+        status: COMM_SEND_STATUS.queued,
+        parentTurnTriggered: false,
+      }),
+    );
+  });
+
+  it("rejects parent send when no group is open or the child is not live", async () => {
+    const { tree, peerId, groupId } = groupTree();
+    const closed = liveMailbox(tree, groupId, [peerId], false);
+    const closedTool = createSendMinionMessageTool({
+      mailbox: closed.mailbox,
+      groups: closed.groups,
+    });
+    const noGroup = await execTool(closedTool, { to: peerId, body: "hi" });
+    expect(noGroup.details).toMatchObject({ status: COMM_SEND_STATUS.groupNotOpen });
+
+    const { mailbox, groups, followUps } = liveMailbox(tree, groupId, []);
+    const tool = createSendMinionMessageTool({ mailbox, groups });
+    const terminal = await execTool(tool, { to: peerId, body: "hi" });
+    expect(terminal.details).toMatchObject({ status: COMM_SEND_STATUS.recipientTerminal });
+    expect(followUps).toEqual([]);
+
+    const spawn = await execTool(tool, { to: "mn-spawn", body: "hi" });
+    expect(spawn.details).toMatchObject({ status: COMM_SEND_STATUS.invalidRecipient });
+  });
+});
+
+describe("live vs disposed delivery", () => {
+  it("delivers child→child and parent→child via followUp; disposed is recipient-terminal", async () => {
+    const cwd = tempDir("pi-minions-comm-deliver-");
+    const tree = new AgentTree();
+    const groupId = "grp-live";
+    tree.add("mn-a", "alpha", "task a", { kind: "orchestrated", groupId, description: "A" });
+    tree.add("mn-b", "bravo", "task b", { kind: "orchestrated", groupId, description: "B" });
+
+    const sessions = new Map<string, FakeChildSession>();
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async (input) => {
+        const session = new FakeChildSession(input.customTools ?? []);
+        sessions.set(input.id, session);
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, `${input.id}.jsonl`),
+        };
+      },
+    });
+
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd }) }),
+      isLive: (id) => manager.isLive(id),
+      followUp: async (id, text) => {
+        const handle = manager.getSessionHandle(id);
+        if (!handle) throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        await handle.followUp(text);
+      },
+    });
+
+    const injectA = injectOrchestratedCommTools({
+      childId: "mn-a",
+      groupId,
+      tree,
+      mailbox,
+    });
+    const injectB = injectOrchestratedCommTools({
+      childId: "mn-b",
+      groupId,
+      tree,
+      mailbox,
+    });
+
+    const start = (id: string, injected: ReturnType<typeof injectOrchestratedCommTools>) =>
+      manager.startChild({
+        id,
+        name: id,
+        task: "do the work",
+        config: agentConfig,
+        spawnedBy: "test",
+        cwd,
+        modelRegistry: {} as never,
+        parentToolNames: ["read", "bash", SEND_MINION_MESSAGE_TOOL],
+        customTools: injected.tools,
+        extraTools: injected.names,
+        toolSyncEnabled: false,
+      });
+
+    await start("mn-a", injectA);
+    await start("mn-b", injectB);
+
+    const sendA = injectA.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+    const peer = await execTool(sendA, { to: "mn-b", body: "hello from a" });
+    expect(peer.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      from: "mn-a",
+      to: "mn-b",
+      parentTurnTriggered: false,
+    });
+    expect(sessions.get("mn-b")?.followUps).toEqual([formatMinionMail("mn-a", "hello from a")]);
+    expect(sessions.get("mn-b")?.steers).toEqual([]);
+    expect(sessions.get("mn-a")?.followUps).toEqual([]);
+
+    const parentTool = createSendMinionMessageTool({
+      mailbox,
+      groups: { getOpenGroup: () => ({ groupId, cwd }) },
+    });
+    const fromParent = await execTool(parentTool, { to: "mn-a", body: "steer this" });
+    expect(fromParent.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      from: PARENT_RECIPIENT_ID,
+      parentTurnTriggered: false,
+    });
+    expect(sessions.get("mn-a")?.followUps).toEqual([
+      formatMinionMail(PARENT_RECIPIENT_ID, "steer this"),
+    ]);
+    expect(sessions.get("mn-a")?.steers).toEqual([]);
+
+    await manager.disposeAll();
+    const afterDispose = await execTool(sendA, { to: "mn-b", body: "too late" });
+    expect(afterDispose.details).toMatchObject({
+      status: COMM_SEND_STATUS.recipientTerminal,
+      parentTurnTriggered: false,
+    });
+    expect(sessions.get("mn-b")?.followUps).toHaveLength(1);
   });
 });

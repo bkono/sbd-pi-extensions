@@ -18,6 +18,9 @@ import {
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
+  SEND_MINION_MESSAGE_TOOL,
+  SendMinionMessageParams,
+  sendMinionMessage,
 } from "./orchestration/index.js";
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
@@ -135,6 +138,24 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "List available agents for spawning",
     parameters: ListAgentsParams,
     execute: listAgents(),
+  });
+
+  pi.registerTool({
+    name: SEND_MINION_MESSAGE_TOOL,
+    label: "Send Minion Message",
+    description:
+      "Send a non-blocking message to a live orchestrated child in the open group. " +
+      "Does not wait for a reply. Not available to children.",
+    promptSnippet: "Message a live orchestrated minion without waiting",
+    promptGuidelines: [
+      "Messages succeed only while the recipient is live. Do not wait for a reply.",
+      "Parent-to-child mail does not start a parent turn.",
+    ],
+    parameters: SendMinionMessageParams,
+    execute: (...args) => {
+      if (!subsessionManager) throw new Error("SubsessionManager not initialized");
+      return sendMinionMessage({ mailbox, groups })(...args);
+    },
   });
 
   pi.registerTool({
@@ -290,7 +311,18 @@ export default function (pi: ExtensionAPI): void {
 
     tree = new AgentTree();
     groups = new OrchestrationGroupState();
-    mailbox = new MinionCommMailbox();
+    mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => groups,
+      isLive: (id) => subsessionManager?.isLive(id) === true,
+      followUp: async (id, text) => {
+        const handle = subsessionManager?.getSessionHandle(id);
+        if (!handle) {
+          throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        }
+        await handle.followUp(text);
+      },
+    });
     packets.open();
 
     for (const metadata of subsessionManager.list()) {

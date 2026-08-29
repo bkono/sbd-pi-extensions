@@ -68,6 +68,7 @@ function hangingHandle(id: string, cwd: string): MinionSessionHandle {
     id,
     path: join(cwd, `${id}.jsonl`),
     steer: async () => {},
+    followUp: async () => {},
     abort: () => {},
     wait: () => new Promise(() => {}),
   };
@@ -397,6 +398,7 @@ describe("extension registration", () => {
 
     expect(tools.has("spawn")).toBe(true);
     expect(tools.has("orchestrate")).toBe(true);
+    expect(tools.has("send_minion_message")).toBe(true);
     expect(tools.get("spawn")?.promptGuidelines?.some((line) => /block/i.test(line))).toBe(true);
     expect(
       tools
@@ -479,6 +481,7 @@ class FakeChildSession implements ChildSession {
   }
   abortBash(): void {}
   async steer(_text: string): Promise<void> {}
+  async followUp(_text: string): Promise<void> {}
   waitForIdle(): Promise<void> {
     return this.idleDeferred.promise;
   }

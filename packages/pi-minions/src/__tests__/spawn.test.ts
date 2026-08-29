@@ -105,6 +105,7 @@ describe("foreground spawn tool", () => {
           id: options.id,
           path: join(cwd, `${options.id}.jsonl`),
           steer: async () => {},
+          followUp: async () => {},
           abort: () => {},
           wait: () => waiter.promise,
         };

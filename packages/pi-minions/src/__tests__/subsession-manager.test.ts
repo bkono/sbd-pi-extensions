@@ -118,6 +118,7 @@ class FakeChildSession implements ChildSession {
   }
 
   async steer(_text: string): Promise<void> {}
+  async followUp(_text: string): Promise<void> {}
 
   waitForIdle(): Promise<void> {
     return this.idleDeferred.promise;
@@ -314,6 +315,7 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(session.aborted).toBe(true);
     await expect(handle.wait()).resolves.toMatchObject({ class: "aborted" });
     await expect(handle.steer("hello")).rejects.toThrow(/terminal; further mail is rejected/);
+    await expect(handle.followUp("hello")).rejects.toThrow(/terminal; further mail is rejected/);
     await expect(manager.startChild(startOptions("child-6", cwd))).rejects.toThrow(
       /shut down; further start is rejected/,
     );

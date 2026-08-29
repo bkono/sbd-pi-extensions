@@ -4,13 +4,15 @@ import { Type } from "typebox";
 import { logger } from "../logger.js";
 import { generateId } from "../minions.js";
 import type { AgentTree } from "../tree.js";
-import type { AgentKind, AgentStatus } from "../types.js";
+import type { AgentKind, AgentStatus, MinionMessage } from "../types.js";
+import type { OrchestrationGroupState } from "./group-state.js";
 
 /** Bound child send target for the parent session. Not a child id. */
 export const PARENT_RECIPIENT_ID = "parent";
 
 export const LIST_MINION_PEERS_TOOL = "list_minion_peers";
 export const SEND_MINION_PEER_TOOL = "send_minion_peer";
+export const SEND_MINION_MESSAGE_TOOL = "send_minion_message";
 
 /** Names unioned into the child extraTools allowlist hook. Spawn never gets these. */
 export const ORCHESTRATED_COMM_TOOL_NAMES = [
@@ -25,13 +27,24 @@ export const PARENT_ONLY_MINION_TOOLS = [
   "orchestrate",
   "spawn",
   "halt",
-  "send_minion_message",
+  SEND_MINION_MESSAGE_TOOL,
 ] as const;
+
+/** UTF-8 body cap. Test the boundary; this is not a rate limit. */
+export const MAX_MINION_MESSAGE_BYTES = 4096;
+
+/** Per-recipient in-memory accepted-message cap. mailbox-full after this. */
+export const MAX_MAILBOX_QUEUE_DEPTH = 16;
+
+const TERMINAL_STATUSES = new Set<AgentStatus>(["completed", "failed", "aborted"]);
 
 export const COMM_SEND_STATUS = {
   queued: "queued",
   recipientTerminal: "recipient-terminal",
   invalidRecipient: "invalid-recipient",
+  groupNotOpen: "group-not-open",
+  mailboxFull: "mailbox-full",
+  bodyTooLarge: "body-too-large",
 } as const;
 
 export type CommSendStatus = (typeof COMM_SEND_STATUS)[keyof typeof COMM_SEND_STATUS];
@@ -53,6 +66,17 @@ export const SendMinionPeerParams = Type.Object({
 });
 export type SendMinionPeerParams = Static<typeof SendMinionPeerParams>;
 
+export const SendMinionMessageParams = Type.Object({
+  to: Type.String({
+    description: "Live child id in the open orchestration group.",
+  }),
+  body: Type.String({
+    description:
+      "Message body. Best-effort, non-blocking. Does not wait for a reply. Peer mail does not start a parent turn.",
+  }),
+});
+export type SendMinionMessageParams = Static<typeof SendMinionMessageParams>;
+
 export interface MinionPeerInfo {
   id: string;
   role?: string;
@@ -73,6 +97,7 @@ export interface QueuedMinionMessage {
   to: string;
   groupId: string;
   body: string;
+  bytes: number;
   createdAt: number;
 }
 
@@ -82,30 +107,220 @@ export interface CommSendDetails {
   to: string;
   groupId: string;
   messageId?: string;
+  bytes: number;
+  parentTurnTriggered: false;
+}
+
+export interface SendMinionMessageInput {
+  from: string;
+  to: string;
+  groupId: string;
+  body: string;
+}
+
+/** Live child delivery. followUp is the Pi child-safe send; do not invent another. */
+export interface CommMailboxBind {
+  getTree: () => AgentTree;
+  getGroups: () => Pick<OrchestrationGroupState, "getOpenGroup">;
+  isLive: (id: string) => boolean;
+  followUp: (id: string, text: string) => Promise<void>;
+}
+
+function isTerminalStatus(status: AgentStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+function bodyBytes(body: string): number {
+  return Buffer.byteLength(body, "utf8");
+}
+
+/** Prefix so a body starting with `/` cannot trip Pi extension-command checks. */
+export function formatMinionMail(from: string, body: string): string {
+  return `[minion-mail from ${from}]\n${body}`;
+}
+
+function appendNodeMessage(tree: AgentTree, id: string, message: MinionMessage): void {
+  const node = tree.get(id);
+  if (!node) return;
+  tree.updateInspection(id, { messages: [...(node.messages ?? []), message] });
+}
+
+function recordSendFailure(
+  tree: AgentTree | undefined,
+  from: string,
+  status: CommSendStatus,
+): void {
+  if (!tree || from === PARENT_RECIPIENT_ID) return;
+  tree.updateInspection(from, { peerMessageFailed: true, lastPeerError: status });
+}
+
+function logSend(details: CommSendDetails): void {
+  logger.info("comm", "send", {
+    messageId: details.messageId,
+    from: details.from,
+    to: details.to,
+    status: details.status,
+    bytes: details.bytes,
+    parentTurnTriggered: details.parentTurnTriggered,
+  });
+}
+
+function closedDetails(
+  input: SendMinionMessageInput,
+  status: CommSendStatus,
+  bytes: number,
+): CommSendDetails {
+  const details: CommSendDetails = {
+    status,
+    from: input.from,
+    to: input.to,
+    groupId: input.groupId,
+    bytes,
+    parentTurnTriggered: false,
+  };
+  logSend(details);
+  return details;
 }
 
 /**
- * Process-local queue. 3.2 owns live delivery; this issue only records.
- * Sender identity is taken from the bound tool, never from the payload.
+ * Process-local best-effort mailbox. No durable log, no exactly-once, no wait-for-reply.
+ * Live children are delivered via followUp; parent-directed mail does not start a parent turn.
  */
 export class MinionCommMailbox {
   private readonly items: QueuedMinionMessage[] = [];
+  private bindState?: CommMailboxBind;
+
+  constructor(deps?: CommMailboxBind) {
+    this.bindState = deps;
+  }
+
+  bind(deps: CommMailboxBind): void {
+    this.bindState = deps;
+  }
 
   list(): readonly QueuedMinionMessage[] {
     return this.items;
   }
 
-  enqueue(input: { from: string; to: string; groupId: string; body: string }): QueuedMinionMessage {
+  depthFor(to: string): number {
+    let count = 0;
+    for (const item of this.items) {
+      if (item.to === to) count++;
+    }
+    return count;
+  }
+
+  send(input: SendMinionMessageInput): CommSendDetails {
+    const from = input.from;
+    const to = input.to.trim();
+    const body = input.body;
+    const groupId = input.groupId;
+    const bytes = bodyBytes(body);
+    const attempted = { from, to, groupId, body };
+
+    if (bytes > MAX_MINION_MESSAGE_BYTES) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.bodyTooLarge, bytes);
+      recordSendFailure(this.bindState?.getTree(), from, details.status);
+      return details;
+    }
+
+    const open = this.bindState?.getGroups().getOpenGroup();
+    if (!open || open.groupId !== groupId) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.groupNotOpen, bytes);
+      recordSendFailure(this.bindState?.getTree(), from, details.status);
+      return details;
+    }
+
+    if (to === PARENT_RECIPIENT_ID) {
+      if (from === PARENT_RECIPIENT_ID) {
+        return closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
+      }
+      return this.accept(attempted, bytes, false);
+    }
+
+    if (to.length === 0 || to === from) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
+      recordSendFailure(this.bindState?.getTree(), from, details.status);
+      return details;
+    }
+
+    const tree = this.bindState?.getTree();
+    const node = tree?.get(to);
+    if (node?.kind !== "orchestrated" || node.groupId !== groupId) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
+      recordSendFailure(tree, from, details.status);
+      return details;
+    }
+
+    const live = this.bindState?.isLive(to) === true && !isTerminalStatus(node.status);
+    if (!live) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.recipientTerminal, bytes);
+      recordSendFailure(tree, from, details.status);
+      return details;
+    }
+
+    if (this.depthFor(to) >= MAX_MAILBOX_QUEUE_DEPTH) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.mailboxFull, bytes);
+      recordSendFailure(tree, from, details.status);
+      return details;
+    }
+
+    return this.accept(attempted, bytes, true);
+  }
+
+  private accept(
+    input: SendMinionMessageInput,
+    bytes: number,
+    deliverToChild: boolean,
+  ): CommSendDetails {
     const message: QueuedMinionMessage = {
       id: generateId(),
       from: input.from,
       to: input.to,
       groupId: input.groupId,
       body: input.body,
+      bytes,
       createdAt: Date.now(),
     };
     this.items.push(message);
-    return message;
+
+    const tree = this.bindState?.getTree();
+    const recorded: MinionMessage = {
+      from: input.from,
+      to: input.to,
+      text: input.body,
+      at: message.createdAt,
+    };
+    if (tree) {
+      if (input.from !== PARENT_RECIPIENT_ID) appendNodeMessage(tree, input.from, recorded);
+      if (input.to !== PARENT_RECIPIENT_ID) appendNodeMessage(tree, input.to, recorded);
+    }
+
+    const details: CommSendDetails = {
+      status: COMM_SEND_STATUS.queued,
+      from: input.from,
+      to: input.to,
+      groupId: input.groupId,
+      messageId: message.id,
+      bytes,
+      parentTurnTriggered: false,
+    };
+    logSend(details);
+
+    if (deliverToChild) {
+      const text = formatMinionMail(input.from, input.body);
+      void this.bindState?.followUp(input.to, text).catch((err: unknown) => {
+        const error = err instanceof Error ? err.message : String(err);
+        logger.warn("comm", "deliver-failed", {
+          messageId: message.id,
+          from: input.from,
+          to: input.to,
+          error,
+        });
+      });
+    }
+
+    return details;
   }
 }
 
@@ -188,15 +403,12 @@ function createListMinionPeersTool(input: CommInjectInput): ToolDefinition {
   };
 }
 
-function resolveSendStatus(input: CommInjectInput, to: string): CommSendStatus {
-  if (to === PARENT_RECIPIENT_ID) return COMM_SEND_STATUS.queued;
-  if (to.length === 0 || to === input.childId) return COMM_SEND_STATUS.invalidRecipient;
-  const node = input.tree.get(to);
-  if (node?.kind !== "orchestrated" || node.groupId !== input.groupId) {
-    return COMM_SEND_STATUS.invalidRecipient;
-  }
-  const live = input.tree.getOrchestratedGroup(input.groupId).some((peer) => peer.id === to);
-  return live ? COMM_SEND_STATUS.queued : COMM_SEND_STATUS.recipientTerminal;
+function formatSendResult(details: CommSendDetails): AgentToolResult<CommSendDetails> {
+  const text =
+    details.status === COMM_SEND_STATUS.queued
+      ? `Queued message to ${details.to}.`
+      : `Send failed: ${details.status}.`;
+  return { content: [{ type: "text", text }], details };
 }
 
 function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
@@ -221,23 +433,69 @@ function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
       void params.from;
       const to = typeof params.to === "string" ? params.to.trim() : "";
       const body = typeof params.body === "string" ? params.body : "";
-      const status = resolveSendStatus(input, to);
-      const details: CommSendDetails = { status, from: childId, to, groupId };
-
-      if (status !== COMM_SEND_STATUS.queued) {
-        return {
-          content: [{ type: "text", text: `Send failed: ${status}.` }],
-          details,
-        };
-      }
-
-      const message = mailbox.enqueue({ from: childId, to, groupId, body });
-      details.messageId = message.id;
-      return {
-        content: [{ type: "text", text: `Queued message to ${to}.` }],
-        details,
-      };
+      return formatSendResult(mailbox.send({ from: childId, to, groupId, body }));
     },
+  };
+}
+
+/**
+ * Parent → live child. Not installed on children. from is always "parent".
+ */
+export function sendMinionMessage(deps: {
+  mailbox: MinionCommMailbox;
+  groups: Pick<OrchestrationGroupState, "getOpenGroup">;
+}) {
+  return async function execute(
+    _toolCallId: string,
+    params: SendMinionMessageParams & { from?: unknown },
+    _signal?: AbortSignal,
+    _onUpdate?: unknown,
+    _ctx?: unknown,
+  ): Promise<AgentToolResult<CommSendDetails>> {
+    void params.from;
+    const to = typeof params.to === "string" ? params.to.trim() : "";
+    const body = typeof params.body === "string" ? params.body : "";
+    const open = deps.groups.getOpenGroup();
+    if (!open) {
+      const details: CommSendDetails = {
+        status: COMM_SEND_STATUS.groupNotOpen,
+        from: PARENT_RECIPIENT_ID,
+        to,
+        groupId: "",
+        bytes: bodyBytes(body),
+        parentTurnTriggered: false,
+      };
+      logSend(details);
+      return formatSendResult(details);
+    }
+    return formatSendResult(
+      deps.mailbox.send({
+        from: PARENT_RECIPIENT_ID,
+        to,
+        groupId: open.groupId,
+        body,
+      }),
+    );
+  };
+}
+
+export function createSendMinionMessageTool(deps: {
+  mailbox: MinionCommMailbox;
+  groups: Pick<OrchestrationGroupState, "getOpenGroup">;
+}): ToolDefinition {
+  return {
+    name: SEND_MINION_MESSAGE_TOOL,
+    label: "Send Minion Message",
+    description:
+      "Send a non-blocking message to a live orchestrated child in the open group. " +
+      "Does not wait for a reply. Not available to children.",
+    promptSnippet: "Message a live orchestrated minion without waiting",
+    promptGuidelines: [
+      "Messages succeed only while the recipient is live. Do not wait for a reply.",
+      "Peer and parent-to-child mail does not start a parent turn.",
+    ],
+    parameters: SendMinionMessageParams,
+    execute: sendMinionMessage(deps),
   };
 }
 

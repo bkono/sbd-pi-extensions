@@ -240,6 +240,7 @@ class FakeChildSession implements ChildSession {
   }
   abortBash(): void {}
   async steer(_text: string): Promise<void> {}
+  async followUp(_text: string): Promise<void> {}
   waitForIdle(): Promise<void> {
     return this.idleDeferred.promise;
   }
