@@ -12,8 +12,14 @@ import {
   type OrchestrationLifecycleEvent,
   PARENT_ONLY_MINION_TOOLS,
 } from "../orchestration/index.js";
+import { STEP_LIMIT_WRAP_UP_MESSAGE } from "../step-limit.js";
 import { SubsessionManager } from "../subsessions/manager.js";
-import type { ChildSession, ChildSessionEvent, MinionSessionHandle } from "../subsessions/types.js";
+import type {
+  ChildSession,
+  ChildSessionEvent,
+  CreateMinionSessionOptions,
+  MinionSessionHandle,
+} from "../subsessions/types.js";
 import { runHalt } from "../tools/halt.js";
 import { isPersistentHost, ORCHESTRATE_REJECT_REASONS, orchestrate } from "../tools/orchestrate.js";
 import { AgentTree } from "../tree.js";
@@ -88,7 +94,10 @@ function setup(options?: { startChild?: ReturnType<typeof vi.fn>; extraTools?: s
       ExtensionAPI,
       "getAllTools"
     >,
-    subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+    subsessionManager: { startChild } as unknown as Pick<
+      SubsessionManager,
+      "startChild" | "getSessionHandle" | "abortSession"
+    >,
     groups,
     extraTools: options?.extraTools ?? [],
     onLifecycle: (event) => events.push(event),
@@ -443,7 +452,10 @@ describe("halt during detached start", () => {
         ExtensionAPI,
         "getAllTools"
       >,
-      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      subsessionManager: { startChild } as unknown as Pick<
+        SubsessionManager,
+        "startChild" | "getSessionHandle" | "abortSession"
+      >,
       groups,
     });
 
@@ -473,6 +485,66 @@ describe("halt during detached start", () => {
     await Promise.resolve();
     expect(tree.get(childId)?.status).toBe("aborted");
   });
+
+  it("enforces role step limits on orchestrated children", async () => {
+    const cwd = tempDir("pi-minions-orch-steps-");
+    writeRole(cwd, "agents", "step-limited", "Limited role", "Do the work", {
+      steps: "1",
+    });
+
+    const steer = vi.fn(async () => {});
+    const abortSession = vi.fn(() => true);
+    const handles = new Map<string, MinionSessionHandle>();
+    let onTurnEnd: ((count: number) => void) | undefined;
+    const startChild = vi.fn(async (opts: CreateMinionSessionOptions) => {
+      onTurnEnd = opts.onTurnEnd;
+      const handle = {
+        ...hangingHandle(opts.id, cwd),
+        steer,
+      };
+      handles.set(opts.id, handle);
+      return handle;
+    });
+
+    const tree = new AgentTree();
+    const execute = orchestrate({
+      tree,
+      pi: { getAllTools: () => [{ name: "read" }] } as Pick<ExtensionAPI, "getAllTools">,
+      subsessionManager: {
+        startChild,
+        getSessionHandle: (id: string) => handles.get(id),
+        abortSession,
+      } as unknown as Pick<SubsessionManager, "startChild" | "getSessionHandle" | "abortSession">,
+      groups: new OrchestrationGroupState(),
+    });
+
+    const result = detailsOf(
+      await run(
+        execute,
+        { tasks: [{ task: "do work", description: "Work", role: "step-limited" }] },
+        createCtx(cwd),
+      ),
+    );
+    expect(result.accepted).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(startChild).toHaveBeenCalled();
+      expect(onTurnEnd).toBeDefined();
+    });
+    expect(startChild.mock.calls[0]?.[0]?.config.steps).toBe(1);
+
+    const childId = result.accepted[0]!.childId;
+    onTurnEnd?.(1);
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(steer).toHaveBeenCalledWith(STEP_LIMIT_WRAP_UP_MESSAGE);
+    expect(abortSession).not.toHaveBeenCalled();
+    expect(tree.get(childId)?.activityHistory).toContain("turn 1");
+
+    onTurnEnd?.(4);
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(abortSession).toHaveBeenCalledTimes(1);
+    expect(abortSession).toHaveBeenCalledWith(childId);
+    expect(tree.get(childId)?.activityHistory).toContain("turn 4");
+  });
 });
 
 describe("role resolution cwd", () => {
@@ -496,7 +568,10 @@ describe("role resolution cwd", () => {
         ExtensionAPI,
         "getAllTools"
       >,
-      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      subsessionManager: { startChild } as unknown as Pick<
+        SubsessionManager,
+        "startChild" | "getSessionHandle" | "abortSession"
+      >,
       groups,
     });
     const ctx = createCtx(parentCwd);
@@ -629,7 +704,10 @@ describe("role system prompt and model defaults", () => {
         ExtensionAPI,
         "getAllTools"
       >,
-      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      subsessionManager: { startChild } as unknown as Pick<
+        SubsessionManager,
+        "startChild" | "getSessionHandle" | "abortSession"
+      >,
       groups,
     });
     const ctx = {

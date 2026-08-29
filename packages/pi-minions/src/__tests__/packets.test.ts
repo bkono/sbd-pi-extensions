@@ -491,7 +491,10 @@ describe("integration: orchestrate lifecycle to followUp", () => {
     const execute = orchestrate({
       tree,
       pi: { getAllTools: () => [{ name: "read" }] } as Pick<ExtensionAPI, "getAllTools">,
-      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      subsessionManager: { startChild } as unknown as Pick<
+        SubsessionManager,
+        "startChild" | "getSessionHandle" | "abortSession"
+      >,
       groups,
       onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
     });

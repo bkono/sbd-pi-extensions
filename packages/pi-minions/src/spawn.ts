@@ -4,6 +4,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { logger } from "./logger.js";
 import { generateId } from "./minions.js";
+import { applyStepLimit } from "./step-limit.js";
 import { SubsessionManager } from "./subsessions/manager.js";
 import { getTempSessionPath } from "./subsessions/paths.js";
 import type { AgentTree } from "./tree.js";
@@ -118,7 +119,7 @@ export async function runMinionSession(
 
   let turnCount = 0;
   let finalOutput = "";
-  let stepLimitReached = false;
+  const stepLimit = { reached: false };
   let abortReason: string | undefined;
   const usage = emptyUsage();
 
@@ -175,32 +176,31 @@ export async function runMinionSession(
         turnCount = count;
         transcript.write(`\n--- turn ${count} ---`);
 
-        if (config.steps !== undefined && count >= config.steps && !stepLimitReached) {
-          stepLimitReached = true;
-          transcript.write(`\n=== Step limit reached (${config.steps}) ===`);
-          logger.warn("spawn:session", "Step limit reached", {
-            name: config.name,
-            steps: config.steps,
-            turnCount: count,
-          });
-
-          void subsessionManager
-            .getSessionHandle(id)
-            ?.steer(
-              "STEP LIMIT REACHED. You have used all allocated steps. " +
-                "Wrap up now — summarize your progress and deliver your findings. " +
-                "You have 2 more turns to finish.",
-            )
-            .catch(() => {});
-        } else if (stepLimitReached && config.steps !== undefined && count > config.steps + 2) {
-          abortReason = "Step limit exceeded — force abort after grace period";
-          logger.warn("spawn:session", "Force abort after grace period", {
-            name: config.name,
-            steps: config.steps,
-            turnCount: count,
-          });
-          subsessionManager.abortSession(id);
-        }
+        applyStepLimit({
+          count,
+          steps: config.steps,
+          state: stepLimit,
+          steer: (text) => subsessionManager.getSessionHandle(id)?.steer(text),
+          abort: () => {
+            subsessionManager.abortSession(id);
+          },
+          onWrapUp: () => {
+            transcript.write(`\n=== Step limit reached (${config.steps}) ===`);
+            logger.warn("spawn:session", "Step limit reached", {
+              name: config.name,
+              steps: config.steps,
+              turnCount: count,
+            });
+          },
+          onAbort: () => {
+            abortReason = "Step limit exceeded — force abort after grace period";
+            logger.warn("spawn:session", "Force abort after grace period", {
+              name: config.name,
+              steps: config.steps,
+              turnCount: count,
+            });
+          },
+        });
 
         opts.onTurnEnd?.(count);
       },

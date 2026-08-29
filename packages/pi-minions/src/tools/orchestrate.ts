@@ -17,6 +17,7 @@ import {
   type OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
 } from "../orchestration/index.js";
+import { applyStepLimit } from "../step-limit.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import { TASK_TYPES } from "../task-types.js";
 import { type AgentTree, isTerminalStatus } from "../tree.js";
@@ -54,7 +55,7 @@ export function isPersistentHost(mode: string): boolean {
 export interface OrchestrateDeps {
   tree: AgentTree;
   pi: Pick<ExtensionAPI, "getAllTools">;
-  subsessionManager: Pick<SubsessionManager, "startChild">;
+  subsessionManager: Pick<SubsessionManager, "startChild" | "getSessionHandle" | "abortSession">;
   groups: OrchestrationGroupState;
   /**
    * Additional extra-tool names unioned with bound comm names.
@@ -201,6 +202,7 @@ function startRegisteredChild(
 ): Promise<void> {
   const { tree, subsessionManager } = deps;
   const { id, name, task, config, parentModel } = child;
+  const stepLimit = { reached: false };
   const node = tree.get(id);
   if (node && isTerminalStatus(node.status)) {
     return Promise.resolve();
@@ -234,6 +236,15 @@ function startRegisteredChild(
       },
       onTurnEnd: (turnCount) => {
         tree.logActivity(id, `turn ${turnCount}`);
+        applyStepLimit({
+          count: turnCount,
+          steps: config.steps,
+          state: stepLimit,
+          steer: (text) => subsessionManager.getSessionHandle(id)?.steer(text),
+          abort: () => {
+            subsessionManager.abortSession(id);
+          },
+        });
       },
       onUsageUpdate: (usage) => {
         tree.updateUsage(id, usage);

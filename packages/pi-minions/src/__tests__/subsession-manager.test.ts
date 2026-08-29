@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
 import { SEND_MINION_MESSAGE_TOOL } from "../orchestration/comm.js";
 import { SubsessionManager } from "../subsessions/manager.js";
+import { getMinionsDir } from "../subsessions/paths.js";
 import type {
   ChildSession,
   ChildSessionEvent,
   CreateMinionSessionOptions,
 } from "../subsessions/types.js";
+import { AgentTree, rehydratePersistedMinion } from "../tree.js";
 import type { AgentConfig, ThinkingLevel } from "../types.js";
 
 function createDeferred<T>() {
@@ -301,6 +303,60 @@ describe("SubsessionManager start/wait lifecycle", () => {
     const metadata = JSON.parse(readFileSync(metaPath, "utf-8")) as { status?: string };
     expect(metadata.status).toBe("completed");
     expect(existsSync(join(parentCwd, "child.jsonl.minion-meta.json"))).toBe(false);
+  });
+
+  it("preserves alternate-cwd minions across manager rehydration", async () => {
+    const parentCwd = mkdtempSync(join(tmpdir(), "pi-minions-parent-rehydrate-"));
+    const groupCwd = mkdtempSync(join(tmpdir(), "pi-minions-group-rehydrate-"));
+    const parentSessionPath = join(parentCwd, "parent.jsonl");
+    const session = new FakeChildSession();
+    const sessionPath = join(groupCwd, "child.jsonl");
+    const live = new SubsessionManager(parentCwd, parentSessionPath, undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath,
+      }),
+    });
+
+    await live.startChild(startOptions("child-remote", groupCwd));
+
+    const linkPath = join(getMinionsDir(parentCwd), "child-remote.minion-link.json");
+    expect(existsSync(linkPath)).toBe(true);
+    expect(JSON.parse(readFileSync(linkPath, "utf-8"))).toEqual({ sessionPath });
+
+    const rehydrated = new SubsessionManager(parentCwd, parentSessionPath);
+    const listed = rehydrated.list();
+    expect(listed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "child-remote",
+          status: "running",
+          parentSession: parentSessionPath,
+        }),
+      ]),
+    );
+    expect(rehydrated.getSessionPath("child-remote")).toBe(sessionPath);
+    expect(rehydrated.getMinionIdFromPath(sessionPath)).toBe("child-remote");
+
+    const tree = new AgentTree();
+    const child = listed.find((entry) => entry.sessionId === "child-remote");
+    expect(child).toBeDefined();
+    rehydratePersistedMinion(tree, child!, (id, status, exitCode, error) => {
+      rehydrated.updateStatus(id, status, exitCode, error);
+    });
+
+    expect(tree.get("child-remote")?.status).toBe("aborted");
+    const metadata = JSON.parse(readFileSync(`${sessionPath}.minion-meta.json`, "utf-8")) as {
+      status?: string;
+    };
+    expect(metadata.status).toBe("aborted");
+    expect(existsSync(join(parentCwd, "child.jsonl.minion-meta.json"))).toBe(false);
+    expect(JSON.parse(readFileSync(linkPath, "utf-8"))).toEqual({ sessionPath });
   });
 
   it("does not emit terminal on agent_end until fully idle", async () => {

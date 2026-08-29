@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -956,12 +956,24 @@ export class SubsessionManager {
 
     const files = this.listSessionFiles(minionsDir);
     const results: MinionSessionMetadata[] = [];
+    const seen = new Set<string>();
 
     for (const file of files) {
       const metadata = this.readMetadataFile(join(minionsDir, file));
       if (metadata) {
         results.push(metadata);
+        seen.add(metadata.sessionId);
       }
+    }
+
+    for (const file of this.listLinkFiles(minionsDir)) {
+      const link = this.readLinkFile(join(minionsDir, file));
+      if (!link) continue;
+      const metadata = this.readMetadataFile(link.sessionPath);
+      if (!metadata || seen.has(metadata.sessionId)) continue;
+      this.rememberSessionPath(metadata.sessionId, link.sessionPath);
+      results.push(metadata);
+      seen.add(metadata.sessionId);
     }
 
     return results.sort((a, b) => b.createdAt - a.createdAt);
@@ -991,6 +1003,12 @@ export class SubsessionManager {
       startsWith: sessionPath.startsWith(minionsDir),
     });
     if (!sessionPath.startsWith(minionsDir)) {
+      const linkedId = this.findLinkedMinionId(sessionPath);
+      if (linkedId) {
+        logger.debug("subsession", "extracted-id", { sessionPath, id: linkedId });
+        this.rememberSessionPath(linkedId, sessionPath);
+        return linkedId;
+      }
       logger.debug("subsession", "not-minions-dir", {
         sessionPath,
         minionsDir,
@@ -1095,14 +1113,71 @@ export class SubsessionManager {
         return sessionPath;
       }
     }
+    const link = this.readLinkFile(this.getLinkPath(id));
+    if (link) {
+      this.rememberSessionPath(id, link.sessionPath);
+      return link.sessionPath;
+    }
     return undefined;
   }
+
   private listSessionFiles(dir: string): string[] {
     try {
       return readdirSync(dir).filter((f: string) => f.endsWith(".jsonl"));
     } catch {
       return [];
     }
+  }
+
+  private listLinkFiles(dir: string): string[] {
+    try {
+      return readdirSync(dir).filter((f: string) => f.endsWith(".minion-link.json"));
+    } catch {
+      return [];
+    }
+  }
+
+  private getLinkPath(id: string): string {
+    return join(getMinionsDir(this.cwd), `${id}.minion-link.json`);
+  }
+
+  private isForeignSessionPath(sessionPath: string): boolean {
+    return dirname(sessionPath) !== getMinionsDir(this.cwd);
+  }
+
+  private syncLinkFile(id: string, sessionPath: string): void {
+    if (!this.isForeignSessionPath(sessionPath)) return;
+    const minionsDir = getMinionsDir(this.cwd);
+    mkdirSync(minionsDir, { recursive: true });
+    writeFileSync(this.getLinkPath(id), JSON.stringify({ sessionPath }, null, 2));
+  }
+
+  private readLinkFile(linkPath: string): { sessionPath: string } | undefined {
+    try {
+      if (!existsSync(linkPath)) return undefined;
+      const parsed = JSON.parse(readFileSync(linkPath, "utf-8")) as {
+        sessionPath?: unknown;
+      };
+      if (typeof parsed.sessionPath === "string" && parsed.sessionPath.length > 0) {
+        return { sessionPath: parsed.sessionPath };
+      }
+    } catch {
+      /* ignore corrupt/missing link files */
+    }
+    return undefined;
+  }
+
+  private findLinkedMinionId(sessionPath: string): string | undefined {
+    const minionsDir = getMinionsDir(this.cwd);
+    if (!existsSync(minionsDir)) return undefined;
+    for (const file of this.listLinkFiles(minionsDir)) {
+      const link = this.readLinkFile(join(minionsDir, file));
+      if (link?.sessionPath !== sessionPath) continue;
+      const metadata = this.readMetadataFile(sessionPath);
+      if (metadata?.sessionId) return metadata.sessionId;
+      return file.replace(/\.minion-link\.json$/, "");
+    }
+    return undefined;
   }
 
   /** Get metadata file path for a session file */
@@ -1115,6 +1190,7 @@ export class SubsessionManager {
     try {
       const metaPath = this.getMetadataPath(sessionPath);
       writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+      this.syncLinkFile(metadata.sessionId, sessionPath);
       logger.debug("subsession", "metadata-written", { sessionPath, metaPath });
     } catch (err) {
       logger.debug("subsession", "metadata-write-error", {

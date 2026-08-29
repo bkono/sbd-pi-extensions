@@ -300,4 +300,68 @@ describe("runMinionSession usage accumulator", () => {
     expect(tree.get("mn-usage")?.usage.input).toBe(11);
     expect(tree.get("mn-usage")?.usage.output).toBe(7);
   });
+
+  it("steers wrap-up at config.steps then force-aborts after grace turns", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-steps-"));
+    const tree = new AgentTree();
+    tree.add("mn-steps", "alpha", "do work");
+    const steer = vi.fn(async () => {});
+    const waiter = createDeferred<ChildTerminalEvent>();
+    const abortSession = vi.fn(() => {
+      waiter.resolve({ class: "aborted", exitCode: 1, output: "" });
+      return true;
+    });
+    let onTurnEnd: ((count: number) => void) | undefined;
+    const handle = {
+      id: "mn-steps",
+      path: join(cwd, "mn-steps.jsonl"),
+      steer,
+      followUp: async () => {},
+      abort: () => {},
+      wait: () => waiter.promise,
+    };
+    const manager = {
+      startChild: async (options: CreateMinionSessionOptions) => {
+        onTurnEnd = options.onTurnEnd;
+        return handle;
+      },
+      getSessionHandle: () => handle,
+      abortSession,
+    } as unknown as SubsessionManager;
+
+    const pending = runMinionSession(
+      {
+        name: "ephemeral",
+        description: "test",
+        systemPrompt: "You are a minion.",
+        source: "ephemeral",
+        filePath: "",
+        steps: 1,
+      },
+      "do work",
+      {
+        id: "mn-steps",
+        name: "alpha",
+        modelRegistry: { getAll: () => [], find: () => undefined } as never,
+        cwd,
+        subsessionManager: manager,
+        tree,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(onTurnEnd).toBeDefined();
+    });
+    onTurnEnd?.(1);
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(steer).toHaveBeenCalledWith(expect.stringContaining("STEP LIMIT REACHED"));
+    expect(abortSession).not.toHaveBeenCalled();
+
+    onTurnEnd?.(4);
+    const result = await pending;
+    expect(abortSession).toHaveBeenCalledWith("mn-steps");
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("aborted");
+    expect(result.error).toContain("Step limit exceeded");
+  });
 });
