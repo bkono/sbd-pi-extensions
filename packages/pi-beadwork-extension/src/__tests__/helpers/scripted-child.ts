@@ -1,3 +1,4 @@
+import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   ChildSession,
   ChildSessionEvent,
@@ -20,6 +21,7 @@ function createDeferred<T>() {
  */
 export class ScriptedChildSession implements ChildSession {
   tools = new Map<string, { name: string }>();
+  customTools = new Map<string, ToolDefinition>();
   active = new Set<string>();
   listeners = new Set<(event: ChildSessionEvent) => void>();
   disposed = false;
@@ -28,13 +30,19 @@ export class ScriptedChildSession implements ChildSession {
   lastPrompt: string | undefined;
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
+  followUps: string[] = [];
+  steers: string[] = [];
   state: { messages: unknown[] } = { messages: [] };
 
-  constructor(toolNames: readonly string[]) {
+  constructor(toolNames: readonly string[], customTools: ToolDefinition[] = []) {
     for (const name of toolNames) {
       this.tools.set(name, { name });
     }
-    this.active = new Set(toolNames);
+    for (const tool of customTools) {
+      this.tools.set(tool.name, { name: tool.name });
+      this.customTools.set(tool.name, tool);
+    }
+    this.active = new Set(this.tools.keys());
   }
 
   async bindExtensions(): Promise<void> {}
@@ -83,7 +91,30 @@ export class ScriptedChildSession implements ChildSession {
 
   abortBash(): void {}
 
-  async steer(_text: string): Promise<void> {}
+  async steer(text: string): Promise<void> {
+    this.steers.push(text);
+  }
+
+  async followUp(text: string): Promise<void> {
+    if (this.disposed) {
+      throw new Error("Child is terminal; further mail is rejected");
+    }
+    this.followUps.push(text);
+  }
+
+  async executeTool(name: string, params: unknown): Promise<unknown> {
+    const tool = this.customTools.get(name);
+    if (!tool || typeof tool.execute !== "function") {
+      throw new Error(`Child tool not registered: ${name}`);
+    }
+    return tool.execute(
+      `child-${name}`,
+      params as never,
+      undefined,
+      undefined,
+      {} as ExtensionContext,
+    );
+  }
 
   waitForIdle(): Promise<void> {
     return this.idleDeferred.promise;

@@ -20,12 +20,23 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { PathOverlapLog } from "../../../../pi-minions/src/coordination/index.js";
 import {
+  ANNOUNCE_MINION_PATHS_TOOL,
+  COMM_SEND_STATUS,
+  type CommSendDetails,
   createLifecyclePacketDispatcher,
+  formatMinionMail,
   LIFECYCLE_PACKET_CUSTOM_TYPE,
   type LifecyclePacketDetails,
+  MinionCommMailbox,
+  ORCHESTRATED_COMM_TOOL_NAMES,
   OrchestrationGroupState,
   PARENT_ONLY_MINION_TOOLS,
+  PARENT_RECIPIENT_ID,
+  SEND_MINION_MESSAGE_TOOL,
+  SEND_MINION_PEER_TOOL,
+  sendMinionMessage,
 } from "../../../../pi-minions/src/orchestration/index.js";
 import {
   BEADWORK_CHILD_INSPECTION_TOOLS,
@@ -61,7 +72,18 @@ export type {
 } from "./git-bw-fixture.js";
 export { createGitBwFixture, snapshotTmuxPids } from "./git-bw-fixture.js";
 export { ScriptedChildSession } from "./scripted-child.js";
-export { BEADWORK_CHILD_INSPECTION_TOOLS, LIFECYCLE_PACKET_CUSTOM_TYPE, PARENT_ONLY_MINION_TOOLS };
+export {
+  ANNOUNCE_MINION_PATHS_TOOL,
+  BEADWORK_CHILD_INSPECTION_TOOLS,
+  COMM_SEND_STATUS,
+  formatMinionMail,
+  LIFECYCLE_PACKET_CUSTOM_TYPE,
+  ORCHESTRATED_COMM_TOOL_NAMES,
+  PARENT_ONLY_MINION_TOOLS,
+  PARENT_RECIPIENT_ID,
+  SEND_MINION_MESSAGE_TOOL,
+  SEND_MINION_PEER_TOOL,
+};
 
 export const PARENT_CODING_TOOLS = ["read", "bash", "edit", "write", "grep"] as const;
 
@@ -102,6 +124,10 @@ export type StepLogEntry = {
   packetCount: number;
   /** Active review policy. Filled from the fixture unless a step overrides it. */
   policy?: string;
+  eventClass?: string;
+  packetSeq?: number;
+  issueIds?: string[];
+  childIds?: string[];
 };
 
 export type LaunchedChild = {
@@ -162,6 +188,8 @@ export type InProcessHarness = {
   beadwork: ExtensionTestHarness;
   tree: AgentTree;
   groups: OrchestrationGroupState;
+  mailbox: MinionCommMailbox;
+  overlaps: PathOverlapLog;
   manager: SubsessionManager;
   children: Map<string, ScriptedChildSession>;
   packets: SentPacket[];
@@ -177,10 +205,13 @@ export type InProcessHarness = {
   listMinions: () => Promise<{ minions: MinionInfo[]; text: string }>;
   showMinion: (target: string) => Promise<unknown>;
   halt: (id: string) => Promise<unknown>;
+  sendMinionMessage: (to: string, body: string) => Promise<CommSendDetails>;
   invokeBeadworkTool: (name: string, params: unknown) => Promise<unknown>;
+  invokeChildTool: (childId: string, name: string, params: unknown) => Promise<unknown>;
   waitForChild: (childId: string) => Promise<ScriptedChildSession>;
   childActiveTools: (childId: string) => string[];
   settleChild: (childId: string, prose: string) => Promise<void>;
+  settleChildren: (entries: Array<{ childId: string; prose: string }>) => Promise<void>;
   waitForPackets: (count: number) => Promise<SentPacket[]>;
   lastPacket: () => SentPacket | undefined;
   launchedChildren: () => LaunchedChild[];
@@ -222,6 +253,8 @@ export async function createInProcessHarness(
   const tree = new AgentTree();
   const groups = new OrchestrationGroupState();
   const packets: SentPacket[] = [];
+  const overlaps = new PathOverlapLog();
+  let mailbox!: MinionCommMailbox;
   const dispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
     sendMessage: (message, sendOptions) => {
@@ -230,6 +263,12 @@ export async function createInProcessHarness(
         options: sendOptions as SentPacket["options"],
       });
     },
+    consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
+    drainParentMail: (childId) => {
+      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+      if (messages.length === 0) return undefined;
+      return messages.map((message) => message.body).join("\n\n");
+    },
   });
   dispatcher.open();
 
@@ -237,12 +276,10 @@ export async function createInProcessHarness(
   const parentTools = parentToolNamesFrom(beadwork);
   const manager = new SubsessionManager(fixture.cwd, join(fixture.cwd, "parent.jsonl"), undefined, {
     createChildRuntime: async (input: CreateChildRuntimeInput) => {
-      const customNames = input.customTools?.map((tool) => tool.name) ?? [];
-      const session = new ScriptedChildSession([
-        ...PARENT_CODING_TOOLS,
-        ...ALL_BEADWORK_TOOLS,
-        ...customNames,
-      ]);
+      const session = new ScriptedChildSession(
+        [...PARENT_CODING_TOOLS, ...ALL_BEADWORK_TOOLS],
+        input.customTools ?? [],
+      );
       children.set(input.id, session);
       return {
         runtime: {
@@ -256,6 +293,27 @@ export async function createInProcessHarness(
     },
   });
 
+  mailbox = new MinionCommMailbox({
+    getTree: () => tree,
+    getGroups: () => groups,
+    isLive: (id) => manager.isLive(id),
+    followUp: async (id, text) => {
+      const handle = manager.getSessionHandle(id);
+      if (!handle) {
+        throw new Error(`Child ${id} is terminal; further mail is rejected`);
+      }
+      await handle.followUp(text);
+    },
+    onParentDirected: (message) => {
+      dispatcher.enqueue({
+        class: "parentMessage",
+        groupId: message.groupId,
+        childId: message.from,
+        output: message.body,
+      });
+    },
+  });
+
   const executeOrchestrate = orchestrate({
     tree,
     pi: {
@@ -263,11 +321,14 @@ export async function createInProcessHarness(
     } as Pick<ExtensionAPI, "getAllTools">,
     subsessionManager: manager,
     groups,
+    mailbox,
+    overlaps,
     onLifecycle: (event) => dispatcher.enqueue(event),
   });
   const executeList = listMinions(tree);
   const executeShow = showMinion(tree, manager);
   const executeHalt = halt(tree, manager, groups);
+  const executeSend = sendMinionMessage({ mailbox, groups });
 
   const ids = () => ({
     epicId: fixture.epic.id,
@@ -287,6 +348,7 @@ export async function createInProcessHarness(
         issueStatus = "unknown";
       }
     }
+    const last = packets.at(-1);
     return log.record({
       step,
       epicId: extra.epicId ?? ids().epicId,
@@ -296,6 +358,13 @@ export async function createInProcessHarness(
       issueStatus,
       packetCount: extra.packetCount ?? packets.length,
       policy: extra.policy ?? fixture.reviewPolicy,
+      eventClass:
+        extra.eventClass ??
+        last?.message.details.changed.map((child) => child.eventClass).join(",") ??
+        undefined,
+      packetSeq: extra.packetSeq ?? last?.message.details.seq,
+      issueIds: extra.issueIds,
+      childIds: extra.childIds,
     });
   };
 
@@ -320,6 +389,8 @@ export async function createInProcessHarness(
     beadwork,
     tree,
     groups,
+    mailbox,
+    overlaps,
     manager,
     children,
     packets,
@@ -372,6 +443,10 @@ export async function createInProcessHarness(
     async halt(id) {
       return executeHalt("parent-halt", { id }, undefined, undefined, ctx);
     },
+    async sendMinionMessage(to, body) {
+      const result = await executeSend("parent-send", { to, body }, undefined, undefined, ctx);
+      return result.details as CommSendDetails;
+    },
     async invokeBeadworkTool(name, params) {
       const tool = beadwork.tools.get(name) as
         | { execute?: (...args: unknown[]) => unknown }
@@ -380,6 +455,10 @@ export async function createInProcessHarness(
         throw new Error(`Beadwork tool not registered: ${name}`);
       }
       return tool.execute("parent-bw-tool", params, undefined, undefined, ctx);
+    },
+    async invokeChildTool(childId, name, params) {
+      const session = await waitForChild(childId);
+      return session.executeTool(name, params);
     },
     waitForChild,
     childActiveTools(childId) {
@@ -400,6 +479,23 @@ export async function createInProcessHarness(
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       throw new Error(`Child ${childId} did not settle`);
+    },
+    async settleChildren(entries) {
+      const sessions = await Promise.all(entries.map((entry) => waitForChild(entry.childId)));
+      for (const [index, entry] of entries.entries()) {
+        sessions[index]?.finishWithProse(entry.prose);
+      }
+      const started = Date.now();
+      while (Date.now() - started < 5_000) {
+        if (entries.every((entry) => manager.getTerminal(entry.childId))) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const pending = entries
+        .filter((entry) => !manager.getTerminal(entry.childId))
+        .map((entry) => entry.childId);
+      throw new Error(`Children did not settle: ${pending.join(", ")}`);
     },
     async waitForPackets(count) {
       const started = Date.now();
@@ -457,10 +553,17 @@ export async function createInProcessHarness(
           error: showError instanceof Error ? showError.message : String(showError),
         };
       }
+      let ready: unknown;
+      try {
+        ready = await fixture.ready();
+      } catch (readyError) {
+        ready = { error: readyError instanceof Error ? readyError.message : String(readyError) };
+      }
       const dump = {
         error: error instanceof Error ? error.message : error ? String(error) : undefined,
         injectedPrompt: harness.injectedPrompt(),
         lastPacket: harness.lastPacket(),
+        lastPackets: packets.slice(-5),
         fleet: tree.getRoots().map((node) => ({
           id: node.id,
           kind: node.kind,
@@ -473,7 +576,12 @@ export async function createInProcessHarness(
         launchedTaskTypes: listLaunchedTaskTypes(tree),
         ticketShow,
         epicShow,
+        ready,
         activeTools: childId ? harness.childActiveTools(childId) : [],
+        tmuxProbe: {
+          onPath: fixture.tmuxOnPath() ?? null,
+          path: process.env.PATH,
+        },
         steps: log.entries,
       };
       console.error("[in-process] failure dump", JSON.stringify(dump, null, 2));
