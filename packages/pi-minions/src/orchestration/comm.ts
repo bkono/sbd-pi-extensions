@@ -33,7 +33,7 @@ export const PARENT_ONLY_MINION_TOOLS = [
 /** UTF-8 body cap. Test the boundary; this is not a rate limit. */
 export const MAX_MINION_MESSAGE_BYTES = 4096;
 
-/** Per-recipient in-memory accepted-message cap. mailbox-full after this. */
+/** Per-recipient in-memory pending (undelivered) depth. mailbox-full at this cap. */
 export const MAX_MAILBOX_QUEUE_DEPTH = 16;
 
 const TERMINAL_STATUSES = new Set<AgentStatus>(["completed", "failed", "aborted"]);
@@ -182,12 +182,22 @@ function closedDetails(
   return details;
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Process-local best-effort mailbox. No durable log, no exactly-once, no wait-for-reply.
  * Live children are delivered via followUp; parent-directed mail does not start a parent turn.
+ *
+ * `send` is addressed user mail (ACL, size, pending-depth cap).
+ * `enqueue` is a non-throwing live-notify for runtime notices (3.5 overlap); not user mail.
  */
 export class MinionCommMailbox {
+  /** Inspection log. Append-only; ids stay after delivery. Does not drive the cap. */
   private readonly items: QueuedMinionMessage[] = [];
+  /** Undelivered user mail per recipient. mailbox-full counts this, not `items`. */
+  private readonly pendingByRecipient = new Map<string, QueuedMinionMessage[]>();
   private bindState?: CommMailboxBind;
 
   constructor(deps?: CommMailboxBind) {
@@ -202,12 +212,57 @@ export class MinionCommMailbox {
     return this.items;
   }
 
+  /** Undelivered pending depth for a recipient. Delivered inspection ids are not counted. */
   depthFor(to: string): number {
-    let count = 0;
-    for (const item of this.items) {
-      if (item.to === to) count++;
+    return this.pendingByRecipient.get(to)?.length ?? 0;
+  }
+
+  /**
+   * Runtime live-notify. Not addressed user mail.
+   * Records for inspection and followUp-delivers to a live child.
+   * Never throws. Never applies ACL, body-size, or the pending-depth cap.
+   * 3.5 overlap uses this so a notice cannot look like a write/mail reject.
+   */
+  enqueue(input: { from: string; to: string; groupId: string; body: string }): QueuedMinionMessage {
+    const message: QueuedMinionMessage = {
+      id: generateId(),
+      from: input.from,
+      to: input.to,
+      groupId: input.groupId,
+      body: input.body,
+      bytes: bodyBytes(input.body),
+      createdAt: Date.now(),
+    };
+    this.items.push(message);
+    logger.info("comm", "enqueue", {
+      messageId: message.id,
+      from: message.from,
+      to: message.to,
+      bytes: message.bytes,
+    });
+    try {
+      if (this.bindState?.isLive(message.to) === true) {
+        // Body as-is: the caller owns the notice text. Do not wrap as minion-mail.
+        void Promise.resolve(this.bindState.followUp(message.to, message.body)).catch(
+          (err: unknown) => {
+            logger.warn("comm", "enqueue-deliver-failed", {
+              messageId: message.id,
+              from: message.from,
+              to: message.to,
+              error: errorMessage(err),
+            });
+          },
+        );
+      }
+    } catch (err: unknown) {
+      logger.warn("comm", "enqueue-deliver-failed", {
+        messageId: message.id,
+        from: message.from,
+        to: message.to,
+        error: errorMessage(err),
+      });
     }
-    return count;
+    return message;
   }
 
   send(input: SendMinionMessageInput): CommSendDetails {
@@ -235,7 +290,7 @@ export class MinionCommMailbox {
       if (from === PARENT_RECIPIENT_ID) {
         return closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
       }
-      return this.accept(attempted, bytes, false);
+      return this.acceptOrMailboxFull(attempted, bytes, false);
     }
 
     if (to.length === 0 || to === from) {
@@ -259,13 +314,26 @@ export class MinionCommMailbox {
       return details;
     }
 
-    if (this.depthFor(to) >= MAX_MAILBOX_QUEUE_DEPTH) {
-      const details = closedDetails(attempted, COMM_SEND_STATUS.mailboxFull, bytes);
-      recordSendFailure(tree, from, details.status);
+    return this.acceptOrMailboxFull(attempted, bytes, true);
+  }
+
+  private acceptOrMailboxFull(
+    input: SendMinionMessageInput,
+    bytes: number,
+    deliverToChild: boolean,
+  ): CommSendDetails {
+    if (this.depthFor(input.to) >= MAX_MAILBOX_QUEUE_DEPTH) {
+      const details = closedDetails(input, COMM_SEND_STATUS.mailboxFull, bytes);
+      recordSendFailure(this.bindState?.getTree(), input.from, details.status);
       return details;
     }
+    return this.accept(input, bytes, deliverToChild);
+  }
 
-    return this.accept(attempted, bytes, true);
+  private pushPending(message: QueuedMinionMessage): void {
+    const queue = this.pendingByRecipient.get(message.to);
+    if (queue) queue.push(message);
+    else this.pendingByRecipient.set(message.to, [message]);
   }
 
   private accept(
@@ -308,16 +376,18 @@ export class MinionCommMailbox {
     logSend(details);
 
     if (deliverToChild) {
+      // Handed to followUp: no longer pending. Inspection id stays in `items`.
       const text = formatMinionMail(input.from, input.body);
-      void this.bindState?.followUp(input.to, text).catch((err: unknown) => {
-        const error = err instanceof Error ? err.message : String(err);
+      void Promise.resolve(this.bindState?.followUp(input.to, text)).catch((err: unknown) => {
         logger.warn("comm", "deliver-failed", {
           messageId: message.id,
           from: input.from,
           to: input.to,
-          error,
+          error: errorMessage(err),
         });
       });
+    } else {
+      this.pushPending(message);
     }
 
     return details;

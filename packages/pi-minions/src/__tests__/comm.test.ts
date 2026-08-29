@@ -571,25 +571,46 @@ describe("mailbox bounds and closed reasons", () => {
     expect(mailbox.list()).toHaveLength(1);
   });
 
-  it("rejects mailbox-full at the per-recipient depth cap", async () => {
+  it("does not treat delivered live mail as a lifetime quota", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
-    const { mailbox } = liveMailbox(tree, groupId, [childId, peerId]);
+    const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
+    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+
+    for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH + 1; i++) {
+      const result = await execTool(send, { to: peerId, body: `msg-${i}` });
+      expect(result.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
+    }
+    expect(mailbox.list()).toHaveLength(MAX_MAILBOX_QUEUE_DEPTH + 1);
+    expect(mailbox.depthFor(peerId)).toBe(0);
+    expect(followUps).toHaveLength(MAX_MAILBOX_QUEUE_DEPTH + 1);
+  });
+
+  it("rejects mailbox-full only when pending undelivered depth is at cap", async () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
     const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
     for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
-      const result = await execTool(send, { to: peerId, body: `msg-${i}` });
+      const result = await execTool(send, { to: PARENT_RECIPIENT_ID, body: `pending-${i}` });
       expect(result.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
     }
-    const full = await execTool(send, { to: peerId, body: "overflow" });
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(MAX_MAILBOX_QUEUE_DEPTH);
+    expect(followUps).toEqual([]);
+
+    const full = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "overflow" });
     expect(full.details).toMatchObject({
       status: COMM_SEND_STATUS.mailboxFull,
       parentTurnTriggered: false,
     });
-    expect(mailbox.depthFor(peerId)).toBe(MAX_MAILBOX_QUEUE_DEPTH);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(MAX_MAILBOX_QUEUE_DEPTH);
+    expect(mailbox.list()).toHaveLength(MAX_MAILBOX_QUEUE_DEPTH);
 
-    const toParent = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "still ok" });
-    expect(toParent.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
+    const toPeer = await execTool(send, { to: peerId, body: "live still ok" });
+    expect(toPeer.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
+    expect(mailbox.depthFor(peerId)).toBe(0);
+    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "live still ok") }]);
   });
 
   it("rejects group-not-open when the bound group is not the open group", async () => {
@@ -604,6 +625,118 @@ describe("mailbox bounds and closed reasons", () => {
       parentTurnTriggered: false,
     });
     expect(mailbox.list()).toEqual([]);
+  });
+});
+
+describe("mailbox enqueue live-notify", () => {
+  it("records and followUp-delivers without impersonating user mail", () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
+    const body = "overlap: a/b.ts with mn-self (Self task). Message them directly.";
+
+    const notice = mailbox.enqueue({ from: childId, to: peerId, groupId, body });
+
+    expect(notice).toMatchObject({ from: childId, to: peerId, groupId, body });
+    expect(mailbox.list()).toEqual([expect.objectContaining({ id: notice.id, body })]);
+    expect(mailbox.depthFor(peerId)).toBe(0);
+    expect(followUps).toEqual([{ id: peerId, text: body }]);
+    expect(followUps[0]?.text).not.toBe(formatMinionMail(childId, body));
+    expect(tree.get(childId)?.messages ?? []).toEqual([]);
+    expect(tree.get(peerId)?.messages ?? []).toEqual([]);
+    expect(info).toHaveBeenCalledWith(
+      "comm",
+      "enqueue",
+      expect.objectContaining({
+        messageId: notice.id,
+        from: childId,
+        to: peerId,
+        bytes: Buffer.byteLength(body, "utf8"),
+      }),
+    );
+    expect(info).not.toHaveBeenCalledWith("comm", "send", expect.anything());
+  });
+
+  it("does not apply the pending-depth cap and still delivers while user mail is full", () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
+
+    for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
+      mailbox.send({
+        from: childId,
+        to: PARENT_RECIPIENT_ID,
+        groupId,
+        body: `pending-${i}`,
+      });
+    }
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(MAX_MAILBOX_QUEUE_DEPTH);
+    expect(
+      mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "overflow" }).status,
+    ).toBe(COMM_SEND_STATUS.mailboxFull);
+
+    for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH + 1; i++) {
+      const notice = mailbox.enqueue({
+        from: "overlap",
+        to: peerId,
+        groupId,
+        body: `notice-${i}`,
+      });
+      expect(notice.body).toBe(`notice-${i}`);
+    }
+    expect(mailbox.depthFor(peerId)).toBe(0);
+    expect(followUps).toEqual(
+      Array.from({ length: MAX_MAILBOX_QUEUE_DEPTH + 1 }, (_, i) => ({
+        id: peerId,
+        text: `notice-${i}`,
+      })),
+    );
+  });
+
+  it("does not throw when the recipient is not live or followUp rejects", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps } = liveMailbox(tree, groupId, []);
+    expect(() =>
+      mailbox.enqueue({ from: childId, to: peerId, groupId, body: "offline" }),
+    ).not.toThrow();
+    expect(followUps).toEqual([]);
+    expect(mailbox.list()).toHaveLength(1);
+
+    const rejecting = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd: "/tmp" }) }),
+      isLive: (id) => id === peerId,
+      followUp: async () => {
+        throw new Error("Child mn-peer is terminal; further mail is rejected");
+      },
+    });
+    expect(() =>
+      rejecting.enqueue({ from: childId, to: peerId, groupId, body: "race" }),
+    ).not.toThrow();
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "comm",
+        "enqueue-deliver-failed",
+        expect.objectContaining({ to: peerId }),
+      );
+    });
+
+    const syncThrow = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd: "/tmp" }) }),
+      isLive: () => true,
+      followUp: () => {
+        throw new Error("sync followUp failure");
+      },
+    });
+    expect(() =>
+      syncThrow.enqueue({ from: childId, to: peerId, groupId, body: "sync" }),
+    ).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      "comm",
+      "enqueue-deliver-failed",
+      expect.objectContaining({ error: "sync followUp failure" }),
+    );
   });
 });
 
