@@ -12,6 +12,8 @@
     "sbdpi-vur.4.3",
     "sbdpi-vur.4.6"
   ],
+  "closed_at": "2026-08-29T02:02:04Z",
+  "close_reason": "In-process /bw run → orchestrate → settle harness (81db9a2). Review PASS. Settlement does not close tickets. 4.3/4.6 must reuse this harness.",
   "created": "2026-08-28T21:31:29Z",
   "description": "In-process integration: one Beadwork ticket from `/bw run` through implementation child settle without tmux, without closing the ticket automatically.\n\n## Background\n\nFirst vertical slice proving the two packages together. **This issue owns the reusable scripted-parent / temp git / Beadwork fixture harness** used by the ticket-policy and scope-policy epic e2es. Those siblings add scenario files; they must not fork a second harness.\n\n## Approach\n\nTemporary git+bw fixture. Scripted/stub parent turns. Real orchestrate + session factory. PATH without tmux. Child output may be **prose-only** (no schema).\n\nAssert:\n\n- no tmux process; no worktree created\n- `/bw run` inject happened (captured payload: ids + policy + refresh, not a frozen ready list)\n- print/json `/bw run` would reject (unit or this harness)\n- orchestrate handle returns before completion; `accepted` is starting not liveness\n- parent not blocked while child runs\n- domain metadata on the child\n- settlement does not close the issue\n- exact active-tool set: inspection allowlist present; `beadwork_close_issue` / start / reopen absent; no parent `orchestrate`/`spawn`/`halt` on the child\n- list_minions shows orchestrated child with description/taskType\n- packet contents: changed child + fleet + delimited nudge (once packets exist)\n\n## Success criteria\n\n- Deterministic CI, no paid LLM.\n- Harness is importable by 4.3 and 4.6.\n\n## Test plan / logging\n\nEvery step logs: timestamp, step, epic id, ticket id, child id, group id, issue status, packet count.\n\nOn failure dump: injected prompt, last packet, fleet snapshot, `bw show` ticket, active tools. Not production telemetry.\n\n## Considerations\n\nNeeds packets, spawn-compat allowlist, /bw run, worker tools gone, inspection/halt tools.",
   "id": "sbdpi-vur.4.2",
@@ -26,8 +28,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Prove one in-process ticket from /bw run through child settlement",
   "type": "feature",
-  "updated_at": "2026-08-29T01:34:01Z"
+  "updated_at": "2026-08-29T02:02:04Z"
 }
