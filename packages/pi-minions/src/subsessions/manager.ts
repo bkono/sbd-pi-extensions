@@ -299,24 +299,29 @@ export class SubsessionManager {
     this.children.set(id, child);
     this.activeSessions.set(id, session);
 
-    await session.bindExtensions({
-      shutdownHandler: () => {
-        this.abortChild(id);
-      },
-    });
-    await this.rejectStartIfShutdown(id);
-    if (this.consumePendingAbort(id) || this.terminals.has(id) || child.terminal) {
-      return this.finishAbortedStart(id, sessionPath);
-    }
-    this.applyTools(id);
-
-    if (options.toolSyncEnabled !== false) {
-      await this.waitForAsyncTools(id, session, options.parentToolNames, options.toolSyncMaxWait);
+    try {
+      await session.bindExtensions({
+        shutdownHandler: () => {
+          this.abortChild(id);
+        },
+      });
       await this.rejectStartIfShutdown(id);
       if (this.consumePendingAbort(id) || this.terminals.has(id) || child.terminal) {
         return this.finishAbortedStart(id, sessionPath);
       }
       this.applyTools(id);
+
+      if (options.toolSyncEnabled !== false) {
+        await this.waitForAsyncTools(id, session, options.parentToolNames, options.toolSyncMaxWait);
+        await this.rejectStartIfShutdown(id);
+        if (this.consumePendingAbort(id) || this.terminals.has(id) || child.terminal) {
+          return this.finishAbortedStart(id, sessionPath);
+        }
+        this.applyTools(id);
+      }
+    } catch (err) {
+      if (this.shutdown) throw err;
+      await this.failStart(id, err);
     }
 
     // Latch shutdown / terminal before publishing so disposeAll during
@@ -552,6 +557,29 @@ export class SubsessionManager {
     }
     logger.debug("subsession", "created-aborted", { id, path: sessionPath });
     return this.buildHandle(id, sessionPath);
+  }
+
+  /** Bind/tool-sync failure after registration: failed, not settled, then rethrow. */
+  private async failStart(id: string, error: unknown): Promise<never> {
+    const child = this.children.get(id);
+    const message = error instanceof Error ? error.message : String(error);
+    if (child && !this.terminals.has(id) && !child.terminal) {
+      if (!child.disposePromise) {
+        try {
+          child.session.abortBash?.();
+        } catch {
+          /* unmanaged processes cannot be guaranteed */
+        }
+        try {
+          void child.session.abort();
+        } catch {
+          /* ignore abort errors from a half-started child */
+        }
+      }
+      this.commitTerminal(id, this.makeTerminal(child, "failed", message));
+    }
+    await this.disposeChild(id);
+    throw error instanceof Error ? error : new Error(message);
   }
 
   private requireLiveSession(id: string): ChildSession {

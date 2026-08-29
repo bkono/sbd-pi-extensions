@@ -834,6 +834,67 @@ describe("pending abort before startChild publishes", () => {
   });
 });
 
+describe("startChild bindExtensions failure", () => {
+  it("disposes child records and records failed when bindExtensions rejects", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-bind-fail-"));
+    const failing = new FakeChildSession();
+    const succeeding = new FakeChildSession();
+    const sessions = [failing, succeeding];
+    let created = 0;
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async ({ id }) => {
+        const session = sessions[created++] ?? new FakeChildSession();
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, `${id}.jsonl`),
+        };
+      },
+    });
+
+    let waiter: ReturnType<SubsessionManager["waitForChild"]> | undefined;
+    failing.bindExtensions = async () => {
+      waiter = manager.waitForChild("child-bind-fail");
+      throw new Error("extension session_start failed");
+    };
+
+    await expect(manager.startChild(startOptions("child-bind-fail", cwd))).rejects.toThrow(
+      /extension session_start failed/,
+    );
+
+    expect(manager.getSessionHandle("child-bind-fail")).toBeUndefined();
+    expect(manager.getSession("child-bind-fail")).toBeUndefined();
+    expect(failing.disposed).toBe(true);
+    expect(failing.disposeCount).toBe(1);
+    expect(manager.getTerminal("child-bind-fail")?.class).toBe("failed");
+    await expect(waiter).resolves.toMatchObject({
+      class: "failed",
+      error: "extension session_start failed",
+    });
+    expect(manager.list().find((entry) => entry.sessionId === "child-bind-fail")).toEqual(
+      expect.objectContaining({
+        sessionId: "child-bind-fail",
+        status: "failed",
+      }),
+    );
+    expect(
+      manager
+        .list()
+        .some((entry) => entry.sessionId === "child-bind-fail" && entry.status === "running"),
+    ).toBe(false);
+
+    const handle = await manager.startChild(startOptions("child-bind-ok", cwd));
+    expect(handle.id).toBe("child-bind-ok");
+    expect(manager.getSessionHandle("child-bind-ok")).toBe(handle);
+    expect(manager.getSession("child-bind-ok")).toBe(succeeding);
+    expect(succeeding.disposed).toBe(false);
+  });
+});
+
 describe("single-winner mail vs terminal", () => {
   const logs: Array<{ msg: string; data: Record<string, unknown> }> = [];
 
