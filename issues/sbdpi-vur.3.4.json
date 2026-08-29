@@ -8,6 +8,8 @@
     "sbdpi-vur.3",
     "sbdpi-vur.4.3"
   ],
+  "closed_at": "2026-08-29T02:47:08Z",
+  "close_reason": "Single-winner mail vs settle via 1.5 latch (024e6f1). Review PASS.",
   "created": "2026-08-28T21:31:29Z",
   "description": "Single-winner between child terminal commit and inbound child mail. Do not double-complete. Not a wait state machine.\n\n## Background\n\nIf mail is already accepted as child followUp, that continuation must go idle before **one** settled packet. If terminal is already committed, later mail is recipient-terminal.\n\nSame latch for **failed**, **aborted/halt**, and **parent session_shutdown**, not only happy-path settle.\n\n## Races (all required)\n\n- mail then settle → one settled after continuation idles; mail delivered\n- settle commit then mail → recipient-terminal; one terminal event\n- failed vs mail (both orders)\n- shutdown vs mail (both orders)\n- halt vs mail\n\n## Success criteria\n\n- Exactly one terminal event per run.\n- No settled/failed/aborted packet plus a still-running prompt.\n\n## Test plan\n\n- Each race above.\n- Logging: winner (settle | fail | abort | shutdown | mail-then-settle), terminal event count = 1.\n\n## Considerations\n\nHook the runner’s terminal commit latch from 1.5. Keep it small.",
   "id": "sbdpi-vur.3.4",
@@ -17,8 +19,8 @@
   ],
   "parent": "sbdpi-vur.3",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Serialize child settlement against inbound mail with one terminal winner",
   "type": "task",
-  "updated_at": "2026-08-29T02:28:14Z"
+  "updated_at": "2026-08-29T02:47:08Z"
 }
