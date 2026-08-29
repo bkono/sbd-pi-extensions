@@ -8,6 +8,8 @@
   "blocks": [
     "sbdpi-vur.4"
   ],
+  "closed_at": "2026-08-29T03:29:24Z",
+  "close_reason": "Cutover removal regressions + TUI smoke checklist (b4b74ca). Review PASS. Production src clean of kill list.",
   "created": "2026-08-28T21:31:30Z",
   "description": "Removal regressions, quality gates, and TUI smoke for the published cutover.\n\n## Forbidden in production src (CI must fail if they return)\n\nTools: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check`.\n\nModules/imports: `tmux.ts`, `orchestrator.ts` / `runBoundedEpicLoop`, `worktree.ts` managed lifecycle, `registry.ts` as execution truth, `actions/delegate.ts`, `actions/landing.ts`, `actions/workers.ts`, `worker-diagnostics.ts` if worker-only, `tui/worker-manager.ts`.\n\nConfig/env still accepted as live: `tmux.*`, `worktrees.*`, `landing.*`, `supervisor.*`, `workerExecution.*`, `run.defaultWorkers|defaultUntil|defaultMaxCycles|pollIntervalMs`, `storage.workerRegistryFile|runtimeDir`, and the `PI_BEADWORK_*` names listed on the config-cutover issue.\n\nOrchestration symbols that must not appear as live APIs: `minion_report_result`, `minion_wait`, `protocolStatus`, `assignmentPermit`, `beadwork_bind_attempt`, `shouldStopAfterTurn` as an orchestration hook.\n\nNo path-intent code that rejects writes. No beadwork import of live minions `AgentTree`. No second model-visible lifecycle channel from beadwork for minion children.\n\n## Retain\n\n- `attribution.ts` as a domain helper\n- inspection tools on children via minions allowlist\n- `beadwork_sync` on parent\n\n## Tests\n\n- Grep/import tests for the lists above; log each probe result.\n- `/bw run --workers` rejects.\n- `npm run lint \u0026\u0026 npm run test \u0026\u0026 npm run typecheck \u0026\u0026 npm run build`.\n\n## TUI smoke (documented checklist)\n\nParent stays interactive; one packet after several idle settlements; `/bw run` does not spawn tmux.\n\n## Failure bundles (harness only, not production telemetry)\n\nOn e2e failure, dump: packet history, fleet snapshot, `bw ready`, relevant `bw show`, active child tool names, removed-symbol probes. Machine-readable scenario logs from 4.2/4.3/4.6.\n\n## Considerations\n\nThis issue is the CI tripwire after deletion. Do not reintroduce shims to make greps pass.",
   "id": "sbdpi-vur.4.5",
@@ -16,8 +18,8 @@
   ],
   "parent": "sbdpi-vur.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add removal regressions, quality gates, and TUI smoke checklist",
   "type": "task",
-  "updated_at": "2026-08-29T03:11:35Z"
+  "updated_at": "2026-08-29T03:29:24Z"
 }
