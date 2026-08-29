@@ -7,6 +7,8 @@
     "sbdpi-vur.2",
     "sbdpi-vur.4.4"
   ],
+  "closed_at": "2026-08-29T01:04:00Z",
+  "close_reason": "CLI /bw run is epic-only; no bounded-epic-loop copy (514449c). Review PASS.",
   "created": "2026-08-28T21:31:28Z",
   "description": "Beadwork **CLI** copy only: aliases, help, completions, command-facing strings.\n\n## Background\n\nAliases still say “Run a bounded epic loop”. Completions still offer workers/until/noSpawn.\n\n## Owns\n\n- `command-aliases.ts`\n- `command-completions.ts` for `/bw run` (epic id only; reject supervisor flags)\n- command help strings in those CLI files\n\n## Does not own\n\n- `/bw abandon` command or its completions — **2.6** entirely.\n- TUI tabs/statusline — **2.5**.\n- Package READMEs, operator guides, migration docs — **4.4**.\n- No placeholder/TODO for abandon.\n\n## Success criteria\n\n- `/bw run` help and completions are epic-only.\n- No “bounded epic loop” in CLI copy.\n\n## Test plan\n\n- Completions values for run; rejected flags.\n- Grep command descriptions for tmux/workers/bounded epic loop.\n\n## Considerations\n\nIf `/bw run` argv changes land in 2.3, this issue follows 2.3. Do not wait on 2.6.",
   "id": "sbdpi-vur.2.8",
@@ -16,8 +18,8 @@
   ],
   "parent": "sbdpi-vur.2",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Update Beadwork CLI help, completions, and in-tree worker docs",
   "type": "chore",
-  "updated_at": "2026-08-29T00:47:40Z"
+  "updated_at": "2026-08-29T01:04:00Z"
 }
