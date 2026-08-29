@@ -1,18 +1,27 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
 import { nudgeFor } from "../nudges.js";
 import {
   CHILD_OUTPUT_CHAR_CAP,
+  COMM_SEND_STATUS,
   createLifecyclePacketDispatcher,
+  injectOrchestratedCommTools,
   LIFECYCLE_PACKET_CUSTOM_TYPE,
   type LifecyclePacketDetails,
+  MinionCommMailbox,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
+  PARENT_RECIPIENT_ID,
+  SEND_MINION_PEER_TOOL,
 } from "../orchestration/index.js";
 import { EventBus } from "../subsessions/event-bus.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
@@ -103,6 +112,70 @@ function harness() {
   }
 
   return { tree, sendMessage, dispatcher, drain, pending };
+}
+
+async function execTool(tool: ToolDefinition, params: unknown) {
+  const result = await tool.execute(
+    "call-1",
+    params as never,
+    undefined,
+    undefined,
+    {} as ExtensionContext,
+  );
+  return result as { content: Array<{ text?: string }>; details: unknown };
+}
+
+function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string }) {
+  const pending: Array<() => void> = [];
+  const tree = new AgentTree();
+  const sendMessage = vi.fn();
+  const groupId = opts?.groupId ?? "grp-1";
+  const askId = opts?.askId ?? "mn-ask";
+  const otherId = opts?.otherId ?? "mn-other";
+  addOrchestrated(tree, askId, {
+    groupId,
+    taskType: "implementation",
+    description: "Need a ruling",
+    lastActivity: "waiting on parent",
+  });
+  addOrchestrated(tree, otherId, {
+    groupId,
+    taskType: "fix",
+    description: "Fix the race",
+  });
+
+  let mailbox!: MinionCommMailbox;
+  const dispatcher = createLifecyclePacketDispatcher({
+    getTree: () => tree,
+    sendMessage: sendMessage as ExtensionAPI["sendMessage"],
+    now: () => 10_000,
+    schedule: (run) => pending.push(run),
+    drainParentMail: (childId) => {
+      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+      if (messages.length === 0) return undefined;
+      return messages.map((message) => message.body).join("\n\n");
+    },
+  });
+  mailbox = new MinionCommMailbox({
+    getTree: () => tree,
+    getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd: "/tmp" }) }),
+    isLive: (id) => tree.get(id)?.status === "running",
+    followUp: async () => {},
+    onParentDirected: (message) => {
+      dispatcher.enqueue({
+        class: "parentMessage",
+        groupId: message.groupId,
+        childId: message.from,
+        output: message.body,
+      });
+    },
+  });
+
+  function drain() {
+    while (pending.length > 0) pending.shift()?.();
+  }
+
+  return { tree, sendMessage, dispatcher, mailbox, drain, pending, groupId, askId, otherId };
 }
 
 function logPacket(
@@ -503,5 +576,176 @@ describe("integration: orchestrate lifecycle to followUp", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls.every((call) => call[1]?.deliverAs === "followUp")).toBe(true);
     expect(sendMessage.mock.calls.every((call) => call[1]?.deliverAs !== "steer")).toBe(true);
+  });
+});
+
+describe("live child parentMessage wake", () => {
+  it("send-to-parent yields one parentMessage packet and the child stays running", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const { tree, sendMessage, mailbox, drain, groupId, askId, otherId } = wakeHarness();
+    const injected = injectOrchestratedCommTools({
+      childId: askId,
+      groupId,
+      tree,
+      mailbox,
+    });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+    const sent = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "Which approach?" });
+    expect(sent.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      from: askId,
+      to: PARENT_RECIPIENT_ID,
+      parentTurnTriggered: false,
+    });
+    expect(tree.get(askId)?.status).toBe("running");
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    const packet = packetOf(sendMessage);
+    expect(packet.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+    expect(packet.message.details.changed).toHaveLength(1);
+    expect(packet.message.details.changed[0]).toMatchObject({
+      childId: askId,
+      eventClass: "parentMessage",
+      output: "Which approach?",
+    });
+    const liveQuestion = nudgeFor({ taskType: "implementation" }, "parentMessage");
+    const settledGeneric = nudgeFor({}, "settled");
+    expect(packet.message.details.changed[0]?.nudge).toBe(liveQuestion);
+    expect(packet.message.details.changed[0]?.nudge).not.toBe(settledGeneric);
+    expect(packet.message.details.changed[0]?.nudge).not.toBe(
+      nudgeFor({ taskType: "implementation" }, "settled"),
+    );
+    expect(packet.message.details.stillRunning.map((child) => child.childId).sort()).toEqual(
+      [askId, otherId].sort(),
+    );
+    expect(packet.message.content).toContain("Which approach?");
+    expect(packet.message.content).toContain(liveQuestion);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
+    expect(mailbox.list()).toHaveLength(1);
+
+    console.log("parent-message-wake", {
+      eventClass: packet.message.details.changed[0]?.eventClass,
+      stillRunning: packet.message.details.stillRunning.some((child) => child.childId === askId),
+      nudgeExcerpt: liveQuestion.slice(0, 80),
+    });
+    expect(info).toHaveBeenCalledWith(
+      "packets",
+      "parent-message",
+      expect.objectContaining({
+        eventClass: "parentMessage",
+        childId: askId,
+        stillRunning: true,
+        nudgeExcerpt: liveQuestion.slice(0, 80),
+      }),
+    );
+  });
+
+  it("uses the live-question nudge, not the settled generic", () => {
+    const { tree, sendMessage, dispatcher, drain } = harness();
+    addOrchestrated(tree, "mn-ask", { taskType: "implementation" });
+    dispatcher.enqueue({
+      class: "parentMessage",
+      groupId: "grp-1",
+      childId: "mn-ask",
+      output: "Need a decision",
+    });
+    drain();
+
+    const changed = packetOf(sendMessage).message.details.changed[0];
+    const liveQuestion = nudgeFor({ taskType: "implementation" }, "parentMessage");
+    expect(changed?.eventClass).toBe("parentMessage");
+    expect(changed?.nudge).toBe(liveQuestion);
+    expect(changed?.nudge).not.toBe(nudgeFor({}, "settled"));
+    expect(changed?.nudge).not.toBe(nudgeFor({ taskType: "implementation" }, "settled"));
+    expect(changed?.nudge.toLowerCase()).toMatch(/still running|has not settled|not settlement/);
+    expect(
+      packetOf(sendMessage).message.details.stillRunning.map((child) => child.childId),
+    ).toEqual(["mn-ask"]);
+  });
+
+  it("coalesces a parent question with another child's settlement into one packet", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const { tree, sendMessage, mailbox, dispatcher, drain, groupId, askId, otherId } =
+      wakeHarness();
+    const injected = injectOrchestratedCommTools({
+      childId: askId,
+      groupId,
+      tree,
+      mailbox,
+    });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "Blocked on API shape" });
+
+    tree.updateStatus(otherId, "completed", 0);
+    dispatcher.enqueue({
+      class: "settled",
+      groupId,
+      childId: otherId,
+      output: "patched",
+    });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const packet = packetOf(sendMessage);
+    const classes = packet.message.details.changed.map((child) => child.eventClass);
+    const ids = packet.message.details.changed.map((child) => child.childId);
+    expect(ids.sort()).toEqual([askId, otherId].sort());
+    expect(new Set(classes)).toEqual(new Set(["parentMessage", "settled"]));
+    expect(classes).not.toEqual(["parentMessage", "parentMessage"]);
+
+    const byId = Object.fromEntries(
+      packet.message.details.changed.map((child) => [child.childId, child]),
+    );
+    expect(byId[askId]?.eventClass).toBe("parentMessage");
+    expect(byId[otherId]?.eventClass).toBe("settled");
+    expect(byId[askId]?.nudge).toBe(nudgeFor({ taskType: "implementation" }, "parentMessage"));
+    expect(byId[otherId]?.nudge).toBe(nudgeFor({ taskType: "fix" }, "settled"));
+    expect(byId[askId]?.nudge).not.toBe(byId[otherId]?.nudge);
+    expect(packet.message.details.stillRunning.map((child) => child.childId)).toEqual([askId]);
+    expect(tree.get(askId)?.status).toBe("running");
+    expect(tree.get(otherId)?.status).toBe("completed");
+
+    const liveQuestion = nudgeFor({ taskType: "implementation" }, "parentMessage");
+    console.log("parent-message-coalesce", {
+      eventClasses: classes,
+      stillRunning: packet.message.details.stillRunning.some((child) => child.childId === askId),
+      nudgeExcerpt: liveQuestion.slice(0, 80),
+    });
+    expect(info).toHaveBeenCalledWith(
+      "packets",
+      "parent-message",
+      expect.objectContaining({
+        eventClass: "parentMessage",
+        childId: askId,
+        stillRunning: true,
+        nudgeExcerpt: liveQuestion.slice(0, 80),
+      }),
+    );
+  });
+
+  it("folds multiple questions from the same live child into one packet with drained bodies", async () => {
+    const { tree, sendMessage, mailbox, drain, groupId, askId } = wakeHarness();
+    const injected = injectOrchestratedCommTools({
+      childId: askId,
+      groupId,
+      tree,
+      mailbox,
+    });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "First question" });
+    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "Second question" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const packet = packetOf(sendMessage);
+    expect(packet.message.details.changed).toHaveLength(1);
+    expect(packet.message.details.changed[0]?.eventClass).toBe("parentMessage");
+    expect(packet.message.details.changed[0]?.output).toBe("First question\n\nSecond question");
+    expect(packet.message.details.stillRunning.map((child) => child.childId)).toContain(askId);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
+    expect(mailbox.list()).toHaveLength(2);
   });
 });

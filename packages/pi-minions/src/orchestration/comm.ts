@@ -156,6 +156,11 @@ export interface CommMailboxBind {
   getGroups: () => Pick<OrchestrationGroupState, "getOpenGroup">;
   isLive: (id: string) => boolean;
   followUp: (id: string, text: string) => Promise<void>;
+  /**
+   * Child → parent mail is a parent-waking event (3.3). Peer mail must not call this.
+   * The packet dispatcher coalesces; this callback must not send a parent packet itself.
+   */
+  onParentDirected?: (message: QueuedMinionMessage) => void;
 }
 
 function isTerminalStatus(status: AgentStatus): boolean {
@@ -220,10 +225,12 @@ function errorMessage(err: unknown): string {
 
 /**
  * Process-local best-effort mailbox. No durable log, no exactly-once, no wait-for-reply.
- * Live children are delivered via followUp; parent-directed mail does not start a parent turn.
+ * Live children are delivered via followUp. Parent-directed mail is recorded pending and
+ * wakes the parent through onParentDirected (3.3 packet), not through this send path.
  *
  * `send` is addressed user mail (ACL, size, pending-depth cap).
  * `enqueue` is a non-throwing live-notify for runtime notices (3.5 overlap); not user mail.
+ * `list()` is append-only inspection. Pending depth and packet output use takePending.
  */
 export class MinionCommMailbox {
   /** Inspection log. Append-only; ids stay after delivery. Does not drive the cap. */
@@ -247,6 +254,28 @@ export class MinionCommMailbox {
   /** Undelivered pending depth for a recipient. Delivered inspection ids are not counted. */
   depthFor(to: string): number {
     return this.pendingByRecipient.get(to)?.length ?? 0;
+  }
+
+  /**
+   * Drain undelivered pending for a recipient. Inspection ids stay in `list()`.
+   * Optional `from` takes only that sender's pending. Do not scan `list()` for this.
+   */
+  takePending(to: string, from?: string): QueuedMinionMessage[] {
+    const queue = this.pendingByRecipient.get(to);
+    if (!queue || queue.length === 0) return [];
+    if (from === undefined) {
+      this.pendingByRecipient.delete(to);
+      return queue;
+    }
+    const taken: QueuedMinionMessage[] = [];
+    const rest: QueuedMinionMessage[] = [];
+    for (const message of queue) {
+      if (message.from === from) taken.push(message);
+      else rest.push(message);
+    }
+    if (rest.length === 0) this.pendingByRecipient.delete(to);
+    else this.pendingByRecipient.set(to, rest);
+    return taken;
   }
 
   /**
@@ -420,6 +449,18 @@ export class MinionCommMailbox {
       });
     } else {
       this.pushPending(message);
+      if (input.to === PARENT_RECIPIENT_ID) {
+        try {
+          this.bindState?.onParentDirected?.(message);
+        } catch (err: unknown) {
+          logger.warn("comm", "parent-directed-wake-failed", {
+            messageId: message.id,
+            from: input.from,
+            to: input.to,
+            error: errorMessage(err),
+          });
+        }
+      }
     }
 
     return details;
@@ -529,7 +570,8 @@ function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
     promptSnippet: "Message a live peer or the parent without waiting for a reply",
     promptGuidelines: [
       "Messages succeed only while the recipient is live. Do not wait for a reply.",
-      `Use to="${PARENT_RECIPIENT_ID}" for the parent. Peer messages do not start a parent turn.`,
+      `Use to="${PARENT_RECIPIENT_ID}" for the parent. That wakes the parent as a parentMessage packet; you stay running.`,
+      "Peer messages do not start a parent turn.",
     ],
     parameters: SendMinionPeerParams,
     async execute(

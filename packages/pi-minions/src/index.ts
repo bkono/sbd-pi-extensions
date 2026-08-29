@@ -19,6 +19,7 @@ import {
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
+  PARENT_RECIPIENT_ID,
   SEND_MINION_MESSAGE_TOOL,
   SendMinionMessageParams,
   sendMinionMessage,
@@ -61,6 +62,11 @@ export default function (pi: ExtensionAPI): void {
     getTree: () => tree,
     sendMessage: (message, options) => pi.sendMessage(message, options),
     consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
+    drainParentMail: (childId) => {
+      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+      if (messages.length === 0) return undefined;
+      return messages.map((message) => message.body).join("\n\n");
+    },
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
     packets.enqueue(event);
@@ -325,6 +331,14 @@ export default function (pi: ExtensionAPI): void {
           throw new Error(`Child ${id} is terminal; further mail is rejected`);
         }
         await handle.followUp(text);
+      },
+      onParentDirected: (message) => {
+        eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, {
+          class: "parentMessage",
+          groupId: message.groupId,
+          childId: message.from,
+          output: message.body,
+        });
       },
     });
     overlaps = new PathOverlapLog();

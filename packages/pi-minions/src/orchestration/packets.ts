@@ -53,6 +53,11 @@ export interface LifecyclePacketDispatcherDeps {
   now?: () => number;
   schedule?: (run: () => void) => void;
   consumeOverlaps?: (groupIds: string[]) => PathOverlapNotice[];
+  /**
+   * Drain parent-directed pending for one child into packet output.
+   * Do not scan mailbox.list(); that is append-only inspection.
+   */
+  drainParentMail?: (childId: string) => string | undefined;
 }
 
 function isPacketClass(value: string): value is NudgeEvent {
@@ -275,6 +280,10 @@ export class LifecyclePacketDispatcher {
       if (!groupIds.includes(event.groupId)) groupIds.push(event.groupId);
       if (event.class !== "parentMessage") terminalChanged.add(event.childId);
 
+      const drained =
+        event.class === "parentMessage" ? this.deps.drainParentMail?.(event.childId) : undefined;
+      const output = drained && drained.length > 0 ? drained : event.output;
+
       changed.push({
         childId: node.id,
         displayName: node.name,
@@ -283,7 +292,7 @@ export class LifecyclePacketDispatcher {
         description: node.description,
         domain: node.domain,
         eventClass: event.class,
-        output: boundText(event.output)?.text,
+        output: boundText(output)?.text,
         error: boundText(event.error ?? node.error)?.text,
         nudge: nudgeFor(
           { taskType: node.taskType, completionNudge: node.completionNudge },
@@ -332,6 +341,17 @@ export class LifecyclePacketDispatcher {
       fleetIds,
       byteSize,
     });
+
+    const stillRunningIds = new Set(fleetIds);
+    for (const child of packet.changed) {
+      if (child.eventClass !== "parentMessage") continue;
+      logger.info("packets", "parent-message", {
+        eventClass: child.eventClass,
+        childId: child.childId,
+        stillRunning: stillRunningIds.has(child.childId),
+        nudgeExcerpt: child.nudge.slice(0, 80),
+      });
+    }
 
     try {
       this.deps.sendMessage(

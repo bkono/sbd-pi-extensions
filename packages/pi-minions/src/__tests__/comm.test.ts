@@ -178,12 +178,15 @@ function liveMailbox(
   groupId: string,
   liveIds: string[],
   open = true,
+  onParentDirected?: (message: { from: string; to: string; body: string }) => void,
 ): {
   mailbox: MinionCommMailbox;
   followUps: Array<{ id: string; text: string }>;
+  parentDirected: Array<{ from: string; to: string; body: string }>;
   groups: { getOpenGroup: () => { groupId: string; cwd: string } | undefined };
 } {
   const followUps: Array<{ id: string; text: string }> = [];
+  const parentDirected: Array<{ from: string; to: string; body: string }> = [];
   const groups = {
     getOpenGroup: () => (open ? { groupId, cwd: "/tmp" } : undefined),
   };
@@ -194,8 +197,12 @@ function liveMailbox(
     followUp: async (id, text) => {
       followUps.push({ id, text });
     },
+    onParentDirected: (message) => {
+      parentDirected.push({ from: message.from, to: message.to, body: message.body });
+      onParentDirected?.(message);
+    },
   });
-  return { mailbox, followUps, groups };
+  return { mailbox, followUps, parentDirected, groups };
 }
 
 async function execTool(
@@ -342,6 +349,7 @@ describe("injectOrchestratedCommTools", () => {
       parentTurnTriggered: false,
     });
     expect(followUps).toEqual([]);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(1);
 
     const toTerminal = await execTool(send, { to: "mn-done", body: "too late" });
     expect(toTerminal.details).toMatchObject({
@@ -613,6 +621,50 @@ describe("mailbox bounds and closed reasons", () => {
     expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "live still ok") }]);
   });
 
+  it("takePending drains parent-directed pending without scanning list()", async () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [childId, peerId]);
+
+    mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "q1" });
+    mailbox.send({ from: peerId, to: PARENT_RECIPIENT_ID, groupId, body: "q2" });
+    mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "q3" });
+    const inspectionIds = mailbox.list().map((message) => message.id);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(3);
+
+    const fromChild = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+    expect(fromChild.map((message) => message.body)).toEqual(["q1", "q3"]);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(1);
+    expect(mailbox.list().map((message) => message.id)).toEqual(inspectionIds);
+
+    const rest = mailbox.takePending(PARENT_RECIPIENT_ID);
+    expect(rest.map((message) => message.body)).toEqual(["q2"]);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
+    expect(mailbox.takePending(PARENT_RECIPIENT_ID)).toEqual([]);
+    expect(mailbox.list()).toHaveLength(3);
+  });
+
+  it("clears mailbox-full after takePending drains parent-directed pending", async () => {
+    const { tree, childId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [childId]);
+    for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
+      expect(
+        mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: `pending-${i}` })
+          .status,
+      ).toBe(COMM_SEND_STATUS.queued);
+    }
+    expect(
+      mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "overflow" }).status,
+    ).toBe(COMM_SEND_STATUS.mailboxFull);
+
+    const taken = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+    expect(taken).toHaveLength(MAX_MAILBOX_QUEUE_DEPTH);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
+    expect(
+      mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "after-drain" }).status,
+    ).toBe(COMM_SEND_STATUS.queued);
+    expect(mailbox.list().map((message) => message.body)).toContain("after-drain");
+  });
+
   it("rejects group-not-open when the bound group is not the open group", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox } = liveMailbox(tree, groupId, [peerId], false);
@@ -736,6 +788,64 @@ describe("mailbox enqueue live-notify", () => {
       "comm",
       "enqueue-deliver-failed",
       expect.objectContaining({ error: "sync followUp failure" }),
+    );
+  });
+});
+
+describe("parent-directed wake hook", () => {
+  it("calls onParentDirected for child→parent and not for peer or parent→child", async () => {
+    const { tree, childId, peerId, groupId } = groupTree();
+    const { mailbox, followUps, parentDirected, groups } = liveMailbox(tree, groupId, [
+      childId,
+      peerId,
+    ]);
+    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+
+    const toParent = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "need a ruling" });
+    expect(toParent.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      parentTurnTriggered: false,
+    });
+    expect(parentDirected).toEqual([
+      { from: childId, to: PARENT_RECIPIENT_ID, body: "need a ruling" },
+    ]);
+    expect(followUps).toEqual([]);
+    expect(tree.get(childId)?.status).toBe("running");
+
+    const toPeer = await execTool(send, { to: peerId, body: "hello peer" });
+    expect(toPeer.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
+    expect(parentDirected).toHaveLength(1);
+    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "hello peer") }]);
+
+    const parentTool = createSendMinionMessageTool({ mailbox, groups });
+    const fromParent = await execTool(parentTool, { to: peerId, body: "steer this" });
+    expect(fromParent.details).toMatchObject({
+      status: COMM_SEND_STATUS.queued,
+      from: PARENT_RECIPIENT_ID,
+      parentTurnTriggered: false,
+    });
+    expect(parentDirected).toHaveLength(1);
+  });
+
+  it("still queues when onParentDirected throws", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const { tree, childId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [childId], true, () => {
+      throw new Error("wake exploded");
+    });
+    const result = mailbox.send({
+      from: childId,
+      to: PARENT_RECIPIENT_ID,
+      groupId,
+      body: "still record me",
+    });
+    expect(result.status).toBe(COMM_SEND_STATUS.queued);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      "comm",
+      "parent-directed-wake-failed",
+      expect.objectContaining({ error: "wake exploded", from: childId }),
     );
   });
 });
