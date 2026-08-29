@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.1.10",
     "sbdpi-vur.1.8",
@@ -26,8 +26,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Prove one in-process ticket from /bw run through child settlement",
   "type": "feature",
-  "updated_at": "2026-08-28T22:57:46Z"
+  "updated_at": "2026-08-29T01:34:01Z"
 }
