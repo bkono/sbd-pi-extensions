@@ -116,6 +116,61 @@ describe("handleCleanupAction", () => {
     expect(String(pi.sendMessage.mock.calls[0]?.[0]?.content ?? "")).toContain("/halt group");
   });
 
+  it("off from interactive does not queue halt", async () => {
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ ui, isIdle: () => false });
+    const pi = createInjector();
+    let stored = session({ mode: "interactive" });
+
+    const handled = await handleCleanupAction({
+      subcommand: "off",
+      parsed: parseArgv(""),
+      ctx,
+      deps: {
+        loadConfig: () => DEFAULT_CONFIG,
+        detectActivation: async () => ({ kind: "active", repoRoot: ctx.cwd }),
+        readState: async () => stored,
+        resetState: async () => {
+          stored = neutralState();
+          return stored;
+        },
+        pi,
+        parentIsBusy: () => true,
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(stored.mode).toBe("neutral");
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+    expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
+  });
+
+  it("off from already-neutral does not queue halt", async () => {
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ ui, isIdle: () => true });
+    const pi = createInjector();
+    const stored = neutralState();
+
+    const handled = await handleCleanupAction({
+      subcommand: "off",
+      parsed: parseArgv(""),
+      ctx,
+      deps: {
+        loadConfig: () => DEFAULT_CONFIG,
+        detectActivation: async () => ({ kind: "active", repoRoot: ctx.cwd }),
+        readState: async () => stored,
+        resetState: async () => stored,
+        pi,
+        parentIsBusy: () => false,
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("returns false for other subcommands", async () => {
     const handled = await handleCleanupAction({
       subcommand: "status",

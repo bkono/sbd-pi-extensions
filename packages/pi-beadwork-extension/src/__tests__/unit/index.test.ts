@@ -1007,6 +1007,8 @@ describe("pi beadwork extension", () => {
     const persisted = await loadSessionState(stateDir, "session-off");
     expect(persisted.mode).toBe("neutral");
     expect(persisted.scope).toEqual({ kind: "none" });
+    expect(harness.sentMessages).toEqual([]);
+    expect(harness.sentUserMessages).toEqual([]);
     expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
   });
 

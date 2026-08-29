@@ -37,11 +37,13 @@ export async function handleCleanupAction(input: {
   const previous = await deps.readState(ctx, activation, config);
   const state = await deps.resetState(ctx);
 
-  const epicId = scopedGoalEpicId(previous) ?? FALLBACK_HALT_LABEL;
-  try {
-    injectGoalHaltContinuation(deps.pi, buildGoalHaltPrompt(epicId), deps.parentIsBusy(ctx));
-  } catch {
-    // Reset already persisted; halt is best-effort.
+  if (previous.mode === "run") {
+    const epicId = scopedGoalEpicId(previous) ?? FALLBACK_HALT_LABEL;
+    try {
+      injectGoalHaltContinuation(deps.pi, buildGoalHaltPrompt(epicId), deps.parentIsBusy(ctx));
+    } catch {
+      // Reset already persisted; halt is best-effort.
+    }
   }
 
   ctx.ui.notify("Beadwork session mode reset to neutral.", "info");
