@@ -63,6 +63,7 @@ import {
   type GitBwFixtureOptions,
   snapshotTmuxPids,
 } from "./git-bw-fixture.js";
+import { probeRemovedSymbols } from "./removed-symbol-probes.js";
 import { ScriptedChildSession } from "./scripted-child.js";
 
 export type {
@@ -559,6 +560,14 @@ export async function createInProcessHarness(
       } catch (readyError) {
         ready = { error: readyError instanceof Error ? readyError.message : String(readyError) };
       }
+      let removedSymbolProbes: unknown;
+      try {
+        removedSymbolProbes = await probeRemovedSymbols();
+      } catch (probeError) {
+        removedSymbolProbes = {
+          error: probeError instanceof Error ? probeError.message : String(probeError),
+        };
+      }
       const dump = {
         error: error instanceof Error ? error.message : error ? String(error) : undefined,
         injectedPrompt: harness.injectedPrompt(),
@@ -578,6 +587,7 @@ export async function createInProcessHarness(
         epicShow,
         ready,
         activeTools: childId ? harness.childActiveTools(childId) : [],
+        removedSymbolProbes,
         tmuxProbe: {
           onPath: fixture.tmuxOnPath() ?? null,
           path: process.env.PATH,

@@ -11,3 +11,4 @@ Then use these deeper docs as needed:
 - [migration.md](./migration.md) — removed tmux workers, flags, tools, and leftover config
 - [commands.md](./commands.md) — slash command reference, dashboard controls, and tool surface
 - [worker-conventions.md](./worker-conventions.md) — shared-checkout commit and handoff habits
+- [tui-smoke.md](./tui-smoke.md) — manual TUI smoke checklist and repo quality gate
