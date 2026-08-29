@@ -236,7 +236,7 @@ export class SubsessionManager {
     };
 
     const { runtime, sessionPath } = await this.createChildRuntime({
-      cwd: this.cwd,
+      cwd: options.cwd || this.cwd,
       id,
       name,
       config,
@@ -727,6 +727,7 @@ export class SubsessionManager {
     "list_minions",
     "show_minion",
     "learn_minions",
+    "orchestrate",
   ]);
 
   getMetadata(id: string): MinionSessionMetadata | undefined {

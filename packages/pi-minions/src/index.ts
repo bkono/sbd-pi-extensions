@@ -12,6 +12,7 @@ import {
 } from "./delegation.js";
 import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
+import { ORCHESTRATION_LIFECYCLE_CHANNEL, OrchestrationGroupState } from "./orchestration/index.js";
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
 import { getMinionsSkill } from "./skill.js";
@@ -22,6 +23,7 @@ import { getTempSessionPath } from "./subsessions/paths.js";
 import { HaltToolParams, halt } from "./tools/halt.js";
 import { ListAgentsParams, listAgents } from "./tools/list-agents.js";
 import { ListMinionsParams, listMinions, ShowMinionParams, showMinion } from "./tools/minions.js";
+import { OrchestrateToolParams, orchestrate } from "./tools/orchestrate.js";
 import { SpawnToolParams, spawn } from "./tools/spawn.js";
 import { AgentTree } from "./tree.js";
 
@@ -34,6 +36,7 @@ export default function (pi: ExtensionAPI): void {
   logger.debug("extension", "loaded", { logFile: LOG_FILE });
 
   let tree = new AgentTree();
+  let groups = new OrchestrationGroupState();
   let subsessionManager: SubsessionManager | undefined;
   let statusTracker: ReturnType<typeof createStatusTracker> | undefined;
   let cachedUi: ExtensionContext["ui"] | null = null;
@@ -58,6 +61,7 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "Spawn a foreground minion for isolated task delegation",
     promptGuidelines: [
       "Use spawn for foreground task delegation. The tool blocks until the minion completes and returns its result.",
+      "Use spawn when you intend to wait. Use orchestrate for background work that should not block this turn.",
       "To spawn multiple minions in parallel, use the `tasks` array parameter with multiple task descriptors. Each task can specify `task`, optional `agent`, and optional `model`.",
       "For single task delegation, use the `task` parameter directly.",
       "Use list_agents to discover available named agents before spawning by name.",
@@ -78,6 +82,36 @@ export default function (pi: ExtensionAPI): void {
     },
     renderCall,
     renderResult,
+  });
+
+  pi.registerTool({
+    name: "orchestrate",
+    label: "Orchestrate Minions",
+    description:
+      "Register background minion work and return handles immediately. " +
+      "Children start in the session's one open group and report later; this tool does not wait. " +
+      "Each task requires a short description. Persistent hosts only (tui/rpc).",
+    promptSnippet: "Orchestrate background minions without waiting",
+    promptGuidelines: [
+      "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
+      "Use spawn when you intend to wait for the minion to finish before continuing.",
+      "description is required on every task. Do not omit it or infer it from task.",
+      "Omit groupId to create the open group if none exists, otherwise join it. A second groupId is rejected.",
+      "cwd is group-create only, must already exist, and cannot change later.",
+    ],
+    parameters: OrchestrateToolParams,
+    execute: (...args) => {
+      if (!subsessionManager) throw new Error("SubsessionManager not initialized");
+      usedMinionsThisSession = true;
+      return orchestrate({
+        tree,
+        pi,
+        subsessionManager,
+        groups,
+        extraTools: [],
+        onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
+      })(...args);
+    },
   });
 
   pi.registerTool({
@@ -234,6 +268,7 @@ export default function (pi: ExtensionAPI): void {
     subsessionManager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
 
     tree = new AgentTree();
+    groups = new OrchestrationGroupState();
 
     for (const metadata of subsessionManager.list()) {
       if (metadata.parentSession === parentSessionPath) {
