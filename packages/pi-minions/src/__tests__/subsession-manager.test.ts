@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -357,6 +357,118 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(metadata.status).toBe("aborted");
     expect(existsSync(join(parentCwd, "child.jsonl.minion-meta.json"))).toBe(false);
     expect(JSON.parse(readFileSync(linkPath, "utf-8"))).toEqual({ sessionPath });
+  });
+
+  it("persists orchestrated fields and rehydrates them via list()", async () => {
+    const parentCwd = mkdtempSync(join(tmpdir(), "pi-minions-orch-meta-"));
+    const groupCwd = mkdtempSync(join(tmpdir(), "pi-minions-orch-group-"));
+    const parentSessionPath = join(parentCwd, "parent.jsonl");
+    const session = new FakeChildSession();
+    const sessionPath = join(groupCwd, "child.jsonl");
+    const live = new SubsessionManager(parentCwd, parentSessionPath, undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath,
+      }),
+    });
+
+    await live.startChild({
+      ...startOptions("child-orch", groupCwd),
+      kind: "orchestrated",
+      groupId: "grp-1",
+      role: "reviewer",
+      taskType: "reviewImplementation",
+      description: "Review registry",
+      domain: { source: "adapter-x", workItemId: "ABC-123" },
+    });
+
+    const written = JSON.parse(readFileSync(`${sessionPath}.minion-meta.json`, "utf-8")) as {
+      kind?: string;
+      groupId?: string;
+      role?: string;
+      taskType?: string;
+      description?: string;
+      domain?: { source: string; workItemId?: string };
+    };
+    expect(written).toEqual(
+      expect.objectContaining({
+        sessionId: "child-orch",
+        kind: "orchestrated",
+        groupId: "grp-1",
+        role: "reviewer",
+        taskType: "reviewImplementation",
+        description: "Review registry",
+        domain: { source: "adapter-x", workItemId: "ABC-123" },
+      }),
+    );
+
+    const rehydrated = new SubsessionManager(parentCwd, parentSessionPath);
+    expect(rehydrated.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "child-orch",
+          kind: "orchestrated",
+          groupId: "grp-1",
+          role: "reviewer",
+          taskType: "reviewImplementation",
+          description: "Review registry",
+          domain: { source: "adapter-x", workItemId: "ABC-123" },
+        }),
+      ]),
+    );
+  });
+
+  it("parses last assistant text from a persisted session jsonl", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-session-output-"));
+    const session = new FakeChildSession();
+    const sessionPath = join(cwd, "child.jsonl");
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath,
+      }),
+    });
+
+    await manager.startChild(startOptions("child-output", cwd));
+    writeFileSync(
+      sessionPath,
+      [
+        JSON.stringify({
+          type: "message",
+          message: { role: "user", content: "do the work" },
+        }),
+        JSON.stringify({
+          type: "message",
+          message: { role: "assistant", content: "first draft" },
+        }),
+        JSON.stringify({
+          type: "tool_execution_start",
+          toolName: "read",
+          args: { path: "src/tree.ts" },
+        }),
+        JSON.stringify({
+          type: "message",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "persisted transcript" }],
+          },
+        }),
+      ].join("\n"),
+      "utf-8",
+    );
+
+    expect(manager.parseSessionOutput("child-output")).toBe("persisted transcript");
+    expect(manager.parseSessionOutput("missing")).toBe("");
   });
 
   it("does not emit terminal on agent_end until fully idle", async () => {

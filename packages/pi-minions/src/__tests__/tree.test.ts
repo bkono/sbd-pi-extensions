@@ -237,9 +237,82 @@ describe("rehydratePersistedMinion", () => {
 
     expect(tree.get("mn-done")?.status).toBe("completed");
     expect(tree.get("mn-done")?.exitCode).toBe(0);
+    expect(tree.get("mn-done")?.kind).toBe("spawn");
     expect(tree.get("mn-failed")?.status).toBe("failed");
     expect(tree.get("mn-failed")?.error).toBe("boom");
     expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("rehydrates completed orchestrated metadata with kind and fleet fields", () => {
+    const tree = new AgentTree();
+    const persist = vi.fn();
+    rehydratePersistedMinion(
+      tree,
+      {
+        sessionId: "mn-orch",
+        name: "bravo",
+        task: "implement the registry",
+        agent: "reviewer",
+        status: "completed",
+        exitCode: 0,
+        kind: "orchestrated",
+        groupId: "grp-1",
+        role: "reviewer",
+        taskType: "reviewImplementation",
+        description: "Review registry",
+        domain: { source: "adapter-x", workItemId: "ABC-123" },
+      },
+      persist,
+    );
+
+    const node = tree.get("mn-orch");
+    expect(node?.kind).toBe("orchestrated");
+    expect(node?.groupId).toBe("grp-1");
+    expect(node?.role).toBe("reviewer");
+    expect(node?.taskType).toBe("reviewImplementation");
+    expect(node?.description).toBe("Review registry");
+    expect(node?.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
+    expect(node?.agentName).toBe("reviewer");
+    expect(node?.status).toBe("completed");
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("aborts running orchestrated metadata without dropping kind", () => {
+    const tree = new AgentTree();
+    const persist = vi.fn();
+    rehydratePersistedMinion(
+      tree,
+      {
+        sessionId: "mn-live-orch",
+        name: "alpha",
+        task: "old work",
+        agent: "ephemeral",
+        status: "running",
+        kind: "orchestrated",
+        groupId: "grp-1",
+        role: "reviewer",
+        taskType: "reviewImplementation",
+        description: "Review registry",
+        domain: { source: "adapter-x", workItemId: "ABC-123" },
+      },
+      persist,
+    );
+
+    const node = tree.get("mn-live-orch");
+    expect(node?.status).toBe("aborted");
+    expect(node?.error).toBe(PARENT_SESSION_RESTARTED);
+    expect(node?.kind).toBe("orchestrated");
+    expect(node?.groupId).toBe("grp-1");
+    expect(node?.role).toBe("reviewer");
+    expect(node?.taskType).toBe("reviewImplementation");
+    expect(node?.description).toBe("Review registry");
+    expect(node?.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
+    expect(persist).toHaveBeenCalledWith(
+      "mn-live-orch",
+      "aborted",
+      undefined,
+      PARENT_SESSION_RESTARTED,
+    );
   });
 });
 

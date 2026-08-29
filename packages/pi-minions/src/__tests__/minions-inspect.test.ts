@@ -192,4 +192,18 @@ describe("show_minion fields", () => {
     const tree = seedTree();
     await expect(show(tree, "missing")).rejects.toThrow("Minion not found: missing");
   });
+
+  it("falls back to persisted session output when tree and terminal are empty", async () => {
+    const tree = new AgentTree();
+    tree.add("mn-done", "alpha", "finished");
+    tree.updateStatus("mn-done", "completed", 0);
+
+    const result = await showMinion(tree, {
+      getTerminal: () => undefined,
+      parseSessionOutput: () => "persisted transcript",
+    })("tool-1", { target: "mn-done" }, undefined, undefined, ctx);
+
+    expect(result.details.output).toBe("persisted transcript");
+    expect(result.content[0]?.text).toContain("Output:\n    persisted transcript");
+  });
 });

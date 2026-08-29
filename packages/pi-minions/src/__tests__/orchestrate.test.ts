@@ -383,6 +383,9 @@ describe("registration abort and startChild wiring", () => {
       expect.objectContaining({
         id: started.accepted[0]?.childId,
         cwd: realpathSync(ctx.cwd),
+        kind: "orchestrated",
+        groupId: started.groupId,
+        description: baseTask.description,
       }),
     );
     expect(call.extraTools).toEqual(expect.arrayContaining([...ORCHESTRATED_COMM_TOOL_NAMES]));

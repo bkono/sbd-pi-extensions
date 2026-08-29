@@ -1,4 +1,10 @@
-import type { AgentConfig, ThinkingLevel } from "../types.js";
+import type {
+  AgentConfig,
+  AgentKind,
+  OrchestrationDomain,
+  TaskType,
+  ThinkingLevel,
+} from "../types.js";
 
 export interface MinionSessionMetadata {
   sessionId: string;
@@ -11,6 +17,12 @@ export interface MinionSessionMetadata {
   status: "running" | "completed" | "failed" | "aborted";
   exitCode?: number;
   error?: string;
+  kind?: AgentKind;
+  groupId?: string;
+  role?: string;
+  taskType?: TaskType;
+  description?: string;
+  domain?: OrchestrationDomain;
 }
 
 /** Parent-packet event classes for child terminal. Abort is not failure. */
@@ -97,6 +109,12 @@ export interface CreateMinionSessionOptions {
   config: AgentConfig;
   spawnedBy: string;
   cwd: string;
+  kind?: AgentKind;
+  groupId?: string;
+  role?: string;
+  taskType?: TaskType;
+  description?: string;
+  domain?: OrchestrationDomain;
   modelRegistry: import("@earendil-works/pi-coding-agent").ModelRegistry;
   // biome-ignore lint/suspicious/noExplicitAny: external API type
   parentModel?: import("@earendil-works/pi-ai").Model<any>;

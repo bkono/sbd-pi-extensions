@@ -253,6 +253,12 @@ export class SubsessionManager {
       agent: config.name,
       createdAt: Date.now(),
       status: "running",
+      kind: options.kind,
+      groupId: options.groupId,
+      role: options.role,
+      taskType: options.taskType,
+      description: options.description,
+      domain: options.domain,
     };
 
     const { runtime, sessionPath } = await this.createChildRuntime({
@@ -1096,6 +1102,23 @@ export class SubsessionManager {
     return history;
   }
 
+  parseSessionOutput(id: string): string {
+    const path = this.getSessionPath(id);
+    if (!path) return "";
+    const messages: unknown[] = [];
+    try {
+      for (const raw of readFileSync(path, "utf-8").split("\n")) {
+        if (!raw.trim()) continue;
+        const event = JSON.parse(raw) as Record<string, unknown>;
+        const message = sessionEventMessage(event);
+        if (message !== undefined) messages.push(message);
+      }
+    } catch {
+      /* ignore */
+    }
+    return extractLastAssistantText(messages);
+  }
+
   private rememberSessionPath(id: string, sessionPath: string): void {
     if (!id || !sessionPath) return;
     this.sessionPaths.set(id, sessionPath);
@@ -1268,6 +1291,12 @@ export class SubsessionManager {
       });
     }
   }
+}
+
+function sessionEventMessage(event: Record<string, unknown>): unknown | undefined {
+  if (event.type === "message" && event.message) return event.message;
+  if (typeof event.role === "string") return event;
+  return undefined;
 }
 
 function extractLastAssistantText(messages: unknown[]): string {

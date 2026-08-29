@@ -25,6 +25,12 @@ export interface RehydratableMinionMetadata {
   status: "running" | "completed" | "failed" | "aborted";
   exitCode?: number;
   error?: string;
+  kind?: AgentKind;
+  groupId?: string;
+  role?: string;
+  taskType?: TaskType;
+  description?: string;
+  domain?: OrchestrationDomain;
 }
 
 /** Running metadata is process-local; after a parent restart those children are dead. */
@@ -38,7 +44,15 @@ export function rehydratePersistedMinion(
     error: string,
   ) => void,
 ): void {
-  tree.add(metadata.sessionId, metadata.name, metadata.task, undefined, metadata.agent);
+  tree.add(metadata.sessionId, metadata.name, metadata.task, {
+    agentName: metadata.agent,
+    kind: metadata.kind,
+    groupId: metadata.groupId,
+    role: metadata.role,
+    taskType: metadata.taskType,
+    description: metadata.description,
+    domain: metadata.domain,
+  });
   if (metadata.status === "running") {
     tree.updateStatus(metadata.sessionId, "aborted", undefined, PARENT_SESSION_RESTARTED);
     persistStatus?.(metadata.sessionId, "aborted", undefined, PARENT_SESSION_RESTARTED);

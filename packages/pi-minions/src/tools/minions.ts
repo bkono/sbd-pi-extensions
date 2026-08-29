@@ -195,14 +195,15 @@ function formatPeer(info: MinionInfo): string {
 export function buildShowMinion(
   tree: AgentTree,
   target: string,
-  subsessionManager?: Pick<SubsessionManager, "getTerminal">,
+  subsessionManager?: Pick<SubsessionManager, "getTerminal" | "parseSessionOutput">,
 ): { text: string; info: ShowMinionInfo } | null {
   const node = tree.resolve(target);
   if (!node) return null;
 
   const infoBase = toInfo(node);
   const terminal = subsessionManager?.getTerminal(node.id);
-  const output = node.output ?? terminal?.output ?? "";
+  const output =
+    node.output ?? terminal?.output ?? subsessionManager?.parseSessionOutput?.(node.id) ?? "";
   const messages = node.messages ?? [];
   const pathIntent = node.pathIntent ?? [];
   const history = node.activityHistory ?? getMinionHistory(node.id);
@@ -282,7 +283,7 @@ export function buildShowMinion(
 export function buildShowMinionText(
   tree: AgentTree,
   target: string,
-  subsessionManager?: Pick<SubsessionManager, "getTerminal">,
+  subsessionManager?: Pick<SubsessionManager, "getTerminal" | "parseSessionOutput">,
 ): string | null {
   return buildShowMinion(tree, target, subsessionManager)?.text ?? null;
 }
@@ -294,7 +295,7 @@ export type ShowMinionParams = Static<typeof ShowMinionParams>;
 
 export function showMinion(
   tree: AgentTree,
-  subsessionManager?: Pick<SubsessionManager, "getTerminal">,
+  subsessionManager?: Pick<SubsessionManager, "getTerminal" | "parseSessionOutput">,
 ) {
   return async function execute(
     _toolCallId: string,
