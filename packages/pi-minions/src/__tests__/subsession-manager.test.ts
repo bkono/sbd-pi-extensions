@@ -30,6 +30,8 @@ class FakeChildSession implements ChildSession {
   disposed = false;
   aborted = false;
   abortedBash = false;
+  disposeCount = 0;
+  callOrder: string[] = [];
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
   state = { messages: [] as unknown[] };
@@ -46,6 +48,8 @@ class FakeChildSession implements ChildSession {
       "beadwork_status",
       "beadwork_prime",
       "beadwork_close_issue",
+      "beadwork_comment_issue",
+      "beadwork_create_issue",
     ],
   ) {
     for (const name of toolNames) this.tools.set(name, { name });
@@ -101,12 +105,15 @@ class FakeChildSession implements ChildSession {
   }
 
   abort(): void {
+    this.callOrder.push("abort");
+    if (this.disposed) return;
     this.aborted = true;
     this.idleDeferred.resolve();
     this.promptDeferred.resolve();
   }
 
   abortBash(): void {
+    this.callOrder.push("abortBash");
     this.abortedBash = true;
   }
 
@@ -117,6 +124,8 @@ class FakeChildSession implements ChildSession {
   }
 
   dispose(): void {
+    this.callOrder.push("dispose");
+    this.disposeCount++;
     this.disposed = true;
   }
 
@@ -253,6 +262,11 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(session.aborted).toBe(true);
     expect(session.abortedBash).toBe(true);
     expect(session.disposed).toBe(true);
+    const abortIdx = session.callOrder.indexOf("abort");
+    const disposeIdx = session.callOrder.indexOf("dispose");
+    expect(abortIdx).toBeGreaterThanOrEqual(0);
+    expect(disposeIdx).toBeGreaterThan(abortIdx);
+    expect(session.disposeCount).toBe(1);
     expect(logs).toContainEqual({
       msg: "lifecycle",
       data: expect.objectContaining({
@@ -305,22 +319,41 @@ describe("SubsessionManager start/wait lifecycle", () => {
     );
   });
 
-  it("includes beadwork_show and excludes beadwork_close_issue, including after late register", async () => {
+  it("includes beadwork_show and excludes beadwork mutations, including after late register", async () => {
     spyLogger();
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
     const session = new FakeChildSession();
     const manager = createManager(session, cwd);
-    await manager.startChild(startOptions("child-7", cwd));
+    await manager.startChild({
+      ...startOptions("child-7", cwd),
+      parentToolNames: [
+        "read",
+        "bash",
+        "spawn",
+        "halt",
+        "beadwork_show",
+        "beadwork_comment_issue",
+        "beadwork_create_issue",
+        "beadwork_close_issue",
+      ],
+    });
 
     expect(session.getActiveToolNames()).toContain("beadwork_show");
     expect(session.getActiveToolNames()).not.toContain("beadwork_close_issue");
+    expect(session.getActiveToolNames()).not.toContain("beadwork_comment_issue");
+    expect(session.getActiveToolNames()).not.toContain("beadwork_create_issue");
 
     session.registerTool("beadwork_close_issue");
-    expect(session.getActiveToolNames()).toContain("beadwork_close_issue");
+    session.registerTool("beadwork_comment_issue");
+    session.registerTool("beadwork_create_issue");
+    expect(session.getActiveToolNames()).toContain("beadwork_comment_issue");
+    expect(session.getActiveToolNames()).toContain("beadwork_create_issue");
 
     const names = manager.applyTools("child-7");
     expect(names).toContain("beadwork_show");
     expect(names).not.toContain("beadwork_close_issue");
+    expect(names).not.toContain("beadwork_comment_issue");
+    expect(names).not.toContain("beadwork_create_issue");
     expect(logs).toContainEqual({
       msg: "tools-filtered",
       data: expect.objectContaining({
@@ -328,5 +361,64 @@ describe("SubsessionManager start/wait lifecycle", () => {
         tools: expect.arrayContaining(["beadwork_show"]),
       }),
     });
+  });
+
+  it("does not resurrect a handle when disposeAll races in-flight startChild", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    const startPromise = manager.startChild({
+      ...startOptions("child-8", cwd),
+      toolSyncEnabled: true,
+      toolSyncMaxWait: 10_000,
+      parentToolNames: ["read", "bash", "never_registers_tool"],
+    });
+    startPromise.catch(() => {});
+
+    const deadline = Date.now() + 2000;
+    while (!manager.getSession("child-8")) {
+      if (Date.now() > deadline) throw new Error("child session never registered");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    await manager.disposeAll();
+    await expect(startPromise).rejects.toThrow(/shut down; further start is rejected/);
+    expect(manager.getSessionHandle("child-8")).toBeUndefined();
+    await expect(manager.startChild(startOptions("child-9", cwd))).rejects.toThrow(
+      /shut down; further start is rejected/,
+    );
+  });
+
+  it("aborts before dispose and keeps dispose single-flight", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
+    const session = new FakeChildSession();
+    const disposeStarted = createDeferred<void>();
+    const continueDispose = createDeferred<void>();
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: async () => {
+            disposeStarted.resolve();
+            await continueDispose.promise;
+            session.dispose();
+          },
+        },
+        sessionPath: join(cwd, "child.jsonl"),
+      }),
+    });
+
+    const handle = await manager.startChild(startOptions("child-10", cwd));
+    handle.abort();
+    await disposeStarted.promise;
+    const disposeAll = manager.disposeAll();
+    continueDispose.resolve();
+    await disposeAll;
+    await expect(handle.wait()).resolves.toMatchObject({ class: "aborted" });
+
+    expect(session.callOrder.indexOf("abort")).toBeGreaterThanOrEqual(0);
+    expect(session.callOrder.indexOf("abort")).toBeLessThan(session.callOrder.indexOf("dispose"));
+    expect(session.disposeCount).toBe(1);
+    expect(session.aborted).toBe(true);
   });
 });

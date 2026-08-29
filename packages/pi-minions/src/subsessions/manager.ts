@@ -40,12 +40,14 @@ export const BEADWORK_CHILD_INSPECTION_TOOLS = [
   "beadwork_prime",
 ] as const;
 
-/** Beadwork mutating tools children must never have, even if late-registered. */
-export const BEADWORK_CHILD_DENIED_TOOLS = [
-  "beadwork_start_issue",
-  "beadwork_close_issue",
-  "beadwork_reopen_issue",
-] as const;
+const BEADWORK_CHILD_INSPECTION_TOOL_SET: ReadonlySet<string> = new Set(
+  BEADWORK_CHILD_INSPECTION_TOOLS,
+);
+
+/** True for any beadwork_* name outside the child inspection allowlist. */
+export function isDeniedChildBeadworkTool(name: string): boolean {
+  return name.startsWith("beadwork_") && !BEADWORK_CHILD_INSPECTION_TOOL_SET.has(name);
+}
 
 export interface ChildToolAllowlistInput {
   roleAllowlist?: readonly string[];
@@ -57,10 +59,14 @@ export interface ChildToolAllowlistInput {
 
 /**
  * Child tool formula (spawn and orchestrate):
- *   (role allowlist if present, else parent coding tools)
+ *   (role allowlist if present, else parent coding tools minus every beadwork_*)
  *     ∪ beadwork inspection allowlist
- *     ∪ extraTools (orchestrated comm hook)
- *     − {beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue}
+ *     ∪ extraTools (orchestrated comm hook; not beadwork_*)
+ *     − every beadwork_* not in the inspection set
+ *
+ * Parent `getAllTools()` is not a coding-tools base: it includes beadwork
+ * mutations. Those names may still be passed in so tool-sync can wait for
+ * late registration; this formula strips them from the active set.
  */
 export function computeChildActiveTools(input: ChildToolAllowlistInput): string[] {
   const role = input.roleAllowlist?.filter((name) => name.length > 0) ?? [];
@@ -68,12 +74,19 @@ export function computeChildActiveTools(input: ChildToolAllowlistInput): string[
   const current = input.currentActiveTools?.filter((name) => name.length > 0) ?? [];
   const base = role.length > 0 ? role : parent.length > 0 ? parent : current;
 
-  const names = new Set<string>(base);
+  const names = new Set<string>();
+  for (const name of base) {
+    if (isDeniedChildBeadworkTool(name)) continue;
+    names.add(name);
+  }
   for (const tool of BEADWORK_CHILD_INSPECTION_TOOLS) names.add(tool);
   for (const tool of input.extraTools ?? []) {
-    if (tool.length > 0) names.add(tool);
+    if (tool.length === 0 || isDeniedChildBeadworkTool(tool)) continue;
+    names.add(tool);
   }
-  for (const tool of BEADWORK_CHILD_DENIED_TOOLS) names.delete(tool);
+  for (const name of [...names]) {
+    if (isDeniedChildBeadworkTool(name)) names.delete(name);
+  }
   return [...names];
 }
 
@@ -159,6 +172,7 @@ interface ChildRecord {
   turnCount: number;
   unsubscribe: () => void;
   abortCleanup?: () => void;
+  disposePromise?: Promise<void>;
 }
 
 export class SubsessionManager {
@@ -231,6 +245,7 @@ export class SubsessionManager {
       customTools: options.customTools,
     });
     const session = runtime.session;
+    await this.rejectStartIfShutdown(id, runtime);
 
     this.metadataCache.set(id, metadata);
     this.writeMetadataFile(sessionPath, metadata);
@@ -254,11 +269,27 @@ export class SubsessionManager {
         this.abortChild(id);
       },
     });
+    await this.rejectStartIfShutdown(id);
     this.applyTools(id);
 
     if (options.toolSyncEnabled !== false) {
       await this.waitForAsyncTools(id, session, options.parentToolNames, options.toolSyncMaxWait);
+      await this.rejectStartIfShutdown(id);
       this.applyTools(id);
+    }
+
+    // Latch shutdown / terminal before publishing so disposeAll during
+    // waitForAsyncTools cannot resurrect a dropped handle.
+    if (this.shutdown || child.terminal || this.terminals.has(id)) {
+      this.activeHandles.delete(id);
+      if (this.shutdown) {
+        this.abortChild(id);
+        await this.disposeChild(id);
+        throw new Error("SubsessionManager is shut down; further start is rejected");
+      }
+      await this.disposeChild(id);
+      logger.debug("subsession", "created-aborted", { id, name, path: sessionPath });
+      return this.buildHandle(id, sessionPath);
     }
 
     const unsubscribe = session.subscribe((event) => this.handleChildEvent(id, event));
@@ -279,6 +310,7 @@ export class SubsessionManager {
     }
 
     if (child.terminal) {
+      this.activeHandles.delete(id);
       logger.debug("subsession", "created-aborted", { id, name, path: sessionPath });
       return handle;
     }
@@ -451,29 +483,37 @@ export class SubsessionManager {
     const child = this.children.get(id);
     if (!child) return;
     child.abortRequested = true;
+    // Abort before dispose so prompt/idle latches resolve. Skip abort if
+    // dispose already started — abort after dispose is a no-op or hangs.
+    if (!child.disposePromise) {
+      try {
+        child.session.abortBash?.();
+      } catch {
+        /* unmanaged processes cannot be guaranteed */
+      }
+      try {
+        void child.session.abort();
+      } catch {
+        /* ignore */
+      }
+    }
     this.commitTerminal(id, this.makeTerminal(child, "aborted"));
-    // Cooperative cancel only. A stuck in-process child (tight JS loop or hung
-    // native work) cannot be reaped here; the host Pi process must exit.
-    try {
-      child.session.abortBash?.();
-    } catch {
-      /* unmanaged processes cannot be guaranteed */
-    }
-    try {
-      void child.session.abort();
-    } catch {
-      /* ignore */
-    }
   }
 
-  private async disposeChild(id: string): Promise<void> {
+  private disposeChild(id: string): Promise<void> {
     const child = this.children.get(id);
     if (!child) {
       this.activeHandles.delete(id);
       this.activeSessions.delete(id);
-      return;
+      return Promise.resolve();
     }
+    if (child.disposePromise) return child.disposePromise;
 
+    child.disposePromise = this.runDisposeChild(id, child);
+    return child.disposePromise;
+  }
+
+  private async runDisposeChild(id: string, child: ChildRecord): Promise<void> {
     child.unsubscribe();
     this.unsubscribers.delete(id);
     child.abortCleanup?.();
@@ -496,6 +536,26 @@ export class SubsessionManager {
     }
 
     this.children.delete(id);
+  }
+
+  /**
+   * After every await in startChild: if session_shutdown raced in, do not
+   * publish a handle. Further start stays rejected.
+   */
+  private async rejectStartIfShutdown(id: string, runtime?: ChildRuntime): Promise<void> {
+    if (!this.shutdown) return;
+    this.activeHandles.delete(id);
+    if (this.children.has(id)) {
+      this.abortChild(id);
+      await this.disposeChild(id);
+    } else if (runtime) {
+      try {
+        await runtime.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
+    throw new Error("SubsessionManager is shut down; further start is rejected");
   }
 
   private handleChildEvent(id: string, event: ChildSessionEvent): void {
@@ -613,7 +673,13 @@ export class SubsessionManager {
     const deadline = Date.now() + effectiveMaxWait;
 
     while (Date.now() < deadline) {
-      const current = new Set(session.getAllTools().map((t) => t.name));
+      if (this.shutdown || this.terminals.has(id) || this.children.get(id)?.terminal) return;
+      let current: Set<string>;
+      try {
+        current = new Set(session.getAllTools().map((t) => t.name));
+      } catch {
+        return;
+      }
       const missing = expected.filter((name) => !current.has(name));
       if (missing.length === 0) {
         logger.debug("subsession", "async-tools-ready", {
@@ -624,9 +690,17 @@ export class SubsessionManager {
         return;
       }
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+      if (this.shutdown || this.terminals.has(id) || this.children.get(id)?.terminal) return;
     }
 
-    const current = new Set(session.getAllTools().map((t) => t.name));
+    if (this.shutdown || this.terminals.has(id) || this.children.get(id)?.terminal) return;
+
+    let current: Set<string>;
+    try {
+      current = new Set(session.getAllTools().map((t) => t.name));
+    } catch {
+      return;
+    }
     const stillMissing = expected.filter((name) => !current.has(name));
     if (stillMissing.length > 0) {
       logger.info("subsession", "async-tools-timeout", {
