@@ -5,6 +5,7 @@ import { createHaltHandler } from "./commands/halt.js";
 import { createMinionsHandler } from "./commands/minions.js";
 import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";
 import { getConfig } from "./config.js";
+import { PathOverlapLog } from "./coordination/index.js";
 import {
   createDelegationHint,
   isComplexDelegationTask,
@@ -47,6 +48,7 @@ export default function (pi: ExtensionAPI): void {
   let tree = new AgentTree();
   let groups = new OrchestrationGroupState();
   let mailbox = new MinionCommMailbox();
+  let overlaps = new PathOverlapLog();
   let subsessionManager: SubsessionManager | undefined;
   let statusTracker: ReturnType<typeof createStatusTracker> | undefined;
   let cachedUi: ExtensionContext["ui"] | null = null;
@@ -58,6 +60,7 @@ export default function (pi: ExtensionAPI): void {
   const packets = createLifecyclePacketDispatcher({
     getTree: () => tree,
     sendMessage: (message, options) => pi.sendMessage(message, options),
+    consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
     packets.enqueue(event);
@@ -126,6 +129,7 @@ export default function (pi: ExtensionAPI): void {
         subsessionManager,
         groups,
         mailbox,
+        overlaps,
         onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
       })(...args);
     },
@@ -323,6 +327,7 @@ export default function (pi: ExtensionAPI): void {
         await handle.followUp(text);
       },
     });
+    overlaps = new PathOverlapLog();
     packets.open();
 
     for (const metadata of subsessionManager.list()) {

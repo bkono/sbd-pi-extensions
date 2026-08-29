@@ -1,4 +1,6 @@
 export {
+  ANNOUNCE_MINION_PATHS_TOOL,
+  AnnounceMinionPathsParams,
   COMM_SEND_STATUS,
   type CommInjectInput,
   type CommMailboxBind,
@@ -6,7 +8,9 @@ export {
   type CommSendStatus,
   createSendMinionMessageTool,
   formatMinionMail,
+  INSPECT_MINION_PATHS_TOOL,
   type InjectedCommTools,
+  InspectMinionPathsParams,
   injectOrchestratedCommTools,
   LIST_MINION_PEERS_TOOL,
   type ListMinionPeersDetails,

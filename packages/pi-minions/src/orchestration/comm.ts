@@ -1,6 +1,13 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import {
+  announcePathIntent,
+  formatAnnounceResult,
+  formatInspectResult,
+  inspectPathIntent,
+  type PathOverlapLog,
+} from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { generateId } from "../minions.js";
 import type { AgentTree } from "../tree.js";
@@ -13,11 +20,15 @@ export const PARENT_RECIPIENT_ID = "parent";
 export const LIST_MINION_PEERS_TOOL = "list_minion_peers";
 export const SEND_MINION_PEER_TOOL = "send_minion_peer";
 export const SEND_MINION_MESSAGE_TOOL = "send_minion_message";
+export const ANNOUNCE_MINION_PATHS_TOOL = "announce_minion_paths";
+export const INSPECT_MINION_PATHS_TOOL = "inspect_minion_paths";
 
 /** Names unioned into the child extraTools allowlist hook. Spawn never gets these. */
 export const ORCHESTRATED_COMM_TOOL_NAMES = [
   LIST_MINION_PEERS_TOOL,
   SEND_MINION_PEER_TOOL,
+  ANNOUNCE_MINION_PATHS_TOOL,
+  INSPECT_MINION_PATHS_TOOL,
 ] as const;
 
 export type OrchestratedCommToolName = (typeof ORCHESTRATED_COMM_TOOL_NAMES)[number];
@@ -76,6 +87,27 @@ export const SendMinionMessageParams = Type.Object({
   }),
 });
 export type SendMinionMessageParams = Static<typeof SendMinionMessageParams>;
+
+export const AnnounceMinionPathsParams = Type.Object({
+  paths: Type.Array(Type.String(), {
+    minItems: 1,
+    description:
+      "Paths relative to the group cwd. Lexically normalized. `*` is a literal segment; no globs.",
+  }),
+  ttlMs: Type.Number({
+    minimum: 1,
+    description:
+      "Advisory TTL in milliseconds. Expiry does not mean the agent stopped touching the path.",
+  }),
+  note: Type.Optional(Type.String({ description: "Optional note attached to the announcement." })),
+});
+export type AnnounceMinionPathsParams = Static<typeof AnnounceMinionPathsParams>;
+
+export const InspectMinionPathsParams = Type.Object(
+  {},
+  { description: "Inspect current (non-expired) path intent in this group. No parameters." },
+);
+export type InspectMinionPathsParams = Static<typeof InspectMinionPathsParams>;
 
 export interface MinionPeerInfo {
   id: string;
@@ -399,6 +431,11 @@ export interface CommInjectInput {
   groupId: string;
   tree: AgentTree;
   mailbox: MinionCommMailbox;
+  /** Group cwd for lexical path identity. Default: empty (relative paths only). */
+  cwd?: string;
+  /** Pending overlap notices for the next real parent packet. */
+  overlaps?: PathOverlapLog;
+  now?: () => number;
   /** "orchestrated" in production; tests may pass spawn to assert it logs and injects nothing. */
   kind?: AgentKind;
 }
@@ -569,6 +606,78 @@ export function createSendMinionMessageTool(deps: {
   };
 }
 
+function createAnnounceMinionPathsTool(input: CommInjectInput): ToolDefinition {
+  const { childId, groupId, tree, mailbox, overlaps } = input;
+  const cwd = input.cwd ?? "";
+  const now = input.now ?? Date.now;
+  return {
+    name: ANNOUNCE_MINION_PATHS_TOOL,
+    label: "Announce Minion Paths",
+    description:
+      "Announce advisory path intent with a TTL. Overlap notifies live peers and is recorded " +
+      "for the next parent packet. Never locks, pauses, or rejects writes.",
+    promptSnippet: "Announce advisory path intent with a TTL",
+    promptGuidelines: [
+      "Announce the paths you intend to touch. Overlap is a hint, not ownership.",
+      "Overlap never rejects an edit. Message the other child with send_minion_peer if you want to coordinate.",
+      "Expiry does not mean you stopped touching the path.",
+    ],
+    parameters: AnnounceMinionPathsParams,
+    async execute(
+      _toolCallId: string,
+      params: AnnounceMinionPathsParams,
+    ): Promise<AgentToolResult<ReturnType<typeof announcePathIntent>>> {
+      const paths = Array.isArray(params.paths) ? params.paths : [];
+      const ttlMs = typeof params.ttlMs === "number" && params.ttlMs >= 1 ? params.ttlMs : 1;
+      const note = typeof params.note === "string" ? params.note : undefined;
+      const details = announcePathIntent({
+        tree,
+        childId,
+        groupId,
+        cwd,
+        paths,
+        ttlMs,
+        note,
+        now: now(),
+        overlaps,
+        mailbox,
+      });
+      return {
+        content: [{ type: "text", text: formatAnnounceResult(details) }],
+        details,
+      };
+    },
+  };
+}
+
+function createInspectMinionPathsTool(input: CommInjectInput): ToolDefinition {
+  const { groupId, tree } = input;
+  const now = input.now ?? Date.now;
+  return {
+    name: INSPECT_MINION_PATHS_TOOL,
+    label: "Inspect Minion Paths",
+    description:
+      "Inspect current non-expired path intent in this orchestration group. " +
+      "Expired intent does not mean the agent stopped.",
+    promptSnippet: "Inspect current advisory path intent in this group",
+    promptGuidelines: [
+      "Use inspect_minion_paths to see who announced which paths before editing.",
+      "Overlap is advisory. Do not wait for intent to expire before writing.",
+    ],
+    parameters: InspectMinionPathsParams,
+    async execute(
+      _toolCallId: string,
+      _params: InspectMinionPathsParams,
+    ): Promise<AgentToolResult<ReturnType<typeof inspectPathIntent>>> {
+      const details = inspectPathIntent({ tree, groupId, now: now() });
+      return {
+        content: [{ type: "text", text: formatInspectResult(details) }],
+        details,
+      };
+    },
+  };
+}
+
 function assertNoParentTools(tools: ToolDefinition[]): void {
   for (const tool of tools) {
     if ((PARENT_ONLY_MINION_TOOLS as readonly string[]).includes(tool.name)) {
@@ -579,7 +688,7 @@ function assertNoParentTools(tools: ToolDefinition[]): void {
 
 /**
  * Bind comm tools for one orchestrated child. Sender identity is fixed here.
- * Announce/inspect path intent lands in 3.5 by extending this hook, not a second injector.
+ * Announce/inspect path intent extend this hook; do not add a second injector.
  * Spawn must not call this.
  */
 export function injectOrchestratedCommTools(input: CommInjectInput): InjectedCommTools {
@@ -589,7 +698,12 @@ export function injectOrchestratedCommTools(input: CommInjectInput): InjectedCom
     return { tools: [], names: [] };
   }
 
-  const tools = [createListMinionPeersTool(input), createSendMinionPeerTool(input)];
+  const tools = [
+    createListMinionPeersTool(input),
+    createSendMinionPeerTool(input),
+    createAnnounceMinionPathsTool(input),
+    createInspectMinionPathsTool(input),
+  ];
   assertNoParentTools(tools);
   const names = tools.map((tool) => tool.name);
   logger.info("comm", "inject", { childId: input.childId, tools: names, kind });

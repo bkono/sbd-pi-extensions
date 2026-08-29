@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../agents.js";
 import { getConfig } from "../config.js";
+import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
 import {
@@ -62,7 +63,10 @@ export interface OrchestrateDeps {
   extraTools?: readonly string[];
   /** Shared in-process mailbox. 3.2 owns live delivery. */
   mailbox?: MinionCommMailbox;
-  /** Override bound-tool injection. Default binds list/send with childId closed over. */
+  /** Pending overlap notices for the next real parent packet. */
+  overlaps?: PathOverlapLog;
+  now?: () => number;
+  /** Override bound-tool injection. Default binds list/send/announce/inspect with childId closed over. */
   injectCommTools?: (input: { childId: string; groupId: string }) => InjectedCommTools;
   /** Event path 1.8 consumes. Do not deliver parent packets here. */
   onLifecycle?: (event: OrchestrationLifecycleEvent) => void;
@@ -170,15 +174,18 @@ interface RegisteredChild {
 function injectBoundCommTools(
   deps: OrchestrateDeps,
   mailbox: MinionCommMailbox,
-  groupId: string,
+  group: { groupId: string; cwd: string },
   childId: string,
 ): InjectedCommTools {
-  if (deps.injectCommTools) return deps.injectCommTools({ childId, groupId });
+  if (deps.injectCommTools) return deps.injectCommTools({ childId, groupId: group.groupId });
   return injectOrchestratedCommTools({
     childId,
-    groupId,
+    groupId: group.groupId,
+    cwd: group.cwd,
     tree: deps.tree,
     mailbox,
+    overlaps: deps.overlaps,
+    now: deps.now,
     kind: "orchestrated",
   });
 }
@@ -195,7 +202,7 @@ function startRegisteredChild(
   const { tree, subsessionManager } = deps;
   const { id, name, task, config, parentModel } = child;
   const piConfig = getConfig(ctx);
-  const injected = injectBoundCommTools(deps, mailbox, group.groupId, id);
+  const injected = injectBoundCommTools(deps, mailbox, group, id);
 
   return subsessionManager
     .startChild({

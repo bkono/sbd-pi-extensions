@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { PathOverlapNotice } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { nudgeFor } from "../nudges.js";
 import { formatDuration } from "../render.js";
@@ -42,6 +43,8 @@ export interface LifecyclePacketDetails {
   groupIds: string[];
   changed: ChangedChildPacket[];
   stillRunning: StillRunningChildPacket[];
+  /** Advisory overlaps recorded since the last real packet. Never a wake by themselves. */
+  overlaps: PathOverlapNotice[];
 }
 
 export interface LifecyclePacketDispatcherDeps {
@@ -49,6 +52,7 @@ export interface LifecyclePacketDispatcherDeps {
   sendMessage: ExtensionAPI["sendMessage"];
   now?: () => number;
   schedule?: (run: () => void) => void;
+  consumeOverlaps?: (groupIds: string[]) => PathOverlapNotice[];
 }
 
 function isPacketClass(value: string): value is NudgeEvent {
@@ -101,6 +105,20 @@ function stillRunningLine(child: StillRunningChildPacket): string[] {
   return lines;
 }
 
+function overlapLine(notice: PathOverlapNotice): string[] {
+  const self = notice.childDescription
+    ? `${notice.childId} (${notice.childDescription})`
+    : notice.childId;
+  const other = notice.otherDescription
+    ? `${notice.otherId} (${notice.otherDescription})`
+    : notice.otherId;
+  return [
+    `- ${self} ${notice.path} overlaps ${other} ${notice.otherPath}`,
+    "  advisory: edits are not blocked",
+    `  suggest: send_minion_peer to ${notice.otherId}`,
+  ];
+}
+
 function formatChanged(child: ChangedChildPacket): string[] {
   const lines = [`- ${child.childId} ${child.eventClass}`, `  name: ${child.displayName}`];
   if (child.role) lines.push(`  role: ${child.role}`);
@@ -150,6 +168,13 @@ export function formatLifecyclePacket(
   } else {
     for (const child of details.stillRunning) {
       lines.push(...stillRunningLine(child));
+    }
+  }
+
+  if (details.overlaps && details.overlaps.length > 0) {
+    lines.push("", "Overlaps (advisory; edits are not blocked):");
+    for (const notice of details.overlaps) {
+      lines.push(...overlapLine(notice));
     }
   }
 
@@ -281,11 +306,14 @@ export class LifecyclePacketDispatcher {
       }
     }
 
+    const overlaps = this.deps.consumeOverlaps?.(groupIds) ?? [];
+
     return {
       seq: this.seq + 1,
       groupIds,
       changed,
       stillRunning,
+      overlaps,
     };
   }
 

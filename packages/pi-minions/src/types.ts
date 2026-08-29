@@ -89,6 +89,7 @@ export interface PathIntent {
   path: string;
   ttlMs?: number;
   announcedAt?: number;
+  note?: string;
 }
 
 export interface AgentNode {
