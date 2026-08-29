@@ -12,6 +12,7 @@ import {
   type OrchestrationLifecycleEvent,
   PARENT_ONLY_MINION_TOOLS,
 } from "../orchestration/index.js";
+import { TIMEOUT_GRACE_MS, TIMEOUT_WRAP_UP_MESSAGE } from "../session-timeout.js";
 import { STEP_LIMIT_WRAP_UP_MESSAGE } from "../step-limit.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type {
@@ -29,6 +30,7 @@ const dirs: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   for (const dir of dirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -538,12 +540,69 @@ describe("halt during detached start", () => {
     expect(steer).toHaveBeenCalledWith(STEP_LIMIT_WRAP_UP_MESSAGE);
     expect(abortSession).not.toHaveBeenCalled();
     expect(tree.get(childId)?.activityHistory).toContain("turn 1");
+    expect(tree.get(childId)?.usage.turns).toBe(1);
+    expect(tree.getTotalUsage().turns).toBe(1);
 
     onTurnEnd?.(4);
     expect(steer).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledWith(childId);
     expect(tree.get(childId)?.activityHistory).toContain("turn 4");
+    expect(tree.get(childId)?.usage.turns).toBe(4);
+    expect(tree.getTotalUsage().turns).toBe(4);
+  });
+
+  it("honors role timeouts on orchestrated children", async () => {
+    vi.useFakeTimers();
+    const cwd = tempDir("pi-minions-orch-timeout-");
+    writeRole(cwd, "agents", "timed-role", "Timed role", "Do the work", {
+      timeout: "10",
+    });
+
+    const steer = vi.fn(async () => {});
+    const abort = vi.fn();
+    const startChild = vi.fn(async (opts: CreateMinionSessionOptions) => ({
+      ...hangingHandle(opts.id, cwd),
+      steer,
+      abort,
+    }));
+
+    const tree = new AgentTree();
+    const execute = orchestrate({
+      tree,
+      pi: { getAllTools: () => [{ name: "read" }] } as Pick<ExtensionAPI, "getAllTools">,
+      subsessionManager: {
+        startChild,
+        getSessionHandle: () => undefined,
+        abortSession: vi.fn(),
+      } as unknown as Pick<SubsessionManager, "startChild" | "getSessionHandle" | "abortSession">,
+      groups: new OrchestrationGroupState(),
+    });
+
+    const result = detailsOf(
+      await run(
+        execute,
+        { tasks: [{ task: "do work", description: "Work", role: "timed-role" }] },
+        createCtx(cwd),
+      ),
+    );
+    expect(result.accepted).toHaveLength(1);
+    expect(startChild).toHaveBeenCalled();
+    expect(startChild.mock.calls[0]?.[0]?.config.timeout).toBe(10);
+
+    // Detached startChild promise then installs the timeout timers.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(steer).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(steer).toHaveBeenCalledWith(TIMEOUT_WRAP_UP_MESSAGE);
+    expect(abort).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(TIMEOUT_GRACE_MS);
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(steer).toHaveBeenCalledTimes(1);
   });
 });
 

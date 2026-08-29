@@ -17,6 +17,7 @@ import {
   type OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
 } from "../orchestration/index.js";
+import { installSessionTimeout, resolveEffectiveTimeout } from "../session-timeout.js";
 import { applyStepLimit } from "../step-limit.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import { TASK_TYPES } from "../task-types.js";
@@ -236,6 +237,7 @@ function startRegisteredChild(
       },
       onTurnEnd: (turnCount) => {
         tree.logActivity(id, `turn ${turnCount}`);
+        tree.updateUsage(id, { turns: turnCount });
         applyStepLimit({
           count: turnCount,
           steps: config.steps,
@@ -255,8 +257,27 @@ function startRegisteredChild(
       },
     })
     .then(async (handle) => {
-      const current = tree.get(id);
-      if (current && isTerminalStatus(current.status)) {
+      const sessionTimeout = installSessionTimeout({
+        timeoutMs: resolveEffectiveTimeout(config.timeout),
+        steer: (text) => handle.steer(text),
+        abort: () => {
+          handle.abort();
+        },
+      });
+      try {
+        const current = tree.get(id);
+        if (current && isTerminalStatus(current.status)) {
+          const terminal = await handle.wait();
+          deps.onLifecycle?.({
+            class: terminal.class,
+            groupId: group.groupId,
+            childId: id,
+            error: terminal.error,
+            output: terminal.output || undefined,
+          });
+          return;
+        }
+        deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
         const terminal = await handle.wait();
         deps.onLifecycle?.({
           class: terminal.class,
@@ -265,17 +286,9 @@ function startRegisteredChild(
           error: terminal.error,
           output: terminal.output || undefined,
         });
-        return;
+      } finally {
+        sessionTimeout.clear();
       }
-      deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
-      const terminal = await handle.wait();
-      deps.onLifecycle?.({
-        class: terminal.class,
-        groupId: group.groupId,
-        childId: id,
-        error: terminal.error,
-        output: terminal.output || undefined,
-      });
     })
     .catch((err: unknown) => {
       const error = err instanceof Error ? err.message : String(err);

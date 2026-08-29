@@ -4,6 +4,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { logger } from "./logger.js";
 import { generateId } from "./minions.js";
+import { installSessionTimeout, resolveEffectiveTimeout } from "./session-timeout.js";
 import { applyStepLimit } from "./step-limit.js";
 import { SubsessionManager } from "./subsessions/manager.js";
 import { getTempSessionPath } from "./subsessions/paths.js";
@@ -123,14 +124,8 @@ export async function runMinionSession(
   let abortReason: string | undefined;
   const usage = emptyUsage();
 
-  // Timeout handling
-  const effectiveTimeout =
-    config.timeout ??
-    (process.env.PI_MINIONS_TIMEOUT
-      ? parseInt(process.env.PI_MINIONS_TIMEOUT, 10) || undefined
-      : undefined);
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  let graceTimeoutId: ReturnType<typeof setTimeout> | undefined;
+  const effectiveTimeout = resolveEffectiveTimeout(config.timeout);
+  let sessionTimeout: ReturnType<typeof installSessionTimeout> | undefined;
 
   try {
     const handle = await subsessionManager.startChild({
@@ -206,34 +201,29 @@ export async function runMinionSession(
       },
     });
 
-    if (effectiveTimeout !== undefined) {
-      timeoutId = setTimeout(() => {
+    sessionTimeout = installSessionTimeout({
+      timeoutMs: effectiveTimeout,
+      steer: (text) => handle.steer(text),
+      abort: () => {
+        handle.abort();
+      },
+      onWrapUp: () => {
         transcript.write(`\n=== Timeout reached (${effectiveTimeout}ms) ===`);
         logger.warn("spawn:session", "Timeout reached", {
           name: config.name,
           timeout: effectiveTimeout,
           turnCount,
         });
-
-        handle
-          .steer(
-            "TIMEOUT REACHED. Your time allocation has expired. " +
-              "Summarize your progress and findings now. Do NOT make any more tool calls. " +
-              "This is your last turn.",
-          )
-          .catch(() => {});
-
-        graceTimeoutId = setTimeout(() => {
-          transcript.write(`\n=== Force abort after grace period ===`);
-          logger.warn("spawn:session", "Force abort after timeout grace", {
-            name: config.name,
-            timeout: effectiveTimeout,
-            turnCount,
-          });
-          handle.abort();
-        }, 30_000);
-      }, effectiveTimeout);
-    }
+      },
+      onAbort: () => {
+        transcript.write(`\n=== Force abort after grace period ===`);
+        logger.warn("spawn:session", "Force abort after timeout grace", {
+          name: config.name,
+          timeout: effectiveTimeout,
+          turnCount,
+        });
+      },
+    });
 
     const terminal = await handle.wait();
     const status: AgentStatus = terminal.class === "settled" ? "completed" : terminal.class;
@@ -244,10 +234,6 @@ export async function runMinionSession(
       error: terminal.error,
     };
     tree?.updateStatus(id, status, result.exitCode, result.error);
-
-    // Cleanup
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-    if (graceTimeoutId !== undefined) clearTimeout(graceTimeoutId);
 
     // Preserve explicit abort reasons from step-limit enforcement.
     if (abortReason) {
@@ -288,9 +274,6 @@ export async function runMinionSession(
       error: result.exitCode !== 0 ? (result.error ?? failureOutput) : undefined,
     };
   } catch (err) {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-    if (graceTimeoutId !== undefined) clearTimeout(graceTimeoutId);
-
     const msg = err instanceof Error ? err.message : String(err);
     transcript.write(`\n=== Error: ${msg} ===`);
     logger.debug("spawn:session", "error", { id, name, error: msg });
@@ -302,5 +285,7 @@ export async function runMinionSession(
       usage,
       error: msg,
     };
+  } finally {
+    sessionTimeout?.clear();
   }
 }
