@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.1.5",
     "sbdpi-vur.3.2"
@@ -17,8 +17,8 @@
   ],
   "parent": "sbdpi-vur.3",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Serialize child settlement against inbound mail with one terminal winner",
   "type": "task",
-  "updated_at": "2026-08-28T22:57:10Z"
+  "updated_at": "2026-08-29T02:28:14Z"
 }
