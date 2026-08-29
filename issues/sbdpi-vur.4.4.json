@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.2.7",
     "sbdpi-vur.2.8"
@@ -15,8 +15,8 @@
   ],
   "parent": "sbdpi-vur.4",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Publish cutover README and migration notes",
   "type": "chore",
-  "updated_at": "2026-08-28T22:57:09Z"
+  "updated_at": "2026-08-29T01:22:13Z"
 }
