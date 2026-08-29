@@ -10,6 +10,8 @@
     "sbdpi-vur.2.8",
     "sbdpi-vur.4.2"
   ],
+  "closed_at": "2026-08-29T00:47:07Z",
+  "close_reason": " /bw run injects epic go-prompt; no runBoundedEpicLoop on this path (d121812). Review PASS.",
   "created": "2026-08-28T21:31:27Z",
   "description": "`/bw run \u003cepic\u003e` enters goal mode and injects a prompt that starts a parent turn.\n\n## Background\n\nToday `actions/run.ts` builds RunOptions and `runBoundedEpicLoop` launches tmux workers. Replace that. This is not a minions lifecycle packet and not a frozen dump of `bw ready`.\n\n## Files\n\n- `packages/pi-beadwork-extension/src/actions/run.ts`\n- `argv.ts` / `commands.ts` / `command-aliases.ts` / `command-completions.ts` as needed for flags\n- tests\n\nDo not rewrite `close_issue` or add `/bw abandon` here (goal-exit sibling).\n\n## Behavior\n\n1. Reject print/json hosts (same as orchestrate).\n2. Reject --workers/--until/--maxCycles/--noSpawn/--dryRun with an actionable error. Command is `/bw run \u003cepic\u003e` only.\n3. Validate open epic with traversable descendants.\n4. Store Goal (exactly one scopeId). Set mode run.\n5. Standing appendix from prompt.ts.\n6. Inject prompt: epic id/title, review policy, “refresh bw ready/show, start ready work, compose task, orchestrate with domain metadata”. `followUp` if parent mid-turn; `triggerTurn` if idle. `sendUserMessage` or `sendMessage` is fine; no second packet schema.\n7. Also notify the human (UI notify / confirmation line) that goal mode started and the parent was asked to orchestrate — so `/bw run` is visible even if the model turn is quiet.\n8. Do not probe minions. If orchestrate is missing, the injected turn fails in the open.\n9. Same session, same epic: re-inject the prompt.\n10. Same session, different epic while a goal is active: reject until current goal exits.\n11. Two Pi sessions, one epic: no lock.\n\n## Success criteria\n\n- No tmux, no runBoundedEpicLoop.\n- Flags and print/json rejected.\n- Injected content has identifiers + refresh instruction, not a baked ready list.\n- User-visible confirmation.\n\n## Test plan\n\n- Unit: flag/host/epic validation; log rejected flag names.\n- Unit: same-epic retry vs different-epic reject.\n- Unit: injected prompt does not contain a ticket id list copied from ready.\n- Stub sendMessage/sendUserMessage: assert followUp when a fake “parent busy” flag is set; triggerTurn when idle.\n- Log: epic id, host mode, inject path (sendUserMessage vs sendMessage), busy vs idle.\n\n## Considerations\n\nCompletions/aliases still saying “bounded epic loop” are the docs sibling if you do not touch those files here. If you must change argv for flag rejection, own argv in this issue.",
   "id": "sbdpi-vur.2.3",
@@ -25,8 +27,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Make /bw run inject an epic prompt instead of supervising workers",
   "type": "feature",
-  "updated_at": "2026-08-29T00:20:09Z"
+  "updated_at": "2026-08-29T00:47:07Z"
 }
