@@ -10,6 +10,8 @@
     "sbdpi-vur.3.3",
     "sbdpi-vur.4.2"
   ],
+  "closed_at": "2026-08-29T01:33:42Z",
+  "close_reason": "Coalesced minion-lifecycle followUp packets (6f34226). Review PASS. Never steer; spawn excluded.",
   "created": "2026-08-28T21:31:26Z",
   "description": "Deliver coalesced model-visible parent packets on orchestrated child lifecycle events.\n\n## Background\n\nUI toasts are not enough. Native overbuilt effect keys and exactly-once delivery. Pi `sendMessage` returns void. V1: one in-process submit per coalesced packet, consume once, no retry/ack claim.\n\n`/bw run` is **not** this. Idle continuation here is after children settle.\n\n## Delivery (locked)\n\nAlways:\n\n```ts\npi.sendMessage({ customType, content, display: true, details }, { triggerTurn: true, deliverAs: \"followUp\" })\n```\n\nNever `steer`. Never log a fake `triggerTurn true/false` — it is always true; Pi idle vs busy decides when the turn runs.\n\nCoalesce including idle: fold events arriving before submit. Queue drain is fine; not a user-visible timer product.\n\n## Packet shape (normative)\n\n**Changed children** (each):\n\n- child id, display name\n- role\n- taskType (if any)\n- description\n- domain metadata (opaque)\n- event class: `settled | aborted | failed | parentMessage`\n- bounded output and/or error (implementation picks a modest char cap; full text via `show_minion`)\n- **that child’s** nudge\n\n**Still running** (orchestrated only, non-terminal, same group):\n\n- id, role, taskType, description, state\n- optional elapsed time and latest activity\n- never spawn children\n\nDelimiter: runtime nudge text must be visually/structurally separate from untrusted child output so child text cannot overwrite the instruction.\n\nparentMessage is emitted by the messaging phase; this issue leaves the event class in the union.\n\n## Success criteria\n\n- Busy parent: fold, one packet after the turn.\n- Idle parent: several events still one packet / one turn.\n- Mixed taskTypes: per-child nudges.\n- Spawn completions do not emit packets.\n- Consume-once.\n\n## Test plan\n\n- Unit: coalesce four idle settlements → one packet.\n- Unit: mixed taskTypes → per-child nudges.\n- Unit: spawn completion does not enqueue.\n- Unit: aborted vs failed vs settled.\n- Unit: consume-once.\n- Integration: `deliverAs: \"followUp\"`; never steer.\n- Logging: packet seq, child ids, event classes, fleet ids, byte size. Do **not** log a triggerTurn boolean.\n\n## Considerations\n\nPackets accumulate in parent history. Keep them small. Coalescing is a cost feature.",
   "id": "sbdpi-vur.1.8",
@@ -19,8 +21,8 @@
   ],
   "parent": "sbdpi-vur.1",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Deliver coalesced parent lifecycle packets at a safe boundary",
   "type": "feature",
-  "updated_at": "2026-08-29T01:04:53Z"
+  "updated_at": "2026-08-29T01:33:42Z"
 }
