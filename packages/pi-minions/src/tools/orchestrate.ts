@@ -9,7 +9,10 @@ import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
 import {
+  type InjectedCommTools,
+  injectOrchestratedCommTools,
   isResolveGroupReject,
+  MinionCommMailbox,
   type OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
 } from "../orchestration/index.js";
@@ -52,8 +55,15 @@ export interface OrchestrateDeps {
   pi: Pick<ExtensionAPI, "getAllTools">;
   subsessionManager: Pick<SubsessionManager, "startChild">;
   groups: OrchestrationGroupState;
-  /** Orchestrated-only comm tools. Empty until messaging injects them. */
+  /**
+   * Additional extra-tool names unioned with bound comm names.
+   * Do not use this to rewrite allowlist math.
+   */
   extraTools?: readonly string[];
+  /** Shared in-process mailbox. 3.2 owns live delivery. */
+  mailbox?: MinionCommMailbox;
+  /** Override bound-tool injection. Default binds list/send with childId closed over. */
+  injectCommTools?: (input: { childId: string; groupId: string }) => InjectedCommTools;
   /** Event path 1.8 consumes. Do not deliver parent packets here. */
   onLifecycle?: (event: OrchestrationLifecycleEvent) => void;
 }
@@ -157,8 +167,25 @@ interface RegisteredChild {
   parentModel: Model<Api> | undefined;
 }
 
+function injectBoundCommTools(
+  deps: OrchestrateDeps,
+  mailbox: MinionCommMailbox,
+  groupId: string,
+  childId: string,
+): InjectedCommTools {
+  if (deps.injectCommTools) return deps.injectCommTools({ childId, groupId });
+  return injectOrchestratedCommTools({
+    childId,
+    groupId,
+    tree: deps.tree,
+    mailbox,
+    kind: "orchestrated",
+  });
+}
+
 function startRegisteredChild(
   deps: OrchestrateDeps,
+  mailbox: MinionCommMailbox,
   ctx: ExtensionContext,
   group: { groupId: string; cwd: string },
   toolCallId: string,
@@ -168,6 +195,7 @@ function startRegisteredChild(
   const { tree, subsessionManager } = deps;
   const { id, name, task, config, parentModel } = child;
   const piConfig = getConfig(ctx);
+  const injected = injectBoundCommTools(deps, mailbox, group.groupId, id);
 
   return subsessionManager
     .startChild({
@@ -181,7 +209,8 @@ function startRegisteredChild(
       parentModel,
       parentSystemPrompt: ctx.getSystemPrompt(),
       parentToolNames,
-      extraTools: [...(deps.extraTools ?? [])],
+      customTools: injected.tools,
+      extraTools: [...injected.names, ...(deps.extraTools ?? [])],
       toolSyncEnabled: piConfig.toolSync.enabled,
       toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
       onToolActivity: (activity) => {
@@ -234,6 +263,7 @@ function startRegisteredChild(
 }
 
 export function orchestrate(deps: OrchestrateDeps) {
+  const mailbox = deps.mailbox ?? new MinionCommMailbox();
   return async function execute(
     toolCallId: string,
     params: OrchestrateInput,
@@ -365,17 +395,23 @@ export function orchestrate(deps: OrchestrateDeps) {
     const parentToolNames = deps.pi.getAllTools().map((tool) => tool.name);
     for (const child of registered) {
       // Registration is done. Start is detached; tool AbortSignal does not abort children.
-      void startRegisteredChild(deps, ctx, resolved, toolCallId, parentToolNames, child).catch(
-        (err: unknown) => {
-          const error = err instanceof Error ? err.message : String(err);
-          logger.error("orchestrate", "detached-start", {
-            groupId: resolved.groupId,
-            childId: child.id,
-            hostMode,
-            error,
-          });
-        },
-      );
+      void startRegisteredChild(
+        deps,
+        mailbox,
+        ctx,
+        resolved,
+        toolCallId,
+        parentToolNames,
+        child,
+      ).catch((err: unknown) => {
+        const error = err instanceof Error ? err.message : String(err);
+        logger.error("orchestrate", "detached-start", {
+          groupId: resolved.groupId,
+          childId: child.id,
+          hostMode,
+          error,
+        });
+      });
     }
 
     const result: OrchestrateResult = {

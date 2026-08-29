@@ -135,6 +135,13 @@ export class AgentTree {
     );
   }
 
+  /** Orchestrated members of one group, including terminal. Spawn excluded. */
+  listOrchestratedGroup(groupId: string): AgentNode[] {
+    return Array.from(this.nodes.values()).filter(
+      (n) => n.kind === "orchestrated" && n.groupId === groupId,
+    );
+  }
+
   /** Live nodes with this domain.workItemId. String equality only; not ticket ownership. */
   getLiveByWorkItemId(workItemId: string): AgentNode[] {
     return Array.from(this.nodes.values()).filter(

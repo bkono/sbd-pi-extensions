@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Check } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
+import { ORCHESTRATED_COMM_TOOL_NAMES } from "../orchestration/index.js";
 import {
   BEADWORK_CHILD_INSPECTION_TOOLS,
   computeChildActiveTools,
@@ -152,6 +153,10 @@ describe("foreground spawn tool", () => {
     expect(spawnNode.status).toBe("running");
     expect(started).toHaveLength(1);
     expect(started[0]?.extraTools).toEqual([]);
+    const customNames = (started[0]?.customTools ?? []).map((tool) => tool.name);
+    for (const name of ORCHESTRATED_COMM_TOOL_NAMES) {
+      expect(customNames).not.toContain(name);
+    }
 
     tree.add("mn-orch-a", "bravo", "child a prompt", {
       kind: "orchestrated",
@@ -169,9 +174,17 @@ describe("foreground spawn tool", () => {
     });
     expect(names).toEqual(expect.arrayContaining([...BEADWORK_CHILD_INSPECTION_TOOLS]));
     expect(names).toContain("beadwork_show");
-    expect(names).not.toContain("minion_mail");
+    for (const name of ORCHESTRATED_COMM_TOOL_NAMES) {
+      expect(names).not.toContain(name);
+    }
     expect(names).not.toContain("beadwork_close_issue");
     expect(names).not.toContain("beadwork_comment_issue");
+
+    expect(info).toHaveBeenCalledWith(
+      "comm",
+      "inject",
+      expect.objectContaining({ childId: spawnNode.id, tools: [], kind: "spawn" }),
+    );
 
     expect(info).toHaveBeenCalledWith(
       "spawn:tool",

@@ -14,6 +14,7 @@ import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
 import {
   createLifecyclePacketDispatcher,
+  MinionCommMailbox,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
@@ -42,6 +43,7 @@ export default function (pi: ExtensionAPI): void {
 
   let tree = new AgentTree();
   let groups = new OrchestrationGroupState();
+  let mailbox = new MinionCommMailbox();
   let subsessionManager: SubsessionManager | undefined;
   let statusTracker: ReturnType<typeof createStatusTracker> | undefined;
   let cachedUi: ExtensionContext["ui"] | null = null;
@@ -120,7 +122,7 @@ export default function (pi: ExtensionAPI): void {
         pi,
         subsessionManager,
         groups,
-        extraTools: [],
+        mailbox,
         onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
       })(...args);
     },
@@ -288,6 +290,7 @@ export default function (pi: ExtensionAPI): void {
 
     tree = new AgentTree();
     groups = new OrchestrationGroupState();
+    mailbox = new MinionCommMailbox();
     packets.open();
 
     for (const metadata of subsessionManager.list()) {

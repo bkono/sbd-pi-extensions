@@ -107,6 +107,7 @@ export async function runMinionSession(
     agent: config.name,
     task,
   });
+  logger.info("comm", "inject", { childId: id, tools: [], kind: "spawn" });
 
   // Transitional: logging should move to SubsessionManager
   const transcript = createTranscriptWriter(id, name, task);

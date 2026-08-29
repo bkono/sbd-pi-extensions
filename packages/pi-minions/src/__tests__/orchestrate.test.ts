@@ -7,8 +7,10 @@ import registerMinions from "../index.js";
 import { logger } from "../logger.js";
 import {
   GROUP_REJECT_REASONS,
+  ORCHESTRATED_COMM_TOOL_NAMES,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
+  PARENT_ONLY_MINION_TOOLS,
 } from "../orchestration/index.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type { ChildSession, ChildSessionEvent, MinionSessionHandle } from "../subsessions/types.js";
@@ -339,8 +341,7 @@ describe("workItemId uniqueness", () => {
 
 describe("registration abort and startChild wiring", () => {
   it("cancels remaining registration on AbortSignal and does not forward the signal to children", async () => {
-    const extraTools = ["minion_mail"];
-    const { execute, ctx, startChild } = setup({ extraTools });
+    const { execute, ctx, startChild } = setup();
     const controller = new AbortController();
     controller.abort();
 
@@ -360,14 +361,23 @@ describe("registration abort and startChild wiring", () => {
     expect(startChild).not.toHaveBeenCalled();
 
     const started = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+    const call = startChild.mock.calls[0]?.[0] as {
+      extraTools?: string[];
+      customTools?: Array<{ name: string }>;
+      signal?: unknown;
+    };
     expect(startChild).toHaveBeenCalledWith(
       expect.objectContaining({
         id: started.accepted[0]?.childId,
-        extraTools: ["minion_mail"],
         cwd: realpathSync(ctx.cwd),
       }),
     );
-    expect(startChild.mock.calls[0]?.[0].signal).toBeUndefined();
+    expect(call.extraTools).toEqual(expect.arrayContaining([...ORCHESTRATED_COMM_TOOL_NAMES]));
+    expect(call.customTools?.map((tool) => tool.name)).toEqual([...ORCHESTRATED_COMM_TOOL_NAMES]);
+    for (const banned of PARENT_ONLY_MINION_TOOLS) {
+      expect(call.customTools?.map((tool) => tool.name)).not.toContain(banned);
+    }
+    expect(call.signal).toBeUndefined();
   });
 });
 

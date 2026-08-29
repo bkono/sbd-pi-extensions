@@ -117,6 +117,12 @@ describe("AgentTree orchestrated group snapshot", () => {
 
     expect(snapshot.map((n) => n.id).sort()).toEqual(["mn-pending", "mn-running"]);
     expect(snapshot.map((n) => n.status).sort()).toEqual(["pending", "running"]);
+    expect(
+      tree
+        .listOrchestratedGroup("grp-1")
+        .map((n) => n.id)
+        .sort(),
+    ).toEqual(["mn-aborted", "mn-completed", "mn-failed", "mn-pending", "mn-running"]);
   });
 });
 

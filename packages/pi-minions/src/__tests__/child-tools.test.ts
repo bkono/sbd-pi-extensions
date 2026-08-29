@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ORCHESTRATED_COMM_TOOL_NAMES } from "../orchestration/index.js";
 import {
   applyChildToolAllowlist,
   BEADWORK_CHILD_INSPECTION_TOOLS,
@@ -57,10 +58,14 @@ describe("child tool allowlist formula", () => {
   it("leaves an extraTools hook so orchestrate can union comm tools without rewriting", () => {
     const names = computeChildActiveTools({
       parentCodingTools: PARENT_WITH_MUTATIONS,
-      extraTools: ["minion_mail", "beadwork_close_issue", "beadwork_comment_issue"],
+      extraTools: [
+        ...ORCHESTRATED_COMM_TOOL_NAMES,
+        "beadwork_close_issue",
+        "beadwork_comment_issue",
+      ],
     });
 
-    expect(names).toContain("minion_mail");
+    expect(names).toEqual(expect.arrayContaining([...ORCHESTRATED_COMM_TOOL_NAMES]));
     expect(names).toContain("beadwork_show");
     expect(names).not.toContain("beadwork_close_issue");
     expect(names).not.toContain("beadwork_comment_issue");
@@ -77,7 +82,9 @@ describe("child tool allowlist formula", () => {
         expect.arrayContaining(["read", "bash", ...BEADWORK_CHILD_INSPECTION_TOOLS]),
       );
       expect(names).toContain("beadwork_show");
-      expect(names).not.toContain("minion_mail");
+      for (const name of ORCHESTRATED_COMM_TOOL_NAMES) {
+        expect(names).not.toContain(name);
+      }
       expect(names).not.toContain("beadwork_close_issue");
       expect(names).not.toContain("beadwork_comment_issue");
     }
