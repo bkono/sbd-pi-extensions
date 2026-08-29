@@ -51,6 +51,7 @@ function createState(overrides: Partial<SessionState> = {}): SessionState {
     runOptions: overrides.runOptions,
     lastRunOptions: overrides.lastRunOptions,
     recentRunSummary: overrides.recentRunSummary,
+    runInterrupted: overrides.runInterrupted,
   };
 }
 
@@ -280,6 +281,57 @@ describe("dashboard", () => {
     expect(runRendered).not.toContain("activeWorkers=");
     expect(runRendered).not.toContain("Workers tab");
     expect(runRendered).not.toMatch(/\bc cancel\b/);
+  });
+
+  it("does not advertise an armed run after reload of an interrupted goal", async () => {
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: "/repo",
+      ui,
+      sessionId: "dashboard-interrupted-run",
+    });
+
+    await openBeadworkDashboard(
+      ctx,
+      createModel({
+        state: createState({
+          mode: "run",
+          runInterrupted: true,
+          scope: { kind: "epic", id: "BW-100", title: "Interrupted epic" },
+          recentRunSummary: {
+            epicId: "BW-100",
+            stopReason: "max-cycles",
+            cycles: 1,
+            launched: [],
+            activeWorkerIds: [],
+            workerSummary: {
+              total: 0,
+              active: 0,
+              launching: 0,
+              running: 0,
+              exited: 0,
+              held: 0,
+              landed: 0,
+              verified: 0,
+              successfulTerminal: 0,
+              failed: 0,
+              attention: 0,
+              cleaned: 0,
+            },
+            notes: [],
+            cycleSummaries: [],
+          },
+        }),
+      }),
+    );
+
+    const dashboard = ui.customCalls[0]?.component as {
+      render: (width: number) => string[];
+    };
+    const rendered = renderComponent(dashboard);
+    expect(rendered).not.toContain("run armed");
+    expect(rendered).toContain("last run BW-100");
+    expect(rendered).toContain("interrupted");
   });
 
   it("renders the scope tab with concise dashboard-level hints", async () => {

@@ -3,6 +3,7 @@ import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-a
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { IssueExplorerFilter } from "../actions/issues.js";
+import { isInterruptedRun } from "../session-state.js";
 import type {
   ActivationState,
   BeadworkConfig,
@@ -89,7 +90,7 @@ function describeScope(theme: Theme, state: SessionState, maxTitleWidth = 28): s
 }
 
 function describeBackground(theme: Theme, state: SessionState): string | undefined {
-  if (state.mode === "run" && state.scope.kind === "epic") {
+  if (state.mode === "run" && state.scope.kind === "epic" && !isInterruptedRun(state)) {
     return `${styledAccent(theme, "run armed")} for ${styledValue(theme, state.scope.id)}`;
   }
   if (state.recentRunSummary) {
@@ -297,8 +298,9 @@ class DashboardComponent implements Component {
       this.theme,
       path.basename(this.model.activation.repoRoot ?? this.model.cwd) || this.model.cwd,
     );
-    const modeLabel =
-      this.model.state.mode === "run"
+    const modeLabel = isInterruptedRun(this.model.state)
+      ? styledWarning(this.theme, this.model.state.mode)
+      : this.model.state.mode === "run"
         ? styledAccent(this.theme, this.model.state.mode)
         : styledDim(this.theme, this.model.state.mode);
     const statusLine = `${repoLabel} \u00b7 ${describeActivation(this.theme, this.model.activation)} \u00b7 ${modeLabel} \u00b7 ${describeScope(this.theme, this.model.state, 22)}`;
