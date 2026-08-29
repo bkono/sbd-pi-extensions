@@ -2,6 +2,13 @@
 
 Date: 2026-04-13
 
+> **Superseded for operators (2026-08-28).** tmux-backed `/bw delegate` workers and
+> `/bw run --workers` supervisor loops were removed. `/bw run <epic-id>` injects a goal-mode
+> prompt on a persistent Pi host (`tui`/`rpc`); children are in-process minions. Current usage:
+> `packages/pi-beadwork-extension/README.md` and `packages/pi-beadwork-extension/docs/migration.md`.
+> Sections below are the original engagement-model design, not launch instructions.
+
+
 ## Goal
 
 Define how a pi beadwork extension should expose explicit, session-level engagement modes so the user can move cleanly between:
@@ -33,7 +40,7 @@ When the user wants beadwork behavior, they should opt in explicitly through a s
 
 - `/bw status`
 - `/bw engage [scope]`
-- `/bw run <epic-id> [options]`
+- `/bw run <epic-id>`
 - `/bw off`
 - optionally `/bw adopt` or `/bw plan-to-tickets`
 
@@ -59,7 +66,7 @@ Examples:
 - asking delivery-level questions
 - reviewing `bw ready`
 - creating an epic and children
-- launching a worker only when requested
+- staying human-led (do not autonomously `orchestrate`)
 
 ### Scenario 3: agent-led orchestration over an epic
 
@@ -67,8 +74,8 @@ Use **run** mode, entered via `/bw run <epic-id>`.
 
 Examples:
 - execute a prepared epic
-- supervise workers over scoped `ready`
-- continue until blocked or complete
+- `orchestrate` ready work through in-process minions
+- continue until the epic is closed
 - behave as orchestrator rather than conversational copilot
 
 The most important design feature is that **planning can start in either neutral or interactive mode**. The extension should support both:
@@ -316,7 +323,7 @@ The session should now:
 - `/bw engage epic-124`
 - `/bw engage 124`
 
-## `/bw run <epic-id> [options]`
+## `/bw run <epic-id>`
 
 Moves the session into **run** mode.
 
@@ -324,23 +331,16 @@ Moves the session into **run** mode.
 
 - an epic id
 
-### Suggested options
-
-- `--workers <n>`
-- `--until blocked`
-- `--until empty`
-- `--dry-run`
-- `--max-cycles <n>`
-- `--no-spawn` for a scheduler-only preview mode
+Supervisor flags (`--workers`, `--until`, `--max-cycles`, `--dry-run`, `--no-spawn`) are
+**removed and error**. See `packages/pi-beadwork-extension/docs/migration.md`.
 
 ### Behavior
 
 - verify repo activation is `active`
-- verify the id refers to an epic or accepted container ticket type
+- verify the id refers to an open epic with descendants
 - set scope to that epic
 - set session mode to `run`
-- load relevant graph context
-- begin orchestrator loop over scoped `ready`
+- inject a prompt (ids + review policy + refresh/`orchestrate`); standing appendix is policy
 
 ### Resulting contract
 
@@ -348,7 +348,7 @@ The session should now:
 
 - act with more initiative
 - prefer existing ticket graph over conversational replanning
-- delegate against ready child tickets
+- `orchestrate` ready child tickets via minions
 - stop only at defined boundaries
 
 ## `/bw off`
@@ -666,7 +666,7 @@ Ship the engagement model with:
 
 - `/bw status`
 - `/bw engage [scope]`
-- `/bw run <epic-id> [options]`
+- `/bw run <epic-id>`
 - `/bw off`
 - and strongly consider `/bw adopt` or `/bw plan-to-tickets`
 

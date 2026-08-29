@@ -7,12 +7,8 @@ export type BeadworkAliasSubcommand =
   | "list"
   | "show"
   | "scope"
-  | "workers"
-  | "delegate"
-  | "land"
-  | "cancel"
-  | "cleanup"
   | "run"
+  | "abandon"
   | "off"
   | "adopt";
 
@@ -26,16 +22,12 @@ export const BEADWORK_ALIAS_COMMANDS: Array<{
   { name: "bw:list", subcommand: "list", description: "List beadwork issues" },
   { name: "bw:show", subcommand: "show", description: "Show one beadwork issue" },
   { name: "bw:scope", subcommand: "scope", description: "Set or clear beadwork scope" },
-  { name: "bw:workers", subcommand: "workers", description: "Inspect beadwork workers" },
-  { name: "bw:delegate", subcommand: "delegate", description: "Delegate a beadwork ticket" },
-  { name: "bw:land", subcommand: "land", description: "Land a deferred worker" },
-  { name: "bw:cancel", subcommand: "cancel", description: "Cancel an active worker" },
+  { name: "bw:run", subcommand: "run", description: "Start goal mode for an epic" },
   {
-    name: "bw:cleanup",
-    subcommand: "cleanup",
-    description: "Cleanup landed worker artifacts",
+    name: "bw:abandon",
+    subcommand: "abandon",
+    description: "Exit goal mode and halt the minion group",
   },
-  { name: "bw:run", subcommand: "run", description: "Run a bounded epic loop" },
   { name: "bw:off", subcommand: "off", description: "Reset beadwork session state" },
   { name: "bw:adopt", subcommand: "adopt", description: "Adopt a markdown plan into beadwork" },
 ];

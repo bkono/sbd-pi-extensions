@@ -15,13 +15,16 @@ const delegationConfig = {
 };
 
 describe("delegation hint", () => {
-  it("uses non-blocking delegation reminder wording by default", () => {
+  it("mentions spawn and orchestrate by default", () => {
     const hint = createDelegationHint(17, { acknowledgementRequired: false });
 
     expect(hint).toContain("DELEGATION REMINDER: You have made 17 tool calls");
     expect(hint).toContain("pi-minions extension is active");
-    expect(hint).toContain("`spawn` tool");
+    expect(hint).toContain("`spawn` tool when you intend to wait");
+    expect(hint).toContain("`orchestrate` for background work");
     expect(hint).toContain("pass a `tasks` array to `spawn`");
+    expect(hint).toContain("`learn_minions`");
+    expect(hint).not.toContain("isolated foreground delegation");
     expect(hint).not.toContain("spawn_bg");
     expect(hint).not.toContain("ALWAYS acknowledge this reminder");
     expect(hint.toLowerCase()).not.toContain("acknowledge");

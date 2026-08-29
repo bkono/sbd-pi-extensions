@@ -2,6 +2,10 @@
 
 Date: 2026-04-13
 
+> **Historical.** tmux-backed workers and the bounded `--workers` run loop were removed. Current
+> operator usage: `packages/pi-beadwork-extension/README.md` and `docs/migration.md` in that package.
+
+
 ## Goal
 
 Turn the beadwork research and session-mode design into a concrete implementation plan for a new installable pi extension package in this repo.

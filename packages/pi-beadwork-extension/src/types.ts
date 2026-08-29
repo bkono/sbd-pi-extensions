@@ -22,6 +22,20 @@ export type SessionScope =
   | { kind: "ticket"; id: string; title?: string }
   | { kind: "epic"; id: string; title?: string };
 
+export type ReviewPolicy = "ticket" | "scope" | "none";
+
+export type Goal = {
+  goalId: string;
+  /** V1 requires exactly one epic id. */
+  scopeIds: string[];
+  reviewPolicy: ReviewPolicy;
+  startedAt: string;
+};
+
+export function isV1Goal(goal: Goal): boolean {
+  return goal.scopeIds.length === 1 && Boolean(goal.scopeIds[0]);
+}
+
 export type PrimeCache = {
   content: string;
   loadedAt: string;
@@ -42,6 +56,9 @@ export type SessionState = {
   updatedAt: string;
   engagedAt?: string;
   prime?: PrimeCache;
+  goal?: Goal;
+  /** Disk rehydration of mode=run. Stays set across in-memory writes until a later /bw run. */
+  runInterrupted?: boolean;
   trackedWorkerIds?: string[];
   workerNotices?: Record<string, string>;
   runOptions?: SessionRunOptions;
@@ -51,118 +68,17 @@ export type SessionState = {
 
 export type RunUntil = "blocked" | "empty";
 
-export type LandingPolicy = "auto" | "deferred";
-
-export type WorkerExecutionMode = "current-branch" | "worktree";
-
-export type WorkerSelfReviewStatus = "pending" | "requested" | "completed" | "skipped";
-
-export type WorkerStatus =
-  | "launching"
-  | "running"
-  | "exited"
-  | "held"
-  | "landed"
-  | "verified"
-  | "failed"
-  | "attention";
-
-export type WorkerCleanupStatus = "pending" | "cleaned" | "failed";
-
-export type WorkerValidationStatus = "pending" | "passed" | "failed";
-
-export type WorkerRemediationStatus = "running" | "failed" | "exhausted";
-
-export type WorkerReviewVerdict = "approve" | "approve-with-nits" | "request-changes";
-
-export type WorkerReviewStatus =
-  | "pending"
-  | "approved"
-  | "nits-only"
-  | "changes-requested"
-  | "remediation-in-progress"
-  | "review-blocked";
-
-export type ReviewFinding = {
-  file: string;
-  issue: string;
-  suggestion: string;
-  severity: "fix" | "nit";
-};
-
-export type ReviewFindingClassification = "fix" | "file" | "reject";
-
-export type ReviewTriageDecision = {
-  finding: ReviewFinding;
-  findingKey: string;
-  classification: ReviewFindingClassification;
-  rationale: string;
-  action: string;
-};
-
-export type WorktreeCopyRule =
-  | string
-  | {
-      from: string;
-      to?: string;
-      required?: boolean;
-    };
-
 export type BeadworkConfig = {
   ui: {
     showInactiveStatus: boolean;
   };
   storage: {
     sessionStateDir: string;
-    workerRegistryFile: string;
-    runtimeDir: string;
   };
-  tmux: {
-    sessionName: string;
-    workerCommand: string;
-    workerProvider?: string;
-    workerModel?: string;
-  };
-  worktrees: {
-    baseDir?: string;
-    cleanup: "keep" | "cleanup-after-landing";
-    copyFiles: WorktreeCopyRule[];
-    setupCommands: string[];
-    rerunSetupOnReuse: boolean;
-  };
-  workerExecution: {
-    mode: WorkerExecutionMode;
-    maxLifetime: number | null;
-    allowDetachedHead: boolean;
-    review: {
-      enabled: boolean;
-    };
-    selfReview: {
-      enabled: boolean;
-    };
-  };
-  run: {
-    defaultWorkers: number;
-    defaultUntil: RunUntil;
-    defaultMaxCycles: number;
-    pollIntervalMs: number;
-  };
-  landing: {
-    policy: LandingPolicy;
-    validateCommands: string[];
-    commandTimeoutMs: number;
-    maxRebaseAttempts: number;
-    review: {
-      enabled: boolean;
-      provider?: string;
-      model?: string;
-      commandTimeoutMs: number;
-      maxRemediationAttempts: number;
-      maxArtifactChars: number;
-    };
-  };
-  supervisor: {
-    pollIntervalMs: number;
+  review: {
+    policy: ReviewPolicy;
+    provider?: string;
+    model?: string;
   };
 };
 
@@ -289,125 +205,6 @@ export type AdoptionApplyResult = {
   root?: BeadworkIssue;
   created: BeadworkIssue[];
 };
-
-export type CurrentBranchCheckout = {
-  executionMode: "current-branch";
-  checkoutPath: string;
-  branchName: string;
-  launchHead: string;
-};
-
-export type WorktreeCheckout = {
-  executionMode: "worktree";
-  checkoutPath: string;
-  branchName: string;
-  worktreePath: string;
-};
-
-export type WorkerCheckout = CurrentBranchCheckout | WorktreeCheckout;
-
-export type BaseWorkerRuntime = {
-  workerId: string;
-  ticketId: string;
-  epicId?: string;
-  ticketTitle: string;
-  ticketStatus?: string;
-  backend: "tmux";
-  tmuxSession: string;
-  tmuxWindow: string;
-  tmuxPane: string;
-  runtimeDir: string;
-  promptFile: string;
-  scriptFile: string;
-  logFile: string;
-  stateFile: string;
-  exitCodeFile: string;
-  finishedAtFile: string;
-  launchCommand: string;
-  workerCommand: string;
-  workerProvider?: string;
-  workerModel?: string;
-  cleanupPolicy?: BeadworkConfig["worktrees"]["cleanup"];
-  landingPolicy?: LandingPolicy;
-  landingHeldAt?: string;
-  landingRequestedAt?: string;
-  cleanupStatus?: WorkerCleanupStatus;
-  cleanupAt?: string;
-  validationStatus?: WorkerValidationStatus;
-  validationAt?: string;
-  validationSummary?: string;
-  remediationStatus?: WorkerRemediationStatus;
-  remediationAttempts?: number;
-  remediationAt?: string;
-  remediationSummary?: string;
-  reviewerProvider?: string;
-  reviewerModel?: string;
-  reviewStatus?: WorkerReviewStatus;
-  reviewVerdict?: WorkerReviewVerdict;
-  reviewAt?: string;
-  reviewSummary?: string;
-  reviewFeedback?: string[];
-  reviewValidFeedbackCount?: number;
-  reviewInvalidFeedbackCount?: number;
-  reviewedWorkerHead?: string;
-  reviewFindings?: ReviewFinding[];
-  reviewRawOutput?: string;
-  reviewTriageAt?: string;
-  reviewTriageSummary?: string;
-  reviewTriageDecisions?: ReviewTriageDecision[];
-  reviewTriageFindingSetKey?: string;
-  reviewRemediationAttempts?: number;
-  reviewRemediationAt?: string;
-  currentBranchRemediationFindingSetKey?: string;
-  currentBranchRemediationSummary?: string;
-  landingRemediationAttempts?: number;
-  landingRemediationAt?: string;
-  landingRemediationSummary?: string;
-  landingVerifiedAt?: string;
-  landingVerification?: string;
-  landingAheadCount?: number;
-  landingBehindCount?: number;
-  status: WorkerStatus;
-  startedAt: string;
-  updatedAt: string;
-  finishedAt?: string;
-  lastError?: string;
-  commitShas?: string[];
-  touchedPaths?: string[];
-  selfReviewStatus?: WorkerSelfReviewStatus;
-  selfReviewRequestedAt?: string;
-  selfReviewCompletedAt?: string;
-  selfReviewSummary?: string;
-  replacesWorkerId?: string;
-  supersededByWorkerId?: string;
-  currentBranchCrashReason?: string;
-  currentBranchCrashEvidenceFile?: string;
-  currentBranchCrashJudgmentFile?: string;
-  currentBranchCrashJudgment?: string;
-  currentBranchCrashRawJudgment?: string;
-  currentBranchCrashReplacementAttempt?: number;
-};
-
-export type CurrentBranchWorkerRuntime = BaseWorkerRuntime & CurrentBranchCheckout;
-
-export type WorktreeWorkerRuntime = BaseWorkerRuntime & WorktreeCheckout;
-
-export type WorkerRuntime = BaseWorkerRuntime & WorkerCheckout;
-
-export function isCurrentBranchWorker(worker: WorkerRuntime): worker is CurrentBranchWorkerRuntime {
-  return worker.executionMode === "current-branch";
-}
-
-export function isWorktreeWorker(worker: WorkerRuntime): worker is WorktreeWorkerRuntime {
-  return worker.executionMode === "worktree";
-}
-
-export function isSuccessfulTerminalWorker(worker: WorkerRuntime): boolean {
-  return (
-    (isCurrentBranchWorker(worker) && worker.status === "verified") ||
-    (isWorktreeWorker(worker) && worker.status === "landed")
-  );
-}
 
 export type WorkerSummary = {
   total: number;

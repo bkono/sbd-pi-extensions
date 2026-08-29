@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_CONFIG } from "../../constants.js";
 import {
   DASHBOARD_TABS,
   type DashboardModel,
@@ -7,12 +8,7 @@ import {
   openBeadworkDashboard,
 } from "../../tui/dashboard.js";
 import type { IssueExplorerDataSource } from "../../tui/issue-explorer.js";
-import type {
-  BeadworkIssue,
-  BeadworkIssueDetail,
-  SessionState,
-  WorkerRuntime,
-} from "../../types.js";
+import type { BeadworkIssue, BeadworkIssueDetail, SessionState } from "../../types.js";
 import { createFakeExtensionContext, createFakeUi } from "../helpers/extension-harness.js";
 
 function createIssue(overrides: Partial<BeadworkIssue> = {}): BeadworkIssue {
@@ -55,55 +51,7 @@ function createState(overrides: Partial<SessionState> = {}): SessionState {
     runOptions: overrides.runOptions,
     lastRunOptions: overrides.lastRunOptions,
     recentRunSummary: overrides.recentRunSummary,
-  };
-}
-
-function createWorker(overrides: Partial<WorkerRuntime> = {}): WorkerRuntime {
-  return {
-    workerId: overrides.workerId ?? "bw-101-worker",
-    ticketId: overrides.ticketId ?? "BW-101",
-    epicId: overrides.epicId ?? "BW-100",
-    ticketTitle: overrides.ticketTitle ?? "Task",
-    ticketStatus: overrides.ticketStatus ?? "open",
-    executionMode: "worktree",
-    checkoutPath: overrides.checkoutPath ?? overrides.worktreePath ?? "/tmp/worktree",
-    branchName: overrides.branchName ?? "BW-101/task",
-    worktreePath: overrides.worktreePath ?? "/tmp/worktree",
-    backend: overrides.backend ?? "tmux",
-    tmuxSession: overrides.tmuxSession ?? "pi-bw",
-    tmuxWindow: overrides.tmuxWindow ?? "bw-101",
-    tmuxPane: overrides.tmuxPane ?? "%42",
-    runtimeDir: overrides.runtimeDir ?? "/tmp/runtime",
-    promptFile: overrides.promptFile ?? "/tmp/runtime/handoff.txt",
-    scriptFile: overrides.scriptFile ?? "/tmp/runtime/launch.sh",
-    logFile: overrides.logFile ?? "/tmp/runtime/worker.log",
-    stateFile: overrides.stateFile ?? "/tmp/runtime/state.txt",
-    exitCodeFile: overrides.exitCodeFile ?? "/tmp/runtime/exit-code.txt",
-    finishedAtFile: overrides.finishedAtFile ?? "/tmp/runtime/finished-at.txt",
-    launchCommand: overrides.launchCommand ?? "bash /tmp/runtime/launch.sh",
-    workerCommand: overrides.workerCommand ?? "pi",
-    cleanupPolicy: overrides.cleanupPolicy ?? "keep",
-    status: overrides.status ?? "running",
-    startedAt: overrides.startedAt ?? "2026-04-19T00:00:00.000Z",
-    updatedAt: overrides.updatedAt ?? "2026-04-19T00:00:01.000Z",
-    ...overrides,
-  };
-}
-
-function createWorkerSummary(overrides: Partial<DashboardStatusSnapshot["workerSummary"]> = {}) {
-  return {
-    total: overrides.total ?? 0,
-    active: overrides.active ?? 0,
-    launching: overrides.launching ?? 0,
-    running: overrides.running ?? 0,
-    exited: overrides.exited ?? 0,
-    held: overrides.held ?? 0,
-    landed: overrides.landed ?? 0,
-    verified: overrides.verified ?? 0,
-    successfulTerminal: overrides.successfulTerminal ?? 0,
-    failed: overrides.failed ?? 0,
-    attention: overrides.attention ?? 0,
-    cleaned: overrides.cleaned ?? 0,
+    runInterrupted: overrides.runInterrupted,
   };
 }
 
@@ -113,8 +61,7 @@ function createSnapshot(overrides: Partial<DashboardStatusSnapshot> = {}): Dashb
     state: overrides.state ?? createState(),
     counts: overrides.counts ?? { ready: 1, blocked: 0, inProgress: 0, scopedReady: 0 },
     scopeDetail: overrides.scopeDetail,
-    workerSummary: overrides.workerSummary ?? createWorkerSummary(),
-    workers: overrides.workers ?? [],
+    config: overrides.config ?? DEFAULT_CONFIG,
   };
 }
 
@@ -145,74 +92,62 @@ function selectTab(
 }
 
 describe("dashboard", () => {
-  it("applies refreshed worker rows alongside worker summary badges", async () => {
-    const runningWorker = createWorker({ status: "running", ticketTitle: "Delegable ticket" });
-    const heldWorker = createWorker({
-      status: "held",
-      ticketTitle: "Delegable ticket",
-      ticketStatus: "closed",
-      validationStatus: "passed",
-      landingVerification: "Validated and held. Ready to land.",
-      landingAheadCount: 1,
-      landingBehindCount: 0,
-    });
+  it("exposes issue, run, and scope tabs only", () => {
+    const tabIds = DASHBOARD_TABS.map((tab) => tab.id);
+    // Log tab ids so regressions show the exact dashboard surface.
+    expect(tabIds).toEqual(["issues", "run", "scope"]);
+    expect(tabIds).not.toContain("workers");
+  });
+
+  it("renders the issue explorer without a Workers tab or land/cleanup actions", async () => {
+    const epic = createIssue({ id: "BW-100", type: "epic", title: "Dashboard epic" });
+    const dataSource: IssueExplorerDataSource = {
+      loadLevel: vi.fn().mockResolvedValue({ items: [epic], currentDetail: undefined }),
+      loadDetail: vi.fn().mockResolvedValue(createDetail(epic)),
+    };
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({
       cwd: "/repo",
       ui,
-      sessionId: "dashboard-workers-refresh",
+      sessionId: "dashboard-issue-explorer",
     });
 
-    await openBeadworkDashboard(
-      ctx,
-      createModel({
-        defaultTab: "workers",
-        workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
-        workers: [runningWorker],
-      }),
-    );
+    await openBeadworkDashboard(ctx, createModel({ defaultTab: "issues" }), {
+      issueExplorer: { dataSource },
+    });
+    await flushAsyncWork();
 
     const dashboard = ui.customCalls[0]?.component as {
       render: (width: number) => string[];
-      applySnapshot: (snapshot: DashboardStatusSnapshot) => void;
     };
-    expect(renderComponent(dashboard)).toContain(
-      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
-    );
-    expect(renderComponent(dashboard)).toContain("Delegable ticket");
-    expect(renderComponent(dashboard)).toContain("running · ticket open");
-
-    dashboard.applySnapshot(
-      createSnapshot({
-        state: createState({ trackedWorkerIds: [heldWorker.workerId] }),
-        workerSummary: createWorkerSummary({ total: 1, held: 1 }),
-        workers: [heldWorker],
-      }),
-    );
     const rendered = renderComponent(dashboard);
-    expect(rendered).toContain("workers 1 · active 0 · held 1 · done 0 · landed 0 · verified 0");
-    expect(rendered).toContain("held · ticket closed");
-    expect(rendered).toContain("tracked 1");
-    expect(rendered).not.toContain("running · ticket open");
+    expect(rendered).toContain("ready · repo");
+    expect(rendered).toContain("Dashboard epic");
+    expect(rendered).toContain("● Issues");
+    expect(rendered).toContain("○ Run");
+    expect(rendered).toContain("○ Scope");
+    expect(rendered).not.toContain("○ Workers");
+    expect(rendered).not.toContain("● Workers");
+    expect(rendered).not.toMatch(/\bl land\b/);
+    expect(rendered).not.toMatch(/\bu cleanup\b/);
+    expect(rendered).not.toContain("workers 1");
   });
-  it("applies delegate follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
+
+  it("applies delegate follow-up snapshots to the dashboard header and run tab without a fleet table", async () => {
     const ticket = createIssue({
       id: "BW-101",
       title: "Delegable ticket",
       parentId: "BW-100",
     });
     const ticketDetail = createDetail(ticket);
-    const worker = createWorker({ ticketTitle: "Delegable ticket", status: "running" });
     const dataSource: IssueExplorerDataSource = {
       loadLevel: vi.fn().mockResolvedValue({ items: [ticket], currentDetail: undefined }),
       loadDetail: vi.fn().mockResolvedValue(ticketDetail),
     };
     const onDelegateIntent = vi.fn().mockResolvedValue(
       createSnapshot({
-        state: createState({ trackedWorkerIds: [worker.workerId] }),
+        state: createState({ trackedWorkerIds: ["bw-101-worker"] }),
         counts: { ready: 0, blocked: 0, inProgress: 1, scopedReady: 0 },
-        workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
-        workers: [worker],
       }),
     );
     const ui = createFakeUi();
@@ -242,26 +177,20 @@ describe("dashboard", () => {
     const issuesRendered = renderComponent(dashboard);
     expect(onDelegateIntent).toHaveBeenCalledWith(ticketDetail);
     expect(issuesRendered).toContain("ready 0 · blocked 0 · in progress 1");
-    expect(issuesRendered).toContain(
-      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
-    );
+    expect(issuesRendered).not.toContain("workers 1 · active 1");
+    expect(issuesRendered).not.toContain("○ Workers");
 
-    selectTab(dashboard, "workers");
-    const workersRendered = renderComponent(dashboard);
-    expect(workersRendered).toContain("Delegable ticket");
-    expect(workersRendered).toContain("running · ticket open");
-    expect(workersRendered).toContain("l land blocked");
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Run state: idle");
-    expect(runRendered).toContain(
-      "Tracked workers: total=1 active=1 held=0 done=0 landed=0 verified=0 attention=0 failed=0",
-    );
+    expect(runRendered).toContain("Goal state: idle");
+    expect(runRendered).not.toContain("Tracked workers:");
+    expect(runRendered).not.toContain("Delegable ticket");
+    expect(runRendered).not.toMatch(/\bl land\b/);
   });
-  it("applies run follow-up snapshots to the dashboard header, workers tab, and run tab", async () => {
+
+  it("renders the run tab as a goal summary with no minion rows", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
     const epicDetail = createDetail(epic, [createIssue({ id: "BW-101", parentId: "BW-100" })]);
-    const worker = createWorker({ ticketTitle: "Runnable ticket", status: "running" });
     const dataSource: IssueExplorerDataSource = {
       loadLevel: vi.fn().mockResolvedValue({ items: [epic], currentDetail: undefined }),
       loadDetail: vi.fn().mockResolvedValue(epicDetail),
@@ -271,29 +200,36 @@ describe("dashboard", () => {
         state: createState({
           mode: "run",
           scope: { kind: "epic", id: "BW-100", title: "Runnable epic" },
-          runOptions: {
-            workers: 2,
-            until: "blocked",
-            dryRun: false,
-            noSpawn: false,
-            maxCycles: 4,
-          },
           recentRunSummary: {
             epicId: "BW-100",
             stopReason: "max-cycles",
             cycles: 1,
             launched: ["BW-101"],
-            activeWorkerIds: [worker.workerId],
-            workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
+            activeWorkerIds: ["bw-101-worker"],
+            workerSummary: {
+              total: 1,
+              active: 1,
+              launching: 0,
+              running: 1,
+              exited: 0,
+              held: 0,
+              landed: 0,
+              verified: 0,
+              successfulTerminal: 0,
+              failed: 0,
+              attention: 0,
+              cleaned: 0,
+            },
             notes: ["cycle still active"],
             cycleSummaries: [
               {
                 cycle: 1,
                 ready: ["BW-101"],
                 launched: ["BW-101"],
-                running: [worker.workerId],
+                running: ["bw-101-worker"],
                 held: [],
                 landed: [],
+                verified: [],
                 failed: [],
                 attention: [],
                 exited: [],
@@ -303,8 +239,6 @@ describe("dashboard", () => {
         }),
         counts: { ready: 1, blocked: 0, inProgress: 1, scopedReady: 1 },
         scopeDetail: epicDetail,
-        workerSummary: createWorkerSummary({ total: 1, active: 1, running: 1 }),
-        workers: [worker],
       }),
     );
     const ui = createFakeUi();
@@ -334,28 +268,72 @@ describe("dashboard", () => {
     const issuesRendered = renderComponent(dashboard);
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
     expect(issuesRendered).toContain("repo · active · run · epic:BW-100 · Runnable epic");
-    expect(issuesRendered).toContain(
-      "workers 1 · active 1 · held 0 · done 0 · landed 0 · verified 0",
-    );
+    expect(issuesRendered).not.toContain("workers 1 · active 1");
+    expect(issuesRendered).toContain("run armed for BW-100");
 
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Run state: active supervision armed");
-    expect(runRendered).toContain(
-      "Next: Background supervision is armed; use the Workers tab for live follow-up while the session stays open.",
-    );
-    expect(runRendered).toContain("Run scope: BW-100 · Runnable epic");
-    expect(runRendered).toContain(
-      "Options: workers=2 until=blocked maxCycles=4 dryRun=no noSpawn=no",
+    expect(runRendered).toContain("Epic: BW-100 · Runnable epic");
+    expect(runRendered).toContain("Review policy: ticket");
+    expect(runRendered).toContain("Goal state: active");
+    expect(runRendered).not.toContain("Tracked workers:");
+    expect(runRendered).not.toContain("Runnable ticket");
+    expect(runRendered).not.toContain("activeWorkers=");
+    expect(runRendered).not.toContain("Workers tab");
+    expect(runRendered).not.toMatch(/\bc cancel\b/);
+  });
+
+  it("does not advertise an armed run after reload of an interrupted goal", async () => {
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: "/repo",
+      ui,
+      sessionId: "dashboard-interrupted-run",
+    });
+
+    await openBeadworkDashboard(
+      ctx,
+      createModel({
+        state: createState({
+          mode: "run",
+          runInterrupted: true,
+          scope: { kind: "epic", id: "BW-100", title: "Interrupted epic" },
+          recentRunSummary: {
+            epicId: "BW-100",
+            stopReason: "max-cycles",
+            cycles: 1,
+            launched: [],
+            activeWorkerIds: [],
+            workerSummary: {
+              total: 0,
+              active: 0,
+              launching: 0,
+              running: 0,
+              exited: 0,
+              held: 0,
+              landed: 0,
+              verified: 0,
+              successfulTerminal: 0,
+              failed: 0,
+              attention: 0,
+              cleaned: 0,
+            },
+            notes: [],
+            cycleSummaries: [],
+          },
+        }),
+      }),
     );
 
-    selectTab(dashboard, "workers");
-    const workersRendered = renderComponent(dashboard);
-    expect(workersRendered).toContain("Epic BW-100 (current scope)");
-    expect(workersRendered).toContain("Runnable ticket");
-    expect(workersRendered).toContain("running · ticket open");
-    expect(workersRendered).toContain("c cancel ready");
+    const dashboard = ui.customCalls[0]?.component as {
+      render: (width: number) => string[];
+    };
+    const rendered = renderComponent(dashboard);
+    expect(rendered).not.toContain("run armed");
+    expect(rendered).toContain("last run BW-100");
+    expect(rendered).toContain("interrupted");
   });
+
   it("renders the scope tab with concise dashboard-level hints", async () => {
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({
@@ -384,9 +362,10 @@ describe("dashboard", () => {
     const scopeRendered = renderComponent(dashboard);
     expect(scopeRendered).toContain("Current scope");
     expect(scopeRendered).toContain("interactive · epic:BW-100 · Scoped epic");
-    expect(scopeRendered).toContain("tracked 1");
+    expect(scopeRendered).not.toContain("tracked 1");
     expect(scopeRendered).toContain("Scoped epic");
     expect(scopeRendered).toContain("scope from Issues with s • clear with x");
     expect(scopeRendered).not.toContain("Quick actions");
+    expect(scopeRendered).not.toContain("○ Workers");
   });
 });

@@ -14,6 +14,13 @@ type ToolRegistration = {
   name: string;
   description?: string;
   parameters?: Record<string, unknown>;
+  execute?: (
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    ctx: ExtensionContext,
+  ) => Promise<unknown>;
   [key: string]: unknown;
 };
 
@@ -29,6 +36,7 @@ export interface ExtensionTestHarness {
     ctx: ExtensionContext,
   ): Promise<T | undefined>;
   invokeCommand(name: string, args: string, ctx: ExtensionCommandContext): Promise<unknown>;
+  invokeTool(name: string, params: unknown, ctx: ExtensionContext): Promise<unknown>;
   getCommandCompletions(name: string, prefix: string): Promise<unknown>;
 }
 
@@ -89,6 +97,13 @@ export async function createExtensionTestHarness(
         throw new Error(`Command not registered: ${name}`);
       }
       return command.handler(args, ctx);
+    },
+    async invokeTool(name, params, ctx) {
+      const tool = tools.get(name);
+      if (!tool?.execute) {
+        throw new Error(`Tool not registered: ${name}`);
+      }
+      return tool.execute(`test-call-${name}`, params, new AbortController().signal, () => {}, ctx);
     },
     async getCommandCompletions(name, prefix) {
       const command = commands.get(name);
@@ -176,13 +191,20 @@ export function createFakeUi(): FakeUi {
 }
 
 export function createFakeExtensionContext(
-  overrides: { cwd?: string; sessionId?: string; ui?: FakeUi } = {},
+  overrides: {
+    cwd?: string;
+    sessionId?: string;
+    ui?: FakeUi;
+    mode?: "tui" | "rpc" | "json" | "print";
+    isIdle?: () => boolean;
+  } = {},
 ): ExtensionCommandContext {
   const sessionId = overrides.sessionId ?? "test-session-123";
   const ui = overrides.ui ?? createFakeUi();
 
   const ctx = {
     cwd: overrides.cwd ?? process.cwd(),
+    mode: overrides.mode ?? "tui",
     sessionManager: {
       getSessionId: () => sessionId,
       getBranch: () => [],
@@ -203,7 +225,7 @@ export function createFakeExtensionContext(
     modelRegistry: {},
     model: undefined,
     signal: undefined,
-    isIdle: () => true,
+    isIdle: overrides.isIdle ?? (() => true),
     abort: () => {},
     hasPendingMessages: () => false,
     shutdown: () => {},

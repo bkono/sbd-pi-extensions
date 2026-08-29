@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { parseArgv, parseModelOverride } from "../../argv.js";
 
 describe("argv parsing", () => {
-  it("parses delegate model overrides as string options", () => {
-    const parsed = parseArgv("delegate BW-101 --model cursor/composer-2");
+  it("parses model overrides as string options", () => {
+    const parsed = parseArgv("show BW-101 --model cursor/composer-2");
 
-    expect(parsed.positional).toEqual(["delegate", "BW-101"]);
+    expect(parsed.positional).toEqual(["show", "BW-101"]);
     expect(parsed.options.get("model")).toBe("cursor/composer-2");
   });
 

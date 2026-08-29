@@ -120,6 +120,8 @@ async function executeSpawn(
 
   logger.info("spawn:tool", isSingleMinion ? "start" : "batch-start", {
     count: specs.length,
+    kind: "spawn",
+    groupId: undefined,
   });
 
   if (!isSingleMinion) {
@@ -159,7 +161,17 @@ async function executeSpawn(
   });
 
   for (const m of minions) {
-    tree.add(m.id, m.name, m.task, undefined, m.agentName, m.model);
+    // Foreground spawn is not an orchestration group member.
+    const node = tree.add(m.id, m.name, m.task, {
+      kind: "spawn",
+      agentName: m.agentName,
+      model: m.model,
+    });
+    logger.info("spawn:tool", "child", {
+      id: node.id,
+      kind: node.kind,
+      groupId: node.groupId,
+    });
   }
 
   const controller = new AbortController();
@@ -204,6 +216,7 @@ async function executeSpawn(
     });
   });
 
+  // Foreground spawn blocks the parent turn until every child is terminal.
   const results = await Promise.allSettled(sessionPromises);
   coordinator.stop();
 

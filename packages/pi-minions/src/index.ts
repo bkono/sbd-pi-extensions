@@ -5,6 +5,7 @@ import { createHaltHandler } from "./commands/halt.js";
 import { createMinionsHandler } from "./commands/minions.js";
 import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";
 import { getConfig } from "./config.js";
+import { PathOverlapLog } from "./coordination/index.js";
 import {
   createDelegationHint,
   isComplexDelegationTask,
@@ -12,6 +13,17 @@ import {
 } from "./delegation.js";
 import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
+import {
+  createLifecyclePacketDispatcher,
+  MinionCommMailbox,
+  ORCHESTRATION_LIFECYCLE_CHANNEL,
+  OrchestrationGroupState,
+  type OrchestrationLifecycleEvent,
+  PARENT_RECIPIENT_ID,
+  SEND_MINION_MESSAGE_TOOL,
+  SendMinionMessageParams,
+  sendMinionMessage,
+} from "./orchestration/index.js";
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
 import { getMinionsSkill } from "./skill.js";
@@ -22,18 +34,22 @@ import { getTempSessionPath } from "./subsessions/paths.js";
 import { HaltToolParams, halt } from "./tools/halt.js";
 import { ListAgentsParams, listAgents } from "./tools/list-agents.js";
 import { ListMinionsParams, listMinions, ShowMinionParams, showMinion } from "./tools/minions.js";
+import { OrchestrateToolParams, orchestrate } from "./tools/orchestrate.js";
 import { SpawnToolParams, spawn } from "./tools/spawn.js";
-import { AgentTree } from "./tree.js";
+import { AgentTree, rehydratePersistedMinion } from "./tree.js";
 
 const LearnMinionsParams = Type.Object(
   {},
-  { description: "Return the built-in pi-minions foreground delegation skill." },
+  { description: "Return the built-in pi-minions spawn and orchestrate skill." },
 );
 
 export default function (pi: ExtensionAPI): void {
   logger.debug("extension", "loaded", { logFile: LOG_FILE });
 
   let tree = new AgentTree();
+  let groups = new OrchestrationGroupState();
+  let mailbox = new MinionCommMailbox();
+  let overlaps = new PathOverlapLog();
   let subsessionManager: SubsessionManager | undefined;
   let statusTracker: ReturnType<typeof createStatusTracker> | undefined;
   let cachedUi: ExtensionContext["ui"] | null = null;
@@ -42,6 +58,19 @@ export default function (pi: ExtensionAPI): void {
   let cachedModel: Model<any> | undefined;
 
   const eventBus = new EventBus();
+  const packets = createLifecyclePacketDispatcher({
+    getTree: () => tree,
+    sendMessage: (message, options) => pi.sendMessage(message, options),
+    consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
+    drainParentMail: (childId) => {
+      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+      if (messages.length === 0) return undefined;
+      return messages.map((message) => message.body).join("\n\n");
+    },
+  });
+  eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
+    packets.enqueue(event);
+  });
 
   let toolCallCount = 0;
   let lastHintTime = 0;
@@ -58,12 +87,13 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "Spawn a foreground minion for isolated task delegation",
     promptGuidelines: [
       "Use spawn for foreground task delegation. The tool blocks until the minion completes and returns its result.",
+      "Use spawn when you intend to wait. Use orchestrate for background work that should not block this turn.",
       "To spawn multiple minions in parallel, use the `tasks` array parameter with multiple task descriptors. Each task can specify `task`, optional `agent`, and optional `model`.",
       "For single task delegation, use the `task` parameter directly.",
       "Use list_agents to discover available named agents before spawning by name.",
       "Omit the agent parameter to spawn an ephemeral minion with default capabilities.",
       "When a spawn result says [HALTED], the user intentionally stopped the minion. Do NOT retry, re-spawn, or ask about it. Acknowledge and move on.",
-      "Use list_minions and show_minion to inspect foreground minion activity.",
+      "Use list_minions and show_minion to inspect spawn and orchestrated minion activity.",
     ],
     parameters: SpawnToolParams,
     execute: (...args) => {
@@ -81,29 +111,81 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "orchestrate",
+    label: "Orchestrate Minions",
+    description:
+      "Register background minion work and return handles immediately. " +
+      "Children start in the session's one open group and report later; this tool does not wait. " +
+      "Each task requires a short description. Persistent hosts only (tui/rpc).",
+    promptSnippet: "Orchestrate background minions without waiting",
+    promptGuidelines: [
+      "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
+      "Use spawn when you intend to wait for the minion to finish before continuing.",
+      "description is required on every task. Do not omit it or infer it from task.",
+      "Omit groupId to create the open group if none exists, otherwise join it. A second groupId is rejected.",
+      "cwd is group-create only, must already exist, and cannot change later.",
+    ],
+    parameters: OrchestrateToolParams,
+    execute: (...args) => {
+      if (!subsessionManager) throw new Error("SubsessionManager not initialized");
+      usedMinionsThisSession = true;
+      return orchestrate({
+        tree,
+        pi,
+        subsessionManager,
+        groups,
+        mailbox,
+        overlaps,
+        onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
+      })(...args);
+    },
+  });
+
+  pi.registerTool({
     name: "list_agents",
     label: "List Agents",
-    description: "List available agents that can be spawned as minions.",
-    promptSnippet: "List available agents for spawning",
+    description: "List available agents that can be used as minion roles.",
+    promptSnippet: "List available agents for spawn and orchestrate",
     parameters: ListAgentsParams,
     execute: listAgents(),
   });
 
   pi.registerTool({
+    name: SEND_MINION_MESSAGE_TOOL,
+    label: "Send Minion Message",
+    description:
+      "Send a non-blocking message to a live orchestrated child in the open group. " +
+      "Does not wait for a reply. Not available to children.",
+    promptSnippet: "Message a live orchestrated minion without waiting",
+    promptGuidelines: [
+      "Messages succeed only while the recipient is live. Do not wait for a reply.",
+      "Parent-to-child mail does not start a parent turn.",
+    ],
+    parameters: SendMinionMessageParams,
+    execute: (...args) => {
+      if (!subsessionManager) throw new Error("SubsessionManager not initialized");
+      return sendMinionMessage({ mailbox, groups })(...args);
+    },
+  });
+
+  pi.registerTool({
     name: "halt",
     label: "Halt Minion",
-    description: "Abort a running minion by ID. Use id='all' to halt all running minions.",
+    description:
+      "Abort a running minion by ID or name, an orchestration group, or all running minions. " +
+      "Use id='all' to halt everyone. Use id='group' or a groupId to halt orchestrated members and forget the open group. " +
+      "Halt does not exit Beadwork goal mode.",
     parameters: HaltToolParams,
     execute: (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      return halt(tree, subsessionManager)(...args);
+      return halt(tree, subsessionManager, groups)(...args);
     },
   });
 
   pi.registerTool({
     name: "list_minion_types",
     label: "List Minion Types",
-    description: "List available agent types that can be spawned as minions.",
+    description: "List available agent types that can be used as minion roles.",
     promptSnippet: "List available minion types",
     parameters: ListAgentsParams,
     execute: listAgents(),
@@ -112,10 +194,11 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "list_minions",
     label: "List Minions",
-    description: "List all foreground minions in the current session.",
-    promptSnippet: "List all current foreground minions",
+    description:
+      "List spawn and orchestrated minions in the current session, including role, taskType, group, and last activity.",
+    promptSnippet: "List current spawn and orchestrated minions",
     promptGuidelines: [
-      "Use list_minions to check what foreground minions are currently running or recently completed before spawning new ones.",
+      "Use list_minions to see who is running, spawn vs orchestrated, taskType, last said, and whether a peer message failed.",
     ],
     parameters: ListMinionsParams,
     execute: (...args) => listMinions(tree)(...args),
@@ -124,15 +207,16 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "show_minion",
     label: "Show Minion",
-    description: "Show detailed status, activity, and output of a minion by ID or name.",
+    description:
+      "Show full status, output, messages, path intent, and activity of a minion by ID or name.",
     parameters: ShowMinionParams,
-    execute: (...args) => showMinion(tree)(...args),
+    execute: (...args) => showMinion(tree, subsessionManager)(...args),
   });
 
   pi.registerTool({
     name: "learn_minions",
     label: "Learn Minions",
-    description: "Return concise guidance for using pi-minions foreground delegation.",
+    description: "Return concise guidance for using pi-minions spawn and orchestrate.",
     promptSnippet: "Learn how to use pi-minions",
     parameters: LearnMinionsParams,
     execute: async () => ({
@@ -160,10 +244,10 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("halt", {
-    description: "Halt minion(s): /halt <id | name | all>",
+    description: "Halt minion(s): /halt <id | name | group | all>",
     handler: (args, ctx) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      return createHaltHandler(tree, subsessionManager)(args, ctx);
+      return createHaltHandler(tree, subsessionManager, groups)(args, ctx);
     },
   });
 
@@ -215,7 +299,15 @@ export default function (pi: ExtensionAPI): void {
     return { systemPrompt: `${event.systemPrompt}\n\n${hint}` };
   });
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_shutdown", async () => {
+    packets.close();
+    await subsessionManager?.disposeAll();
+    subsessionManager = undefined;
+  });
+
+  pi.on("session_start", async (_event, ctx) => {
+    packets.close();
+    await subsessionManager?.disposeAll();
     cachedCtx = ctx;
     cachedModel = ctx.model;
     cachedUi = ctx.ui;
@@ -225,18 +317,41 @@ export default function (pi: ExtensionAPI): void {
     statusTracker?.destroy();
 
     const parentSessionPath = ctx.sessionManager?.getSessionFile() ?? getTempSessionPath(ctx.cwd);
-    subsessionManager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
+    const manager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
+    subsessionManager = manager;
 
     tree = new AgentTree();
-
-    for (const metadata of subsessionManager.list()) {
-      if (metadata.parentSession === parentSessionPath) {
-        tree.add(metadata.sessionId, metadata.name, metadata.task, undefined, metadata.agent);
-        const history = subsessionManager.parseSessionHistory(metadata.sessionId);
-        if (history.length > 0) tree.setActivityHistory(metadata.sessionId, history);
-        if (metadata.status !== "running") {
-          tree.updateStatus(metadata.sessionId, metadata.status, metadata.exitCode, metadata.error);
+    groups = new OrchestrationGroupState();
+    mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => groups,
+      isLive: (id) => subsessionManager?.isLive(id) === true,
+      followUp: async (id, text) => {
+        const handle = subsessionManager?.getSessionHandle(id);
+        if (!handle) {
+          throw new Error(`Child ${id} is terminal; further mail is rejected`);
         }
+        await handle.followUp(text);
+      },
+      onParentDirected: (message) => {
+        eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, {
+          class: "parentMessage",
+          groupId: message.groupId,
+          childId: message.from,
+          output: message.body,
+        });
+      },
+    });
+    overlaps = new PathOverlapLog();
+    packets.open();
+
+    for (const metadata of manager.list()) {
+      if (metadata.parentSession === parentSessionPath) {
+        rehydratePersistedMinion(tree, metadata, (id, status, exitCode, error) => {
+          manager.updateStatus(id, status, exitCode, error);
+        });
+        const history = manager.parseSessionHistory(metadata.sessionId);
+        if (history.length > 0) tree.setActivityHistory(metadata.sessionId, history);
       }
     }
 

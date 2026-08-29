@@ -130,6 +130,49 @@ describe("beadwork adapter", () => {
     expect(detail.children).toEqual([]);
   });
 
+  it("unwraps bw close --json { issue, unblocked } so type and id survive", async () => {
+    const exec = vi.fn().mockResolvedValue({
+      code: 0,
+      stdout: JSON.stringify({
+        issue: {
+          id: "BW-100",
+          title: "Epic",
+          status: "closed",
+          type: "epic",
+          priority: 2,
+          blocked_by: [],
+          blocks: [],
+          created: "2026-08-29T00:00:00Z",
+          updated_at: "2026-08-29T00:01:00Z",
+        },
+        unblocked: ["BW-101"],
+      }),
+      stderr: "",
+    });
+
+    const adapter = createBeadworkAdapter(exec);
+    const closed = await adapter.close("/repo", "BW-100", "done");
+
+    expect(exec).toHaveBeenCalledWith("bw", ["close", "BW-100", "--json", "--reason", "done"], {
+      cwd: "/repo",
+      timeout: 10_000,
+    });
+    expect(closed).toEqual({
+      id: "BW-100",
+      title: "Epic",
+      description: "",
+      status: "closed",
+      type: "epic",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-08-29T00:00:00Z",
+      updatedAt: "2026-08-29T00:01:00Z",
+    });
+  });
+
   it("treats null list results as empty arrays", async () => {
     const exec = vi.fn().mockResolvedValue({
       code: 0,

@@ -2,6 +2,10 @@
 
 Date: 2026-04-18
 
+> **Historical.** This assessment assumed tmux-backed `/bw delegate` workers and a polling
+> supervisor. Those paths were removed. `/bw run` now injects a goal prompt; children are
+> process-local minions. See `packages/pi-beadwork-extension/README.md`.
+
 ## Goal
 
 Capture whether `pi-caffeinate` is a good fit for keeping beadwork-driven work awake, and turn that assessment into concrete guidance for implementing a native caffeinate feature inside the beadwork extension.
@@ -43,7 +47,7 @@ It is not, by itself, a match for **"keep the machine awake for the entire beadw
 
 ## How beadwork currently runs work
 
-The current beadwork extension is built around a tmux-backed worker model.
+This assessment assumed a tmux-backed worker model (removed).
 
 Important implementation facts from this repo:
 

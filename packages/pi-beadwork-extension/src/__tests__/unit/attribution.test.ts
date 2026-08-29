@@ -2,15 +2,10 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildAttributionEvidencePack } from "../../attribution.js";
+import { type AttributionWorkerInput, buildAttributionEvidencePack } from "../../attribution.js";
 import type { BeadworkAdapter } from "../../bw.js";
 import type { ProcessRunner } from "../../process.js";
-import type {
-  BeadworkHistoryEntry,
-  BeadworkIssueDetail,
-  CurrentBranchCheckout,
-  WorkerRuntime,
-} from "../../types.js";
+import type { BeadworkHistoryEntry, BeadworkIssueDetail } from "../../types.js";
 
 function createIssue(overrides: Partial<BeadworkIssueDetail> = {}): BeadworkIssueDetail {
   return {
@@ -32,16 +27,12 @@ function createIssue(overrides: Partial<BeadworkIssueDetail> = {}): BeadworkIssu
   };
 }
 
-function createWorker(
-  overrides: Partial<WorkerRuntime & CurrentBranchCheckout> = {},
-): WorkerRuntime & CurrentBranchCheckout {
+function createWorker(overrides: Partial<AttributionWorkerInput> = {}): AttributionWorkerInput {
   return {
     workerId: "bw-101-worker",
     ticketId: "BW-101",
     epicId: "EPIC-1",
     ticketTitle: "Task",
-    ticketStatus: "closed",
-    backend: "tmux",
     tmuxSession: "pi-bw",
     tmuxWindow: "bw-101",
     tmuxPane: "%42",
@@ -52,15 +43,12 @@ function createWorker(
     stateFile: "/tmp/runtime/state.json",
     exitCodeFile: "/tmp/runtime/exit-code.txt",
     finishedAtFile: "/tmp/runtime/finished-at.txt",
-    launchCommand: "bash /tmp/runtime/launch.sh",
-    workerCommand: "pi --mode json",
     validationStatus: "passed",
     validationSummary: "lint/test/typecheck passed",
     status: "exited",
     startedAt: "2026-05-08T00:00:00.000Z",
     updatedAt: "2026-05-08T01:00:00.000Z",
     finishedAt: "2026-05-08T01:00:00.000Z",
-    executionMode: "current-branch",
     checkoutPath: "/repo",
     branchName: "main",
     launchHead: "launch-head",
@@ -347,6 +335,6 @@ describe("buildAttributionEvidencePack", () => {
     expect(pack.renderedText).toContain("exitCodeFile:");
     expect(pack.renderedText).toContain("Prompt body for BW-101");
     expect(pack.renderedText).toContain("worker log line");
-    expect(pack.renderedText).toContain("registry snapshot pointer");
+    expect(pack.renderedText).toContain("runtime snapshot pointer");
   });
 });

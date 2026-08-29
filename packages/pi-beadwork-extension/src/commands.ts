@@ -1,5 +1,4 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { summarizeWorkers } from "./registry.js";
 import type {
   ActivationState,
   AdoptionPlan,
@@ -8,12 +7,8 @@ import type {
   BeadworkHistoryEntry,
   BeadworkIssue,
   BeadworkIssueDetail,
-  RunSummary,
   SessionState,
-  WorkerRuntime,
-  WorkerSummary,
 } from "./types.js";
-import { formatWorkerInspectionLines, inspectWorker } from "./worker-diagnostics.js";
 
 function describeActivation(activation: ActivationState): string {
   const repoRoot = activation.repoRoot ? ` (${activation.repoRoot})` : "";
@@ -45,21 +40,14 @@ function formatIssueLine(issue: BeadworkIssue): string {
   return `- ${bits.join(" · ")}`;
 }
 
-function formatWorkerModeSummary(summary: WorkerSummary): string {
-  const currentBranch = summary.currentBranch ?? 0;
-  const worktree = summary.worktree ?? 0;
-  return `modes current-branch=${currentBranch} worktree=${worktree}`;
-}
-
 export function formatStatusLines(input: {
   activation: ActivationState;
   state: SessionState;
   counts?: BeadworkCounts;
   scopeDetail?: BeadworkIssueDetail;
-  workerSummary?: WorkerSummary;
   config?: BeadworkConfig;
 }): string[] {
-  const { activation, state, counts, scopeDetail, workerSummary } = input;
+  const { activation, state, counts, scopeDetail } = input;
 
   const lines = [
     `Activation: ${describeActivation(activation)}`,
@@ -67,9 +55,6 @@ export function formatStatusLines(input: {
     `Scope: ${describeScope(state)}`,
     `Updated: ${state.updatedAt}`,
   ];
-  if (input.config) {
-    lines.push(`Default execution mode: ${input.config.workerExecution.mode}`);
-  }
 
   if (state.engagedAt) {
     lines.push(`Engaged: ${state.engagedAt}`);
@@ -86,12 +71,6 @@ export function formatStatusLines(input: {
     if (counts.scopedReady !== undefined && state.scope.kind !== "none") {
       lines.push(`Scoped ready: ${counts.scopedReady}`);
     }
-  }
-
-  if (workerSummary && workerSummary.total > 0) {
-    lines.push(
-      `Workers: total=${workerSummary.total} active=${workerSummary.active} held=${workerSummary.held} completed=${workerSummary.successfulTerminal} landed=${workerSummary.landed} verified=${workerSummary.verified} cleaned=${workerSummary.cleaned} failed=${workerSummary.failed} attention=${workerSummary.attention} exited=${workerSummary.exited} · ${formatWorkerModeSummary(workerSummary)}`,
-    );
   }
 
   if (scopeDetail) {
@@ -120,7 +99,6 @@ export async function showStatus(
     state: SessionState;
     counts?: BeadworkCounts;
     scopeDetail?: BeadworkIssueDetail;
-    workerSummary?: WorkerSummary;
     config?: BeadworkConfig;
   },
 ): Promise<void> {
@@ -257,64 +235,5 @@ export async function showAdoptionResult(
   ctx: ExtensionCommandContext,
   lines: string[],
 ): Promise<void> {
-  ctx.ui.notify(lines.join("\n"), "info");
-}
-
-export async function showWorkers(
-  ctx: ExtensionCommandContext,
-  workers: WorkerRuntime[],
-  epicId?: string,
-): Promise<void> {
-  if (workers.length === 0) {
-    ctx.ui.notify(epicId ? `No workers for epic ${epicId}.` : "No beadwork workers.", "info");
-    return;
-  }
-
-  const sortedWorkers = workers
-    .slice()
-    .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
-  const inspections = sortedWorkers.map((worker) => inspectWorker(worker));
-  const summary = summarizeWorkers(sortedWorkers);
-  const attention = inspections.filter((inspection) => inspection.followUp.needsAttention).length;
-
-  const lines = [
-    epicId ? `Workers for ${epicId}:` : "Workers:",
-    `Summary: total=${summary.total} active=${summary.active} launching=${summary.launching} running=${summary.running} held=${summary.held} completed=${summary.successfulTerminal} landed=${summary.landed} verified=${summary.verified} exited=${summary.exited} failed=${summary.failed} attention=${attention} cleaned=${summary.cleaned} · ${formatWorkerModeSummary(summary)}`,
-    "",
-  ];
-
-  for (const inspection of inspections) {
-    lines.push(...formatWorkerInspectionLines(inspection));
-  }
-
-  ctx.ui.notify(lines.join("\n"), "info");
-}
-
-export async function showRunSummary(
-  ctx: ExtensionCommandContext,
-  summary: RunSummary,
-): Promise<void> {
-  const lines = [
-    `Run summary for ${summary.epicId}`,
-    `Stop reason: ${summary.stopReason}`,
-    `Cycles: ${summary.cycles}`,
-    `Launched: ${summary.launched.length > 0 ? summary.launched.join(", ") : "none"}`,
-    `Workers: total=${summary.workerSummary.total} active=${summary.workerSummary.active} held=${summary.workerSummary.held} completed=${summary.workerSummary.successfulTerminal} landed=${summary.workerSummary.landed} verified=${summary.workerSummary.verified} cleaned=${summary.workerSummary.cleaned} failed=${summary.workerSummary.failed} attention=${summary.workerSummary.attention} exited=${summary.workerSummary.exited} · ${formatWorkerModeSummary(summary.workerSummary)}`,
-  ];
-
-  for (const note of summary.notes) {
-    lines.push(`Note: ${note}`);
-  }
-
-  const tail = summary.cycleSummaries.slice(-3);
-  if (tail.length > 0) {
-    lines.push("", "Recent cycles:");
-    for (const cycle of tail) {
-      lines.push(
-        `- cycle ${cycle.cycle} · ready=${cycle.ready.join(",") || "none"} · launched=${cycle.launched.join(",") || "none"} · running=${cycle.running.join(",") || "none"}`,
-      );
-    }
-  }
-
   ctx.ui.notify(lines.join("\n"), "info");
 }

@@ -25,13 +25,17 @@ export function createStatusTracker(
   let currentHintIndex = 0;
   let hintRotationTimer: ReturnType<typeof setInterval> | null = null;
 
-  function generateHints(running: { id: string; name: string }[]): string[] {
+  function generateHints(
+    running: { id: string; name: string }[],
+    orchestratedCount: number,
+  ): string[] {
     const hints: string[] = [...STATIC_HINTS];
 
     for (const minion of running) {
       hints.push(`/minions show ${minion.name}`);
       hints.push(`/halt ${minion.name}`);
     }
+    if (orchestratedCount > 0) hints.push("/halt group");
 
     return hints;
   }
@@ -65,11 +69,17 @@ export function createStatusTracker(
     currentHintIndex = 0;
   }
 
-  function formatStatus(runningCount: number, hint: string, theme: Theme): string {
+  function formatStatus(
+    runningCount: number,
+    orchestratedCount: number,
+    hint: string,
+    theme: Theme,
+  ): string {
     const parts: string[] = [];
 
     if (runningCount > 0) {
-      parts.push(`[oo] minions: ${runningCount}`);
+      const orch = orchestratedCount > 0 ? ` · orch: ${orchestratedCount}` : "";
+      parts.push(`[oo] minions: ${runningCount}${orch}`);
     }
 
     if (hint) {
@@ -89,8 +99,10 @@ export function createStatusTracker(
       return;
     }
 
-    const running = tree.getRunning().map((n) => ({ id: n.id, name: n.name }));
+    const runningNodes = tree.getRunning();
+    const running = runningNodes.map((n) => ({ id: n.id, name: n.name }));
     const runningCount = running.length;
+    const orchestratedCount = runningNodes.filter((n) => n.kind === "orchestrated").length;
     const hasChanges = runningCount !== lastRunningCount;
 
     if (hasChanges) {
@@ -114,14 +126,14 @@ export function createStatusTracker(
     }
 
     const config = getConfig(ctx);
-    const hints = config.display.showStatusHints ? generateHints(running) : [];
+    const hints = config.display.showStatusHints ? generateHints(running, orchestratedCount) : [];
     const currentHint = getNextHint(hints);
     const { theme } = cachedUi;
 
     if (runningCount === 0) {
       cachedUi.setStatus(MINIONS_STATUS_KEY, undefined);
     } else {
-      const statusText = formatStatus(runningCount, currentHint, theme);
+      const statusText = formatStatus(runningCount, orchestratedCount, currentHint, theme);
       cachedUi.setStatus(MINIONS_STATUS_KEY, statusText);
     }
   }

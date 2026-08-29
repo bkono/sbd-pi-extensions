@@ -111,6 +111,15 @@ export type IssuesActionDeps = {
     config: BeadworkConfig;
     state: SessionState;
   } | null>;
+  onClosedIssue?: (
+    ctx: ExtensionCommandContext,
+    input: {
+      activation: ActivationState;
+      config: BeadworkConfig;
+      state: SessionState;
+      issue: BeadworkIssue;
+    },
+  ) => Promise<void>;
 };
 
 export const ISSUE_EXPLORER_FILTERS = [
@@ -327,6 +336,14 @@ export async function handleIssuesAction(input: {
     }
 
     const issue = await deps.adapter.updateIssue(ctx.cwd, issueId, updateInput);
+    if (issue.status === "closed") {
+      await deps.onClosedIssue?.(ctx, {
+        activation: active.activation,
+        config: active.config,
+        state: active.state,
+        issue,
+      });
+    }
     await showMutationResult(ctx, "Updated", issue);
     return true;
   }
@@ -394,6 +411,12 @@ export async function handleIssuesAction(input: {
     const reasonOption = parsed.options.get("reason");
     const reason = typeof reasonOption === "string" ? reasonOption : undefined;
     const issue = await deps.adapter.close(ctx.cwd, issueId, reason);
+    await deps.onClosedIssue?.(ctx, {
+      activation: active.activation,
+      config: active.config,
+      state: active.state,
+      issue,
+    });
     await showMutationResult(ctx, "Closed", issue);
     return true;
   }

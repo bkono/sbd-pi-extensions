@@ -16,53 +16,10 @@ export const DEFAULT_CONFIG: BeadworkConfig = {
   },
   storage: {
     sessionStateDir: ".pi/beadwork/session-state",
-    workerRegistryFile: ".pi/beadwork/workers/registry.json",
-    runtimeDir: ".pi/beadwork/workers/runtime",
   },
-  tmux: {
-    sessionName: "pi-bw",
-    workerCommand: "pi",
-    workerProvider: undefined,
-    workerModel: undefined,
-  },
-  worktrees: {
-    cleanup: "keep",
-    copyFiles: [],
-    setupCommands: [],
-    rerunSetupOnReuse: false,
-  },
-  workerExecution: {
-    mode: "current-branch",
-    maxLifetime: null,
-    allowDetachedHead: false,
-    review: {
-      enabled: true,
-    },
-    selfReview: {
-      enabled: true,
-    },
-  },
-  run: {
-    defaultWorkers: 2,
-    defaultUntil: "blocked",
-    defaultMaxCycles: 12,
-    pollIntervalMs: 2_000,
-  },
-  landing: {
-    policy: "auto",
-    validateCommands: ["npm run lint", "npm run test", "npm run typecheck"],
-    commandTimeoutMs: 600_000,
-    maxRebaseAttempts: 2,
-    review: {
-      enabled: false,
-      provider: undefined,
-      model: undefined,
-      commandTimeoutMs: 1_800_000,
-      maxRemediationAttempts: 1,
-      maxArtifactChars: 12_000,
-    },
-  },
-  supervisor: {
-    pollIntervalMs: 30_000,
+  review: {
+    policy: "ticket",
+    provider: undefined,
+    model: undefined,
   },
 };

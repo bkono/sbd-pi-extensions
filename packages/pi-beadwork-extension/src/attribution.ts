@@ -2,13 +2,38 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { BeadworkAdapter } from "./bw.js";
 import type { ProcessRunner } from "./process.js";
-import type {
-  BeadworkHistoryEntry,
-  BeadworkIssue,
-  BeadworkIssueDetail,
-  CurrentBranchCheckout,
-  WorkerRuntime,
-} from "./types.js";
+import type { BeadworkHistoryEntry, BeadworkIssue, BeadworkIssueDetail } from "./types.js";
+
+export type AttributionWorkerInput = {
+  workerId: string;
+  ticketId: string;
+  ticketTitle: string;
+  status: string;
+  checkoutPath: string;
+  branchName: string;
+  launchHead: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt?: string;
+  epicId?: string;
+  commitShas?: string[];
+  promptFile: string;
+  logFile: string;
+  stateFile: string;
+  exitCodeFile: string;
+  finishedAtFile: string;
+  scriptFile?: string;
+  runtimeDir?: string;
+  tmuxSession?: string;
+  tmuxWindow?: string;
+  tmuxPane?: string;
+  validationStatus?: string;
+  validationAt?: string;
+  validationSummary?: string;
+  reviewStatus?: string;
+  reviewVerdict?: string;
+  reviewSummary?: string;
+};
 
 const MAX_POST_LAUNCH_COMMITS = 20;
 const MAX_FILE_SNIPPET_CHARS = 4_000;
@@ -284,7 +309,7 @@ async function safeHistory(
 }
 
 export async function buildAttributionEvidencePack(opts: {
-  worker: WorkerRuntime & CurrentBranchCheckout;
+  worker: AttributionWorkerInput;
   adapter: BeadworkAdapter;
   processRunner: ProcessRunner;
 }): Promise<AttributionEvidencePack> {
@@ -432,15 +457,15 @@ ${attention.length > 0 ? attention.map((item) => `- ${item}`).join("\n") : "No a
 - recorded branchName: ${worker.branchName}
 - launchHead: ${worker.launchHead}
 - current HEAD: ${currentHead ?? "unknown"}
-- tmux: session=${worker.tmuxSession} window=${worker.tmuxWindow} pane=${worker.tmuxPane}
+- tmux: session=${worker.tmuxSession ?? "n/a"} window=${worker.tmuxWindow ?? "n/a"} pane=${worker.tmuxPane ?? "n/a"}
 - promptFile: ${worker.promptFile}
 - logFile: ${worker.logFile}
 - stateFile: ${worker.stateFile}${stateValue ? ` (value: ${stateValue})` : ""}
 - exitCodeFile: ${worker.exitCodeFile}${exitCodeValue ? ` (value: ${exitCodeValue})` : ""}
 - finishedAtFile: ${worker.finishedAtFile}${finishedAtValue ? ` (value: ${finishedAtValue})` : ""}
-- scriptFile: ${worker.scriptFile}
-- runtimeDir: ${worker.runtimeDir}
-- registry snapshot pointer: caller-provided WorkerRuntime record; default registry path would be ${path.join(worker.checkoutPath, ".pi", "beadwork", "workers", "registry.json")}
+- scriptFile: ${worker.scriptFile ?? "n/a"}
+- runtimeDir: ${worker.runtimeDir ?? "n/a"}
+- runtime snapshot pointer: caller-provided worker record; default runtime path would be ${path.join(worker.checkoutPath, ".pi", "beadwork", "workers", "registry.json")}
 
 ## Branch identity and ancestry checks
 - recorded launch branch: ${worker.branchName}

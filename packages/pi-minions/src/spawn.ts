@@ -4,6 +4,8 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { logger } from "./logger.js";
 import { generateId } from "./minions.js";
+import { installSessionTimeout, resolveEffectiveTimeout } from "./session-timeout.js";
+import { applyStepLimit } from "./step-limit.js";
 import { SubsessionManager } from "./subsessions/manager.js";
 import { getTempSessionPath } from "./subsessions/paths.js";
 import type { AgentTree } from "./tree.js";
@@ -107,6 +109,7 @@ export async function runMinionSession(
     agent: config.name,
     task,
   });
+  logger.info("comm", "inject", { childId: id, tools: [], kind: "spawn" });
 
   // Transitional: logging should move to SubsessionManager
   const transcript = createTranscriptWriter(id, name, task);
@@ -117,182 +120,120 @@ export async function runMinionSession(
 
   let turnCount = 0;
   let finalOutput = "";
-  let completed = false;
-  let stepLimitReached = false;
+  const stepLimit = { reached: false };
   let abortReason: string | undefined;
   const usage = emptyUsage();
 
-  // Timeout handling
-  const effectiveTimeout =
-    config.timeout ??
-    (process.env.PI_MINIONS_TIMEOUT
-      ? parseInt(process.env.PI_MINIONS_TIMEOUT, 10) || undefined
-      : undefined);
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  let graceTimeoutId: ReturnType<typeof setTimeout> | undefined;
+  const effectiveTimeout = resolveEffectiveTimeout(config.timeout);
+  let sessionTimeout: ReturnType<typeof installSessionTimeout> | undefined;
 
   try {
-    // Create session via SubsessionManager
-    const completionPromise = new Promise<{
-      exitCode: number;
-      output: string;
-      status?: AgentStatus;
-      error?: string;
-    }>((resolve, reject) => {
-      subsessionManager
-        .create({
-          id,
-          name,
-          task,
-          config,
-          spawnedBy,
-          cwd: opts.cwd,
-          modelRegistry: opts.modelRegistry,
-          parentModel: opts.parentModel,
-          parentSystemPrompt: opts.parentSystemPrompt,
-          signal: opts.signal,
-          customTools: opts.customTools,
-          parentToolNames: opts.parentToolNames,
-          toolSyncEnabled: opts.toolSyncEnabled,
-          toolSyncMaxWait: opts.toolSyncMaxWait,
+    const handle = await subsessionManager.startChild({
+      id,
+      name,
+      task,
+      config,
+      spawnedBy,
+      cwd: opts.cwd,
+      modelRegistry: opts.modelRegistry,
+      parentModel: opts.parentModel,
+      parentSystemPrompt: opts.parentSystemPrompt,
+      signal: opts.signal,
+      customTools: opts.customTools,
+      parentToolNames: opts.parentToolNames,
+      // Spawn never unions orchestrated comm tools.
+      extraTools: [],
+      toolSyncEnabled: opts.toolSyncEnabled,
+      toolSyncMaxWait: opts.toolSyncMaxWait,
 
-          // Transcript logging + forward to caller callbacks
-          // Tree updates are the caller's responsibility (via opts callbacks)
-          onToolActivity: (activity) => {
-            transcript.write(`\n[tool:${activity.type}] ${activity.toolName}`);
-            opts.onToolActivity?.(activity);
+      onToolActivity: (activity) => {
+        transcript.write(`\n[tool:${activity.type}] ${activity.toolName}`);
+        opts.onToolActivity?.(activity);
+      },
+
+      onToolOutput: (toolName, delta) => {
+        transcript.write(`[tool:output] ${delta.trimEnd()}`);
+        opts.onToolOutput?.(toolName, delta);
+      },
+
+      onTextDelta: (delta, fullText) => {
+        finalOutput = fullText;
+        opts.onTextDelta?.(delta, fullText);
+      },
+
+      onUsageUpdate: (partial) => {
+        Object.assign(usage, partial);
+        tree?.updateUsage(id, partial);
+        opts.onUsageUpdate?.(partial);
+      },
+
+      onTurnEnd: (count) => {
+        turnCount = count;
+        transcript.write(`\n--- turn ${count} ---`);
+
+        applyStepLimit({
+          count,
+          steps: config.steps,
+          state: stepLimit,
+          steer: (text) => subsessionManager.getSessionHandle(id)?.steer(text),
+          abort: () => {
+            subsessionManager.abortSession(id);
           },
-
-          onToolOutput: (toolName, delta) => {
-            transcript.write(`[tool:output] ${delta.trimEnd()}`);
-            opts.onToolOutput?.(toolName, delta);
+          onWrapUp: () => {
+            transcript.write(`\n=== Step limit reached (${config.steps}) ===`);
+            logger.warn("spawn:session", "Step limit reached", {
+              name: config.name,
+              steps: config.steps,
+              turnCount: count,
+            });
           },
-
-          onTextDelta: (delta, fullText) => {
-            finalOutput = fullText;
-            opts.onTextDelta?.(delta, fullText);
+          onAbort: () => {
+            abortReason = "Step limit exceeded — force abort after grace period";
+            logger.warn("spawn:session", "Force abort after grace period", {
+              name: config.name,
+              steps: config.steps,
+              turnCount: count,
+            });
           },
-
-          onUsageUpdate: (partial) => {
-            tree?.updateUsage(id, partial);
-            opts.onUsageUpdate?.(partial);
-          },
-
-          onTurnEnd: (count) => {
-            turnCount = count;
-            transcript.write(`\n--- turn ${count} ---`);
-
-            // Step limit enforcement
-            if (config.steps !== undefined && count >= config.steps && !stepLimitReached) {
-              stepLimitReached = true;
-              transcript.write(`\n=== Step limit reached (${config.steps}) ===`);
-              logger.warn("spawn:session", "Step limit reached", {
-                name: config.name,
-                steps: config.steps,
-                turnCount: count,
-              });
-
-              const session = subsessionManager.getSession(id);
-              if (session) {
-                session
-                  .steer(
-                    "STEP LIMIT REACHED. You have used all allocated steps. " +
-                      "Wrap up now — summarize your progress and deliver your findings. " +
-                      "You have 2 more turns to finish.",
-                  )
-                  .catch(() => {});
-              }
-            } else if (stepLimitReached && config.steps !== undefined && count > config.steps + 2) {
-              abortReason = "Step limit exceeded — force abort after grace period";
-              logger.warn("spawn:session", "Force abort after grace period", {
-                name: config.name,
-                steps: config.steps,
-                turnCount: count,
-              });
-              subsessionManager.abortSession(id);
-            }
-
-            opts.onTurnEnd?.(count);
-          },
-
-          onComplete: (result) => {
-            if (!completed) {
-              completed = true;
-
-              // Update AgentTree status
-              const status = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
-              tree?.updateStatus(id, status, result.exitCode, result.error);
-              resolve(result);
-            }
-          },
-        })
-        .then((handle) => {
-          // Wire abort signal - abort always means halt (stop the session)
-          if (opts.signal) {
-            const onAbort = () => {
-              if (!completed) {
-                completed = true;
-                handle.abort();
-                tree?.updateStatus(id, "aborted");
-                resolve({ exitCode: 1, output: finalOutput, status: "aborted" });
-              }
-            };
-            if (opts.signal.aborted) {
-              onAbort();
-            } else {
-              opts.signal.addEventListener("abort", onAbort, { once: true });
-            }
-          }
-
-          // Set up timeout
-          if (effectiveTimeout !== undefined) {
-            timeoutId = setTimeout(() => {
-              transcript.write(`\n=== Timeout reached (${effectiveTimeout}ms) ===`);
-              logger.warn("spawn:session", "Timeout reached", {
-                name: config.name,
-                timeout: effectiveTimeout,
-                turnCount,
-              });
-
-              handle
-                .steer(
-                  "TIMEOUT REACHED. Your time allocation has expired. " +
-                    "Summarize your progress and findings now. Do NOT make any more tool calls. " +
-                    "This is your last turn.",
-                )
-                .catch(() => {});
-
-              graceTimeoutId = setTimeout(() => {
-                transcript.write(`\n=== Force abort after grace period ===`);
-                logger.warn("spawn:session", "Force abort after timeout grace", {
-                  name: config.name,
-                  timeout: effectiveTimeout,
-                  turnCount,
-                });
-                handle.abort();
-                if (!completed) {
-                  completed = true;
-                  tree?.updateStatus(id, "aborted");
-                  resolve({ exitCode: 1, output: finalOutput, status: "aborted" });
-                }
-              }, 30_000);
-            }, effectiveTimeout);
-          }
-        })
-        .catch((err) => {
-          if (!completed) {
-            completed = true;
-            tree?.updateStatus(id, "failed", 1, err.message);
-            reject(err);
-          }
         });
+
+        opts.onTurnEnd?.(count);
+      },
     });
 
-    const result = await completionPromise;
+    sessionTimeout = installSessionTimeout({
+      timeoutMs: effectiveTimeout,
+      steer: (text) => handle.steer(text),
+      abort: () => {
+        handle.abort();
+      },
+      onWrapUp: () => {
+        transcript.write(`\n=== Timeout reached (${effectiveTimeout}ms) ===`);
+        logger.warn("spawn:session", "Timeout reached", {
+          name: config.name,
+          timeout: effectiveTimeout,
+          turnCount,
+        });
+      },
+      onAbort: () => {
+        transcript.write(`\n=== Force abort after grace period ===`);
+        logger.warn("spawn:session", "Force abort after timeout grace", {
+          name: config.name,
+          timeout: effectiveTimeout,
+          turnCount,
+        });
+      },
+    });
 
-    // Cleanup
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-    if (graceTimeoutId !== undefined) clearTimeout(graceTimeoutId);
+    const terminal = await handle.wait();
+    const status: AgentStatus = terminal.class === "settled" ? "completed" : terminal.class;
+    const result = {
+      exitCode: terminal.exitCode,
+      output: terminal.output,
+      status,
+      error: terminal.error,
+    };
+    tree?.updateStatus(id, status, result.exitCode, result.error);
 
     // Preserve explicit abort reasons from step-limit enforcement.
     if (abortReason) {
@@ -305,30 +246,9 @@ export async function runMinionSession(
       };
     }
 
-    // Get final stats
-    const session = subsessionManager.getSession(id);
-    if (session) {
-      try {
-        const stats = session.getSessionStats();
-        usage.input = stats.tokens.input;
-        usage.output = stats.tokens.output;
-        usage.cacheRead = stats.tokens.cacheRead;
-        usage.cacheWrite = stats.tokens.cacheWrite;
-        usage.cost = stats.cost;
-      } catch {
-        // Session stats may not be available
-      }
-    }
-
     usage.turns = turnCount;
-
-    // Always extract just the last assistant message to avoid full conversation history
-    let lastAssistantText = "";
-    if (session) {
-      lastAssistantText = extractLastAssistantText(session.state.messages);
-      if (lastAssistantText) {
-        finalOutput = lastAssistantText;
-      }
+    if (result.output) {
+      finalOutput = result.output;
     }
 
     transcript.write(
@@ -342,7 +262,6 @@ export async function runMinionSession(
       exitCode: result.exitCode,
       turns: turnCount,
       finalOutputLength: finalOutput?.length,
-      lastAssistantLength: lastAssistantText?.length,
     });
 
     // Use the extracted last assistant message, not result.output which may contain full history
@@ -355,9 +274,6 @@ export async function runMinionSession(
       error: result.exitCode !== 0 ? (result.error ?? failureOutput) : undefined,
     };
   } catch (err) {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-    if (graceTimeoutId !== undefined) clearTimeout(graceTimeoutId);
-
     const msg = err instanceof Error ? err.message : String(err);
     transcript.write(`\n=== Error: ${msg} ===`);
     logger.debug("spawn:session", "error", { id, name, error: msg });
@@ -369,26 +285,7 @@ export async function runMinionSession(
       usage,
       error: msg,
     };
+  } finally {
+    sessionTimeout?.clear();
   }
-}
-
-function extractLastAssistantText(messages: unknown[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i] as Record<string, unknown> | undefined;
-    if (!msg || msg.role !== "assistant") continue;
-
-    const content = msg.content;
-
-    if (typeof content === "string") return content.trim();
-
-    if (Array.isArray(content)) {
-      const text = content
-        .filter((b: { type: string; text?: string }) => b.type === "text" && b.text)
-        .map((b: { type: string; text?: string }) => b.text ?? "")
-        .join("");
-      if (text.trim()) return text.trim();
-    }
-  }
-
-  return "";
 }

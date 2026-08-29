@@ -2,6 +2,11 @@
 
 Date: 2026-04-19
 
+> **Historical.** Worker-console / tmux-delegate TUI notes in this file are not current operator
+> guidance. Shipped dashboard: Issues / Run / Scope. `/bw run <epic-id>` injects a goal prompt.
+> See [../README.md](../README.md) and [migration.md](./migration.md).
+
+
 ## Goal
 
 Replace the current notify-driven `/bw ...` command multiplexer with a real pi-native TUI workflow that:

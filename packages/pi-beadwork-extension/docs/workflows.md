@@ -1,46 +1,47 @@
 # Workflows
 
-This extension is designed around a **human-led beadwork session** with optional delegated workers.
+This extension is a **beadwork goal adapter**. You drive planning and ticket operations. In run
+mode the parent Pi session orchestrates in-process minions. Enable `@solvedbydev/pi-minions` on
+the same tui/rpc host.
 
-The important split is:
+The important split:
 
-- you drive planning, scoping, and operator decisions
-- delegated workers execute one ticket at a time in the configured execution mode
-- worktree workers get isolated worktrees; current-branch workers share the parent checkout
-- the orchestrator owns the mode-specific post-worker lifecycle
+- you (and the parent model) own beadwork graph mutations
+- minions `orchestrate` runs children in the background; `spawn` still blocks
+- children inspect beadwork; they do not close tickets
+- shared checkout is default; coordination is advisory
+- quality commands are implementer/reviewer/repo-checkpoint work
 
 ## Session modes
 
-The persisted session state can be:
+Persisted session state:
 
 - `neutral` — no beadwork workflow is engaged
-- `interactive` — beadwork-aware human-led mode for a repo, ticket, or epic
-- `run` — bounded `/bw run` mode for an epic, with background continuation while the session stays alive
+- `interactive` — human-led beadwork; standing appendix is policy; wait for the user
+- `run` — goal mode for one epic; standing appendix is policy; `/bw run` injects the start prompt
 
 Typical dashboard-first flow:
+
 ```text
 /bw
-/bw:workers
 /bw status
+/bw run <epic-id>
 ```
 
 What that gives you:
 
-- bare `/bw` opens the dashboard even from a neutral session when beadwork is available in the repo
-- the default **Issues** tab starts with the `ready` filter so you can browse work before explicitly scoping anything
-- from the Issues tab, `s` scopes the selected issue, `x` clears scope, `d` opens delegate clarify for a ticket, and `r` opens run clarify for an epic
-- `tab` / `shift+tab` (or `←` / `→`) moves between Issues, Workers, Run, Scope, and Actions
-- `/bw:workers` opens the dedicated worker console when you want the fuller operational view
+- bare `/bw` opens the dashboard when beadwork is available
+- the default **Issues** tab starts with the `ready` filter
+- from Issues, `s` scopes, `x` clears, `r` starts goal mode for an epic
+- `tab` / `shift+tab` (or `←` / `→`) moves between Issues, Run, and Scope
 
-Use `/bw engage [scope]` or `/bw:scope <issue-id>` when you want to jump straight into a text-command scope.
-Use `/bw off` to return to neutral mode.
-If workers are still active, `/bw off` will make you choose:
-- `/bw off --stop-workers`
-- `/bw off --leave-workers`
-- `/bw off --stop-workers --all-workers`
+Use `/bw engage [scope]` or `/bw:scope <issue-id>` to jump straight into a text-command scope.
+Use `/bw abandon` to leave goal mode without closing the epic. Use `/bw off` to return to
+neutral; it also queues a group halt.
+
 ## Planning and `/bw adopt`
 
-`/bw adopt` is now built around an **explicit markdown source**. It no longer depends on scraping prior chat text.
+`/bw adopt` uses an **explicit markdown source**. It does not scrape chat history.
 
 Supported sources:
 
@@ -51,297 +52,99 @@ Supported sources:
 Preview first:
 
 ```text
-/bw adopt --file docs/worker-plan.md --title "Worker landing polish" --land multi
+/bw adopt --file docs/plan.md --title "Goal-mode cutover" --land multi
 ```
 
 Apply after review:
 
 ```text
-/bw adopt --file docs/worker-plan.md --title "Worker landing polish" --land multi --apply
+/bw adopt --file docs/plan.md --title "Goal-mode cutover" --land multi --apply
 ```
 
-Land modes:
+Land modes (plan adoption, not worker merge-back):
 
 - `quick` — preview only; no beadwork mutations
 - `branch` — create beadwork artifacts directly from the explicit plan
-- `multi` — queue an LLM-guided decomposition turn that materializes the epic/tasks/dependencies through beadwork tools
+- `multi` — queue an LLM-guided decomposition turn that materializes the epic/tasks/dependencies
+  through beadwork tools
 
-Use `multi` when the markdown describes the intent but the graph still benefits from model decomposition.
+Use `multi` when the markdown describes intent but the graph still benefits from model
+decomposition.
 
-## Delegated worker lifecycle
-
-`/bw delegate <ticket-id>` launches one ticket into a tmux worker using `workerExecution.mode`.
-Add `--model provider/model` when one delegated pass should run on a different
-worker model without changing shared defaults.
-
-### What delegation does
-
-1. resolves ticket + optional epic context
-2. ensures `bw prime` context is available
-3. prepares the configured checkout target
-   - `worktree`: creates or reuses the ticket worktree and applies configured file copies/setup commands
-   - `current-branch`: uses the repo root/current branch without creating a worktree
-4. launches a tmux-backed worker in the background
-5. writes worker output to `worker.log`
-6. tracks the worker in the local registry and session state
-7. asks the worker to finish through `beadwork_worker_done`; the first done call can trigger a
-   same-session self-review pass, and the final accepted done call closes/syncs then shuts Pi down
-   so the tmux pane exits normally
-8. lets the parent session continue while supervision runs on the configured interval
-
-### What the operator should expect
-
-Immediately after `/bw delegate`, the extension tells you:
-
-- which worker ID was launched
-- where the worktree lives, or which current checkout was used
-- where `worker.log` lives
-- how often supervision checks the worker
-- whether completion will mean automatic landing, a held deferred state, or current-branch verification
-
-Use these as your primary inspection paths:
-
-- `worker.log` for streamed worker activity
-- `/bw workers` for full lifecycle diagnostics
-- later parent-session notifications for worker exit / remediation / completion / attention
-
-### Worker status values
-
-High-level runtime status:
-
-- `launching`
-- `running`
-- `exited`
-- `held`
-- `landed`
-- `failed`
-- `attention`
-
-Important interpretation:
-
-- `running` means the delegated process still exists
-- `exited` means the worker process finished, but landing is not yet complete
-- `held` means deferred landing intentionally stopped before merge-back
-- `landed` means the parent branch actually contains the worktree worker head and validation/review conditions are satisfied
-- `verified` means a current-branch worker passed attribution/review/ticket-closure verification
-- `attention` means operator involvement is needed
-
-## Validation, remediation, review, and merge-back
-
-After a worker exits and the ticket is closed, the orchestrator handles post-worker work.
-
-### Validation
-
-For worktree workers, the orchestrator runs `landing.validateCommands` inside the delegated worktree. Current-branch workers are expected to run relevant validation before handoff; the current-branch post-exit pipeline verifies attribution/review/ticket closure rather than running worktree landing validation.
-
-Default commands:
-
-```json
-["npm run lint", "npm run test", "npm run typecheck"]
-```
-
-### Automatic remediation
-
-If validation fails, the orchestrator does **one bounded remediation pass** by default.
-
-That means:
-
-- it does not loop forever retrying the same failure blindly
-- remediation state is surfaced in worker diagnostics
-- exhausted remediation moves the worker into `attention`
-
-### Reviewer gating
-
-If `landing.review.enabled` is true, the orchestrator runs a reviewer-agent pass before worktree merge-back or before declaring a deferred worktree worker ready to land. Current-branch per-worker review is controlled separately by `workerExecution.review.enabled`.
-
-Reviewer runs are exploratory by default: they can inspect the worktree, follow downstream code paths, and run the mandatory validation commands before handing back a result. The expected final handoff is a parseable `<review_report>` block with one of these verdicts:
-
-- `APPROVE`
-- `APPROVE WITH NITS`
-- `REQUEST CHANGES`
-
-The orchestrator normalizes those verdicts to its internal states (`approve`, `approve-with-nits`, `request-changes`). It does **not** blindly obey the reviewer: it still filters feedback against the bead intent and ticket goals.
-
-Operator-visible review states include:
-
-- `approved`
-- `nits-only`
-- `changes-requested`
-- `remediation-in-progress`
-- `review-blocked`
-
-### Merge-back truthfulness
-
-A worktree worker is only treated as landed when the parent branch truly contains the worker head. Current-branch workers use `verified` instead of `landed` because there is no worker branch to merge back.
-
-That means the extension avoids claiming success just because:
-
-- the ticket was closed
-- the worktree is clean
-- the diff looks equivalent
-
-## Landing policies
-
-### `landing.policy: "auto"`
-
-This is the default.
-
-Flow:
-
-1. worker exits
-2. ticket is confirmed closed
-3. validation runs
-4. remediation/re-review runs if needed
-5. merge-back happens when valid
-6. landing is verified against the parent branch
-7. optional cleanup runs
-
-Best when you want the orchestrator to finish the full lifecycle without another explicit operator command.
-
-### `landing.policy: "deferred"`
-
-Deferred landing keeps the orchestrator in charge, but intentionally stops before merge-back.
-
-Flow:
-
-1. worker exits
-2. ticket is confirmed closed
-3. validation runs
-4. review/remediation runs if configured
-5. work is held unmerged
-6. `/bw workers` reports a truthful held state
-7. you later run `/bw land <ticket-id|worker-id>`
-
-Deferred landing states surfaced in diagnostics:
-
-- `validated-and-held`
-- `ready-to-land`
-- `needs-refresh`
-- `needs-attention`
-
-Use deferred mode when you want:
-
-- manual human testing before merge-back
-- an explicit operator-controlled checkpoint
-- review of the isolated worktree before integration
-
-## `/bw land`
-
-`/bw land` explicitly resumes a deferred worker's merge-back flow.
+## `/bw run` goal mode
 
 ```text
-/bw land sbdpi-swx.6.4.1
+/bw run sbdpi-vur.4
 ```
 
-Or by worker ID:
+Requires:
 
-```text
-/bw land sbdpi-swx.6.4.1-mtr7z7-abc123
-```
+- persistent host (`tui` or `rpc`) — print/json **error**
+- beadwork active
+- an open epic with traversable descendants
+- no leftover supervisor config (those **error**)
+- no `--workers` / `--until` / `--max-cycles` / `--dry-run` / `--no-spawn` (those **error**)
+- minions enabled so `orchestrate` exists
 
 What it does:
 
-- finds the held worker by ticket ID or worker ID
-- re-checks landability in the current repo state
-- refreshes/rebases if needed
-- runs the remaining orchestrator merge-back flow
-- returns updated diagnostics
+1. stores one v1 goal (`scopeIds: [epic]`, configured `review.policy`)
+2. **injects a prompt** with epic id/title, review policy, and “refresh `bw` then `orchestrate`”
+3. does **not** freeze a ready list
+4. standing appendix stays armed as policy for later turns — it does not start a turn
 
-## `/bw workers`
+If the parent is mid-turn, the inject is follow-up. If idle, it triggers a turn.
 
-`/bw workers` is the main operator-facing diagnostic view.
+Same epic again re-injects that prompt. A different epic is rejected until the current goal exits.
+Goal mode exits when the scoped epic is closed via beadwork tools, when you `/bw abandon`
+(halt the group, leave the epic open), or when you `/bw off` (reset to neutral and halt the
+group).
 
-```text
-/bw workers
-/bw workers sbdpi-swx.6
-```
+Disk `mode=run` after `/new` or process death is interrupted, not auto-resumed. Run `/bw run`
+again.
 
-Each worker entry summarizes:
+### Parent loop (model)
 
-- worker ID and tmux pane
-- ticket state
-- validation state
-- review state
-- landing state
-- cleanup state
-- the next operator action
+When a turn runs:
 
-Use it when you need the durable truth, not just a transient notification.
+1. refresh `bw ready` / `bw show`
+2. `beadwork_start_issue` on work about to begin
+3. compose each child’s complete `task` (beadwork does not wrap it)
+4. `orchestrate` with domain `{ source: "beadwork", scopeId, workItemId, title }` and a `taskType`
+5. on settlement: judge evidence; apply review policy; parent closes
 
-## `/bw run`
+`orchestrate` `accepted` means starting, not liveness. Do not poll.
 
-`/bw run` launches a bounded orchestration loop for a scoped epic.
+### Review
 
-```text
-/bw run sbdpi-swx.6 --workers 2 --until blocked --max-cycles 12
-```
+- `ticket` (default): independent `reviewImplementation` before close
+- `scope`: close from evidence; `reviewScope` before epic complete; dependents may start first
+- `none`: no independent review children
 
-Behavior:
+Disposition findings as fix | file | reject by judgment. No keyword classifier.
 
-- only works on an epic
-- launches up to `--workers` ready tickets
-- respects `--until blocked|empty`
-- stops after `--max-cycles`
-- can run in `--dry-run` mode
-- can avoid spawning new workers with `--no-spawn`
+Do not start review of ticket A while A’s implementer is still live. That is an instruction, not
+a lock. Reviewer tasks should name commits, the ticket id, and `git show` — not “read the whole
+dirty workspace.”
 
-### Background continuation
+### Quality
 
-If a non-dry `/bw run` stops because it reached `max-cycles`, the session persists enough run state to continue supervision in the background on later idle turns.
+Tell implementers (and reviewers, if useful) to run the repo’s `lint` / `test` / `typecheck`.
+Beadwork does not own a validation gate.
 
-This is **not** a daemon. It depends on the parent session remaining alive.
+## Lifetime and stuck children
 
-## Notifications and logs
+Children die with Pi. `/halt <id|all>` aborts live minions. If a child is still stuck, exit the
+parent process. Halt alone does not exit goal mode.
 
-Delegated-worker UX is intentionally split across two channels:
+Inspect with `list_minions` / `show_minion`, not a worker registry.
 
-### 1. `worker.log`
+## Shared checkout
 
-This includes:
+Default cwd is the parent checkout. Overlap notices are advisory. See
+[worker-conventions.md](./worker-conventions.md).
 
-- worker start metadata
-- the exact worker command used
-- streamed worker activity from `pi --mode json`
-- orchestrator progress lines for post-exit validation/review/landing
+## Interactive mode
 
-### 2. parent-session notifications
-
-The parent session emits later notices for meaningful transitions such as:
-
-- worker closed the ticket and is waiting for process exit
-- validation remediation started
-- reviewer remediation started
-- worker completed successfully and merged back
-- worker needs operator attention
-
-## Cleanup behavior
-
-Cleanup is controlled by `worktrees.cleanup`:
-
-- `keep` — leave the worktree and tmux artifacts alone after success
-- `cleanup-after-landing` — remove the worktree and tmux window after successful landing
-
-Cleanup only happens after successful orchestrator-owned landing. Failed or attention states preserve artifacts for debugging.
-
-## Recommended dogfood workflow
-
-For the current feature set, the practical operator loop is:
-
-1. `/bw` to open the ready-first dashboard
-2. browse the Issues tab, then press `s` to scope, `d` to delegate a ticket, or `r` to start a run from an epic
-3. use `/bw ready`, `/bw show`, `/bw list`, or `/bw:scope ...` whenever you want the text-command path instead
-4. keep working in the parent session while background supervision tracks delegated workers
-5. watch `worker.log` if you want live detail
-6. rely on parent notices plus the statusline for background state changes
-7. open `/bw:workers` (or run `/bw workers`) when you want the durable exact worker truth
-8. if using deferred mode, run `/bw land <ticket-id|worker-id>` when the held worker is ready to merge back
-
-## Known boundaries
-
-These are documented behaviors, not hidden gotchas:
-
-- tmux is the only worker backend today
-- supervision is periodic polling, not file-watch or a repo-wide daemon
-- background supervision is tied to the parent session lifecycle
-- validation time still depends on your repo's actual quality gates
-- review prompts use bounded diff artifacts; `maxArtifactChars` is the cap for those artifacts, not the whole prompt
+`/bw engage` is human-led. The appendix tells the model not to autonomously launch children.
+Use run mode when you want the parent to orchestrate the epic.

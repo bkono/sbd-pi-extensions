@@ -2,7 +2,7 @@
   "name": "@solvedbydev/pi-minions",
   "type": "module",
   "version": "0.1.0",
-  "description": "Pi extension: foreground minion subagents with configurable delegation hints",
+  "description": "Pi extension: spawn and orchestrate minion subagents with configurable delegation hints",
   "license": "MIT",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
