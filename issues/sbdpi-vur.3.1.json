@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.1.5",
     "sbdpi-vur.1.7"
@@ -18,8 +18,8 @@
   ],
   "parent": "sbdpi-vur.3",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Inject bound comm tools into orchestrated children only",
   "type": "feature",
-  "updated_at": "2026-08-28T21:47:29Z"
+  "updated_at": "2026-08-29T01:04:53Z"
 }
