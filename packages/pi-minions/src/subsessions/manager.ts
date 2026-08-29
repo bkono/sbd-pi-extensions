@@ -176,6 +176,7 @@ interface ChildRecord {
   unsubscribe: () => void;
   abortCleanup?: () => void;
   disposePromise?: Promise<void>;
+  sessionPath?: string;
   /** Accepted followUp continuations that have not gone idle yet. */
   pendingMail: number;
   /** True once any inbound mail was accepted on this run. */
@@ -192,6 +193,7 @@ export class SubsessionManager {
   private unsubscribers = new Map<string, () => void>();
   private shutdown = false;
   private pendingAborts = new Set<string>();
+  private sessionPaths = new Map<string, string>();
   private readonly createChildRuntime: CreateChildRuntime;
 
   constructor(
@@ -257,6 +259,7 @@ export class SubsessionManager {
       customTools: options.customTools,
     });
     const session = runtime.session;
+    this.rememberSessionPath(id, sessionPath);
     await this.rejectStartIfShutdown(id, runtime);
     if (this.consumePendingAbort(id) || this.terminals.has(id)) {
       return this.finishAbortedStart(id, sessionPath, runtime);
@@ -277,6 +280,7 @@ export class SubsessionManager {
       unsubscribe: () => {},
       pendingMail: 0,
       mailAccepted: false,
+      sessionPath,
     };
     this.children.set(id, child);
     this.activeSessions.set(id, session);
@@ -515,6 +519,7 @@ export class SubsessionManager {
     sessionPath = "",
     runtime?: ChildRuntime,
   ): Promise<MinionSessionHandle> {
+    this.rememberSessionPath(id, sessionPath);
     this.pendingAborts.delete(id);
     this.activeHandles.delete(id);
     if (this.children.has(id)) {
@@ -894,26 +899,17 @@ export class SubsessionManager {
     "orchestrate",
   ]);
 
-  getMetadata(id: string): MinionSessionMetadata | undefined {
+  private getMetadata(id: string): MinionSessionMetadata | undefined {
     // Check cache first
     if (this.metadataCache.has(id)) {
       return this.metadataCache.get(id);
     }
 
-    // Try to read from disk
-    const minionsDir = getMinionsDir(this.cwd);
-    const files = this.listSessionFiles(minionsDir);
-
-    for (const file of files) {
-      // Read metadata and check sessionId (filenames are timestamp-based)
-      const metadata = this.readMetadataFile(join(minionsDir, file));
-      if (metadata?.sessionId === id) {
-        this.metadataCache.set(id, metadata);
-        return metadata;
-      }
-    }
-
-    return undefined;
+    const sessionPath = this.lookupSessionPath(id);
+    if (!sessionPath) return undefined;
+    const metadata = this.readMetadataFile(sessionPath);
+    if (metadata) this.metadataCache.set(id, metadata);
+    return metadata;
   }
 
   list(): MinionSessionMetadata[] {
@@ -946,6 +942,12 @@ export class SubsessionManager {
   /** Check if a session path is a minion session and return the minion ID */
   getMinionIdFromPath(sessionPath: string): string | undefined {
     logger.debug("subsession", "getMinionIdFromPath-start", { sessionPath });
+    for (const [id, path] of this.sessionPaths) {
+      if (path === sessionPath) {
+        logger.debug("subsession", "extracted-id", { sessionPath, id });
+        return id;
+      }
+    }
     const minionsDir = getMinionsDir(this.cwd);
     logger.debug("subsession", "checking-minions-dir", {
       sessionPath,
@@ -970,6 +972,7 @@ export class SubsessionManager {
         sessionPath,
         id: metadata.sessionId,
       });
+      this.rememberSessionPath(metadata.sessionId, sessionPath);
       return metadata.sessionId;
     }
     logger.debug("subsession", "no-metadata-returning-undefined", {
@@ -980,24 +983,10 @@ export class SubsessionManager {
 
   /** Get the session file path for a minion by ID */
   getSessionPath(id: string): string | undefined {
-    const minionsDir = getMinionsDir(this.cwd);
-    const files = this.listSessionFiles(minionsDir);
-    logger.debug("subsession", "getSessionPath", {
-      id,
-      fileCount: files.length,
-    });
-
-    for (const file of files) {
-      // Check if file contains the minion ID by reading metadata
-      const filePath = join(minionsDir, file);
-      const metadata = this.readMetadataFile(filePath);
-      if (metadata?.sessionId === id) {
-        logger.debug("subsession", "found-session-path", {
-          id,
-          path: filePath,
-        });
-        return filePath;
-      }
+    const stored = this.lookupSessionPath(id);
+    if (stored) {
+      logger.debug("subsession", "found-session-path", { id, path: stored });
+      return stored;
     }
     logger.debug("subsession", "session-path-not-found", { id });
     return undefined;
@@ -1023,17 +1012,8 @@ export class SubsessionManager {
       if (exitCode !== undefined) metadata.exitCode = exitCode;
       if (error !== undefined) metadata.error = error;
 
-      // Find the session file and update its metadata
-      const minionsDir = getMinionsDir(this.cwd);
-      const files = this.listSessionFiles(minionsDir);
-      for (const file of files) {
-        const sessionPath = join(minionsDir, file);
-        const fileMetadata = this.readMetadataFile(sessionPath);
-        if (fileMetadata?.sessionId === id) {
-          this.writeMetadataFile(sessionPath, metadata);
-          break;
-        }
-      }
+      const sessionPath = this.lookupSessionPath(id);
+      if (sessionPath) this.writeMetadataFile(sessionPath, metadata);
 
       this.metadataCache.set(id, metadata);
     }
@@ -1062,6 +1042,25 @@ export class SubsessionManager {
     return history;
   }
 
+  private rememberSessionPath(id: string, sessionPath: string): void {
+    if (!id || !sessionPath) return;
+    this.sessionPaths.set(id, sessionPath);
+  }
+
+  private lookupSessionPath(id: string): string | undefined {
+    const stored = this.sessionPaths.get(id);
+    if (stored) return stored;
+    const minionsDir = getMinionsDir(this.cwd);
+    for (const file of this.listSessionFiles(minionsDir)) {
+      const sessionPath = join(minionsDir, file);
+      const metadata = this.readMetadataFile(sessionPath);
+      if (metadata?.sessionId === id) {
+        this.rememberSessionPath(id, sessionPath);
+        return sessionPath;
+      }
+    }
+    return undefined;
+  }
   private listSessionFiles(dir: string): string[] {
     try {
       return readdirSync(dir).filter((f: string) => f.endsWith(".jsonl"));

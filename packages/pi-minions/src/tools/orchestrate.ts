@@ -218,7 +218,6 @@ function startRegisteredChild(
       cwd: group.cwd,
       modelRegistry: ctx.modelRegistry,
       parentModel,
-      parentSystemPrompt: ctx.getSystemPrompt(),
       parentToolNames,
       customTools: injected.tools,
       extraTools: [...injected.names, ...(deps.extraTools ?? [])],
@@ -381,7 +380,7 @@ export function orchestrate(deps: OrchestrateDeps) {
 
       let parentModel: Model<Api> | undefined;
       try {
-        parentModel = resolveModelReference(optionalString(spec.model), ctx);
+        parentModel = resolveModelReference(optionalString(spec.model) ?? config.model, ctx);
       } catch {
         rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.unknownModel });
         continue;

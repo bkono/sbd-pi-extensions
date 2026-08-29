@@ -108,19 +108,28 @@ export async function runHalt(
 
   if (trimmed === "all") {
     const running = tree.getRunning();
-    if (running.length === 0) {
-      return { text: "No running minions to halt.", halted: [] };
-    }
-    const { halted } = await abortAgents(
-      running.map((n) => n.id),
-      tree,
-      subsessionManager,
-    );
+    const { halted } =
+      running.length > 0
+        ? await abortAgents(
+            running.map((n) => n.id),
+            tree,
+            subsessionManager,
+          )
+        : { halted: [] as HaltedMinion[] };
     const open = groups.getOpenGroup();
     if (open) groups.closeGroup(open.groupId);
     const groupClosed = open?.groupId;
     const count = halted.length;
     const forgot = groupClosed ? `. Forgot group ${groupClosed}.` : ".";
+    if (count === 0) {
+      return {
+        text: groupClosed
+          ? `No running minions to halt. Forgot group ${groupClosed}.`
+          : "No running minions to halt.",
+        halted,
+        groupClosed,
+      };
+    }
     return {
       text: `Halted ${count} minion${count !== 1 ? "s" : ""}${forgot}`,
       halted,

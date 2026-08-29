@@ -155,6 +155,22 @@ describe("halt one vs group vs missing", () => {
     expect(groups.getOpenGroup()).toBeUndefined();
   });
 
+  it("halt all forgets an empty open group so the next orchestrate can create one", async () => {
+    const cwd = tempDir("pi-minions-halt-all-empty-");
+    const otherCwd = tempDir("pi-minions-halt-all-empty-other-");
+    const { groups, groupId } = openGroup(cwd);
+    const tree = new AgentTree();
+    const result = await runHalt("all", tree, stubManager(), groups);
+
+    expect(result.halted).toEqual([]);
+    expect(result.groupClosed).toBe(groupId);
+    expect(result.text).toBe(`No running minions to halt. Forgot group ${groupId}.`);
+    expect(groups.getOpenGroup()).toBeUndefined();
+
+    const next = groups.resolveGroup({ parentCwd: otherCwd });
+    expect("groupId" in next && next.groupId !== groupId).toBe(true);
+  });
+
   it("returns missing for an unknown id", async () => {
     const cwd = tempDir("pi-minions-halt-missing-");
     const { groups, groupId } = openGroup(cwd);

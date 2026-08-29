@@ -389,13 +389,17 @@ function writeRole(
   name: string,
   description: string,
   body: string,
+  extraFrontmatter: Record<string, string> = {},
 ): void {
   mkdirSync(join(dir, ".git"), { recursive: true });
   const roleDir = join(dir, ".pi", folder);
   mkdirSync(roleDir, { recursive: true });
+  const extras = Object.entries(extraFrontmatter)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
   writeFileSync(
     join(roleDir, `${name}.md`),
-    `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`,
+    `---\nname: ${name}\ndescription: ${description}${extras ? `\n${extras}` : ""}\n---\n\n${body}\n`,
     "utf-8",
   );
 }
@@ -564,6 +568,118 @@ describe("role resolution cwd", () => {
     );
     expect(sharedCall?.[0]?.config?.systemPrompt).toContain("GROUP ROLE");
     expect(sharedCall?.[0]?.config?.systemPrompt).not.toContain("PARENT ONLY");
+  });
+});
+
+describe("role system prompt and model defaults", () => {
+  function fakeModel(provider: string, id: string) {
+    return { provider, id, name: id };
+  }
+
+  it("does not override a named role system prompt with the parent prompt", async () => {
+    const cwd = tempDir("pi-minions-role-prompt-");
+    writeRole(cwd, "agents", "reviewer-role-xyz", "Reviewer role", "ROLE SYSTEM PROMPT");
+    const { execute, startChild } = setup();
+    const ctx = {
+      ...createCtx(cwd),
+      getSystemPrompt: () => "PARENT SYSTEM PROMPT",
+    };
+
+    const result = detailsOf(
+      await run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "review the change",
+              description: "Review",
+              role: "reviewer-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    );
+    expect(result.accepted).toHaveLength(1);
+    await vi.waitFor(() => expect(startChild).toHaveBeenCalledTimes(1));
+    const call = startChild.mock.calls[0]?.[0] as {
+      parentSystemPrompt?: string;
+      config?: { systemPrompt?: string };
+    };
+    expect(call.parentSystemPrompt).toBeUndefined();
+    expect(call.config?.systemPrompt).toContain("ROLE SYSTEM PROMPT");
+    expect(call.config?.systemPrompt).not.toContain("PARENT SYSTEM PROMPT");
+  });
+
+  it("applies the role model when the task omits model, and a task model still wins", async () => {
+    const cwd = tempDir("pi-minions-role-model-");
+    writeRole(cwd, "agents", "special-model-role-xyz", "Special model role", "ROLE BODY", {
+      model: "openai/role-model",
+    });
+    const parent = fakeModel("openai", "parent-model");
+    const roleModel = fakeModel("openai", "role-model");
+    const override = fakeModel("openai", "override-model");
+    const models = [parent, roleModel, override];
+    const startChild = vi.fn(async (opts: { id: string }) => hangingHandle(opts.id, cwd));
+    const tree = new AgentTree();
+    const groups = new OrchestrationGroupState();
+    const execute = orchestrate({
+      tree,
+      pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
+        ExtensionAPI,
+        "getAllTools"
+      >,
+      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      groups,
+    });
+    const ctx = {
+      ...createCtx(cwd),
+      model: parent as never,
+      modelRegistry: {
+        getAll: () => models as never,
+        find: (provider: string, id: string) =>
+          models.find((model) => model.provider === provider && model.id === id) as never,
+      },
+    };
+
+    const defaulted = detailsOf(
+      await run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "use role model",
+              description: "Role model",
+              role: "special-model-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    );
+    expect(defaulted.accepted).toHaveLength(1);
+    await vi.waitFor(() => expect(startChild).toHaveBeenCalledTimes(1));
+    expect(startChild.mock.calls[0]?.[0]?.parentModel).toEqual(roleModel);
+
+    const overridden = detailsOf(
+      await run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "override model",
+              description: "Override model",
+              role: "special-model-role-xyz",
+              model: "openai/override-model",
+            },
+          ],
+        },
+        ctx,
+      ),
+    );
+    expect(overridden.accepted).toHaveLength(1);
+    await vi.waitFor(() => expect(startChild).toHaveBeenCalledTimes(2));
+    expect(startChild.mock.calls[1]?.[0]?.parentModel).toEqual(override);
   });
 });
 

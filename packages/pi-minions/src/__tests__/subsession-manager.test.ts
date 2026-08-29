@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -227,6 +227,37 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(manager.getSessionHandle("child-1")).toBe(handle);
     expect(manager.getTerminal("child-1")).toBeUndefined();
     expect(session.disposed).toBe(false);
+  });
+
+  it("writes terminal metadata next to the child's session path, not the parent cwd", async () => {
+    const parentCwd = mkdtempSync(join(tmpdir(), "pi-minions-parent-"));
+    const groupCwd = mkdtempSync(join(tmpdir(), "pi-minions-group-"));
+    const session = new FakeChildSession();
+    const sessionPath = join(groupCwd, "child.jsonl");
+    const manager = new SubsessionManager(parentCwd, join(parentCwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath,
+      }),
+    });
+    const handle = await manager.startChild(startOptions("child-cwd", groupCwd));
+
+    expect(manager.getSessionPath("child-cwd")).toBe(sessionPath);
+    expect(manager.getMinionIdFromPath(sessionPath)).toBe("child-cwd");
+
+    session.emit({ type: "agent_settled" });
+    await handle.wait();
+
+    const metaPath = `${sessionPath}.minion-meta.json`;
+    expect(existsSync(metaPath)).toBe(true);
+    const metadata = JSON.parse(readFileSync(metaPath, "utf-8")) as { status?: string };
+    expect(metadata.status).toBe("completed");
+    expect(existsSync(join(parentCwd, "child.jsonl.minion-meta.json"))).toBe(false);
   });
 
   it("does not emit terminal on agent_end until fully idle", async () => {
