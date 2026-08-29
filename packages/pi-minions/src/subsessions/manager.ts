@@ -8,6 +8,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { logger } from "../logger.js";
+import { PARENT_ONLY_MINION_TOOLS } from "../orchestration/comm.js";
 import { formatToolCall } from "../render.js";
 import type { EventBus } from "./event-bus.js";
 import { MINION_COMPLETE_CHANNEL, MINION_PROGRESS_CHANNEL } from "./event-bus.js";
@@ -24,6 +25,11 @@ import type {
 } from "./types.js";
 
 const MINION_EXTENSION_EXCLUDE_FRAGMENTS = ["pi-minions", "pi-om-extension"];
+
+/** AgentSession may re-queue events; bound the private-queue drain. */
+const SESSION_EVENT_QUEUE_DRAIN_LIMIT = 100;
+/** Microtask yields so fakes can deliver turn_end after waitForIdle. */
+const TRAILING_EVENT_MICROTASK_BUDGET = 8;
 
 export function shouldLoadExtensionInMinion(resolvedPath: string): boolean {
   return !MINION_EXTENSION_EXCLUDE_FRAGMENTS.some((fragment) => resolvedPath.includes(fragment));
@@ -361,6 +367,7 @@ export class SubsessionManager {
         } catch {
           // waitForIdle is best-effort; agent_settled is the primary idle signal.
         }
+        await this.drainTrailingSessionEvents(id, session);
         const record = this.children.get(id);
         if (!record || record.terminal) return;
         if (record.abortRequested) {
@@ -624,6 +631,7 @@ export class SubsessionManager {
           } catch {
             // waitForIdle is best-effort; agent_settled is the primary idle signal.
           }
+          await this.drainTrailingSessionEvents(id, session);
         } finally {
           this.releaseMail(id);
         }
@@ -816,6 +824,31 @@ export class SubsessionManager {
     };
   }
 
+  /**
+   * prompt()/waitForIdle() can resolve before AgentSession finishes dispatching
+   * turn_end, agent_settled, and auto_retry_end. Drain those before commit so
+   * trailing usage and retry failures are not dropped. Bounded: never hang if
+   * agent_settled never arrives.
+   */
+  private async drainTrailingSessionEvents(id: string, session: ChildSession): Promise<void> {
+    const host = session as ChildSession & { _agentEventQueue?: Promise<void> };
+    if (host._agentEventQueue) {
+      for (let i = 0; i < SESSION_EVENT_QUEUE_DRAIN_LIMIT; i++) {
+        const before: Promise<void> | undefined = host._agentEventQueue;
+        if (!before) break;
+        await before;
+        if (host._agentEventQueue === before) break;
+      }
+    }
+
+    for (let i = 0; i < TRAILING_EVENT_MICROTASK_BUDGET; i++) {
+      await Promise.resolve();
+      const record = this.children.get(id);
+      if (!record || record.terminal || this.terminals.has(id)) return;
+      if (record.abortRequested || record.pendingFailure) return;
+    }
+  }
+
   private async waitForAsyncTools(
     id: string,
     session: ChildSession,
@@ -899,6 +932,7 @@ export class SubsessionManager {
     "show_minion",
     "learn_minions",
     "orchestrate",
+    ...PARENT_ONLY_MINION_TOOLS,
   ]);
 
   private getMetadata(id: string): MinionSessionMetadata | undefined {

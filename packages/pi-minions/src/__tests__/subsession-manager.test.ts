@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
+import { SEND_MINION_MESSAGE_TOOL } from "../orchestration/comm.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type {
   ChildSession,
@@ -170,6 +171,29 @@ class FakeChildSession implements ChildSession {
 
   getSessionStats() {
     return { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 };
+  }
+}
+
+/** prompt()/waitForIdle() resolve before queued turn_end / agent_settled. */
+class TrailingEventSession extends FakeChildSession {
+  trailingEvents: ChildSessionEvent[] = [];
+
+  queueTrailing(event: ChildSessionEvent): void {
+    this.trailingEvents.push(event);
+  }
+
+  waitForIdle(): Promise<void> {
+    return super.waitForIdle().then(() => {
+      const trailing = this.trailingEvents.splice(0);
+      if (trailing.length === 0) return;
+      // Two microtasks so emit lands after the waitForIdle continuation that
+      // used to tryCommitIdle immediately — the race this helper exists to catch.
+      queueMicrotask(() => {
+        queueMicrotask(() => {
+          for (const event of trailing) this.emit(event);
+        });
+      });
+    });
   }
 }
 
@@ -503,6 +527,75 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(session.callOrder.indexOf("abort")).toBeLessThan(session.callOrder.indexOf("dispose"));
     expect(session.disposeCount).toBe(1);
     expect(session.aborted).toBe(true);
+  });
+
+  it("does not wait for parent-only send_minion_message during tool sync", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-smm-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    spyLogger();
+
+    const started = Date.now();
+    await manager.startChild({
+      ...startOptions("child-smm", cwd),
+      toolSyncEnabled: true,
+      toolSyncMaxWait: 5000,
+      parentToolNames: ["read", "bash", "spawn", "halt", "orchestrate", SEND_MINION_MESSAGE_TOOL],
+    });
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(1000);
+    expect(session.getAllTools().some((tool) => tool.name === SEND_MINION_MESSAGE_TOOL)).toBe(
+      false,
+    );
+    expect(logs.some((entry) => entry.msg === "async-tools-timeout")).toBe(false);
+  });
+
+  it("applies trailing turn_end and usage before committing idle", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-trail-turn-"));
+    const session = new TrailingEventSession();
+    session.getSessionStats = () => ({
+      tokens: { input: 3, output: 5, cacheRead: 1, cacheWrite: 2 },
+      cost: 0.25,
+    });
+    const manager = createManager(session, cwd);
+    const turns: number[] = [];
+    const usage: Array<{ input: number; output: number; cost: number }> = [];
+
+    const handle = await manager.startChild({
+      ...startOptions("child-trail-turn", cwd),
+      onTurnEnd: (turnCount) => turns.push(turnCount),
+      onUsageUpdate: (next) =>
+        usage.push({ input: next.input, output: next.output, cost: next.cost }),
+    });
+
+    session.queueTrailing({ type: "turn_end" });
+    session.queueTrailing({ type: "agent_settled" });
+    session.resolvePrompt();
+
+    await expect(handle.wait()).resolves.toMatchObject({ class: "settled", exitCode: 0 });
+    expect(turns).toEqual([1]);
+    expect(usage).toEqual([{ input: 3, output: 5, cost: 0.25 }]);
+  });
+
+  it("classifies trailing auto_retry_end failure as failed, not settled", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-trail-retry-"));
+    const session = new TrailingEventSession();
+    const manager = createManager(session, cwd);
+    const handle = await manager.startChild(startOptions("child-trail-retry", cwd));
+
+    session.queueTrailing({
+      type: "auto_retry_end",
+      success: false,
+      finalError: "retry exhausted",
+    });
+    session.resolvePrompt();
+
+    await expect(handle.wait()).resolves.toMatchObject({
+      class: "failed",
+      exitCode: 1,
+      error: "retry exhausted",
+    });
   });
 });
 
