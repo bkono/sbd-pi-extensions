@@ -222,6 +222,23 @@ export class AgentTree {
     }
   }
 
+  /** Inspection fields for list/show. Messaging and path tools write; this only stores. */
+  updateInspection(
+    id: string,
+    patch: Partial<
+      Pick<AgentNode, "output" | "messages" | "pathIntent" | "peerMessageFailed" | "lastPeerError">
+    >,
+  ): void {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    if (patch.output !== undefined) node.output = patch.output;
+    if (patch.messages !== undefined) node.messages = patch.messages;
+    if (patch.pathIntent !== undefined) node.pathIntent = patch.pathIntent;
+    if (patch.peerMessageFailed !== undefined) node.peerMessageFailed = patch.peerMessageFailed;
+    if (patch.lastPeerError !== undefined) node.lastPeerError = patch.lastPeerError;
+    this.notify();
+  }
+
   remove(id: string): void {
     const node = this.nodes.get(id);
     if (!node) return;

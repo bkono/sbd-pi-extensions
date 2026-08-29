@@ -8,8 +8,8 @@ It keeps the newer foreground minion workflow from upstream while restoring the 
 
 - `spawn` — run one foreground minion, or pass `tasks` for parallel foreground minions.
 - `list_agents` / `list_minion_types` — discover available agent definitions.
-- `list_minions` / `show_minion` — inspect current-session minion state.
-- `halt` — abort one minion or all running minions.
+- `list_minions` / `show_minion` — inspect spawn and orchestrated minion state (role, taskType, group, output, messages, path intent).
+- `halt` — abort one minion, an orchestration group, or all running minions. Halt group forgets the open group.
 - `learn_minions` — return concise usage guidance.
 
 ## Configuration

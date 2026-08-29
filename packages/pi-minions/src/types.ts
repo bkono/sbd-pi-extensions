@@ -75,6 +75,22 @@ export const OrchestrationDomainSchema = Type.Object({
 });
 export type OrchestrationDomain = Static<typeof OrchestrationDomainSchema>;
 
+/** Parent-visible comm log. Messaging writes; list/show only read. */
+export interface MinionMessage {
+  from: string;
+  to: string;
+  text: string;
+  failed?: boolean;
+  at?: number;
+}
+
+/** Advisory path intent. Path tools write; list/show only read. */
+export interface PathIntent {
+  path: string;
+  ttlMs?: number;
+  announcedAt?: number;
+}
+
 export interface AgentNode {
   id: string;
   name: string;
@@ -104,6 +120,15 @@ export interface AgentNode {
   description?: string;
   /** Opaque domain metadata. Not parsed as ticket semantics. */
   domain?: OrchestrationDomain;
+  /** Full child output. Canonical large text for show_minion, not packets. */
+  output?: string;
+  /** Parent-visible messages. Empty until messaging writes. */
+  messages?: MinionMessage[];
+  /** Advisory path intent. Empty until path tools write. */
+  pathIntent?: PathIntent[];
+  /** True when the last peer-message delivery failed. */
+  peerMessageFailed?: boolean;
+  lastPeerError?: string;
 }
 
 export const OrchestratedTaskDescriptorSchema = Type.Object({

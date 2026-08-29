@@ -165,7 +165,7 @@ export function createMinionsHandler(tree: AgentTree, eventBus: EventBus) {
       lines.push("  h, help            - Show this help message");
       lines.push("  learn              - Show minion usage guidance");
       lines.push("  list               - List available agent types");
-      lines.push("  s, show <id|name>  - Show live activity for a specific minion");
+      lines.push("  s, show <id|name>  - Show live activity for a spawn or orchestrated minion");
       lines.push("  skill              - Show the agentic minions skill text");
       lines.push("  version            - Show the extension version");
 

@@ -67,7 +67,7 @@ export default function (pi: ExtensionAPI): void {
       "Use list_agents to discover available named agents before spawning by name.",
       "Omit the agent parameter to spawn an ephemeral minion with default capabilities.",
       "When a spawn result says [HALTED], the user intentionally stopped the minion. Do NOT retry, re-spawn, or ask about it. Acknowledge and move on.",
-      "Use list_minions and show_minion to inspect foreground minion activity.",
+      "Use list_minions and show_minion to inspect spawn and orchestrated minion activity.",
     ],
     parameters: SpawnToolParams,
     execute: (...args) => {
@@ -126,11 +126,14 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "halt",
     label: "Halt Minion",
-    description: "Abort a running minion by ID. Use id='all' to halt all running minions.",
+    description:
+      "Abort a running minion by ID or name, an orchestration group, or all running minions. " +
+      "Use id='all' to halt everyone. Use id='group' or a groupId to halt orchestrated members and forget the open group. " +
+      "Halt does not exit Beadwork goal mode.",
     parameters: HaltToolParams,
     execute: (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      return halt(tree, subsessionManager)(...args);
+      return halt(tree, subsessionManager, groups)(...args);
     },
   });
 
@@ -146,10 +149,11 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "list_minions",
     label: "List Minions",
-    description: "List all foreground minions in the current session.",
-    promptSnippet: "List all current foreground minions",
+    description:
+      "List spawn and orchestrated minions in the current session, including role, taskType, group, and last activity.",
+    promptSnippet: "List current spawn and orchestrated minions",
     promptGuidelines: [
-      "Use list_minions to check what foreground minions are currently running or recently completed before spawning new ones.",
+      "Use list_minions to see who is running, spawn vs orchestrated, taskType, last said, and whether a peer message failed.",
     ],
     parameters: ListMinionsParams,
     execute: (...args) => listMinions(tree)(...args),
@@ -158,9 +162,10 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "show_minion",
     label: "Show Minion",
-    description: "Show detailed status, activity, and output of a minion by ID or name.",
+    description:
+      "Show full status, output, messages, path intent, and activity of a minion by ID or name.",
     parameters: ShowMinionParams,
-    execute: (...args) => showMinion(tree)(...args),
+    execute: (...args) => showMinion(tree, subsessionManager)(...args),
   });
 
   pi.registerTool({
@@ -194,10 +199,10 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("halt", {
-    description: "Halt minion(s): /halt <id | name | all>",
+    description: "Halt minion(s): /halt <id | name | group | all>",
     handler: (args, ctx) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      return createHaltHandler(tree, subsessionManager)(args, ctx);
+      return createHaltHandler(tree, subsessionManager, groups)(args, ctx);
     },
   });
 
