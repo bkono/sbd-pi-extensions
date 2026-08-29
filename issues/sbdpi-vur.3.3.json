@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.1.8",
     "sbdpi-vur.3.2"
@@ -17,8 +17,8 @@
   ],
   "parent": "sbdpi-vur.3",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Wake parent on live child questions without treating them as settled",
   "type": "feature",
-  "updated_at": "2026-08-28T21:47:30Z"
+  "updated_at": "2026-08-29T02:28:14Z"
 }
