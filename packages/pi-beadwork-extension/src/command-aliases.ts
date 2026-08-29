@@ -35,7 +35,7 @@ export const BEADWORK_ALIAS_COMMANDS: Array<{
     subcommand: "cleanup",
     description: "Cleanup landed worker artifacts",
   },
-  { name: "bw:run", subcommand: "run", description: "Run a bounded epic loop" },
+  { name: "bw:run", subcommand: "run", description: "Start goal mode for an epic" },
   { name: "bw:off", subcommand: "off", description: "Reset beadwork session state" },
   { name: "bw:adopt", subcommand: "adopt", description: "Adopt a markdown plan into beadwork" },
 ];

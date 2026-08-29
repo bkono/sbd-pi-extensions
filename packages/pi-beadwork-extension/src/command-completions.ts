@@ -24,7 +24,7 @@ const MAIN_COMMANDS: Array<{
   { value: "land", label: "land", description: "Land a worker" },
   { value: "cancel", label: "cancel", description: "Cancel an active worker" },
   { value: "cleanup", label: "cleanup", description: "Cleanup landed worker artifacts" },
-  { value: "run", label: "run", description: "Run a bounded epic loop" },
+  { value: "run", label: "run", description: "Start goal mode for an epic" },
   { value: "off", label: "off", description: "Reset the session" },
   { value: "adopt", label: "adopt", description: "Adopt a markdown plan" },
   { value: "engage", label: "engage", description: "Enter interactive beadwork mode" },
@@ -58,13 +58,7 @@ const OPTION_COMPLETIONS: Record<string, AutocompleteItem[]> = {
     { value: "--overdue", label: "--overdue", description: "Only overdue issues" },
   ],
   delegate: [{ value: "--model", label: "--model", description: "Override worker model" }],
-  run: [
-    { value: "--workers", label: "--workers", description: "Set worker count" },
-    { value: "--until", label: "--until", description: "Stop when blocked or empty" },
-    { value: "--max-cycles", label: "--max-cycles", description: "Limit run cycles" },
-    { value: "--dry-run", label: "--dry-run", description: "Preview without spawning" },
-    { value: "--no-spawn", label: "--no-spawn", description: "Do not launch new workers" },
-  ],
+  run: [],
   off: [
     { value: "--stop-workers", label: "--stop-workers", description: "Stop active workers first" },
     {
