@@ -106,6 +106,7 @@ Global settings come from `getAgentDir()/settings.json`; project settings in `<c
 override them.
 
 Delegation reminders are injected into the system prompt, never as synthetic user messages. The
+default reminder mentions both `spawn` (wait) and `orchestrate` (background). The
 `acknowledgementRequired` setting is kept for backward compatibility but no longer adds mandatory
 acknowledgement text; custom `message` values are used verbatim.
 

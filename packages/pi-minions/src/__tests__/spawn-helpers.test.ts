@@ -32,6 +32,15 @@ describe("spawn helper regressions", () => {
     expect(parsed).toEqual({ task: "test the --help output" });
   });
 
+  it("rejects /spawn --bg and points at orchestrate", () => {
+    const parsed = parseSpawnArgs("--bg review the auth flow");
+
+    expect(parsed).toEqual({
+      error:
+        "Background /spawn --bg is not available. Use the orchestrate tool for background work. Usage: /spawn <task> [--model <model>]",
+    });
+  });
+
   it("does not produce undefined minion names when config minionNames is empty", () => {
     const cwd = createSettingsCwd({ "pi-minions": { minionNames: [] } });
     const name = pickMinionName(new AgentTree(), "abc123", { cwd } as ExtensionContext);

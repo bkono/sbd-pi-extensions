@@ -144,7 +144,10 @@ export function createMinionsHandler(tree: AgentTree, eventBus: EventBus) {
       const sortedIds = getSortedMinionIds(tree);
 
       if (sortedIds.length === 0) {
-        ctx.ui.notify("No active minions. Spawn one with /spawn or the spawn tool.", "info");
+        ctx.ui.notify(
+          "No active minions. Use /spawn or the spawn tool to wait, or orchestrate for background work.",
+          "info",
+        );
         return;
       }
 

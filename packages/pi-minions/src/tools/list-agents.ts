@@ -7,7 +7,7 @@ export const ListAgentsParams = Type.Object(
   {},
   {
     description:
-      "List all available agents that can be spawned as minions. No parameters required.",
+      "List all available agents that can be used as minion roles. No parameters required.",
   },
 );
 

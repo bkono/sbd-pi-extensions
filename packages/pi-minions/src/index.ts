@@ -144,8 +144,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "list_agents",
     label: "List Agents",
-    description: "List available agents that can be spawned as minions.",
-    promptSnippet: "List available agents for spawning",
+    description: "List available agents that can be used as minion roles.",
+    promptSnippet: "List available agents for spawn and orchestrate",
     parameters: ListAgentsParams,
     execute: listAgents(),
   });
@@ -185,7 +185,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "list_minion_types",
     label: "List Minion Types",
-    description: "List available agent types that can be spawned as minions.",
+    description: "List available agent types that can be used as minion roles.",
     promptSnippet: "List available minion types",
     parameters: ListAgentsParams,
     execute: listAgents(),

@@ -10,7 +10,9 @@ export function parseSpawnArgs(args: string): { task: string; model?: string } |
   }
 
   if (tokens.includes("--bg")) {
-    return { error: `Background spawning is not available. ${USAGE}` };
+    return {
+      error: `Background /spawn --bg is not available. Use the orchestrate tool for background work. ${USAGE}`,
+    };
   }
 
   const modelFlagIdx = tokens.indexOf("--model");

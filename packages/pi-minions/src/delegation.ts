@@ -3,9 +3,10 @@ import type { ResolvedDelegationConfig } from "./config.js";
 
 const DEFAULT_HINT_TEMPLATE =
   "\n\nDELEGATION REMINDER: You have made {toolCallCount} tool calls. " +
-  "The pi-minions extension is active for isolated foreground delegation." +
-  "\nDelegate independent subtasks with the `spawn` tool. For parallel work, pass a `tasks` array to `spawn`." +
-  "\nUse any delegation skills available through the system, then continue the user's task normally.\n";
+  "The pi-minions extension is active." +
+  "\nUse the `spawn` tool when you intend to wait. Use `orchestrate` for background work that should not block this turn." +
+  "\nFor parallel foreground waits, pass a `tasks` array to `spawn`. For background fleets, pass `tasks` to `orchestrate` with a required `description` on each." +
+  "\nUse `learn_minions` if you need the full contract, then continue the user's task normally.\n";
 
 export function createDelegationHint(
   toolCallCount: number,
