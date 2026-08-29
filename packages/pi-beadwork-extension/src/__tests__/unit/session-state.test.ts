@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  dropGoalMode,
   isInterruptedRun,
   loadSessionState,
   resetSessionState,
@@ -366,5 +367,46 @@ describe("session state persistence", () => {
     expect(reloaded.trackedWorkerIds).toBeUndefined();
     expect(reloaded.runOptions).toBeUndefined();
     expect(reloaded.goal).toEqual(loaded.goal);
+  });
+
+  it("drops run mode and the goal record without resetting scope", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-state-"));
+    const dropped = dropGoalMode({
+      mode: "run",
+      scope: { kind: "epic", id: "BW-100", title: "Epic title" },
+      updatedAt: "2026-08-28T00:00:00.000Z",
+      engagedAt: "2026-08-28T00:00:00.000Z",
+      goal: {
+        goalId: "goal-BW-100",
+        scopeIds: ["BW-100"],
+        reviewPolicy: "ticket",
+        startedAt: "2026-08-28T00:00:00.000Z",
+      },
+      runInterrupted: true,
+      runOptions: { workers: 2, until: "blocked", noSpawn: false, dryRun: false },
+      trackedWorkerIds: ["bw-101-worker"],
+      prime: {
+        content: "prime guidance",
+        loadedAt: "2026-08-28T00:01:00.000Z",
+      },
+    });
+
+    expect(dropped.mode).toBe("interactive");
+    expect(dropped.goal).toBeUndefined();
+    expect(dropped.runInterrupted).toBeUndefined();
+    expect(dropped.runOptions).toBeUndefined();
+    expect(dropped.trackedWorkerIds).toBeUndefined();
+    expect(dropped.scope).toEqual({ kind: "epic", id: "BW-100", title: "Epic title" });
+    expect(dropped.prime?.content).toBe("prime guidance");
+
+    const saved = await saveSessionState(tempDir, "session-exit", dropped);
+    expect(saved.mode).toBe("interactive");
+    expect(saved.goal).toBeUndefined();
+    expect(isInterruptedRun(saved)).toBe(false);
+
+    const raw = await readFile(resolveSessionStatePath(tempDir, "session-exit"), "utf8");
+    expect(raw).not.toContain("goal-BW-100");
+    expect(raw).not.toContain("runInterrupted");
+    expect(JSON.parse(raw).mode).toBe("interactive");
   });
 });

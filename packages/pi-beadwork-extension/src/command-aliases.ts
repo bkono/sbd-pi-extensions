@@ -13,6 +13,7 @@ export type BeadworkAliasSubcommand =
   | "cancel"
   | "cleanup"
   | "run"
+  | "abandon"
   | "off"
   | "adopt";
 
@@ -36,6 +37,11 @@ export const BEADWORK_ALIAS_COMMANDS: Array<{
     description: "Cleanup landed worker artifacts",
   },
   { name: "bw:run", subcommand: "run", description: "Start goal mode for an epic" },
+  {
+    name: "bw:abandon",
+    subcommand: "abandon",
+    description: "Exit goal mode and halt the minion group",
+  },
   { name: "bw:off", subcommand: "off", description: "Reset beadwork session state" },
   { name: "bw:adopt", subcommand: "adopt", description: "Adopt a markdown plan into beadwork" },
 ];

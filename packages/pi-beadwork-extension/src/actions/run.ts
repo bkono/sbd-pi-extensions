@@ -144,10 +144,15 @@ export function buildGoalRunPrompt(input: {
   ].join("\n");
 }
 
-export function injectGoalRunPrompt(
+export function parentIsBusy(ctx: { isIdle?: () => boolean }): boolean {
+  return typeof ctx.isIdle === "function" ? !ctx.isIdle() : false;
+}
+
+export function injectParentContinuation(
   pi: GoalPromptInjector,
   prompt: string,
   parentBusy: boolean,
+  customType: string,
 ): GoalInjectResult {
   if (parentBusy) {
     pi.sendUserMessage(prompt, { deliverAs: "followUp" });
@@ -156,7 +161,7 @@ export function injectGoalRunPrompt(
 
   pi.sendMessage(
     {
-      customType: "beadwork-goal-run",
+      customType,
       content: prompt,
       display: true,
     },
@@ -165,12 +170,16 @@ export function injectGoalRunPrompt(
   return { path: "sendMessage", busy: false };
 }
 
-function notifyError(ctx: ExtensionCommandContext, message: string): void {
-  ctx.ui.notify(message, "error");
+export function injectGoalRunPrompt(
+  pi: GoalPromptInjector,
+  prompt: string,
+  parentBusy: boolean,
+): GoalInjectResult {
+  return injectParentContinuation(pi, prompt, parentBusy, "beadwork-goal-run");
 }
 
-function parentIsBusy(ctx: ExtensionCommandContext): boolean {
-  return typeof ctx.isIdle === "function" ? !ctx.isIdle() : false;
+function notifyError(ctx: ExtensionCommandContext, message: string): void {
+  ctx.ui.notify(message, "error");
 }
 
 export async function executeRunAction(input: {

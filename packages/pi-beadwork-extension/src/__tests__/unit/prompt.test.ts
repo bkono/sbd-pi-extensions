@@ -7,6 +7,7 @@ import {
   SCOPE_POLICY_TRADEOFF,
   selectReviewPolicy,
 } from "../../prompt.js";
+import { dropGoalMode } from "../../session-state.js";
 import type {
   ActivationState,
   BeadworkIssue,
@@ -216,6 +217,14 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("This standing appendix is policy only. It does not start a turn.");
     expect(text).not.toContain("Stay human-led.");
     expect(text).not.toContain("Wait for the user.");
+  });
+
+  it("drops the run standing appendix after dropGoalMode", () => {
+    const text = appendix({ sessionState: dropGoalMode(session()) });
+    expect(text).toBeDefined();
+    expect(text).toContain("You are in beadwork interactive mode.");
+    expect(text).not.toContain("You are in beadwork run mode.");
+    expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
   });
 });
 

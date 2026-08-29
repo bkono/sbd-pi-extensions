@@ -7,8 +7,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { handleCleanupAction } from "./actions/cleanup.js";
+import { handleAbandonAction, maybeExitGoalOnClosedIssue } from "./actions/goal-exit.js";
 import { handleIssuesAction } from "./actions/issues.js";
-import { handleRunAction } from "./actions/run.js";
+import { handleRunAction, parentIsBusy } from "./actions/run.js";
 import { handleScopeAction } from "./actions/scope.js";
 import { handleStatusAction } from "./actions/status.js";
 import { detectActivation } from "./activation.js";
@@ -509,6 +510,18 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
           deps: {
             adapter,
             requireActive,
+            onClosedIssue: async (commandCtx, closed) => {
+              await maybeExitGoalOnClosedIssue({
+                ctx: commandCtx,
+                activation: closed.activation,
+                config: closed.config,
+                state: closed.state,
+                issue: closed.issue,
+                deps: { pi, writeSessionState },
+                command: "close",
+                parentBusy: parentIsBusy(commandCtx),
+              });
+            },
           },
         })
       ) {
@@ -541,6 +554,20 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
             requireActive,
             ensurePrime,
             setSessionMode,
+            writeSessionState,
+          },
+        })
+      ) {
+        return;
+      }
+
+      if (
+        await handleAbandonAction({
+          subcommand,
+          ctx,
+          deps: {
+            pi,
+            requireActive,
             writeSessionState,
           },
         })
@@ -649,7 +676,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id> [--model provider/model]|land <ticket-id|worker-id>|cancel <ticket-id|worker-id>|cleanup <ticket-id|worker-id>|run <epic-id>|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
+        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|workers [epic-id]|delegate <ticket-id> [--model provider/model]|land <ticket-id|worker-id>|cancel <ticket-id|worker-id>|cleanup <ticket-id|worker-id>|run <epic-id>|abandon|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off [--stop-workers] [--all-workers] [--leave-workers]]",
         "info",
       );
     } catch (error) {
@@ -981,6 +1008,19 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const issue = await adapter.close(ctx.cwd, params.id, params.reason);
+      const config = loadConfig(ctx.cwd);
+      const activation = await detectActivation(ctx.cwd);
+      const state = await readSessionState(ctx, activation, config);
+      await maybeExitGoalOnClosedIssue({
+        ctx,
+        activation,
+        config,
+        state,
+        issue,
+        deps: { pi, writeSessionState },
+        command: "beadwork_close_issue",
+        parentBusy: true,
+      });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
         details: issue,

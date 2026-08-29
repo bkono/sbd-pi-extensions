@@ -54,6 +54,39 @@ vi.mock("../../bw.js", () => ({
   createBeadworkAdapter: createBeadworkAdapterMock,
 }));
 
+function runnableEpic() {
+  return {
+    id: "BW-100",
+    title: "Runnable epic",
+    description: "description",
+    status: "open",
+    type: "epic",
+    priority: 2,
+    labels: [] as string[],
+    blockedBy: [] as string[],
+    blocks: [] as string[],
+    assignee: "",
+    createdAt: "2026-04-13T00:00:00.000Z",
+    updatedAt: "2026-04-13T00:00:00.000Z",
+    children: [
+      {
+        id: "BW-101",
+        title: "Child task",
+        description: "",
+        status: "open",
+        type: "task",
+        priority: 2,
+        labels: [] as string[],
+        blockedBy: [] as string[],
+        blocks: [] as string[],
+        assignee: "",
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:00.000Z",
+      },
+    ],
+  };
+}
+
 describe("pi beadwork extension", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -212,6 +245,7 @@ describe("pi beadwork extension", () => {
     expect(harness.commands.has("bw:cancel")).toBe(true);
     expect(harness.commands.has("bw:cleanup")).toBe(true);
     expect(harness.commands.has("bw:run")).toBe(true);
+    expect(harness.commands.has("bw:abandon")).toBe(true);
     expect(harness.commands.has("bw:off")).toBe(true);
     expect(harness.commands.has("bw:adopt")).toBe(true);
   });
@@ -739,6 +773,173 @@ describe("pi beadwork extension", () => {
     expect(persisted.goal?.scopeIds).toEqual(["BW-100"]);
     expect(persisted.goal?.reviewPolicy).toBe("ticket");
     expect(persisted.runOptions).toBeUndefined();
+  });
+
+  it("exits goal mode when beadwork_close_issue closes the scoped epic", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-close-epic",
+      isIdle: () => false,
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+    adapterMock.close.mockResolvedValue({ ...runnableEpic(), status: "closed", children: [] });
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    harness.sentMessages.length = 0;
+    harness.sentUserMessages.length = 0;
+
+    await harness.invokeTool("beadwork_close_issue", { id: "BW-100" }, ctx);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-close-epic",
+    );
+    expect(persisted.mode).not.toBe("run");
+    expect(persisted.goal).toBeUndefined();
+    expect(harness.sentUserMessages).toHaveLength(1);
+    expect(harness.sentUserMessages[0]?.options).toEqual({ deliverAs: "followUp" });
+    expect(String(harness.sentUserMessages[0]?.content ?? "")).toContain("/halt group");
+    expect(harness.sentMessages).toHaveLength(0);
+
+    const appendix = await harness.dispatch<{ systemPrompt?: string }>(
+      "before_agent_start",
+      { systemPrompt: "Base prompt" },
+      ctx,
+    );
+    expect(appendix?.systemPrompt).not.toContain("You are in beadwork run mode.");
+  });
+
+  it("keeps goal mode when a ticket is closed", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-close-ticket",
+      isIdle: () => false,
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+    adapterMock.close.mockResolvedValue({
+      id: "BW-101",
+      title: "Child task",
+      description: "",
+      status: "closed",
+      type: "task",
+      priority: 2,
+      labels: [],
+      blockedBy: [],
+      blocks: [],
+      assignee: "",
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    });
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    harness.sentMessages.length = 0;
+    harness.sentUserMessages.length = 0;
+
+    await harness.invokeTool("beadwork_close_issue", { id: "BW-101" }, ctx);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-close-ticket",
+    );
+    expect(persisted.mode).toBe("run");
+    expect(persisted.goal?.scopeIds).toEqual(["BW-100"]);
+    expect(harness.sentUserMessages).toHaveLength(0);
+    expect(harness.sentMessages).toHaveLength(0);
+
+    const appendix = await harness.dispatch<{ systemPrompt?: string }>(
+      "before_agent_start",
+      { systemPrompt: "Base prompt" },
+      ctx,
+    );
+    expect(appendix?.systemPrompt).toContain("You are in beadwork run mode.");
+  });
+
+  it("exits goal mode on /bw abandon and queues a halt continuation", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-abandon",
+      isIdle: () => true,
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    harness.sentMessages.length = 0;
+    harness.sentUserMessages.length = 0;
+
+    await harness.invokeCommand("bw", "abandon", ctx);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-abandon",
+    );
+    expect(persisted.mode).not.toBe("run");
+    expect(persisted.goal).toBeUndefined();
+    expect(adapterMock.close).not.toHaveBeenCalled();
+    expect(harness.sentMessages).toHaveLength(1);
+    expect(harness.sentMessages[0]?.options).toEqual({ triggerTurn: true });
+    expect(
+      String((harness.sentMessages[0]?.message as { content?: string } | undefined)?.content ?? ""),
+    ).toContain("/halt group");
+    expect(
+      ui.notifications.some((entry) => entry.message.includes("Goal mode ended for BW-100")),
+    ).toBe(true);
+
+    const appendix = await harness.dispatch<{ systemPrompt?: string }>(
+      "before_agent_start",
+      { systemPrompt: "Base prompt" },
+      ctx,
+    );
+    expect(appendix?.systemPrompt).not.toContain("You are in beadwork run mode.");
+  });
+
+  it("does not exit goal mode on halt-only", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-halt-only",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    expect(harness.commands.has("halt")).toBe(false);
+    expect(harness.tools.has("halt")).toBe(false);
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-halt-only",
+    );
+    expect(persisted.mode).toBe("run");
+    expect(persisted.goal?.scopeIds).toEqual(["BW-100"]);
+
+    const appendix = await harness.dispatch<{ systemPrompt?: string }>(
+      "before_agent_start",
+      { systemPrompt: "Base prompt" },
+      ctx,
+    );
+    expect(appendix?.systemPrompt).toContain("You are in beadwork run mode.");
   });
 
   it("does not arm tmux background supervision from /bw run", async () => {

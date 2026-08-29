@@ -36,6 +36,11 @@ const MAIN_COMMANDS: Array<{
   { value: "cancel", label: "cancel", description: "Cancel an active worker" },
   { value: "cleanup", label: "cleanup", description: "Cleanup landed worker artifacts" },
   { value: "run", label: "run", description: "Start goal mode for an epic" },
+  {
+    value: "abandon",
+    label: "abandon",
+    description: "Exit goal mode and halt the minion group",
+  },
   { value: "off", label: "off", description: "Reset the session" },
   { value: "adopt", label: "adopt", description: "Adopt a markdown plan" },
   { value: "engage", label: "engage", description: "Enter interactive beadwork mode" },
@@ -70,6 +75,7 @@ const OPTION_COMPLETIONS: Record<string, AutocompleteItem[]> = {
   ],
   delegate: [{ value: "--model", label: "--model", description: "Override worker model" }],
   run: [],
+  abandon: [],
   off: [
     { value: "--stop-workers", label: "--stop-workers", description: "Stop active workers first" },
     {

@@ -202,6 +202,19 @@ export function isInterruptedRun(state: SessionState): boolean {
   return state.mode === "run" && state.runInterrupted === true;
 }
 
+/** Drop run/goal. Interactive appendix may remain; the run standing appendix does not. */
+export function dropGoalMode(state: SessionState, now = new Date().toISOString()): SessionState {
+  return {
+    ...state,
+    mode: "interactive",
+    updatedAt: now,
+    goal: undefined,
+    runInterrupted: undefined,
+    runOptions: undefined,
+    trackedWorkerIds: undefined,
+  };
+}
+
 function normalizeRunSummary(value: unknown): RunSummary | undefined {
   if (!value || typeof value !== "object") {
     return undefined;

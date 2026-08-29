@@ -213,6 +213,26 @@ describe("beadwork command completions", () => {
     }
   });
 
+  it("offers /bw abandon with no arguments", async () => {
+    const abandonAlias = BEADWORK_ALIAS_COMMANDS.find((alias) => alias.subcommand === "abandon");
+    expect(abandonAlias?.name).toBe("bw:abandon");
+    expect(abandonAlias?.description).toBe("Exit goal mode and halt the minion group");
+
+    const completions = createBeadworkCommandCompletionFactory({
+      adapter: {
+        ready: vi.fn(),
+        list: vi.fn(),
+      },
+      detectActivation: vi.fn(),
+      getCwd: () => "/repo",
+    });
+    const items = await completions.getMainCommandCompletions("ab");
+    const abandon = items?.find((item) => item.value === "abandon");
+    expect(abandon?.description).toBe("Exit goal mode and halt the minion group");
+    expect(await completions.getAliasCommandCompletions("abandon", "")).toBeNull();
+    expect(await completions.getAliasCommandCompletions("abandon", "--")).toBeNull();
+  });
+
   it("describes /bw run as goal mode, not a bounded epic loop", async () => {
     const runAlias = BEADWORK_ALIAS_COMMANDS.find((alias) => alias.subcommand === "run");
     expect(runAlias?.description).toBe("Start goal mode for an epic");
