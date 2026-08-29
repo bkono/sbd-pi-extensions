@@ -1,6 +1,46 @@
-import type { ActivationState, BeadworkIssueDetail, SessionState } from "./types.js";
+import type { ActivationState, BeadworkIssueDetail, ReviewPolicy, SessionState } from "./types.js";
 
 const PRIME_MAX_CHARS = 8_000;
+
+export const GOAL_TASK_TYPES = [
+  "implementation",
+  "fix",
+  "reviewImplementation",
+  "reviewScope",
+  "investigateBlocker",
+] as const;
+
+export type GoalTaskType = (typeof GOAL_TASK_TYPES)[number];
+
+export const REVIEW_POLICIES = ["ticket", "scope", "none"] as const;
+
+export const DEFAULT_REVIEW_POLICY: ReviewPolicy = "ticket";
+
+/** Locked scope-policy copy. Goldens fail if this tradeoff sentence is dropped. */
+export const SCOPE_POLICY_TRADEOFF =
+  "Dependents may start before aggregate review finds a problem.";
+
+const BEADWORK_PARENT_TOOLS = [
+  "beadwork_status",
+  "beadwork_prime",
+  "beadwork_ready",
+  "beadwork_blocked",
+  "beadwork_list_issues",
+  "beadwork_issue_history",
+  "beadwork_show",
+  "beadwork_create_issue",
+  "beadwork_update_issue",
+  "beadwork_add_dependency",
+  "beadwork_remove_dependency",
+  "beadwork_start_issue",
+  "beadwork_close_issue",
+  "beadwork_reopen_issue",
+  "beadwork_comment_issue",
+  "beadwork_label_issue",
+  "beadwork_defer_issue",
+  "beadwork_undefer_issue",
+  "beadwork_sync",
+] as const;
 
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) {
@@ -43,6 +83,133 @@ function renderScopeSummary(scopeDetail: BeadworkIssueDetail | undefined): strin
   return lines;
 }
 
+export function selectReviewPolicy(sessionState: SessionState): ReviewPolicy {
+  return sessionState.goal?.reviewPolicy ?? DEFAULT_REVIEW_POLICY;
+}
+
+function renderModeGuidance(mode: "interactive" | "run"): string[] {
+  if (mode === "interactive") {
+    return [
+      "You are in beadwork interactive mode.",
+      "Stay human-led.",
+      "Ask delivery-shape questions when needed.",
+      "Encourage durable ticketization for non-trivial work.",
+      "Prefer beadwork tickets over keeping long plans only in conversation.",
+      "When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.",
+      "Do not infer dependency graphs from ad hoc chat formatting.",
+      "Do not autonomously launch children or act like a background orchestrator.",
+      "This standing appendix is policy only. It does not start a turn. Wait for the user.",
+    ];
+  }
+
+  return [
+    "You are in beadwork run mode.",
+    "Goal mode: run the scoped epic to completion.",
+    "Prefer durable beadwork state over conversational replanning.",
+    "Use `orchestrate` plus beadwork tools. Do not poll.",
+    "Child settlement is evidence, not acceptance. Do not close a ticket solely because a child settled.",
+    "Use beadwork tools for durable graph mutations instead of text parsing heuristics.",
+    "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    "This standing appendix is policy only. It does not start a turn.",
+  ];
+}
+
+function renderRoleVsTaskType(): string {
+  return [
+    "## Role vs task type",
+    "",
+    "Role (open string): how the child works (prompt/template). Same loader as spawn `agent`.",
+    "Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.",
+    "Optional on untyped work. Never collapse role and task type into one field.",
+  ].join("\n");
+}
+
+function renderTaskTypePolicy(): string {
+  return [
+    "## Task types on orchestrate",
+    "",
+    "Pass `taskType` when you need a known next question after the child settles, fails, aborts, or asks.",
+    "Omit `taskType` for untyped research or exploration.",
+    "",
+    "- `implementation` — new ticket work. On settle: assess evidence, apply the active review policy, and do not close solely because the child settled.",
+    "- `fix` — remediation of a required finding. On settle: re-review before accept.",
+    "- `reviewImplementation` — independent ticket review. On settle: disposition every finding as fix | file | reject (fix is blocking; file is nonblocking unless the user waives a blocker; reject records why). No keyword classifier.",
+    "- `reviewScope` — aggregate review before epic complete (scope policy).",
+    "- `investigateBlocker` — investigation of blocked work. Settlement is not implementation completion.",
+  ].join("\n");
+}
+
+function renderReviewPolicy(policy: ReviewPolicy): string {
+  const catalog = "Review policies: `ticket` (default), `scope`, and `none`.";
+  const branchLine = `Review policy branch: ${policy}`;
+
+  if (policy === "ticket") {
+    return [
+      "## Review policy",
+      "",
+      catalog,
+      branchLine,
+      "Active review policy: ticket (default).",
+      "Launch an independent `reviewImplementation` child before closing that ticket.",
+      "Do not close from implementer settlement alone.",
+    ].join("\n");
+  }
+
+  if (policy === "scope") {
+    return [
+      "## Review policy",
+      "",
+      catalog,
+      branchLine,
+      "Active review policy: scope.",
+      "You may close individual tickets from evidence without an independent per-ticket review child.",
+      "Launch a `reviewScope` child before declaring the epic complete.",
+      SCOPE_POLICY_TRADEOFF,
+    ].join("\n");
+  }
+
+  return [
+    "## Review policy",
+    "",
+    catalog,
+    branchLine,
+    "Active review policy: none.",
+    "Skip independent review children.",
+    "Still judge from Git and `bw` before close. Child settlement is not acceptance.",
+  ].join("\n");
+}
+
+function renderChildTaskComposition(): string {
+  return [
+    "## Child task composition",
+    "",
+    "Start-before-work: call `beadwork_start_issue` (or `bw start`) on the ticket before the child begins work.",
+    "Compose `task` yourself: the `orchestrate` `task` field is the complete child prompt. Beadwork does not wrap it.",
+    'Attach domain metadata: source "beadwork", scopeId (epic id), workItemId (ticket id), title.',
+    "Tell implementation children not to close tickets. The parent closes after it judges evidence.",
+    "Reviewer children inspect named commits, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.",
+    "Do not start review of ticket A while A's implementer is still live. That is an instruction, not a lock.",
+  ].join("\n");
+}
+
+function renderQualityCommands(): string {
+  return [
+    "## Quality commands",
+    "",
+    "Project quality commands (`lint` / `test` / `typecheck`, or whatever the repo uses) are implementer, reviewer, and repo-checkpoint work.",
+    "Beadwork does not own a validation gate.",
+  ].join("\n");
+}
+
+function renderDoNot(): string {
+  return [
+    "## Do not",
+    "",
+    "Do not use tmux, `beadwork_delegate`, `beadwork_worker_done`, landing, `--workers`, or polling.",
+    "Do not classify review findings with a keyword matcher.",
+  ].join("\n");
+}
+
 export function buildBeadworkPromptAppendix(input: {
   activation: ActivationState;
   sessionState: SessionState;
@@ -57,26 +224,7 @@ export function buildBeadworkPromptAppendix(input: {
     return undefined;
   }
 
-  const modeGuidance =
-    sessionState.mode === "interactive"
-      ? [
-          "You are in beadwork interactive mode.",
-          "Stay human-led.",
-          "Ask delivery-shape questions when needed.",
-          "Encourage durable ticketization for non-trivial work.",
-          "Prefer beadwork tickets over keeping long plans only in conversation.",
-          "When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.",
-          "Do not infer dependency graphs from ad hoc chat formatting.",
-          "Do not autonomously launch workers or act like a background orchestrator.",
-        ]
-      : [
-          "You are in beadwork run mode.",
-          "Prefer durable beadwork state over conversational replanning.",
-          "Delegate against existing ready tickets when automation exists.",
-          "Use beadwork tools for durable graph mutations instead of text parsing heuristics.",
-          "Stop at explicit boundaries and summarize state clearly.",
-        ];
-
+  const reviewPolicy = selectReviewPolicy(sessionState);
   const scopeLine =
     sessionState.scope.kind === "none"
       ? "none"
@@ -84,9 +232,15 @@ export function buildBeadworkPromptAppendix(input: {
 
   const sections = [
     "[BEADWORK SESSION ACTIVE]",
-    ...modeGuidance,
+    renderModeGuidance(sessionState.mode).join("\n"),
     `Current scope: ${scopeLine}`,
-    "Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_blocked, beadwork_list_issues, beadwork_issue_history, beadwork_show, beadwork_create_issue, beadwork_update_issue, beadwork_add_dependency, beadwork_remove_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue, beadwork_comment_issue, beadwork_label_issue, beadwork_defer_issue, beadwork_undefer_issue, beadwork_sync, beadwork_delegate, beadwork_worker_check.",
+    renderRoleVsTaskType(),
+    renderTaskTypePolicy(),
+    renderReviewPolicy(reviewPolicy),
+    renderChildTaskComposition(),
+    renderQualityCommands(),
+    renderDoNot(),
+    `Available beadwork tools: ${BEADWORK_PARENT_TOOLS.join(", ")}.`,
     ...renderScopeSummary(scopeDetail),
   ];
 
