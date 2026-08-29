@@ -12,7 +12,12 @@ import {
 
 export const GOAL_HALT_CUSTOM_TYPE = "beadwork-goal-halt";
 
-export type GoalExitCommand = "beadwork_close_issue" | "abandon" | "close";
+export type GoalExitCommand =
+  | "beadwork_close_issue"
+  | "beadwork_update_issue"
+  | "abandon"
+  | "close"
+  | "update";
 
 export type GoalExitDeps = {
   pi: GoalPromptInjector;

@@ -336,6 +336,14 @@ export async function handleIssuesAction(input: {
     }
 
     const issue = await deps.adapter.updateIssue(ctx.cwd, issueId, updateInput);
+    if (issue.status === "closed") {
+      await deps.onClosedIssue?.(ctx, {
+        activation: active.activation,
+        config: active.config,
+        state: active.state,
+        issue,
+      });
+    }
     await showMutationResult(ctx, "Updated", issue);
     return true;
   }

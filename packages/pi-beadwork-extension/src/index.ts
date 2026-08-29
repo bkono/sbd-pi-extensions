@@ -943,6 +943,21 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       }
 
       const issue = await adapter.updateIssue(ctx.cwd, params.id, updateInput);
+      if (issue.status === "closed") {
+        const config = loadConfig(ctx.cwd);
+        const activation = await detectActivation(ctx.cwd);
+        const state = await readSessionState(ctx, activation, config);
+        await maybeExitGoalOnClosedIssue({
+          ctx,
+          activation,
+          config,
+          state,
+          issue,
+          deps: { pi, writeSessionState },
+          command: "beadwork_update_issue",
+          parentBusy: true,
+        });
+      }
       return {
         content: [{ type: "text" as const, text: JSON.stringify(issue, null, 2) }],
         details: issue,
