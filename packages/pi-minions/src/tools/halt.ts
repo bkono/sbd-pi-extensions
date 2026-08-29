@@ -54,9 +54,9 @@ export async function abortAgents(
     const handle = subsessionManager.getSessionHandle(id);
     if (handle) {
       const wait = handle.wait().catch(() => {});
-      subsessionManager.abortSession(id);
       waits.push(wait);
     }
+    subsessionManager.abortSession(id);
     tree.updateStatus(id, "aborted");
     const after = tree.get(id) ?? node;
     const kind = nodeKind(after);

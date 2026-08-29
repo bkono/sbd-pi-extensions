@@ -11,8 +11,40 @@ import { emptyUsage } from "./types.js";
 
 const TERMINAL_STATUSES = new Set<AgentStatus>(["completed", "failed", "aborted"]);
 
-function isTerminalStatus(status: AgentStatus): boolean {
+export function isTerminalStatus(status: AgentStatus): boolean {
   return TERMINAL_STATUSES.has(status);
+}
+
+export const PARENT_SESSION_RESTARTED = "parent session restarted";
+
+export interface RehydratableMinionMetadata {
+  sessionId: string;
+  name: string;
+  task: string;
+  agent?: string;
+  status: "running" | "completed" | "failed" | "aborted";
+  exitCode?: number;
+  error?: string;
+}
+
+/** Running metadata is process-local; after a parent restart those children are dead. */
+export function rehydratePersistedMinion(
+  tree: AgentTree,
+  metadata: RehydratableMinionMetadata,
+  persistStatus?: (
+    id: string,
+    status: "aborted",
+    exitCode: number | undefined,
+    error: string,
+  ) => void,
+): void {
+  tree.add(metadata.sessionId, metadata.name, metadata.task, undefined, metadata.agent);
+  if (metadata.status === "running") {
+    tree.updateStatus(metadata.sessionId, "aborted", undefined, PARENT_SESSION_RESTARTED);
+    persistStatus?.(metadata.sessionId, "aborted", undefined, PARENT_SESSION_RESTARTED);
+    return;
+  }
+  tree.updateStatus(metadata.sessionId, metadata.status, metadata.exitCode, metadata.error);
 }
 
 export interface AddAgentOptions {
@@ -173,6 +205,7 @@ export class AgentTree {
   updateStatus(id: string, status: AgentStatus, exitCode?: number, error?: string): void {
     const node = this.nodes.get(id);
     if (!node) return;
+    if (isTerminalStatus(node.status)) return;
 
     node.status = status;
     if (exitCode !== undefined) node.exitCode = exitCode;

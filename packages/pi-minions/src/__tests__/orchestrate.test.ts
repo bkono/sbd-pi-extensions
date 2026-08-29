@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -14,6 +14,7 @@ import {
 } from "../orchestration/index.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type { ChildSession, ChildSessionEvent, MinionSessionHandle } from "../subsessions/types.js";
+import { runHalt } from "../tools/halt.js";
 import { isPersistentHost, ORCHESTRATE_REJECT_REASONS, orchestrate } from "../tools/orchestrate.js";
 import { AgentTree } from "../tree.js";
 import type { OrchestrateInput, OrchestrateResult } from "../types.js";
@@ -379,6 +380,190 @@ describe("registration abort and startChild wiring", () => {
       expect(call.customTools?.map((tool) => tool.name)).not.toContain(banned);
     }
     expect(call.signal).toBeUndefined();
+  });
+});
+
+function writeRole(
+  dir: string,
+  folder: "agents" | "minions",
+  name: string,
+  description: string,
+  body: string,
+): void {
+  mkdirSync(join(dir, ".git"), { recursive: true });
+  const roleDir = join(dir, ".pi", folder);
+  mkdirSync(roleDir, { recursive: true });
+  writeFileSync(
+    join(roleDir, `${name}.md`),
+    `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`,
+    "utf-8",
+  );
+}
+
+describe("halt during detached start", () => {
+  it("skips startChild when the tree node is already terminal", async () => {
+    const { execute, ctx, tree, startChild } = setup();
+    tree.onChange(() => {
+      for (const node of tree.getRoots()) {
+        if (node.status === "running") tree.updateStatus(node.id, "aborted");
+      }
+    });
+
+    const result = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+    expect(startChild).not.toHaveBeenCalled();
+    expect(tree.get(result.accepted[0]!.childId)?.status).toBe("aborted");
+  });
+
+  it("keeps aborted when halt races a later startChild onComplete", async () => {
+    const startGate = createDeferred<void>();
+    const cwd = tempDir("pi-minions-orchestrate-halt-race-");
+    const startChild = vi.fn(
+      async (opts: {
+        id: string;
+        onComplete?: (result: { exitCode: number; output: string; status?: string }) => void;
+      }) => {
+        await startGate.promise;
+        opts.onComplete?.({ exitCode: 0, output: "later settled", status: "completed" });
+        return {
+          ...hangingHandle(opts.id, cwd),
+          wait: async () => ({ class: "aborted" as const, exitCode: 1, output: "" }),
+        };
+      },
+    );
+    const tree = new AgentTree();
+    const groups = new OrchestrationGroupState();
+    const abortSession = vi.fn(() => true);
+    const execute = orchestrate({
+      tree,
+      pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
+        ExtensionAPI,
+        "getAllTools"
+      >,
+      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      groups,
+    });
+
+    const result = detailsOf(await run(execute, { tasks: [baseTask] }, createCtx(cwd)));
+    const childId = result.accepted[0]!.childId;
+    expect(tree.get(childId)?.status).toBe("running");
+    expect(startChild).toHaveBeenCalledTimes(1);
+
+    const haltResult = await runHalt(
+      "group",
+      tree,
+      {
+        getSessionHandle: () => undefined,
+        abortSession,
+      } as unknown as SubsessionManager,
+      groups,
+    );
+    expect(haltResult.groupClosed).toBe(result.groupId);
+    expect(abortSession).toHaveBeenCalledWith(childId);
+    expect(tree.get(childId)?.status).toBe("aborted");
+    expect(groups.getOpenGroup()).toBeUndefined();
+
+    startGate.resolve();
+    await vi.waitFor(() => {
+      expect(startChild).toHaveBeenCalledTimes(1);
+    });
+    await Promise.resolve();
+    expect(tree.get(childId)?.status).toBe("aborted");
+  });
+});
+
+describe("role resolution cwd", () => {
+  it("resolves roles from group cwd, not parent cwd", async () => {
+    const parentCwd = tempDir("pi-minions-role-parent-");
+    const groupCwd = tempDir("pi-minions-role-group-");
+    writeRole(parentCwd, "agents", "shared-role-xyz", "Parent shared role", "PARENT ONLY");
+    writeRole(parentCwd, "agents", "parent-only-role-xyz", "Parent only role", "PARENT ONLY ROLE");
+    writeRole(groupCwd, "minions", "shared-role-xyz", "Group shared role", "GROUP ROLE");
+    writeRole(groupCwd, "agents", "group-only-role-xyz", "Group only role", "GROUP ONLY ROLE");
+
+    const startChild = vi.fn(
+      async (opts: { id: string; config: { name: string; systemPrompt: string }; cwd?: string }) =>
+        hangingHandle(opts.id, groupCwd),
+    );
+    const tree = new AgentTree();
+    const groups = new OrchestrationGroupState();
+    const execute = orchestrate({
+      tree,
+      pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
+        ExtensionAPI,
+        "getAllTools"
+      >,
+      subsessionManager: { startChild } as unknown as Pick<SubsessionManager, "startChild">,
+      groups,
+    });
+    const ctx = createCtx(parentCwd);
+
+    const groupOnly = detailsOf(
+      await run(
+        execute,
+        {
+          cwd: groupCwd,
+          tasks: [
+            {
+              task: "do group work",
+              description: "Group work",
+              role: "group-only-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    );
+    expect(groupOnly.accepted).toHaveLength(1);
+    expect(groupOnly.rejected).toEqual([]);
+    await vi.waitFor(() => expect(startChild).toHaveBeenCalledTimes(1));
+    expect(startChild.mock.calls[0]?.[0]?.config?.name).toBe("group-only-role-xyz");
+    expect(startChild.mock.calls[0]?.[0]?.config?.systemPrompt).toContain("GROUP ONLY ROLE");
+    expect(startChild.mock.calls[0]?.[0]?.cwd).toBe(realpathSync(groupCwd));
+
+    const callsBeforeUnknown = startChild.mock.calls.length;
+    const parentOnly = detailsOf(
+      await run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "do parent work",
+              description: "Parent work",
+              role: "parent-only-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    );
+    expect(parentOnly.accepted).toEqual([]);
+    expect(parentOnly.rejected).toEqual([
+      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.unknownRole },
+    ]);
+    expect(startChild.mock.calls.length).toBe(callsBeforeUnknown);
+
+    const shared = detailsOf(
+      await run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "do shared work",
+              description: "Shared work",
+              role: "shared-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    );
+    expect(shared.accepted).toHaveLength(1);
+    await vi.waitFor(() => expect(startChild).toHaveBeenCalledTimes(2));
+    const sharedCall = startChild.mock.calls.find(
+      (call) => call[0]?.config?.name === "shared-role-xyz",
+    );
+    expect(sharedCall?.[0]?.config?.systemPrompt).toContain("GROUP ROLE");
+    expect(sharedCall?.[0]?.config?.systemPrompt).not.toContain("PARENT ONLY");
   });
 });
 

@@ -36,7 +36,7 @@ import { ListAgentsParams, listAgents } from "./tools/list-agents.js";
 import { ListMinionsParams, listMinions, ShowMinionParams, showMinion } from "./tools/minions.js";
 import { OrchestrateToolParams, orchestrate } from "./tools/orchestrate.js";
 import { SpawnToolParams, spawn } from "./tools/spawn.js";
-import { AgentTree } from "./tree.js";
+import { AgentTree, rehydratePersistedMinion } from "./tree.js";
 
 const LearnMinionsParams = Type.Object(
   {},
@@ -317,7 +317,8 @@ export default function (pi: ExtensionAPI): void {
     statusTracker?.destroy();
 
     const parentSessionPath = ctx.sessionManager?.getSessionFile() ?? getTempSessionPath(ctx.cwd);
-    subsessionManager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
+    const manager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
+    subsessionManager = manager;
 
     tree = new AgentTree();
     groups = new OrchestrationGroupState();
@@ -344,14 +345,13 @@ export default function (pi: ExtensionAPI): void {
     overlaps = new PathOverlapLog();
     packets.open();
 
-    for (const metadata of subsessionManager.list()) {
+    for (const metadata of manager.list()) {
       if (metadata.parentSession === parentSessionPath) {
-        tree.add(metadata.sessionId, metadata.name, metadata.task, undefined, metadata.agent);
-        const history = subsessionManager.parseSessionHistory(metadata.sessionId);
+        rehydratePersistedMinion(tree, metadata, (id, status, exitCode, error) => {
+          manager.updateStatus(id, status, exitCode, error);
+        });
+        const history = manager.parseSessionHistory(metadata.sessionId);
         if (history.length > 0) tree.setActivityHistory(metadata.sessionId, history);
-        if (metadata.status !== "running") {
-          tree.updateStatus(metadata.sessionId, metadata.status, metadata.exitCode, metadata.error);
-        }
       }
     }
 

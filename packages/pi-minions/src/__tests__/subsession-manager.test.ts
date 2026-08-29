@@ -456,6 +456,73 @@ describe("SubsessionManager start/wait lifecycle", () => {
   });
 });
 
+describe("pending abort before startChild publishes", () => {
+  it("aborts before createChildRuntime and never publishes a live handle", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-pending-pre-"));
+    const session = new FakeChildSession();
+    let created = 0;
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => {
+        created++;
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, "child.jsonl"),
+        };
+      },
+    });
+
+    expect(manager.abortSession("child-pre")).toBe(true);
+    const handle = await manager.startChild(startOptions("child-pre", cwd));
+    const terminal = await handle.wait();
+
+    expect(created).toBe(0);
+    expect(terminal.class).toBe("aborted");
+    expect(manager.getSessionHandle("child-pre")).toBeUndefined();
+    expect(manager.isLive("child-pre")).toBe(false);
+    expect(manager.getTerminal("child-pre")?.class).toBe("aborted");
+  });
+
+  it("honors abortSession during in-flight startChild and ends aborted not settled", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-pending-inflight-"));
+    const session = new FakeChildSession();
+    const runtimeGate = createDeferred<void>();
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => {
+        await runtimeGate.promise;
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, "child.jsonl"),
+        };
+      },
+    });
+
+    const startPromise = manager.startChild(startOptions("child-pending", cwd));
+    startPromise.catch(() => {});
+    expect(manager.getSessionHandle("child-pending")).toBeUndefined();
+    expect(manager.abortSession("child-pending")).toBe(true);
+
+    runtimeGate.resolve();
+    const handle = await startPromise;
+    const terminal = await handle.wait();
+
+    expect(terminal.class).toBe("aborted");
+    expect(manager.getSessionHandle("child-pending")).toBeUndefined();
+    expect(manager.isLive("child-pending")).toBe(false);
+    expect(manager.getTerminal("child-pending")?.class).toBe("aborted");
+    expect(session.disposed).toBe(true);
+  });
+});
+
 describe("single-winner mail vs terminal", () => {
   const logs: Array<{ msg: string; data: Record<string, unknown> }> = [];
 

@@ -191,6 +191,7 @@ export class SubsessionManager {
   private metadataCache = new Map<string, MinionSessionMetadata>();
   private unsubscribers = new Map<string, () => void>();
   private shutdown = false;
+  private pendingAborts = new Set<string>();
   private readonly createChildRuntime: CreateChildRuntime;
 
   constructor(
@@ -225,6 +226,9 @@ export class SubsessionManager {
     }
 
     const { id, name, task, config, spawnedBy, signal } = options;
+    if (this.consumePendingAbort(id) || this.terminals.has(id)) {
+      return this.finishAbortedStart(id);
+    }
     if (this.activeHandles.has(id) && !this.terminals.has(id)) {
       throw new Error(`Child ${id} is already running`);
     }
@@ -254,6 +258,9 @@ export class SubsessionManager {
     });
     const session = runtime.session;
     await this.rejectStartIfShutdown(id, runtime);
+    if (this.consumePendingAbort(id) || this.terminals.has(id)) {
+      return this.finishAbortedStart(id, sessionPath, runtime);
+    }
 
     this.metadataCache.set(id, metadata);
     this.writeMetadataFile(sessionPath, metadata);
@@ -280,22 +287,32 @@ export class SubsessionManager {
       },
     });
     await this.rejectStartIfShutdown(id);
+    if (this.consumePendingAbort(id) || this.terminals.has(id) || child.terminal) {
+      return this.finishAbortedStart(id, sessionPath);
+    }
     this.applyTools(id);
 
     if (options.toolSyncEnabled !== false) {
       await this.waitForAsyncTools(id, session, options.parentToolNames, options.toolSyncMaxWait);
       await this.rejectStartIfShutdown(id);
+      if (this.consumePendingAbort(id) || this.terminals.has(id) || child.terminal) {
+        return this.finishAbortedStart(id, sessionPath);
+      }
       this.applyTools(id);
     }
 
     // Latch shutdown / terminal before publishing so disposeAll during
     // waitForAsyncTools cannot resurrect a dropped handle.
-    if (this.shutdown || child.terminal || this.terminals.has(id)) {
+    const pendingAbort = this.consumePendingAbort(id);
+    if (this.shutdown || child.terminal || this.terminals.has(id) || pendingAbort) {
       this.activeHandles.delete(id);
       if (this.shutdown) {
         this.abortChild(id);
         await this.disposeChild(id);
         throw new Error("SubsessionManager is shut down; further start is rejected");
+      }
+      if (pendingAbort && !child.terminal) {
+        this.abortChild(id);
       }
       await this.disposeChild(id);
       logger.debug("subsession", "created-aborted", { id, name, path: sessionPath });
@@ -319,7 +336,9 @@ export class SubsessionManager {
       }
     }
 
-    if (child.terminal) {
+    // Halt may have recorded a pending abort in the gap before the handle was published.
+    if (this.consumePendingAbort(id) || child.terminal) {
+      this.abortChild(id);
       this.activeHandles.delete(id);
       logger.debug("subsession", "created-aborted", { id, name, path: sessionPath });
       return handle;
@@ -468,10 +487,51 @@ export class SubsessionManager {
   abortSession(id: string): boolean {
     const handle = this.activeHandles.get(id);
     if (handle) {
+      this.pendingAborts.delete(id);
       handle.abort();
       return true;
     }
-    return false;
+    if (this.children.has(id)) {
+      this.pendingAborts.delete(id);
+      this.abortChild(id);
+      return true;
+    }
+    this.pendingAborts.add(id);
+    return true;
+  }
+
+  private consumePendingAbort(id: string): boolean {
+    return this.pendingAborts.delete(id);
+  }
+
+  private commitSyntheticAbort(id: string): void {
+    if (this.terminals.has(id)) return;
+    this.terminals.set(id, { class: "aborted", exitCode: 1, output: "" });
+    this.terminalWinners.set(id, "abort");
+  }
+
+  private async finishAbortedStart(
+    id: string,
+    sessionPath = "",
+    runtime?: ChildRuntime,
+  ): Promise<MinionSessionHandle> {
+    this.pendingAborts.delete(id);
+    this.activeHandles.delete(id);
+    if (this.children.has(id)) {
+      this.abortChild(id);
+      await this.disposeChild(id);
+    } else {
+      if (runtime) {
+        try {
+          await runtime.dispose();
+        } catch {
+          /* ignore */
+        }
+      }
+      this.commitSyntheticAbort(id);
+    }
+    logger.debug("subsession", "created-aborted", { id, path: sessionPath });
+    return this.buildHandle(id, sessionPath);
   }
 
   private requireLiveSession(id: string): ChildSession {
@@ -765,7 +825,13 @@ export class SubsessionManager {
     const deadline = Date.now() + effectiveMaxWait;
 
     while (Date.now() < deadline) {
-      if (this.shutdown || this.terminals.has(id) || this.children.get(id)?.terminal) return;
+      if (
+        this.shutdown ||
+        this.terminals.has(id) ||
+        this.children.get(id)?.terminal ||
+        this.pendingAborts.has(id)
+      )
+        return;
       let current: Set<string>;
       try {
         current = new Set(session.getAllTools().map((t) => t.name));
@@ -782,7 +848,13 @@ export class SubsessionManager {
         return;
       }
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-      if (this.shutdown || this.terminals.has(id) || this.children.get(id)?.terminal) return;
+      if (
+        this.shutdown ||
+        this.terminals.has(id) ||
+        this.children.get(id)?.terminal ||
+        this.pendingAborts.has(id)
+      )
+        return;
     }
 
     if (this.shutdown || this.terminals.has(id) || this.children.get(id)?.terminal) return;

@@ -100,7 +100,8 @@ describe("halt one vs group vs missing", () => {
     expect(tree.get("mn-spawn")?.status).toBe("running");
     expect(groups.getOpenGroup()?.groupId).toBe(groupId);
     expect(result.groupClosed).toBeUndefined();
-    expect(abortSession).not.toHaveBeenCalled();
+    expect(abortSession).toHaveBeenCalledWith("mn-orch-a");
+    expect(abortSession).toHaveBeenCalledTimes(1);
   });
 
   it("halts a group, drains members, and forgets the open group for the next orchestrate", async () => {
@@ -351,6 +352,53 @@ describe("halt integration abort path", () => {
     expect(tree.get("orch-keep")?.status).toBe("running");
     expect(groups.getOpenGroup()?.groupId).toBe(groupId);
     expect(result.groupClosed).toBeUndefined();
+
+    await manager.disposeAll();
+  });
+
+  it("halts children still starting and they stay aborted, not later settled", async () => {
+    const cwd = tempDir("pi-minions-halt-starting-");
+    const session = new FakeChildSession();
+    const runtimeGate = createDeferred();
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => {
+        await runtimeGate.promise;
+        return {
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, "child.jsonl"),
+        };
+      },
+    });
+    const { groups, groupId } = openGroup(cwd);
+    const tree = new AgentTree();
+    tree.add("orch-starting", "bravo", "still starting", {
+      kind: "orchestrated",
+      groupId,
+      description: "Starting",
+    });
+
+    const startPromise = manager.startChild(startOptions("orch-starting", cwd));
+    startPromise.catch(() => {});
+    expect(manager.getSessionHandle("orch-starting")).toBeUndefined();
+
+    const result = await runHalt("group", tree, manager, groups);
+    expect(tree.get("orch-starting")?.status).toBe("aborted");
+    expect(result.groupClosed).toBe(groupId);
+    expect(groups.getOpenGroup()).toBeUndefined();
+
+    runtimeGate.resolve();
+    const handle = await startPromise;
+    const terminal = await handle.wait();
+    expect(terminal.class).toBe("aborted");
+    expect(tree.get("orch-starting")?.status).toBe("aborted");
+    expect(manager.getTerminal("orch-starting")?.class).toBe("aborted");
+    expect(manager.isLive("orch-starting")).toBe(false);
+    expect(session.disposed).toBe(true);
 
     await manager.disposeAll();
   });

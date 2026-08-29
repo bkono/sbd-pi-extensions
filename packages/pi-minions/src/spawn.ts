@@ -166,6 +166,7 @@ export async function runMinionSession(
       },
 
       onUsageUpdate: (partial) => {
+        Object.assign(usage, partial);
         tree?.updateUsage(id, partial);
         opts.onUsageUpdate?.(partial);
       },

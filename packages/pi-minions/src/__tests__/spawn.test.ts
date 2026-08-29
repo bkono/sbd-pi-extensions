@@ -6,6 +6,7 @@ import { Check } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
 import { ORCHESTRATED_COMM_TOOL_NAMES } from "../orchestration/index.js";
+import { runMinionSession } from "../spawn.js";
 import {
   BEADWORK_CHILD_INSPECTION_TOOLS,
   computeChildActiveTools,
@@ -242,5 +243,61 @@ describe("foreground spawn tool", () => {
     childWaiters[1]?.resolve({ class: "settled", exitCode: 0, output: "b done" });
     await pending;
     expect(settled.value).toBe(true);
+  });
+});
+
+describe("runMinionSession usage accumulator", () => {
+  it("merges onUsageUpdate partials into returned usage instead of leaving zeros", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-usage-"));
+    const tree = new AgentTree();
+    tree.add("mn-usage", "alpha", "do work");
+    const manager = {
+      startChild: async (options: CreateMinionSessionOptions) => {
+        options.onUsageUpdate?.({
+          input: 11,
+          output: 7,
+          cacheRead: 2,
+          cacheWrite: 3,
+          cost: 0.25,
+        });
+        return {
+          id: options.id,
+          path: join(cwd, `${options.id}.jsonl`),
+          steer: async () => {},
+          followUp: async () => {},
+          abort: () => {},
+          wait: async () => ({ class: "settled" as const, exitCode: 0, output: "done" }),
+        };
+      },
+    } as unknown as SubsessionManager;
+
+    const result = await runMinionSession(
+      {
+        name: "ephemeral",
+        description: "test",
+        systemPrompt: "You are a minion.",
+        source: "ephemeral",
+        filePath: "",
+      },
+      "do work",
+      {
+        id: "mn-usage",
+        name: "alpha",
+        modelRegistry: { getAll: () => [], find: () => undefined } as never,
+        cwd,
+        subsessionManager: manager,
+        tree,
+      },
+    );
+
+    expect(result.usage).toMatchObject({
+      input: 11,
+      output: 7,
+      cacheRead: 2,
+      cacheWrite: 3,
+      cost: 0.25,
+    });
+    expect(tree.get("mn-usage")?.usage.input).toBe(11);
+    expect(tree.get("mn-usage")?.usage.output).toBe(7);
   });
 });

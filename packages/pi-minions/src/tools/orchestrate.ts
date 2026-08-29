@@ -19,7 +19,7 @@ import {
 } from "../orchestration/index.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import { TASK_TYPES } from "../task-types.js";
-import type { AgentTree } from "../tree.js";
+import { type AgentTree, isTerminalStatus } from "../tree.js";
 import type {
   AgentConfig,
   OrchestratedTaskDescriptor,
@@ -201,6 +201,10 @@ function startRegisteredChild(
 ): Promise<void> {
   const { tree, subsessionManager } = deps;
   const { id, name, task, config, parentModel } = child;
+  const node = tree.get(id);
+  if (node && isTerminalStatus(node.status)) {
+    return Promise.resolve();
+  }
   const piConfig = getConfig(ctx);
   const injected = injectBoundCommTools(deps, mailbox, group, id);
 
@@ -241,6 +245,18 @@ function startRegisteredChild(
       },
     })
     .then(async (handle) => {
+      const current = tree.get(id);
+      if (current && isTerminalStatus(current.status)) {
+        const terminal = await handle.wait();
+        deps.onLifecycle?.({
+          class: terminal.class,
+          groupId: group.groupId,
+          childId: id,
+          error: terminal.error,
+          output: terminal.output || undefined,
+        });
+        return;
+      }
       deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
       const terminal = await handle.wait();
       deps.onLifecycle?.({
@@ -357,7 +373,7 @@ export function orchestrate(deps: OrchestrateDeps) {
 
       const id = generateId();
       const name = pickMinionName(tree, id, ctx, role, assignedNames);
-      const config = resolveRoleConfig(role, name, optionalString(spec.model), ctx.cwd);
+      const config = resolveRoleConfig(role, name, optionalString(spec.model), resolved.cwd);
       if ("reject" in config) {
         rejected.push({ index, reason: config.reject });
         continue;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
-import { AgentTree } from "../tree.js";
+import { AgentTree, PARENT_SESSION_RESTARTED, rehydratePersistedMinion } from "../tree.js";
 import type { OrchestrationDomain } from "../types.js";
 
 afterEach(() => {
@@ -163,6 +163,83 @@ describe("AgentTree orchestration metadata", () => {
     tree.updateStatus("mn-orch", "completed", 0);
     expect(tree.getLiveByWorkItemId("ABC-123")).toEqual([]);
     expect(tree.getOrchestratedGroup("grp-1")).toEqual([]);
+  });
+});
+
+describe("AgentTree first terminal wins", () => {
+  it("ignores later status writes after completed, failed, or aborted", () => {
+    const tree = new AgentTree();
+    tree.add("mn-aborted", "alpha", "halted task");
+    tree.updateStatus("mn-aborted", "aborted", 1, "halted");
+    tree.updateStatus("mn-aborted", "completed", 0);
+    tree.updateStatus("mn-aborted", "failed", 1, "later failure");
+    tree.updateStatus("mn-aborted", "running");
+
+    expect(tree.get("mn-aborted")?.status).toBe("aborted");
+    expect(tree.get("mn-aborted")?.error).toBe("halted");
+    expect(tree.get("mn-aborted")?.exitCode).toBe(1);
+
+    tree.add("mn-done", "bravo", "finished");
+    tree.updateStatus("mn-done", "completed", 0);
+    tree.updateStatus("mn-done", "aborted");
+    expect(tree.get("mn-done")?.status).toBe("completed");
+    expect(tree.get("mn-done")?.exitCode).toBe(0);
+  });
+});
+
+describe("rehydratePersistedMinion", () => {
+  it("rehydrates running metadata as aborted and persists the restart error", () => {
+    const tree = new AgentTree();
+    const persist = vi.fn();
+    rehydratePersistedMinion(
+      tree,
+      {
+        sessionId: "mn-live",
+        name: "alpha",
+        task: "old work",
+        agent: "ephemeral",
+        status: "running",
+      },
+      persist,
+    );
+
+    expect(tree.get("mn-live")?.status).toBe("aborted");
+    expect(tree.get("mn-live")?.error).toBe(PARENT_SESSION_RESTARTED);
+    expect(persist).toHaveBeenCalledWith("mn-live", "aborted", undefined, PARENT_SESSION_RESTARTED);
+  });
+
+  it("keeps real terminal statuses without persisting a restart abort", () => {
+    const tree = new AgentTree();
+    const persist = vi.fn();
+    rehydratePersistedMinion(
+      tree,
+      {
+        sessionId: "mn-done",
+        name: "bravo",
+        task: "finished work",
+        status: "completed",
+        exitCode: 0,
+      },
+      persist,
+    );
+    rehydratePersistedMinion(
+      tree,
+      {
+        sessionId: "mn-failed",
+        name: "charlie",
+        task: "broke",
+        status: "failed",
+        exitCode: 1,
+        error: "boom",
+      },
+      persist,
+    );
+
+    expect(tree.get("mn-done")?.status).toBe("completed");
+    expect(tree.get("mn-done")?.exitCode).toBe(0);
+    expect(tree.get("mn-failed")?.status).toBe("failed");
+    expect(tree.get("mn-failed")?.error).toBe("boom");
+    expect(persist).not.toHaveBeenCalled();
   });
 });
 
