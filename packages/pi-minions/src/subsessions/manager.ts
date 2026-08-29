@@ -265,6 +265,8 @@ export class SubsessionManager {
       return this.finishAbortedStart(id, sessionPath, runtime);
     }
 
+    if (config.thinking) session.setThinkingLevel(config.thinking);
+
     this.metadataCache.set(id, metadata);
     this.writeMetadataFile(sessionPath, metadata);
 

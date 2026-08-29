@@ -10,7 +10,7 @@ import type {
   ChildSessionEvent,
   CreateMinionSessionOptions,
 } from "../subsessions/types.js";
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, ThinkingLevel } from "../types.js";
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -38,6 +38,8 @@ class FakeChildSession implements ChildSession {
   followUpHold?: ReturnType<typeof createDeferred<void>>;
   pendingFollowUps = 0;
   state = { messages: [] as unknown[] };
+  thinkingLevel?: ThinkingLevel;
+  thinkingLevelAtPrompt?: ThinkingLevel;
 
   constructor(
     toolNames: string[] = [
@@ -60,6 +62,10 @@ class FakeChildSession implements ChildSession {
   }
 
   async bindExtensions(): Promise<void> {}
+
+  setThinkingLevel(level: ThinkingLevel): void {
+    this.thinkingLevel = level;
+  }
 
   setActiveToolsByName(toolNames: string[]): void {
     this.active = new Set(toolNames.filter((name) => this.tools.has(name)));
@@ -90,6 +96,7 @@ class FakeChildSession implements ChildSession {
   }
 
   prompt(_text: string): Promise<void> {
+    this.thinkingLevelAtPrompt = this.thinkingLevel;
     return this.promptDeferred.promise;
   }
 
@@ -227,6 +234,18 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(manager.getSessionHandle("child-1")).toBe(handle);
     expect(manager.getTerminal("child-1")).toBeUndefined();
     expect(session.disposed).toBe(false);
+  });
+
+  it("applies role thinking metadata before the child prompt starts", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
+    const session = new FakeChildSession();
+    const manager = createManager(session, cwd);
+    const options = startOptions("child-thinking", cwd);
+    options.config = { ...options.config, thinking: "medium" };
+
+    await manager.startChild(options);
+
+    expect(session.thinkingLevelAtPrompt).toBe("medium");
   });
 
   it("writes terminal metadata next to the child's session path, not the parent cwd", async () => {

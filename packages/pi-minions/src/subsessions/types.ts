@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, ThinkingLevel } from "../types.js";
 
 export interface MinionSessionMetadata {
   sessionId: string;
@@ -29,6 +29,7 @@ export interface ChildTerminalEvent {
  */
 export interface ChildSession {
   bindExtensions(bindings: { shutdownHandler?: () => void }): Promise<void>;
+  setThinkingLevel(level: ThinkingLevel): void;
   setActiveToolsByName(toolNames: string[]): void;
   getAllTools(): Array<{ name: string }>;
   getActiveToolNames(): string[];
