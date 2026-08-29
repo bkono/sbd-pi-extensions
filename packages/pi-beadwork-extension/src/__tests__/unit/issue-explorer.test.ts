@@ -199,6 +199,24 @@ describe("issue explorer", () => {
     const rendered = controller.renderLines(120).join("\n");
     expect(rendered).toContain("interactive · repo-wide");
   });
+
+  it("does not advertise or consume d unless onDelegateIntent is wired", async () => {
+    const ticket = createIssue({ id: "BW-101", title: "Ready task" });
+    const controller = new IssueExplorerController({
+      dataSource: {
+        loadLevel: vi.fn().mockResolvedValue({ items: [ticket], currentDetail: undefined }),
+        loadDetail: vi
+          .fn()
+          .mockResolvedValue(createDetail({ ...ticket, description: "Task detail" })),
+      },
+      initialState: createState(),
+    });
+
+    await controller.initialize();
+
+    expect(controller.renderFooterHint()).not.toContain("delegate");
+    expect(controller.handleInput("d")).toBe(false);
+  });
 });
 
 describe("issue explorer data source", () => {

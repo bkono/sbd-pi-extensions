@@ -103,18 +103,21 @@ function resolveVisibleWindow(
   };
 }
 
-function buildSelectionHint(selected?: BeadworkIssueDetail): string {
+function buildSelectionHint(
+  selected: BeadworkIssueDetail | undefined,
+  options: { canDelegate?: boolean } = {},
+): string {
   if (!selected) {
     return "s scope • enter drill • h back • f filter";
   }
-  return [
-    "enter drill",
-    "h back",
-    "f filter",
-    "s scope",
-    isEpic(selected) ? "r run epic" : "d delegate ticket",
-    "x clear",
-  ].join(" • ");
+  const action = isEpic(selected)
+    ? "r run epic"
+    : options.canDelegate
+      ? "d delegate ticket"
+      : undefined;
+  return ["enter drill", "h back", "f filter", "s scope", action, "x clear"]
+    .filter((part): part is string => Boolean(part))
+    .join(" • ");
 }
 export class IssueExplorerController {
   private readonly breadcrumb: IssueExplorerBreadcrumb[] = [{ kind: "repo" }];
@@ -218,7 +221,7 @@ export class IssueExplorerController {
       return true;
     }
 
-    if (matchesKey(data, "d")) {
+    if (this.hooks.onDelegateIntent && matchesKey(data, "d")) {
       void this.requestDelegateIntent();
       return true;
     }
@@ -422,7 +425,9 @@ export class IssueExplorerController {
     );
   }
   renderFooterHint(): string {
-    return `↑/↓ move • ${buildSelectionHint(this.selectedDetail)}`;
+    return `↑/↓ move • ${buildSelectionHint(this.selectedDetail, {
+      canDelegate: Boolean(this.hooks.onDelegateIntent),
+    })}`;
   }
 
   private applySnapshot(snapshot: DashboardStatusSnapshot | undefined): void {

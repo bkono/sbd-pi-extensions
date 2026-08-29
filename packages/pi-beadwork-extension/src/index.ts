@@ -449,6 +449,18 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     }
 
     const scopeDetail = await resolveScopeDetail(ctx, activation, state);
+    state = await maybeExitGoalOnClosedScopeDetail({
+      ctx,
+      activation,
+      config,
+      state,
+      scopeDetail,
+      deps: { pi, writeSessionState },
+      parentBusy: parentIsBusy(ctx),
+    });
+    if (state.mode === "neutral") {
+      return undefined;
+    }
     const appendix = buildBeadworkPromptAppendix({
       activation,
       sessionState: state,

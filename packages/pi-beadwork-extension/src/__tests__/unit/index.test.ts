@@ -1075,6 +1075,42 @@ describe("pi beadwork extension", () => {
     expect(String(harness.sentUserMessages[0]?.content ?? "")).toContain("/halt group");
   });
 
+  it("exits goal mode on before_agent_start when the scoped epic is already closed", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-prompt-closed",
+      isIdle: () => false,
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.show.mockResolvedValue(runnableEpic());
+
+    await harness.invokeCommand("bw", "run BW-100", ctx);
+    adapterMock.show.mockResolvedValue({ ...runnableEpic(), status: "closed", children: [] });
+    harness.sentMessages.length = 0;
+    harness.sentUserMessages.length = 0;
+
+    const appendix = await harness.dispatch<{ systemPrompt?: string }>(
+      "before_agent_start",
+      { systemPrompt: "Base prompt" },
+      ctx,
+    );
+
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
+      "session-prompt-closed",
+    );
+    expect(persisted.mode).not.toBe("run");
+    expect(persisted.goal).toBeUndefined();
+    expect(appendix?.systemPrompt ?? "").not.toContain("You are in beadwork run mode.");
+    expect(harness.sentUserMessages).toHaveLength(1);
+    expect(String(harness.sentUserMessages[0]?.content ?? "")).toContain("/halt group");
+  });
+
   it("does not import the deleted tmux orchestrator", async () => {
     const source = await readFile(new URL("../../index.ts", import.meta.url), "utf8");
     expect(source).not.toContain("runBoundedEpicLoop");
