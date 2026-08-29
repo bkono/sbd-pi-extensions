@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [
     "sbdpi-vur.1.4",
     "sbdpi-vur.1.5",
@@ -21,8 +21,8 @@
   ],
   "parent": "sbdpi-vur.1",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Add non-blocking orchestrate tool on persistent hosts",
   "type": "feature",
-  "updated_at": "2026-08-28T22:57:10Z"
+  "updated_at": "2026-08-29T00:37:28Z"
 }
