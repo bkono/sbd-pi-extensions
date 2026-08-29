@@ -7,6 +7,8 @@
   "blocks": [
     "sbdpi-vur.4"
   ],
+  "closed_at": "2026-08-29T01:41:54Z",
+  "close_reason": "Cutover READMEs + migration.md (402c439). Review PASS. Operator path: both extensions, tui, /bw run EPIC. Add abandon docs after 2.6.",
   "created": "2026-08-28T21:31:30Z",
   "description": "Published **READMEs, operator guidance, and migration documentation** for the cutover.\n\n## Owns\n\n- Both package READMEs\n- Beadwork `docs/` configuration/migration pages\n- Root examples that mention delegate/tmux as current usage\n\n## Does not own\n\n- CLI aliases/completions (2.8)\n- TUI copy (2.5)\n- `/bw abandon` implementation (2.6) — document it here once it exists\n\n## Content\n\n- `/bw run` injects a prompt; standing appendix is policy\n- Children die with Pi; stuck child may require process exit\n- Shared-checkout coordination is advisory\n- Removed flags/tools as **errors**, not ignored\n- No landing.validateCommands gate\n- Review policy ticket/scope/none\n- Do not document tmux workers as current except in a Removed/Migration section\n\n## Success criteria\n\n- An operator who only reads README can run `/bw run EPIC` on tui with minions enabled.\n\n## Test plan\n\n- Grep: no current-tense tmux worker launch outside Migration.\n- README states inject-prompt, process-local lifetime, advisory checkout.",
   "id": "sbdpi-vur.4.4",
@@ -15,8 +17,8 @@
   ],
   "parent": "sbdpi-vur.4",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Publish cutover README and migration notes",
   "type": "chore",
-  "updated_at": "2026-08-29T01:22:13Z"
+  "updated_at": "2026-08-29T01:41:54Z"
 }
