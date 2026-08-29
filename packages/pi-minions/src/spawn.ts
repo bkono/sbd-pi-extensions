@@ -144,6 +144,8 @@ export async function runMinionSession(
       signal: opts.signal,
       customTools: opts.customTools,
       parentToolNames: opts.parentToolNames,
+      // Spawn never unions orchestrated comm tools.
+      extraTools: [],
       toolSyncEnabled: opts.toolSyncEnabled,
       toolSyncMaxWait: opts.toolSyncMaxWait,
 

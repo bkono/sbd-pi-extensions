@@ -66,6 +66,23 @@ describe("child tool allowlist formula", () => {
     expect(names).not.toContain("beadwork_comment_issue");
   });
 
+  it("spawn formula omits extraTools so inspection stays and comm/close stay out", () => {
+    for (const extraTools of [undefined, [] as string[]]) {
+      const names = computeChildActiveTools({
+        parentCodingTools: PARENT_WITH_MUTATIONS,
+        extraTools,
+      });
+
+      expect(names).toEqual(
+        expect.arrayContaining(["read", "bash", ...BEADWORK_CHILD_INSPECTION_TOOLS]),
+      );
+      expect(names).toContain("beadwork_show");
+      expect(names).not.toContain("minion_mail");
+      expect(names).not.toContain("beadwork_close_issue");
+      expect(names).not.toContain("beadwork_comment_issue");
+    }
+  });
+
   it("strips late-registered beadwork mutations on re-apply", () => {
     const registered = new Set([
       "read",
