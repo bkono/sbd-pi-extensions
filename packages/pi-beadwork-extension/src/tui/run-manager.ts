@@ -1,4 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { isInterruptedRun } from "../session-state.js";
 import {
   kv,
   styledAccent,
@@ -47,6 +48,10 @@ function describeReviewPolicy(
 }
 
 function describeGoalState(theme: Theme, snapshot: Pick<DashboardStatusSnapshot, "state">): string {
+  if (isInterruptedRun(snapshot.state)) {
+    return styledWarning(theme, "interrupted");
+  }
+
   if (snapshot.state.mode === "run") {
     return styledSuccess(theme, "active");
   }
@@ -68,6 +73,10 @@ function describeGoalState(theme: Theme, snapshot: Pick<DashboardStatusSnapshot,
 }
 
 function describeGoalNextAction(snapshot: Pick<DashboardStatusSnapshot, "state">): string {
+  if (isInterruptedRun(snapshot.state)) {
+    return "The last run was interrupted; resume only with an explicit /bw run <epic-id>.";
+  }
+
   if (snapshot.state.mode === "run") {
     return "Goal mode is active; the session appendix stays armed until the epic is closed or abandoned.";
   }

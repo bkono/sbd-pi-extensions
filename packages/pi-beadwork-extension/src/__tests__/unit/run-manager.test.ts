@@ -91,8 +91,31 @@ describe("run manager", () => {
     ).join("\n");
 
     expect(rendered).toContain("Goal state: active");
+    expect(rendered).toContain(
+      "Next: Goal mode is active; the session appendix stays armed until the epic is closed or abandoned.",
+    );
     expect(rendered).not.toContain("interrupted");
     expect(rendered).not.toContain("Options:");
     expect(rendered).not.toContain("Recent cycles");
+  });
+
+  it("marks a rehydrated interrupted run as interrupted, not active", () => {
+    const rendered = formatRunManagerLines(
+      createSnapshot({
+        state: {
+          mode: "run",
+          runInterrupted: true,
+          scope: { kind: "epic", id: "BW-100", title: "Scoped epic" },
+          updatedAt: "2026-04-19T00:00:00.000Z",
+        },
+      }),
+    ).join("\n");
+
+    expect(rendered).toContain("Goal state: interrupted");
+    expect(rendered).toContain(
+      "Next: The last run was interrupted; resume only with an explicit /bw run <epic-id>.",
+    );
+    expect(rendered).not.toContain("Goal state: active");
+    expect(rendered).not.toContain("the session appendix stays armed");
   });
 });
