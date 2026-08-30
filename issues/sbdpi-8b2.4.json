@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "sbdpi-8b2.2"
+    "sbdpi-8b2.2",
+    "sbdpi-8b2.8"
   ],
   "blocks": [
     "sbdpi-8b2.6"
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "Define sidecar and Beadwork manager-only orchestration boundaries",
   "type": "task",
-  "updated_at": "2026-08-30T23:41:31Z"
+  "updated_at": "2026-08-30T23:44:52Z"
 }
