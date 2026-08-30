@@ -593,6 +593,49 @@ describe("pi beadwork extension", () => {
     expect(ui.notifications.at(-1)?.message).toContain("History for BW-100.1");
   });
 
+  it("runs live bw prime for every explicit /bw prime command", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({
+      cwd: tempDir,
+      ui,
+      sessionId: "session-prime-command",
+    });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.prime.mockResolvedValueOnce("first prime").mockResolvedValueOnce("second prime");
+
+    await harness.invokeCommand("bw", "prime", ctx);
+    await harness.invokeCommand("bw", "prime", ctx);
+
+    const stateDir = resolveSessionStateDir(tempDir, ".pi/beadwork/session-state");
+    const persisted = await loadSessionState(stateDir, "session-prime-command");
+    expect(adapterMock.prime).toHaveBeenCalledTimes(2);
+    expect(persisted.prime?.content).toBe("second prime");
+  });
+
+  it("runs live bw prime for every explicit beadwork_prime tool call", async () => {
+    const harness = await createExtensionTestHarness(beadworkExtension);
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));
+    const ui = createFakeUi();
+    const ctx = createFakeExtensionContext({ cwd: tempDir, ui, sessionId: "session-prime-tool" });
+
+    detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
+    adapterMock.prime.mockResolvedValueOnce("first prime").mockResolvedValueOnce("second prime");
+
+    const first = (await harness.invokeTool("beadwork_prime", {}, ctx)) as {
+      content: Array<{ text: string }>;
+    };
+    const second = (await harness.invokeTool("beadwork_prime", {}, ctx)) as {
+      content: Array<{ text: string }>;
+    };
+
+    expect(adapterMock.prime).toHaveBeenCalledTimes(2);
+    expect(first.content[0]?.text).toBe("first prime");
+    expect(second.content[0]?.text).toBe("second prime");
+  });
+
   it("engages interactive mode, caches prime, and scopes the session", async () => {
     const harness = await createExtensionTestHarness(beadworkExtension);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-ext-"));

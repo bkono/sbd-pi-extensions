@@ -64,7 +64,7 @@ export async function handleStatusAction(input: {
   deps: StatusActionDeps;
   defaultTab?: DashboardTabId;
 }): Promise<boolean> {
-  const { subcommand, parsed, isBare, ctx, deps } = input;
+  const { subcommand, isBare, ctx, deps } = input;
 
   if (subcommand === "status") {
     const status = await deps.refreshStatus(ctx);
@@ -171,14 +171,7 @@ export async function handleStatusAction(input: {
       return true;
     }
 
-    const refresh = parsed.options.has("refresh");
-    const state = await deps.ensurePrime(
-      ctx,
-      active.activation,
-      active.config,
-      active.state,
-      refresh,
-    );
+    const state = await deps.ensurePrime(ctx, active.activation, active.config, active.state, true);
     await showPrime(ctx, state.prime?.content ?? "", state.prime?.loadedAt);
     return true;
   }
