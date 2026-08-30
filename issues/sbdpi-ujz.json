@@ -6,9 +6,15 @@
   "description": "Explicit beadwork_prime tool and /bw prime command calls must execute live bw prime instead of returning an indefinitely persisted session cache. Keep cache only for automatic prompt enrichment; add regression coverage and update docs.",
   "id": "sbdpi-ujz",
   "labels": [],
+  "comments": [
+    {
+      "text": "Explicit /bw prime and beadwork_prime calls now force a live adapter.prime execution while automatic prompt enrichment retains its cache. Added consecutive-call regressions and updated command/tool descriptions. Root lint, 435 test files/2203 tests, and typecheck all pass.",
+      "timestamp": "2026-08-30T03:20:10Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Make explicit bw prime reads live",
   "type": "task",
-  "updated_at": "2026-08-30T03:16:08Z"
+  "updated_at": "2026-08-30T03:20:10Z"
 }
