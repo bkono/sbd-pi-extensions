@@ -705,7 +705,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime [--refresh]|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|run <epic-id>|abandon|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off]",
+        "Usage: /bw [status|engage [scope]|scope <issue-id|clear>|prime|ready [scope]|blocked|list [--all --status ... --type ... --parent ... --priority n --assignee ... --grep ... --limit n --deferred --overdue]|history <id> [--limit n]|show <id>|create <title> [--type ... --description ... --priority n --parent id]|update <id> [--title ... --description ... --priority n --assignee ... --status ... --type ... --parent id|--clear-parent --defer when --due when|--clear-due]|dep <add|remove> <blocker> [blocks] <blocked>|start <id>|close <id>|reopen <id>|comment <id> <text>|label <id> +label [-label]|defer <id> <when>|undefer <id>|sync|run <epic-id>|abandon|adopt [markdown-plan] [--file path/to/plan.md] [--title ...] [--land quick|branch|multi] [--apply]|off]",
         "info",
       );
     } catch (error) {
@@ -754,11 +754,15 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "beadwork_prime",
     label: "Beadwork Prime",
-    description: "Return the cached or freshly loaded `bw prime` guidance.",
+    description: "Run `bw prime` and return its current guidance.",
     parameters: Type.Object({
-      refresh: Type.Optional(Type.Boolean({ description: "Force a fresh `bw prime` read." })),
+      refresh: Type.Optional(
+        Type.Boolean({
+          description: "Deprecated compatibility flag; explicit reads are always fresh.",
+        }),
+      ),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
       const activation = await detectActivation(ctx.cwd);
       let state = await readSessionState(ctx, activation, config);
@@ -772,7 +776,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
         };
       }
 
-      state = await ensurePrime(ctx, activation, config, state, params.refresh === true);
+      state = await ensurePrime(ctx, activation, config, state, true);
       return {
         content: [{ type: "text" as const, text: state.prime?.content ?? "" }],
         details: state.prime,

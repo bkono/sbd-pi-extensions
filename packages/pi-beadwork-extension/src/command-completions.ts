@@ -23,7 +23,7 @@ const MAIN_COMMANDS: Array<{
   { value: "off", label: "off", description: "Reset the session" },
   { value: "adopt", label: "adopt", description: "Adopt a markdown plan" },
   { value: "engage", label: "engage", description: "Enter interactive beadwork mode" },
-  { value: "prime", label: "prime", description: "Show cached bw prime guidance" },
+  { value: "prime", label: "prime", description: "Run bw prime and show current guidance" },
   { value: "blocked", label: "blocked", description: "Show blocked work" },
   { value: "history", label: "history", description: "Show issue history" },
   { value: "create", label: "create", description: "Create an issue" },

@@ -12,7 +12,7 @@ remain exposed under `/bw ...`. Common flows also have dedicated `/bw:*` aliases
 | `/bw engage [scope]` | Enter interactive mode, optionally scoped to a ticket or epic. |
 | `/bw scope <issue-id\|clear>` / `/bw:scope ...` | Retarget or clear interactive scope. |
 | `/bw off` / `/bw:off` | Return to neutral mode and queue a group halt. |
-| `/bw prime [--refresh]` | Show cached or refreshed `bw prime` guidance. |
+| `/bw prime` | Run `bw prime` and show its current guidance. |
 | `/bw ready [scope]` / `/bw:ready [scope]` | Show ready work, optionally scoped. |
 | `/bw blocked` | List currently blocked work. |
 | `/bw run <epic-id>` / `/bw:run ...` | Enter goal mode: inject a prompt; standing appendix is policy. Persistent host only. |
@@ -88,7 +88,7 @@ Notes:
 | Tool | Purpose |
 | ---- | ------- |
 | `beadwork_status` | Activation, mode, counts, scope. |
-| `beadwork_prime` | Cached or refreshed `bw prime` guidance. |
+| `beadwork_prime` | Run `bw prime` and return its current guidance. |
 | `beadwork_ready` | Ready issue listing, optionally scoped. |
 | `beadwork_blocked` | Blocked issue listing. |
 | `beadwork_list_issues` | Filtered issue listing. |
