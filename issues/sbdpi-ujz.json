@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-30T03:16:01Z",
+  "description": "Explicit beadwork_prime tool and /bw prime command calls must execute live bw prime instead of returning an indefinitely persisted session cache. Keep cache only for automatic prompt enrichment; add regression coverage and update docs.",
+  "id": "sbdpi-ujz",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Make explicit bw prime reads live",
+  "type": "task",
+  "updated_at": "2026-08-30T03:16:01Z"
+}
