@@ -9,6 +9,12 @@
   "id": "sbdpi-8b2.9",
   "labels": [],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Concurrency boundary: own packages/pi-minions only. Do not edit packages/pi-beadwork-extension while sbdpi-8b2.10 runs. Report any required cross-package harness/docs adaptation in the handoff; sbdpi-8b2.10 or parent integration will apply it.",
+      "timestamp": "2026-08-31T19:22:28Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Remove semantic orchestration policy from Minions mechanics",
