@@ -11,6 +11,7 @@ import {
   isComplexDelegationTask,
   shouldInjectDelegationHint,
 } from "./delegation.js";
+import { createFleetWidgetController, type FleetWidgetController } from "./fleet-widget.js";
 import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
 import {
@@ -57,6 +58,19 @@ export default function (pi: ExtensionAPI): void {
   let cachedCtx: ExtensionContext | null = null;
   // biome-ignore lint/suspicious/noExplicitAny: external API type
   let cachedModel: Model<any> | undefined;
+  let fleetWidget: FleetWidgetController | undefined;
+  let sessionGeneration = 0;
+
+  const clearSessionUi = (): void => {
+    fleetWidget?.destroy();
+    fleetWidget = undefined;
+    statusTracker?.destroy();
+    statusTracker?.setUi(null);
+    statusTracker = undefined;
+    cachedUi = null;
+    cachedCtx = null;
+    cachedModel = undefined;
+  };
 
   const eventBus = new EventBus();
   const packets = createLifecyclePacketDispatcher({
@@ -306,21 +320,29 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async () => {
+    sessionGeneration++;
+    clearSessionUi();
     packets.close();
-    await subsessionManager?.disposeAll();
+    const manager = subsessionManager;
     subsessionManager = undefined;
+    await manager?.disposeAll();
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    const generation = ++sessionGeneration;
+    clearSessionUi();
     packets.close();
-    await subsessionManager?.disposeAll();
+    const priorManager = subsessionManager;
+    subsessionManager = undefined;
+    await priorManager?.disposeAll();
+    if (generation !== sessionGeneration) return;
+
     cachedCtx = ctx;
     cachedModel = ctx.model;
     cachedUi = ctx.ui;
     usedMinionsThisSession = false;
     toolCallCount = 0;
     lastHintTime = 0;
-    statusTracker?.destroy();
 
     const parentSessionPath = ctx.sessionManager?.getSessionFile() ?? getTempSessionPath(ctx.cwd);
     const manager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
@@ -373,6 +395,9 @@ export default function (pi: ExtensionAPI): void {
     statusTracker = createStatusTracker(tree, subsessionManager, ctx);
     tree.onChange(() => statusTracker?.refresh());
     statusTracker.setUi(cachedUi);
+    if (ctx.mode === "tui") {
+      fleetWidget = createFleetWidgetController(tree, groups, cachedUi);
+    }
 
     cachedUi.setStatus("minions-bg", undefined);
     cachedUi.setStatus("minions-fg", undefined);
