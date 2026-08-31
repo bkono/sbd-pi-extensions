@@ -16,9 +16,15 @@
     "orchestration"
   ],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Independent review of 0abe038 PASSed with no blocking implementation findings. One FILE integration finding is already assigned to active sbdpi-8b2.8 fix 62c9a502: update the Beadwork duplicate-workItem all-rejected e2e to assert the intentional rich throw and preserved open group/live implementers. Reviewer also noted the e2e harness can expose a pending→running race: keep accepted.state=starting immediately and await list/tree status running after the child handle exists rather than assuming session-map insertion means liveness. Rejected: restoring success-shaped all-rejected results, counting pending as running, or making started model-visible.",
+      "timestamp": "2026-08-31T01:35:31Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Make orchestrate registration and rendering truthful",
   "type": "feature",
-  "updated_at": "2026-08-31T00:55:02Z"
+  "updated_at": "2026-08-31T01:35:31Z"
 }
