@@ -45,11 +45,15 @@
     {
       "text": "Independent re-review ea914d92 PASS at exact commit 3385ecd06d0c078dafdab2e98c8c1b8fe041b6ed. Both accepted closure blockers reproduced as fixed: handled/no-message_start delivery retires exact token to 0 while child remains live/waiting/retryable; exact event resumes once; stale/newer identity, concurrent serialization, failure/tail behavior pass. Delayed async onComplete rejection is attached/contained without awaiting; terminal event/waiter/state/disposal/removal remain authoritative and no unhandled rejection occurs. Prior REJECT dispositions retained. Validation: pi-minions lint/typecheck pass; 22 files/264 tests; focused 7 files/126 tests; targeted blockers 6 pass; clean HEAD and diff check. Parent accepts PASS; closure-ready.",
       "timestamp": "2026-08-31T05:37:15Z"
+    },
+    {
+      "text": "SUPERSEDED CONTRACT NOTE: this closed issue's historical `waiting` / child→parent question acceptance was later found to contradict the no-parked-children contract and was deleted by sbdpi-8b2.9. Current behavior: child→parent messages are nonblocking notifications, never hold settlement, and require no reply. Do not reintroduce waiting generations, reply correlation, or parked-child replay machinery.",
+      "timestamp": "2026-08-31T21:10:15Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Replace turn counters with bounded runtime-derived activity state",
   "type": "feature",
-  "updated_at": "2026-08-31T05:37:19Z"
+  "updated_at": "2026-08-31T21:10:15Z"
 }
