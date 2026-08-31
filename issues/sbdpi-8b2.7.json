@@ -26,11 +26,15 @@
     {
       "text": "Minimal parent fix committed as 6bfc7e3. Reviewer finding #1 remains rejected: no test-owned Git inspection or commit heuristics were added. Applied only the accepted surgical changes: both proposal docs now carry explicit historical/superseded banners and point to authoritative package/migration docs; the stale living-spec claim is removed; the pre-implementation handoff is time-qualified; the two tautological parent edit/write assertions were deleted without adding tool instrumentation. Focused acceptance passes (1 file/5 tests), git diff check passed, and current-HEAD root lint/test/typecheck/build all pass.",
       "timestamp": "2026-08-31T18:28:35Z"
+    },
+    {
+      "text": "Re-review source audit found no source defect: historical-doc and assertion-boundary fixes are correct, sequencing/manager assertions remain, scope is exact, rejected Git-inspection design was not reintroduced. Reviewer returned NEEDS_FIXES only because it invoked Vitest with the wrong path from the workspace cwd and stopped. Disposition: REJECT as a source finding; this is reviewer command error, not implementation remediation. Parent already ran the correct workspace-relative focused command successfully (1 file/5 tests) and the current-HEAD root lint/test/typecheck/build chain successfully at 6bfc7e3. No retry or code change required. Automated vertical slice accepted subject only to the issue's manual persistent-TUI smoke.",
+      "timestamp": "2026-08-31T18:31:34Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T18:28:35Z"
+  "updated_at": "2026-08-31T18:31:34Z"
 }
