@@ -23,11 +23,15 @@
     {
       "text": "Re-review of 209605a FAIL; all three findings adjudicated FIX and closure-blocking. (1) Natural agent_settled after an accepted/queued child→parent question currently commits terminal while activity is waiting, so the later parent reply fails recipient-terminal. Waiting must remain live across idle settlement until reply/resumption, without weakening terminal authority elsewhere. (2) Rehydration consumes synthetic top-level tool_execution records, but actual Pi persistence stores assistant toolCall/toolResult inside type=message records; production-shaped transcripts currently yield empty activity. Parse actual SessionManager persistence shape, bind start/end within the same real call identity, and ensure malformed records cannot cross-pair into false waiting. (3) 209605a introduced one global tree listener per foreground child: 3 children × two mutations creates six updates per text event (O(N²)); an initial onUpdate throw after subscription leaks a listener. Update only the relevant child on meaningful change, emit once per text event, and guarantee cleanup around subscription/initial sync/start failure/abort/settlement. Required regressions must reproduce all three failures with production-shaped records and runtime paths. Ticket remains blocked pending remediation and another independent re-review.",
       "timestamp": "2026-08-31T02:56:34Z"
+    },
+    {
+      "text": "Final re-review of f77ff67 FAIL; all findings remain FIX/closure-blocking. Locked remediation: manager and visible ActivitySnapshot waiting must remain sticky through ordinary assistant tail text, thinking/tool start/tool end/turn/narrative/settling events, queue acceptance, and idle wait. Only a correlated parent-reply user-message-start (or equally proven per-delivery consumed token) may transition waiting→thinking. Active runs may queue followUp; idle-but-held children must start a new prompt/run; delivery failure remains waiting/retryable while abort/failure win. Tree notification must snapshot registrations, isolate/log each listener exception, continue delivery, and stale unsubscribe must only remove its own captured set/registration. Replay must quarantine duplicate active toolCallIds so no result can cross-pair into false waiting. Exact manager+tree lifecycle, active/idle reply, delivery throw, abort/failure, listener throw/stale-unsubscribe, and production-shaped duplicate/interleaved replay regressions required. Ticket remains blocked pending remediation and independent PASS.",
+      "timestamp": "2026-08-31T03:36:24Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Replace turn counters with bounded runtime-derived activity state",
   "type": "feature",
-  "updated_at": "2026-08-31T02:56:34Z"
+  "updated_at": "2026-08-31T03:36:24Z"
 }
