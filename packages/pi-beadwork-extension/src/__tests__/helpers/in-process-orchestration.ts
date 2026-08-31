@@ -268,11 +268,22 @@ export async function createInProcessHarness(
         options: sendOptions as SentPacket["options"],
       });
     },
-    consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
-    drainParentMail: (childId) => {
-      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+    peekOverlaps: (groupIds) => overlaps.peek(groupIds),
+    ackOverlaps: (ids) => {
+      overlaps.ack(ids);
+    },
+    peekParentMail: (childId, lifecycleId) => {
+      const messages = mailbox
+        .peekPending(PARENT_RECIPIENT_ID, childId)
+        .filter((message) => message.lifecycleId === lifecycleId);
       if (messages.length === 0) return undefined;
-      return messages.map((message) => message.body).join("\n\n");
+      return {
+        ids: messages.map((message) => message.id),
+        text: messages.map((message) => message.body).join("\n\n"),
+      };
+    },
+    ackParentMail: (snapshot) => {
+      mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
     },
   });
   dispatcher.open();
@@ -315,6 +326,11 @@ export async function createInProcessHarness(
         groupId: message.groupId,
         childId: message.from,
         output: message.body,
+        lifecycleId: message.lifecycleId ?? "",
+        epoch:
+          message.lifecycleId === undefined
+            ? -1
+            : (groups.getLifecycleRegistration(message.lifecycleId)?.epoch ?? -1),
       });
     },
   });

@@ -17,6 +17,18 @@ export interface OpenOrchestrationGroup {
   cwd: string;
 }
 
+export interface LifecycleRegistration {
+  lifecycleId: string;
+  childId: string;
+  groupId: string;
+  epoch: number;
+}
+
+export interface AcceptLifecycleInput {
+  lifecycleId: string;
+  childId: string;
+}
+
 export interface PreviewedOrchestrationGroup extends OpenOrchestrationGroup {
   /** True when this preview would create a group that is not yet open. */
   created: boolean;
@@ -71,7 +83,7 @@ export class OrchestrationGroupState {
   private open: OpenOrchestrationGroup | undefined;
   private epoch = 0;
   private idleEpoch: number | undefined;
-  private readonly childEpochs = new Map<string, number>();
+  private readonly lifecycles = new Map<string, LifecycleRegistration>();
   previewGroup(input: ResolveGroupInput): PreviewGroupResult {
     const groupId = optionalString(input.groupId);
     const cwdInput = optionalString(input.cwd);
@@ -97,7 +109,7 @@ export class OrchestrationGroupState {
     this.open = { groupId: group.groupId, cwd: group.cwd };
     this.epoch = 0;
     this.idleEpoch = undefined;
-    this.childEpochs.clear();
+    this.lifecycles.clear();
     logger.info("orchestration-group", "commit", {
       groupId: group.groupId,
       cwd: group.cwd,
@@ -112,21 +124,42 @@ export class OrchestrationGroupState {
     return { groupId: result.groupId, cwd: result.cwd };
   }
 
-  /** Arm an epoch after orchestrate accepts live children and record their stable ownership. */
-  acceptLiveWork(groupId: string, childIds: readonly string[] = []): boolean {
-    if (this.open?.groupId !== groupId) return false;
+  /** Arm an epoch and capture immutable ownership when child runtimes are accepted. */
+  acceptLiveWork(groupId: string, children: readonly AcceptLifecycleInput[]): number | undefined {
+    if (this.open?.groupId !== groupId) return undefined;
     if (this.idleEpoch === undefined) {
       this.epoch++;
       this.idleEpoch = this.epoch;
     }
-    for (const childId of childIds) this.childEpochs.set(childId, this.idleEpoch);
-    return true;
+    const epoch = this.idleEpoch;
+    for (const child of children) {
+      if (this.lifecycles.has(child.lifecycleId)) continue;
+      this.lifecycles.set(child.lifecycleId, {
+        lifecycleId: child.lifecycleId,
+        childId: child.childId,
+        groupId,
+        epoch,
+      });
+    }
+    return epoch;
   }
 
-  /** Epoch assigned when this child was accepted. It never changes when the group re-arms. */
-  getChildEpoch(groupId: string, childId: string): number | undefined {
-    if (this.open?.groupId !== groupId) return undefined;
-    return this.childEpochs.get(childId);
+  /** Resolve only the exact lifecycle registration accepted by this open group. */
+  getLifecycleRegistration(
+    lifecycleId: string,
+    groupId?: string,
+    epoch?: number,
+  ): LifecycleRegistration | undefined {
+    const registration = this.lifecycles.get(lifecycleId);
+    if (
+      !registration ||
+      this.open?.groupId !== registration.groupId ||
+      (groupId !== undefined && registration.groupId !== groupId) ||
+      (epoch !== undefined && registration.epoch !== epoch)
+    ) {
+      return undefined;
+    }
+    return { ...registration };
   }
 
   /** Reserve, but do not consume, an active→idle epoch owned by terminal evidence. */
@@ -170,7 +203,7 @@ export class OrchestrationGroupState {
     this.open = undefined;
     this.epoch = 0;
     this.idleEpoch = undefined;
-    this.childEpochs.clear();
+    this.lifecycles.clear();
     logger.info("orchestration-group", "close", {
       groupId: current.groupId,
       cwd: current.cwd,

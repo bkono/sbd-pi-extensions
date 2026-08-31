@@ -131,6 +131,8 @@ export interface QueuedMinionMessage {
   body: string;
   bytes: number;
   createdAt: number;
+  /** Immutable sender runtime registration identity for orchestrated child mail. */
+  lifecycleId?: string;
 }
 
 export interface CommSendDetails {
@@ -148,6 +150,7 @@ export interface SendMinionMessageInput {
   to: string;
   groupId: string;
   body: string;
+  lifecycleId?: string;
 }
 
 /** Options for live child delivery. deliveryId is the mailbox message id. */
@@ -251,7 +254,7 @@ function errorMessage(err: unknown): string {
  *
  * `send` is addressed user mail (ACL, size, pending-depth cap).
  * `enqueue` is a non-throwing live-notify for runtime notices (3.5 overlap); not user mail.
- * `list()` is append-only inspection. Pending depth and packet output use takePending.
+ * `list()` is append-only inspection. Pending depth and packet delivery use identity snapshots.
  */
 export class MinionCommMailbox {
   /** Inspection log. Append-only; ids stay after delivery. Does not drive the cap. */
@@ -275,6 +278,25 @@ export class MinionCommMailbox {
   /** Undelivered pending depth for a recipient. Delivered inspection ids are not counted. */
   depthFor(to: string): number {
     return this.pendingByRecipient.get(to)?.length ?? 0;
+  }
+
+  /** Identity-bearing non-destructive snapshot. Ack removes only these exact messages. */
+  peekPending(to: string, from?: string): QueuedMinionMessage[] {
+    const queue = this.pendingByRecipient.get(to) ?? [];
+    return queue
+      .filter((message) => from === undefined || message.from === from)
+      .map((message) => ({ ...message }));
+  }
+
+  ackPending(to: string, messageIds: readonly string[]): number {
+    if (messageIds.length === 0) return 0;
+    const wanted = new Set(messageIds);
+    const queue = this.pendingByRecipient.get(to) ?? [];
+    const rest = queue.filter((message) => !wanted.has(message.id));
+    const removed = queue.length - rest.length;
+    if (rest.length === 0) this.pendingByRecipient.delete(to);
+    else this.pendingByRecipient.set(to, rest);
+    return removed;
   }
 
   /**
@@ -305,12 +327,19 @@ export class MinionCommMailbox {
    * Never throws. Never applies ACL, body-size, or the pending-depth cap.
    * 3.5 overlap uses this so a notice cannot look like a write/mail reject.
    */
-  enqueue(input: { from: string; to: string; groupId: string; body: string }): QueuedMinionMessage {
+  enqueue(input: {
+    from: string;
+    to: string;
+    groupId: string;
+    body: string;
+    lifecycleId?: string;
+  }): QueuedMinionMessage {
     const message: QueuedMinionMessage = {
       id: generateId(),
       from: input.from,
       to: input.to,
       groupId: input.groupId,
+      lifecycleId: input.lifecycleId,
       body: input.body,
       bytes: bodyBytes(input.body),
       createdAt: Date.now(),
@@ -353,7 +382,7 @@ export class MinionCommMailbox {
     const body = input.body;
     const groupId = input.groupId;
     const bytes = bodyBytes(body);
-    const attempted = { from, to, groupId, body };
+    const attempted = { from, to, groupId, body, lifecycleId: input.lifecycleId };
 
     if (bytes > MAX_MINION_MESSAGE_BYTES) {
       const details = closedDetails(attempted, COMM_SEND_STATUS.bodyTooLarge, bytes);
@@ -365,6 +394,13 @@ export class MinionCommMailbox {
     if (!open || open.groupId !== groupId) {
       const details = closedDetails(attempted, COMM_SEND_STATUS.groupNotOpen, bytes);
       recordSendFailure(this.bindState?.getTree(), from, details.status);
+      return details;
+    }
+
+    const tree = this.bindState?.getTree();
+    if (input.lifecycleId !== undefined && tree?.get(from)?.lifecycleId !== input.lifecycleId) {
+      const details = closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
+      recordSendFailure(tree, from, details.status);
       return details;
     }
 
@@ -381,7 +417,6 @@ export class MinionCommMailbox {
       return details;
     }
 
-    const tree = this.bindState?.getTree();
     const node = tree?.get(to);
     if (node?.kind !== "orchestrated" || node.groupId !== groupId) {
       const details = closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
@@ -428,6 +463,7 @@ export class MinionCommMailbox {
       from: input.from,
       to: input.to,
       groupId: input.groupId,
+      lifecycleId: input.lifecycleId,
       body: input.body,
       bytes,
       createdAt: Date.now(),
@@ -499,6 +535,7 @@ export class MinionCommMailbox {
 
 export interface CommInjectInput {
   childId: string;
+  lifecycleId?: string;
   groupId: string;
   tree: AgentTree;
   mailbox: MinionCommMailbox;
@@ -589,7 +626,7 @@ function formatSendResult(details: CommSendDetails): AgentToolResult<CommSendDet
 }
 
 function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
-  const { childId, groupId, mailbox } = input;
+  const { childId, lifecycleId, groupId, mailbox } = input;
   return {
     name: SEND_MINION_PEER_TOOL,
     label: "Send Minion Peer",
@@ -611,7 +648,7 @@ function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
       void params.from;
       const to = typeof params.to === "string" ? params.to.trim() : "";
       const body = typeof params.body === "string" ? params.body : "";
-      return formatSendResult(mailbox.send({ from: childId, to, groupId, body }));
+      return formatSendResult(mailbox.send({ from: childId, to, groupId, body, lifecycleId }));
     },
   };
 }

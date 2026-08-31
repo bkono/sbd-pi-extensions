@@ -125,6 +125,10 @@ export interface PathIntent {
 
 export interface AgentNode {
   id: string;
+  /** Immutable opaque identity for this runtime registration; not a display/tool id. */
+  lifecycleId?: string;
+  /** Group idle epoch captured when this runtime registration was accepted. */
+  lifecycleEpoch?: number;
   name: string;
   agentName?: string;
   task: string;

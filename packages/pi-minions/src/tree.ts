@@ -83,6 +83,8 @@ export interface AddAgentOptions {
   completionNudge?: string;
   /** Spawn defaults to running. Orchestrate registers accepted nodes as pending. */
   status?: AgentStatus;
+  lifecycleId?: string;
+  lifecycleEpoch?: number;
 }
 
 interface TreeRegistration {
@@ -193,6 +195,8 @@ export class AgentTree {
     const kind = options.kind ?? "spawn";
     const node: AgentNode = {
       id,
+      lifecycleId: options.lifecycleId,
+      lifecycleEpoch: options.lifecycleEpoch,
       name,
       agentName: options.agentName,
       task,
@@ -233,6 +237,14 @@ export class AgentTree {
 
   get(id: string): AgentNode | undefined {
     return this.nodes.get(id);
+  }
+
+  setLifecycleEpoch(id: string, lifecycleId: string, epoch: number): boolean {
+    const node = this.nodes.get(id);
+    if (!node || node.lifecycleId !== lifecycleId) return false;
+    node.lifecycleEpoch = epoch;
+    this.notify(id);
+    return true;
   }
 
   /** Find a node by ID or by minion name. ID takes priority. */

@@ -9,7 +9,7 @@ import { AgentTree } from "../tree.js";
 
 function openArmedGroup(groups: OrchestrationGroupState, groupId: string): void {
   groups.commitGroup({ groupId, cwd: "/tmp" });
-  groups.acceptLiveWork(groupId);
+  groups.acceptLiveWork(groupId, [{ childId: "mn-live", lifecycleId: `${groupId}-lifecycle` }]);
 }
 
 function addOrchestrated(tree: AgentTree, id: string, groupId: string): void {
@@ -65,7 +65,7 @@ describe("live group system-prompt invariant", () => {
     groups.commitGroup({ groupId: "grp-idle", cwd: "/tmp" });
     expect(handler({ systemPrompt: "base" })).toBeUndefined();
 
-    groups.acceptLiveWork("grp-idle");
+    groups.acceptLiveWork("grp-idle", [{ childId: "mn-done", lifecycleId: "idle-lifecycle" }]);
     addOrchestrated(tree, "mn-done", "grp-idle");
     tree.updateStatus("mn-done", "completed", 0);
     expect(handler({ systemPrompt: "base" })).toBeUndefined();

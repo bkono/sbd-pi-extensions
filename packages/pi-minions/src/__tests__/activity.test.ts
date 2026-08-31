@@ -914,6 +914,7 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     const sendMessage = vi.fn();
     const groups = new OrchestrationGroupState();
     const pending: Array<() => void> = [];
+    groups.commitGroup({ groupId: "grp-1", cwd: "/tmp" });
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
       getGroups: () => groups,
@@ -930,6 +931,7 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     tree.add("mn-orch", "bravo", "background", {
       kind: "orchestrated",
       groupId: "grp-1",
+      lifecycleId: "orch-lifecycle",
       description: "Keep going",
     });
     tree.applyActivityEvent("mn-orch", {
@@ -944,20 +946,31 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     tree.add("mn-done", "charlie", "finished", {
       kind: "orchestrated",
       groupId: "grp-1",
+      lifecycleId: "done-lifecycle",
       description: "Done",
     });
     tree.updateStatus("mn-done", "completed", 0);
+    const epoch = groups.acceptLiveWork("grp-1", [
+      { childId: "mn-orch", lifecycleId: "orch-lifecycle" },
+      { childId: "mn-done", lifecycleId: "done-lifecycle" },
+    ])!;
+    tree.setLifecycleEpoch("mn-orch", "orch-lifecycle", epoch);
+    tree.setLifecycleEpoch("mn-done", "done-lifecycle", epoch);
 
     dispatcher.enqueue({
       class: "settled",
       groupId: "grp-1",
       childId: "mn-done",
+      lifecycleId: "done-lifecycle",
+      epoch,
       output: "ok",
     });
     dispatcher.enqueue({
       class: "settled",
       groupId: "grp-1",
       childId: "mn-spawn",
+      lifecycleId: "spawn-lifecycle",
+      epoch,
       output: "spawn should not wake",
     });
     while (pending.length > 0) pending.shift()?.();

@@ -160,7 +160,9 @@ describe("Pi 0.84.3 followUp system-prompt boundary", () => {
       description: "runtime child",
       status: "running",
     });
-    groups.acceptLiveWork("grp-runtime", ["mn-runtime"]);
+    groups.acceptLiveWork("grp-runtime", [
+      { childId: "mn-runtime", lifecycleId: "runtime-lifecycle" },
+    ]);
     controller?.sync();
 
     await session.sendCustomMessage(

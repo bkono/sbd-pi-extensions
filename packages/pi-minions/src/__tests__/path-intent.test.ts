@@ -404,13 +404,21 @@ describe("overlap on next real parent packet", () => {
     const sendMessage = vi.fn();
     const groups = new OrchestrationGroupState();
     groups.commitGroup({ groupId, cwd: CWD });
+    const lifecycleId = "test-overlap-lifecycle";
+    const node = tree.get(childId);
+    if (node) node.lifecycleId = lifecycleId;
+    const epoch = groups.acceptLiveWork(groupId, [{ childId, lifecycleId }]);
+    if (epoch !== undefined) tree.setLifecycleEpoch(childId, lifecycleId, epoch);
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
       getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
       now: () => 10_000,
       schedule: (run) => pending.push(run),
-      consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
+      peekOverlaps: (groupIds) => overlaps.peek(groupIds),
+      ackOverlaps: (ids) => {
+        overlaps.ack(ids);
+      },
     });
 
     announcePathIntent({
@@ -439,7 +447,14 @@ describe("overlap on next real parent packet", () => {
     expect(overlaps.list()).toHaveLength(1);
 
     tree.updateStatus(childId, "completed", 0);
-    dispatcher.enqueue({ class: "settled", groupId, childId, output: "done" });
+    dispatcher.enqueue({
+      class: "settled",
+      groupId,
+      childId,
+      lifecycleId,
+      epoch: epoch ?? -1,
+      output: "done",
+    });
     while (pending.length > 0) pending.shift()?.();
 
     expect(sendMessage).toHaveBeenCalledTimes(1);

@@ -9,6 +9,14 @@
  */
 export const ORCHESTRATION_LIFECYCLE_CHANNEL = "orchestration:lifecycle";
 
+let nextLifecycleInstance = 0;
+
+/** Process-unique opaque runtime registration identity. Public child ids remain unchanged. */
+export function createLifecycleId(): string {
+  nextLifecycleInstance++;
+  return `lifecycle-${nextLifecycleInstance.toString(36)}`;
+}
+
 export type OrchestrationLifecycleClass =
   | "started"
   | "settled"
@@ -20,6 +28,10 @@ export interface OrchestrationLifecycleEvent {
   class: OrchestrationLifecycleClass;
   groupId: string;
   childId: string;
+  /** Immutable identity of this accepted child runtime, independent of display childId. */
+  lifecycleId: string;
+  /** Idle epoch captured when this runtime registration was accepted. */
+  epoch: number;
   error?: string;
   /** Bounded by the packet layer. Full text remains on the child transcript. */
   output?: string;

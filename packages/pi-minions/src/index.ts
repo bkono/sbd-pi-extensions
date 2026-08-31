@@ -83,11 +83,22 @@ export default function (pi: ExtensionAPI): void {
     getTree: () => tree,
     sendMessage: (message, options) => pi.sendMessage(message, options),
     getGroups: () => groups,
-    consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
-    drainParentMail: (childId) => {
-      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+    peekOverlaps: (groupIds) => overlaps.peek(groupIds),
+    ackOverlaps: (ids) => {
+      overlaps.ack(ids);
+    },
+    peekParentMail: (childId, lifecycleId) => {
+      const messages = mailbox
+        .peekPending(PARENT_RECIPIENT_ID, childId)
+        .filter((message) => message.lifecycleId === lifecycleId);
       if (messages.length === 0) return undefined;
-      return messages.map((message) => message.body).join("\n\n");
+      return {
+        ids: messages.map((message) => message.id),
+        text: messages.map((message) => message.body).join("\n\n"),
+      };
+    },
+    ackParentMail: (snapshot) => {
+      mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
     },
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
@@ -407,6 +418,11 @@ export default function (pi: ExtensionAPI): void {
           groupId: message.groupId,
           childId: message.from,
           output: message.body,
+          lifecycleId: message.lifecycleId ?? "",
+          epoch:
+            message.lifecycleId === undefined
+              ? -1
+              : (groups.getLifecycleRegistration(message.lifecycleId)?.epoch ?? -1),
         });
       },
     });

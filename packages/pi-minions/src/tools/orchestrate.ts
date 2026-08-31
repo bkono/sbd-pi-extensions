@@ -11,6 +11,7 @@ import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
 import {
+  createLifecycleId,
   type InjectedCommTools,
   injectOrchestratedCommTools,
   isResolveGroupReject,
@@ -71,7 +72,11 @@ export interface OrchestrateDeps {
   overlaps?: PathOverlapLog;
   now?: () => number;
   /** Override bound-tool injection. Default binds list/send/announce/inspect with childId closed over. */
-  injectCommTools?: (input: { childId: string; groupId: string }) => InjectedCommTools;
+  injectCommTools?: (input: {
+    childId: string;
+    lifecycleId: string;
+    groupId: string;
+  }) => InjectedCommTools;
   /** Event path 1.8 consumes. Do not deliver parent packets here. */
   onLifecycle?: (event: OrchestrationLifecycleEvent) => void;
 }
@@ -159,6 +164,8 @@ function logOrchestrate(
 
 interface RegisteredChild {
   id: string;
+  lifecycleId: string;
+  epoch?: number;
   name: string;
   task: OrchestratedTaskDescriptor;
   config: AgentConfig;
@@ -170,11 +177,14 @@ function injectBoundCommTools(
   mailbox: MinionCommMailbox,
   group: { groupId: string; cwd: string },
   childId: string,
+  lifecycleId: string,
 ): InjectedCommTools {
-  if (deps.injectCommTools) return deps.injectCommTools({ childId, groupId: group.groupId });
+  if (deps.injectCommTools)
+    return deps.injectCommTools({ childId, lifecycleId, groupId: group.groupId });
   return injectOrchestratedCommTools({
     childId,
     groupId: group.groupId,
+    lifecycleId,
     cwd: group.cwd,
     tree: deps.tree,
     mailbox,
@@ -195,14 +205,15 @@ function startRegisteredChild(
   piConfig: ResolvedConfig,
 ): Promise<void> {
   const { tree, subsessionManager } = deps;
-  const { id, name, task, config, parentModel } = child;
+  const { id, lifecycleId, epoch, name, task, config, parentModel } = child;
+  if (epoch === undefined) return Promise.reject(new Error("registration epoch missing"));
   const stepLimit = { reached: false };
   const node = tree.get(id);
-  if (node && isTerminalStatus(node.status)) {
+  if (node?.lifecycleId !== lifecycleId || isTerminalStatus(node.status)) {
     return Promise.resolve();
   }
-  const injected = injectBoundCommTools(deps, mailbox, group, id);
-  const bound = bindTreeActivity(tree, id);
+  const injected = injectBoundCommTools(deps, mailbox, group, id, lifecycleId);
+  const bound = bindTreeActivity(tree, id, lifecycleId);
 
   return subsessionManager
     .startChild({
@@ -230,6 +241,7 @@ function startRegisteredChild(
       onAgentEnd: bound.onAgentEnd,
       onWaitingResume: bound.onWaitingResume,
       onTurnEnd: (turnCount) => {
+        if (tree.get(id)?.lifecycleId !== lifecycleId) return;
         bound.onTurnEnd(turnCount);
         applyStepLimit({
           count: turnCount,
@@ -242,9 +254,10 @@ function startRegisteredChild(
         });
       },
       onUsageUpdate: (usage) => {
-        tree.updateUsage(id, usage);
+        if (tree.get(id)?.lifecycleId === lifecycleId) tree.updateUsage(id, usage);
       },
       onComplete: (result) => {
+        if (tree.get(id)?.lifecycleId !== lifecycleId) return;
         const status = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
         tree.updateStatus(id, status, result.exitCode, result.error);
       },
@@ -259,24 +272,35 @@ function startRegisteredChild(
       });
       try {
         const current = tree.get(id);
-        if (current && isTerminalStatus(current.status)) {
+        if (current?.lifecycleId !== lifecycleId) return;
+        if (isTerminalStatus(current.status)) {
           const terminal = await handle.wait();
           deps.onLifecycle?.({
             class: terminal.class,
             groupId: group.groupId,
             childId: id,
+            lifecycleId,
+            epoch,
             error: terminal.error,
             output: terminal.output || undefined,
           });
           return;
         }
         tree.markLiveHandle(id);
-        deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
+        deps.onLifecycle?.({
+          class: "started",
+          groupId: group.groupId,
+          childId: id,
+          lifecycleId,
+          epoch,
+        });
         const terminal = await handle.wait();
         deps.onLifecycle?.({
           class: terminal.class,
           groupId: group.groupId,
           childId: id,
+          lifecycleId,
+          epoch,
           error: terminal.error,
           output: terminal.output || undefined,
         });
@@ -286,11 +310,13 @@ function startRegisteredChild(
     })
     .catch((err: unknown) => {
       const error = err instanceof Error ? err.message : String(err);
-      tree.updateStatus(id, "failed", 1, error);
+      if (tree.get(id)?.lifecycleId === lifecycleId) tree.updateStatus(id, "failed", 1, error);
       deps.onLifecycle?.({
         class: "failed",
         groupId: group.groupId,
         childId: id,
+        lifecycleId,
+        epoch,
         error,
       });
       logger.info("orchestrate", "start-failed", {
@@ -397,6 +423,7 @@ export function orchestrate(deps: OrchestrateDeps) {
       }
 
       const id = generateId();
+      const lifecycleId = createLifecycleId();
       const name = pickMinionName(tree, id, ctx, agent, assignedNames);
       const config = resolveAgentConfig(agent, name, optionalString(spec.model), previewed.cwd);
       if ("reject" in config) {
@@ -438,10 +465,11 @@ export function orchestrate(deps: OrchestrateDeps) {
         model: descriptor.model ?? (parentModel ? formatModelReference(parentModel) : undefined),
         completionNudge: config.completionNudge,
         status: "pending",
+        lifecycleId,
       });
 
       accepted.push({ childId: id, description, state: "starting" });
-      registered.push({ id, name, task: descriptor, config, parentModel });
+      registered.push({ id, lifecycleId, name, task: descriptor, config, parentModel });
     }
 
     if (accepted.length === 0) {
@@ -458,10 +486,15 @@ export function orchestrate(deps: OrchestrateDeps) {
     if (previewed.created) {
       deps.groups.commitGroup(previewed);
     }
-    deps.groups.acceptLiveWork(
+    const epoch = deps.groups.acceptLiveWork(
       previewed.groupId,
-      accepted.map((child) => child.childId),
+      registered.map((child) => ({ childId: child.id, lifecycleId: child.lifecycleId })),
     );
+    if (epoch === undefined) throw new Error(ORCHESTRATE_REJECT_REASONS.registrationAborted);
+    for (const child of registered) {
+      child.epoch = epoch;
+      tree.setLifecycleEpoch(child.id, child.lifecycleId, epoch);
+    }
 
     const parentToolNames = deps.pi.getAllTools().map((tool) => tool.name);
     for (const child of registered) {

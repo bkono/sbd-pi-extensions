@@ -34,6 +34,7 @@ export {
   sendMinionMessage,
 } from "./comm.js";
 export {
+  createLifecycleId,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   type OrchestrationLifecycleClass,
   type OrchestrationLifecycleEvent,

@@ -19,6 +19,11 @@ export interface PathOverlapNotice {
   editAllowed: true;
 }
 
+export interface PathOverlapSnapshot {
+  ids: string[];
+  notices: PathOverlapNotice[];
+}
+
 export interface AnnouncePathIntentInput {
   tree: AgentTree;
   childId: string;
@@ -69,30 +74,42 @@ export interface InspectPathIntentResult {
  * Recording here never starts a parent turn.
  */
 export class PathOverlapLog {
-  private pending: PathOverlapNotice[] = [];
+  private pending: Array<{ id: string; notice: PathOverlapNotice }> = [];
+  private nextId = 0;
 
   record(notice: PathOverlapNotice): void {
-    this.pending.push(notice);
+    this.nextId++;
+    this.pending.push({ id: `overlap-${this.nextId.toString(36)}`, notice });
+  }
+
+  peek(groupIds?: readonly string[]): PathOverlapSnapshot {
+    const wanted = groupIds === undefined ? undefined : new Set(groupIds);
+    const entries = this.pending.filter(
+      (entry) => wanted === undefined || wanted.has(entry.notice.groupId),
+    );
+    return {
+      ids: entries.map((entry) => entry.id),
+      notices: entries.map((entry) => ({ ...entry.notice })),
+    };
+  }
+
+  ack(ids: readonly string[]): number {
+    if (ids.length === 0) return 0;
+    const wanted = new Set(ids);
+    const rest = this.pending.filter((entry) => !wanted.has(entry.id));
+    const removed = this.pending.length - rest.length;
+    this.pending = rest;
+    return removed;
   }
 
   consume(groupIds?: readonly string[]): PathOverlapNotice[] {
-    if (groupIds === undefined) {
-      const all = this.pending;
-      this.pending = [];
-      return all;
-    }
-    const keep: PathOverlapNotice[] = [];
-    const taken: PathOverlapNotice[] = [];
-    const wanted = new Set(groupIds);
-    for (const notice of this.pending) {
-      (wanted.has(notice.groupId) ? taken : keep).push(notice);
-    }
-    this.pending = keep;
-    return taken;
+    const snapshot = this.peek(groupIds);
+    this.ack(snapshot.ids);
+    return snapshot.notices;
   }
 
   list(): readonly PathOverlapNotice[] {
-    return this.pending;
+    return this.pending.map((entry) => entry.notice);
   }
 }
 

@@ -13,5 +13,6 @@ export {
   type PathOverlapHit,
   PathOverlapLog,
   type PathOverlapNotice,
+  type PathOverlapSnapshot,
 } from "./intent.js";
 export { normalizeIntentPath, pathSegments, pathsOverlap } from "./paths.js";

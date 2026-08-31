@@ -484,6 +484,7 @@ export function lastNarrativeLine(text: string): string {
 export function bindTreeActivity(
   tree: AgentTree,
   id: string,
+  lifecycleId?: string,
 ): {
   onToolActivity: (activity: {
     type: "start" | "end";
@@ -496,8 +497,11 @@ export function bindTreeActivity(
   onAgentEnd: (info?: { willRetry?: boolean }) => void;
   onWaitingResume: () => void;
 } {
+  const isCurrent = (): boolean =>
+    lifecycleId === undefined || tree.get(id)?.lifecycleId === lifecycleId;
   return {
     onToolActivity: (activity) => {
+      if (!isCurrent()) return;
       if (activity.type === "start") {
         tree.applyActivityEvent(id, {
           type: "tool_start",
@@ -509,24 +513,28 @@ export function bindTreeActivity(
       tree.applyActivityEvent(id, { type: "tool_end" });
     },
     onToolOutput: (_toolName, delta) => {
+      if (!isCurrent()) return;
       const line = lastNarrativeLine(delta.trimEnd());
       if (line) tree.applyActivityEvent(id, { type: "narrative", text: line });
     },
     onTextDelta: (_delta, fullText) => {
+      if (!isCurrent()) return;
       const events: ActivityEvent[] = [{ type: "thinking" }];
       const preview = lastNarrativeLine(fullText);
       if (preview) events.push({ type: "narrative", text: preview });
       tree.applyActivityEvents(id, events);
     },
     onTurnEnd: (turnCount) => {
+      if (!isCurrent()) return;
       tree.applyActivityEvent(id, { type: "turn_end", turn: turnCount });
       tree.updateUsage(id, { turns: turnCount });
     },
     onAgentEnd: (info) => {
-      if (info?.willRetry) return;
+      if (!isCurrent() || info?.willRetry) return;
       tree.applyActivityEvent(id, { type: "settling" });
     },
     onWaitingResume: () => {
+      if (!isCurrent()) return;
       tree.applyActivityEvent(id, { type: "resume" });
     },
   };

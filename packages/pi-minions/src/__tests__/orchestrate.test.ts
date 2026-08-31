@@ -277,12 +277,14 @@ describe("accepted state and start failure", () => {
     });
 
     const failed = events.find((event) => event.class === "failed");
-    expect(failed).toEqual({
+    expect(failed).toMatchObject({
       class: "failed",
       groupId: result.groupId,
       childId: result.accepted[0]?.childId,
       error: "runtime failed",
     });
+    expect(failed?.lifecycleId).toMatch(/^lifecycle-/);
+    expect(failed?.epoch).toBe(1);
     expect(tree.get(result.accepted[0]!.childId)?.status).toBe("failed");
 
     logCall("start-failed-event", {
