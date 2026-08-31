@@ -18,11 +18,15 @@
     {
       "text": "Independent review of a3c050f found three required remediation items before acceptance: (1) high: test trusts scripted implementer/reviewer prose and never validates named commit contents with real git inspection; add test-only terminal SHA extraction + actual git show evidence and gate reviewer settlement on it, without production heuristics/schema. (2) medium: proposal docs still claim living authority/prescribe legacy role and lack explicit historical/superseded banners; point to package READMEs/migration as authoritative without rewriting historical bodies. (3) low but acceptance-relevant: manager-only no-edit assertion is tautological because harness does not observe edit/write; replace false proof with an observable parent coding-tool boundary or remove the claim and prove the prompt boundary accurately. Root gates currently pass. All three are dispositioned FIX because #1/#2 block closure and #3 otherwise leaves acceptance item 5 only partially proved.",
       "timestamp": "2026-08-31T18:19:20Z"
+    },
+    {
+      "text": "Correction after parent adjudication: reviewer finding #1 is REJECTED, not FIX. A no-model scripted harness cannot prove semantic reviewer judgment, and adding test-owned `git show`/commit-content verification would build a second review mechanism, couple the scenario to Git fixture implementation details, and introduce shared-checkout/concurrent-commit assumptions. The acceptance boundary is protocol: implementer settles with a named SHA; only afterward the reviewer is launched with that exact SHA and explicit inspection instructions; the parent then applies review policy. Runtime child/reviewer claims remain untrusted and require parent adjudication, but this integration test must not simulate trust by inventing production commit heuristics. Do not add commit parsing, Git inspection, or fabricated-claim rejection tests. Finding #2 remains a valid narrow docs FIX. Finding #3 is valid only insofar as the tautological no-edit assertion should be removed/qualified; do not add broad coding-tool instrumentation. The prior comment's all-three-FIX disposition is superseded.",
+      "timestamp": "2026-08-31T18:22:47Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T18:19:20Z"
+  "updated_at": "2026-08-31T18:22:47Z"
 }
