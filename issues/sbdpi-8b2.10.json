@@ -18,11 +18,15 @@
     {
       "text": "Concurrency boundary: own packages/pi-beadwork-extension only. Update the integrated agent-friendly harness step that currently requires a parked waiting child so it instead proves nonblocking child-to-parent notification and ordinary settlement; pi-minions implementation is owned by sbdpi-8b2.9.",
       "timestamp": "2026-08-31T19:22:28Z"
+    },
+    {
+      "text": "Implementation landed as f29d5466c00483a88069a577c9208ce56b8ff3bd. Deleted supervisor run options/summaries/tracked workers, stale dashboard presentation, attribution implementation/export/tests, and superseded current-branch/tmux docs. Old persisted fields are dropped and not reserialized. Scoped lint/typecheck/build and 260 tests passed. Awaiting independent exact-commit review before closure.",
+      "timestamp": "2026-08-31T19:43:52Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Delete superseded Beadwork supervisor-era state and attribution surfaces",
   "type": "task",
-  "updated_at": "2026-08-31T19:22:39Z"
+  "updated_at": "2026-08-31T19:43:52Z"
 }
