@@ -975,7 +975,7 @@ describe("agent system prompt and model defaults", () => {
 });
 
 describe("extension registration", () => {
-  it("registers orchestrate on persistent hosts and keeps spawn blocking", () => {
+  it("registers orchestrate once and never rebuilds it when fleet state becomes live", async () => {
     const tools = new Map<
       string,
       {
@@ -983,27 +983,74 @@ describe("extension registration", () => {
         promptGuidelines?: string[];
         renderCall?: unknown;
         renderResult?: unknown;
+        execute?: (...args: unknown[]) => Promise<unknown>;
       }
     >();
+    const registrationCounts = new Map<string, number>();
+    const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => unknown>>();
+    const cwd = tempDir("pi-minions-register-");
+    vi.spyOn(SubsessionManager.prototype, "startChild").mockResolvedValue(
+      hangingHandle("mn-live", cwd),
+    );
     const pi = {
       registerTool: (tool: {
         name: string;
         promptGuidelines?: string[];
         renderCall?: unknown;
         renderResult?: unknown;
+        execute?: (...args: unknown[]) => Promise<unknown>;
       }) => {
+        registrationCounts.set(tool.name, (registrationCounts.get(tool.name) ?? 0) + 1);
         tools.set(tool.name, tool);
       },
       registerCommand: () => {},
       registerMessageRenderer: () => {},
-      on: () => {},
+      on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+        const registered = handlers.get(event) ?? [];
+        registered.push(handler);
+        handlers.set(event, registered);
+      },
       getThinkingLevel: () => "off",
+      getAllTools: () => [...tools.values()],
+      sendMessage: vi.fn(),
     };
     registerMinions(pi as unknown as ExtensionAPI);
 
     expect(tools.has("spawn")).toBe(true);
     expect(tools.has("orchestrate")).toBe(true);
     expect(tools.has("send_minion_message")).toBe(true);
+    expect(registrationCounts.get("orchestrate")).toBe(1);
+    expect(handlers.get("before_agent_start")).toHaveLength(1);
+
+    const ctx = {
+      ...createCtx(cwd),
+      hasUI: false,
+      mode: "rpc",
+      ui: {
+        setStatus: vi.fn(),
+        setFooter: vi.fn(),
+        theme: { fg: (_color: string, text: string) => text },
+      },
+      sessionManager: {
+        getSessionFile: () => `${cwd}/parent.jsonl`,
+        getEntries: () => [],
+        getCwd: () => cwd,
+        getSessionName: () => undefined,
+      },
+    } as unknown as ExtensionContext;
+    for (const handler of handlers.get("session_start") ?? []) {
+      await handler({ type: "session_start", reason: "startup" }, ctx);
+    }
+    await tools
+      .get("orchestrate")
+      ?.execute?.("call-live", { tasks: [baseTask] }, undefined, undefined, ctx);
+    expect(registrationCounts.get("orchestrate")).toBe(1);
+    for (const handler of handlers.get("before_agent_start") ?? []) {
+      expect(
+        await handler({ systemPrompt: "cache-stable base", prompt: "continue" }, ctx),
+      ).toBeUndefined();
+    }
+
     expect(typeof tools.get("spawn")?.renderCall).toBe("function");
     expect(typeof tools.get("spawn")?.renderResult).toBe("function");
     expect(typeof tools.get("orchestrate")?.renderCall).toBe("function");
@@ -1016,11 +1063,19 @@ describe("extension registration", () => {
         .get("spawn")
         ?.promptGuidelines?.some((line) => /orchestrate for background/i.test(line)),
     ).toBe(true);
+    const orchestrateGuidelines = tools.get("orchestrate")?.promptGuidelines ?? [];
     expect(
-      tools
-        .get("orchestrate")
-        ?.promptGuidelines?.some((line) => /spawn when you intend to wait/i.test(line)),
+      orchestrateGuidelines.some((line) => /spawn instead if you intend to wait/i.test(line)),
     ).toBe(true);
+    expect(orchestrateGuidelines.every((line) => /\borchestrate\b/i.test(line))).toBe(true);
+    expect(orchestrateGuidelines).toContain(
+      "After orchestrate registers background work, treat delegated work as live until terminal lifecycle evidence, explicit inspection, or halt proves otherwise.",
+    );
+    expect(orchestrateGuidelines.join("\n")).not.toMatch(/group [a-z0-9_-]+ is live/i);
+
+    for (const handler of handlers.get("session_shutdown") ?? []) {
+      await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+    }
   });
 });
 

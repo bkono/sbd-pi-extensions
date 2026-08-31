@@ -1,13 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { getMinionsSkill, MINIONS_SKILL, ORCHESTRATE_SIDECAR_GUIDELINES } from "../skill.js";
-
-const INDEX_SOURCE = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "../index.ts"),
-  "utf8",
-);
 
 describe("minions skill", () => {
   it("documents spawn vs orchestrate instead of denying background minions", () => {
@@ -38,29 +30,21 @@ describe("minions skill", () => {
     const skill = getMinionsSkill();
 
     expect(skill).toContain("## Cooperative sidecar");
+    for (const guideline of ORCHESTRATE_SIDECAR_GUIDELINES) {
+      expect(skill).toContain(guideline);
+      expect(guideline).toMatch(/\borchestrate\b/i);
+    }
     expect(skill).toContain(
-      "Use sidecar orchestration only for slices independent of the parent's continuing work.",
+      "After orchestrate registers background work, treat delegated work as live until terminal lifecycle evidence, explicit inspection, or halt proves otherwise.",
     );
     expect(skill).toContain(
-      "Once scope is delegated, do not edit that delegated scope while the child is live. Message or halt the child instead.",
+      "While orchestrate work is live, the parent may end the current turn, inspect, message, halt, or continue safe non-overlapping work; do not edit the delegated scope.",
     );
     expect(skill).toContain(
-      "The parent may continue user interaction, inspection, planning, or non-overlapping work.",
-    );
-    expect(skill).toContain("Path intent and overlap notices are advisory, not locks.");
-    expect(skill).toContain(
-      "A parent turn ending while children run is normal. Do not represent delegated work as complete while children are live.",
+      "Never claim orchestrate-delegated work or the orchestration goal complete while any child remains live.",
     );
 
-    expect(ORCHESTRATE_SIDECAR_GUIDELINES).toEqual([
-      "Use orchestrate only for slices independent of the parent's continuing work.",
-      "Once scope is delegated, do not edit that delegated scope while the child is live. Message or halt the child instead.",
-      "The parent may continue user interaction, inspection, planning, or non-overlapping work.",
-      "Path intent and overlap notices are advisory, not locks.",
-      "A parent turn ending while children run is normal. Do not represent delegated work as complete while children are live.",
-    ]);
-    expect(INDEX_SOURCE).toContain("ORCHESTRATE_SIDECAR_GUIDELINES");
-    expect(INDEX_SOURCE).toContain("...ORCHESTRATE_SIDECAR_GUIDELINES");
+    expect(ORCHESTRATE_SIDECAR_GUIDELINES).toHaveLength(5);
 
     expect(skill).not.toMatch(/\boperatingMode\b/);
     expect(skill).not.toContain("beadwork_start_goal");

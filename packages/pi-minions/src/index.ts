@@ -13,10 +13,6 @@ import {
 } from "./delegation.js";
 import { createFleetWidgetController, type FleetWidgetController } from "./fleet-widget.js";
 import { buildFooterFactory } from "./footer.js";
-import {
-  createLiveGroupPromptHandler,
-  LiveGroupSystemPromptController,
-} from "./live-group-invariant.js";
 import { LOG_FILE, logger } from "./logger.js";
 import {
   createLifecyclePacketDispatcher,
@@ -78,8 +74,6 @@ export default function (pi: ExtensionAPI): void {
     cachedModel = undefined;
   };
 
-  let syncLiveGroupSystemPrompt = (): void => {};
-
   const eventBus = new EventBus();
   const packets = createLifecyclePacketDispatcher({
     getTree: () => tree,
@@ -117,7 +111,6 @@ export default function (pi: ExtensionAPI): void {
     packets,
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
-    syncLiveGroupSystemPrompt();
     packets.enqueue(event);
   });
 
@@ -161,12 +154,12 @@ export default function (pi: ExtensionAPI): void {
 
   const orchestratePromptGuidelines = [
     "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
-    "Use spawn when you intend to wait for the minion to finish before continuing.",
-    "description is required on every task. Do not omit it or infer it from task.",
-    "agent is a discovered agent/template name, same loader as spawn. Built-in worker and investigate are always available. Call list_agents if unsure.",
-    "taskType is a closed workflow-policy enum. Never collapse agent and taskType.",
-    "Omit groupId to create the open group if none exists, otherwise join it. A second groupId is rejected.",
-    "cwd is group-create only, must already exist, and cannot change later.",
+    "When using orchestrate, use spawn instead if you intend to wait for the minion before continuing.",
+    "For orchestrate, description is required on every task; do not omit it or infer it from task.",
+    "For orchestrate, agent is a discovered agent/template name from the same loader as spawn; built-in worker and investigate are always available, and list_agents resolves uncertainty.",
+    "For orchestrate, taskType is a closed workflow-policy enum; never collapse agent and taskType.",
+    "For orchestrate, omit groupId to create the open group if none exists or to join it; a second groupId is rejected.",
+    "For orchestrate, cwd is group-create only, must already exist, and cannot change later.",
     ...ORCHESTRATE_SIDECAR_GUIDELINES,
   ];
   const orchestrateTool = {
@@ -191,24 +184,11 @@ export default function (pi: ExtensionAPI): void {
         overlaps,
         onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
       })(...args);
-      syncLiveGroupSystemPrompt();
       return result;
     },
     renderCall: renderOrchestrateCall,
     renderResult: renderOrchestrateResult,
   };
-  const liveGroupSystemPrompt = new LiveGroupSystemPromptController(
-    () => tree,
-    () => groups,
-    (invariant) => {
-      orchestrateTool.promptGuidelines = invariant
-        ? [...orchestratePromptGuidelines, invariant]
-        : [...orchestratePromptGuidelines];
-      // Pi 0.84.3 supports runtime re-registration and immediately rebuilds the base system prompt.
-      pi.registerTool(orchestrateTool);
-    },
-  );
-  syncLiveGroupSystemPrompt = () => liveGroupSystemPrompt.sync();
   pi.registerTool(orchestrateTool);
 
   pi.registerTool({
@@ -249,7 +229,6 @@ export default function (pi: ExtensionAPI): void {
     execute: async (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
       const result = await halt(tree, subsessionManager, groups, lifecycleCoordinator)(...args);
-      syncLiveGroupSystemPrompt();
       return result;
     },
   });
@@ -320,7 +299,6 @@ export default function (pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
       await createHaltHandler(tree, subsessionManager, groups, lifecycleCoordinator)(args, ctx);
-      syncLiveGroupSystemPrompt();
     },
   });
 
@@ -332,14 +310,6 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async () => {
     toolCallCount++;
   });
-
-  pi.on(
-    "before_agent_start",
-    createLiveGroupPromptHandler(
-      () => tree,
-      () => groups,
-    ),
-  );
 
   pi.on("before_agent_start", (event, ctx) => {
     const config = getConfig(ctx);
@@ -383,7 +353,6 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_shutdown", async () => {
     sessionGeneration++;
     clearSessionUi();
-    liveGroupSystemPrompt.reset();
     lifecycleCoordinator.discardOpenGroup();
     packets.close();
     const manager = subsessionManager;
@@ -394,7 +363,6 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const generation = ++sessionGeneration;
     clearSessionUi();
-    liveGroupSystemPrompt.reset();
     lifecycleCoordinator.discardOpenGroup();
     packets.close();
     const priorManager = subsessionManager;
@@ -450,7 +418,6 @@ export default function (pi: ExtensionAPI): void {
       packets,
     });
     packets.open();
-    syncLiveGroupSystemPrompt();
 
     for (const metadata of manager.list()) {
       if (metadata.parentSession === parentSessionPath) {

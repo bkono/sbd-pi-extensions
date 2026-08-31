@@ -1,10 +1,14 @@
 export const ORCHESTRATE_SIDECAR_GUIDELINES = [
   "Use orchestrate only for slices independent of the parent's continuing work.",
-  "Once scope is delegated, do not edit that delegated scope while the child is live. Message or halt the child instead.",
-  "The parent may continue user interaction, inspection, planning, or non-overlapping work.",
-  "Path intent and overlap notices are advisory, not locks.",
-  "A parent turn ending while children run is normal. Do not represent delegated work as complete while children are live.",
+  "After orchestrate registers background work, treat delegated work as live until terminal lifecycle evidence, explicit inspection, or halt proves otherwise.",
+  "While orchestrate work is live, the parent may end the current turn, inspect, message, halt, or continue safe non-overlapping work; do not edit the delegated scope.",
+  "Never claim orchestrate-delegated work or the orchestration goal complete while any child remains live.",
+  "Treat orchestrate path intent and overlap notices as advisory, not locks.",
 ] as const;
+
+const ORCHESTRATE_SIDECAR_SKILL = ORCHESTRATE_SIDECAR_GUIDELINES.map(
+  (guideline) => `- ${guideline}`,
+).join("\n");
 
 export const MINIONS_SKILL = `# pi-minions
 
@@ -24,11 +28,7 @@ Use minions when independent work can run in isolated agent sessions.
 
 ## Cooperative sidecar
 
-- Use sidecar orchestration only for slices independent of the parent's continuing work.
-- Once scope is delegated, do not edit that delegated scope while the child is live. Message or halt the child instead.
-- The parent may continue user interaction, inspection, planning, or non-overlapping work.
-- Path intent and overlap notices are advisory, not locks.
-- A parent turn ending while children run is normal. Do not represent delegated work as complete while children are live.
+${ORCHESTRATE_SIDECAR_SKILL}
 
 Children are process-local. They die with the parent Pi process.
 Live detach is not available.
