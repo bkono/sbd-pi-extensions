@@ -8,7 +8,14 @@ Prefer beadwork tickets over keeping long plans only in conversation.
 When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.
 Do not infer dependency graphs from ad hoc chat formatting.
 Do not autonomously launch children or act like a background orchestrator.
+Do not auto-start goal mode merely because an epic exists.
 This standing appendix is policy only. It does not start a turn. Wait for the user.
+
+## Goal mode entry
+
+Call `beadwork_start_goal({ epic_id })` only after you have intentionally chosen to execute a ready, already-decomposed open epic.
+Do not infer an epic, do not auto-start because an epic exists, and do not treat this as a synchronous run wrapper.
+The tool starts manager-only goal mode and queues a continuation. It does not implement the epic or dispatch children.
 
 Current scope: epic:BW-100
 
@@ -55,5 +62,6 @@ Beadwork does not own a validation gate.
 
 Do not use tmux, landing, `--workers`, or polling.
 Do not classify review findings with a keyword matcher.
+Do not auto-start goal mode merely because an epic exists.
 
-Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_blocked, beadwork_list_issues, beadwork_issue_history, beadwork_show, beadwork_create_issue, beadwork_update_issue, beadwork_add_dependency, beadwork_remove_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue, beadwork_comment_issue, beadwork_label_issue, beadwork_defer_issue, beadwork_undefer_issue, beadwork_sync.
+Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_blocked, beadwork_list_issues, beadwork_issue_history, beadwork_show, beadwork_create_issue, beadwork_update_issue, beadwork_add_dependency, beadwork_remove_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue, beadwork_comment_issue, beadwork_label_issue, beadwork_defer_issue, beadwork_undefer_issue, beadwork_sync, beadwork_start_goal.

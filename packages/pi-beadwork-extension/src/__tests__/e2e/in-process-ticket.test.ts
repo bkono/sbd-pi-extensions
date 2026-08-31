@@ -45,7 +45,26 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(harness.injectedPrompt()).toBeUndefined();
         await harness.logStep("print-json-rejected", { ticketId: ticket.id });
 
-        await harness.bwRun(epicId);
+        const started = (await harness.invokeBeadworkTool("beadwork_start_goal", {
+          epic_id: epicId,
+        })) as {
+          details: {
+            epic_id: string;
+            epic_title: string;
+            goal_id: string;
+            review_policy: string;
+            state: string;
+            continuation: string;
+          };
+        };
+        expect(started.details.state).toBe("started");
+        expect(started.details.continuation).toBe("triggered_turn");
+        expect(started.details.epic_id).toBe(epicId);
+        expect(started.details.epic_title).toBe("In-process epic");
+        expect(started.details.review_policy).toBe("ticket");
+        expect(JSON.stringify(started.details).toLowerCase()).not.toMatch(
+          /complet|succeed|finished|orchestrated/,
+        );
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
@@ -57,7 +76,9 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(prompt).toContain("Do not treat this prompt as a frozen ready list.");
         expect(prompt).not.toContain(TICKET_TITLE);
         expect(prompt).not.toContain(ticket.id);
-        await harness.logStep("bw-run-injected", { ticketId: ticket.id });
+        expect((await fixture.show(ticket.id)).status).toBe("open");
+        expect(harness.launchedChildren()).toEqual([]);
+        await harness.logStep("bw-start-goal-injected", { ticketId: ticket.id });
 
         const orchestrateStarted = Date.now();
         const result = await harness.orchestrate({

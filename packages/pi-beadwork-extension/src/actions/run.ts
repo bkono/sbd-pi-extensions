@@ -69,6 +69,56 @@ export type GoalInjectResult = {
   busy: boolean;
 };
 
+export type GoalStartState = "started" | "resumed";
+
+export type GoalContinuationDisposition = "queued_follow_up" | "triggered_turn";
+
+export type GoalStartErrorCode = "inactive" | "host" | "supervisor" | "epic" | "conflict";
+
+export class GoalStartError extends Error {
+  readonly code: GoalStartErrorCode;
+
+  constructor(code: GoalStartErrorCode, message: string) {
+    super(message);
+    this.name = "GoalStartError";
+    this.code = code;
+  }
+}
+
+export type GoalStartSession = {
+  activation: ActivationState;
+  state: SessionState;
+};
+
+export type GoalStartResult = {
+  epicId: string;
+  epicTitle: string;
+  goal: Goal;
+  state: GoalStartState;
+  continuation: GoalContinuationDisposition;
+  prompt: string;
+};
+
+export type GoalStartToolResult = {
+  epic_id: string;
+  epic_title: string;
+  goal_id: string;
+  review_policy: ReviewPolicy;
+  state: GoalStartState;
+  continuation: GoalContinuationDisposition;
+};
+
+export function toGoalStartToolResult(result: GoalStartResult): GoalStartToolResult {
+  return {
+    epic_id: result.epicId,
+    epic_title: result.epicTitle,
+    goal_id: result.goal.goalId,
+    review_policy: result.goal.reviewPolicy,
+    state: result.state,
+    continuation: result.continuation,
+  };
+}
+
 export const runActionLog = {
   info(event: string, data: Record<string, unknown>): void {
     console.info(`[beadwork:run] ${event}`, data);
@@ -182,27 +232,39 @@ function notifyError(ctx: ExtensionCommandContext, message: string): void {
   ctx.ui.notify(message, "error");
 }
 
-export async function executeRunAction(input: {
+function presentGoalStartError(ctx: ExtensionCommandContext, error: GoalStartError): void {
+  if (error.code === "epic") {
+    ctx.ui.notify(error.message, "warning");
+    return;
+  }
+  notifyError(ctx, error.message);
+}
+
+export async function startGoal(input: {
   ctx: ExtensionCommandContext;
   deps: RunActionDeps;
   epicId: string;
-}): Promise<void> {
-  const { ctx, deps } = input;
-  const active = await deps.requireActive(ctx);
-  if (!active) {
-    return;
+  session: GoalStartSession;
+}): Promise<GoalStartResult> {
+  const { ctx, deps, session } = input;
+  const epicId = typeof input.epicId === "string" ? input.epicId.trim() : "";
+  if (!epicId) {
+    throw new GoalStartError("epic", "Goal mode requires an explicit epic id.");
+  }
+
+  if (session.activation.kind !== "active") {
+    throw new GoalStartError("inactive", "Beadwork is not active in this repository.");
   }
 
   if (!isPersistentHost(ctx.mode)) {
     runActionLog.info("reject-host", {
-      epicId: input.epicId,
+      epicId,
       hostMode: ctx.mode,
     });
-    notifyError(
-      ctx,
+    throw new GoalStartError(
+      "host",
       `/bw run requires a persistent Pi host (tui or rpc). It is rejected in print and json.`,
     );
-    return;
   }
 
   let config: BeadworkConfig;
@@ -216,15 +278,14 @@ export async function executeRunAction(input: {
           ? error.message
           : String(error);
     runActionLog.info("reject-supervisor-config", {
-      epicId: input.epicId,
+      epicId,
       hostMode: ctx.mode,
       error: message,
     });
-    notifyError(ctx, message);
-    return;
+    throw new GoalStartError("supervisor", message);
   }
 
-  const epic = await deps.adapter.show(ctx.cwd, input.epicId);
+  const epic = await deps.adapter.show(ctx.cwd, epicId);
   const epicError = validateOpenEpicWithDescendants(epic);
   if (epicError) {
     runActionLog.info("reject-epic", {
@@ -232,31 +293,29 @@ export async function executeRunAction(input: {
       hostMode: ctx.mode,
       reason: epicError,
     });
-    ctx.ui.notify(epicError, "warning");
-    return;
+    throw new GoalStartError("epic", epicError);
   }
 
-  const conflictEpicId = conflictingGoalEpicId(active.state, epic.id);
+  const conflictEpicId = conflictingGoalEpicId(session.state, epic.id);
   if (conflictEpicId) {
     runActionLog.info("reject-active-goal", {
       epicId: epic.id,
       hostMode: ctx.mode,
       activeEpicId: conflictEpicId,
     });
-    notifyError(
-      ctx,
+    throw new GoalStartError(
+      "conflict",
       `Goal mode is already running for ${conflictEpicId}. Exit that goal before starting ${epic.id}.`,
     );
-    return;
   }
 
   const reviewPolicy = config.review.policy ?? DEFAULT_REVIEW_POLICY;
   const existingGoal =
-    active.state.mode === "run" &&
-    active.state.goal &&
-    isV1Goal(active.state.goal) &&
-    active.state.goal.scopeIds[0] === epic.id
-      ? active.state.goal
+    session.state.mode === "run" &&
+    session.state.goal &&
+    isV1Goal(session.state.goal) &&
+    session.state.goal.scopeIds[0] === epic.id
+      ? session.state.goal
       : undefined;
   const goal = existingGoal ?? createV1Goal({ epicId: epic.id, reviewPolicy });
   const scope: Exclude<SessionScope, { kind: "none" }> = {
@@ -267,21 +326,21 @@ export async function executeRunAction(input: {
 
   const stateWithPrime = await deps.ensurePrime(
     ctx,
-    active.activation,
+    session.activation,
     config,
-    active.state,
+    session.state,
     false,
   );
   const { state: preparedState } = await deps.setSessionMode(
     ctx,
-    active.activation,
+    session.activation,
     config,
     stateWithPrime,
     "run",
     scope,
   );
 
-  const persisted = await deps.writeSessionState(ctx, active.activation, config, {
+  const persisted = await deps.writeSessionState(ctx, session.activation, config, {
     ...preparedState,
     mode: "run",
     scope,
@@ -305,8 +364,50 @@ export async function executeRunAction(input: {
     busy: injected.busy,
   });
 
-  ctx.ui.notify(`Goal mode started for ${epic.id}. The parent was asked to orchestrate.`, "info");
-  updateStatusline(ctx, active.activation, persisted, config);
+  updateStatusline(ctx, session.activation, persisted, config);
+
+  return {
+    epicId: epic.id,
+    epicTitle: epic.title,
+    goal,
+    state: existingGoal ? "resumed" : "started",
+    continuation: injected.busy ? "queued_follow_up" : "triggered_turn",
+    prompt,
+  };
+}
+
+export async function executeRunAction(input: {
+  ctx: ExtensionCommandContext;
+  deps: RunActionDeps;
+  epicId: string;
+}): Promise<void> {
+  const { ctx, deps } = input;
+  const active = await deps.requireActive(ctx);
+  if (!active) {
+    return;
+  }
+
+  try {
+    const result = await startGoal({
+      ctx,
+      deps,
+      epicId: input.epicId,
+      session: {
+        activation: active.activation,
+        state: active.state,
+      },
+    });
+    ctx.ui.notify(
+      `Goal mode started for ${result.epicId}. The parent was asked to orchestrate.`,
+      "info",
+    );
+  } catch (error) {
+    if (error instanceof GoalStartError) {
+      presentGoalStartError(ctx, error);
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function handleRunAction(input: {

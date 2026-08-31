@@ -46,6 +46,8 @@ export const FORBIDDEN_TOOLS = [
   "beadwork_worker_done",
   "beadwork_land_worker",
   "beadwork_worker_check",
+  "bw_run_epic",
+  "beadwork_run_epic",
 ] as const;
 
 export const FORBIDDEN_ORCHESTRATION_SYMBOLS = [
@@ -82,6 +84,7 @@ export const RETAINED_PARENT_TOOLS = [
   "beadwork_blocked",
   "beadwork_status",
   "beadwork_prime",
+  "beadwork_start_goal",
 ] as const;
 
 export type ProductionSource = {

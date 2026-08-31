@@ -17,8 +17,8 @@ Use this package for:
 
 Truths to keep in mind:
 
-- `/bw run` **injects a prompt** that asks the parent to refresh `bw` and `orchestrate`. It does
-  not start a polling supervisor or freeze a ready list.
+- `/bw run` and `beadwork_start_goal` **inject a prompt** that asks the parent to refresh `bw` and
+  `orchestrate`. They do not start a polling supervisor or freeze a ready list.
 - The standing beadwork appendix is **policy**. It does not start a turn.
 - Children are **process-local**. They die with the parent Pi process. A stuck child may require
   `/halt` or process exit. There is no daemon and no restart recovery.
@@ -176,7 +176,8 @@ See [docs/worker-conventions.md](./docs/worker-conventions.md).
 
 - children are in-process Pi sessions owned by minions
 - parent exit, `/new`, or process death disposes children
-- leftover disk `mode=run` is **interrupted**, not auto-resumed — run `/bw run <epic-id>` again
+- leftover disk `mode=run` is **interrupted**, not auto-resumed — run `/bw run <epic-id>` or
+  `beadwork_start_goal({ epic_id })` again
 - `/bw abandon` exits goal mode and queues `/halt group`; the epic stays open
 - a stuck child: `/halt <id|all>`. If that is not enough, exit the parent Pi process
 - one goal and one open orchestration group per parent session
@@ -252,11 +253,16 @@ Parent beadwork tools (inspection **and** mutation):
 - status / prime / ready / blocked / list / show / history
 - create / update / dependency add-remove
 - start / close / reopen / comment / label / defer / undefer / sync
+- `beadwork_start_goal` — parent-only manager-only goal-mode transition for an explicit epic id
 
 Children spawned or orchestrated by minions get **inspection only**: `beadwork_show`,
 `beadwork_list_issues`, `beadwork_issue_history`, `beadwork_ready`, `beadwork_blocked`,
-`beadwork_status`, `beadwork_prime`. They do not get start/close/create/comment. The parent
-mutates tickets after it judges evidence.
+`beadwork_status`, `beadwork_prime`. They do not get start/close/create/comment/start_goal. The
+parent mutates tickets after it judges evidence.
+
+Call `beadwork_start_goal({ epic_id })` only after deliberately choosing to execute an already-decomposed
+open epic. It queues the same continuation `/bw run` injects. It does not implement the epic,
+dispatch children, or infer which epic to run.
 
 Deleted for everyone: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`,
 `beadwork_worker_check`.

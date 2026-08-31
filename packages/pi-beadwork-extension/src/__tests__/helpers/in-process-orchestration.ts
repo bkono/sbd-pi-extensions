@@ -101,12 +101,14 @@ export const BEADWORK_MUTATION_TOOLS = [
   "beadwork_defer_issue",
   "beadwork_undefer_issue",
   "beadwork_sync",
+  "beadwork_start_goal",
 ] as const;
 
 export const DENIED_CHILD_BEADWORK_TOOLS = [
   "beadwork_close_issue",
   "beadwork_start_issue",
   "beadwork_reopen_issue",
+  "beadwork_start_goal",
 ] as const;
 
 const ALL_BEADWORK_TOOLS = [

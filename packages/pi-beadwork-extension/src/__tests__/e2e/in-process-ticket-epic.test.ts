@@ -172,6 +172,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         await harness.assertNoTmuxOrWorktree();
         assertNoDeletedRuntimeTools(harness.parentToolNames);
         expect(harness.parentToolNames).toContain("send_minion_message");
+        expect(harness.parentToolNames).toContain("beadwork_start_goal");
 
         const initialReady = await fixture.ready();
         expect(issueIds(initialReady)).toEqual(expect.arrayContaining([alpha.id, beta.id]));

@@ -18,7 +18,7 @@ Persisted session state:
 
 - `neutral` — no beadwork workflow is engaged
 - `interactive` — human-led beadwork; standing appendix is policy; wait for the user
-- `run` — goal mode for one epic; standing appendix is policy; `/bw run` injects the start prompt
+- `run` — goal mode for one epic; standing appendix is policy; `/bw run` or `beadwork_start_goal` injects the start prompt
 
 Typical dashboard-first flow:
 
@@ -101,7 +101,14 @@ Goal mode exits when the scoped epic is closed via beadwork tools, when you `/bw
 group).
 
 Disk `mode=run` after `/new` or process death is interrupted, not auto-resumed. Run `/bw run`
-again.
+or `beadwork_start_goal` again.
+
+### Agent-initiated goal mode
+
+After the parent has decomposed and polished an epic, it can call `beadwork_start_goal({ epic_id })`
+instead of waiting for a human `/bw run`. That is a deliberate mode transition, not discovery and
+not a synchronous supervisor. The next turn refreshes `bw ready`/`bw show` and orchestrates; the
+tool itself does not dispatch children or close tickets.
 
 ### Parent loop (model)
 

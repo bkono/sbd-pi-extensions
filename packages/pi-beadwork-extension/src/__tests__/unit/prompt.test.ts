@@ -245,7 +245,9 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("## Scoped issue");
     expect(text).toContain("Do not orchestrate");
     expect(text).toContain("Wait for the user.");
-    expect(text).toContain("Resume only after explicit `/bw run <epic-id>`");
+    expect(text).toContain(
+      "Resume only after explicit `/bw run <epic-id>` or `beadwork_start_goal`.",
+    );
     expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
     expect(text).not.toContain(
       "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
@@ -410,6 +412,11 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(text).toContain("Beadwork does not own a validation gate.");
     expect(text).toContain("Do not classify review findings with a keyword matcher.");
     expect(text).toContain("Do not use tmux, landing, `--workers`, or polling.");
+    expect(text).toContain("Do not auto-start goal mode merely because an epic exists.");
+    expect(text).toContain("## Goal mode entry");
+    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
+    expect(text).toContain("already-decomposed open epic");
+    expect(text).toContain("It does not implement the epic or dispatch children.");
   });
 
   it("does not advertise deleted worker tools on the available-tools line", () => {
@@ -427,6 +434,7 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(tools).toContain("beadwork_start_issue");
     expect(tools).toContain("beadwork_close_issue");
     expect(tools).toContain("beadwork_sync");
+    expect(tools).toContain("beadwork_start_goal");
   });
 
   it("keeps scoped issue summary and truncated prime", () => {

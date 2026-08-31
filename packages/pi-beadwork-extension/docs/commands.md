@@ -68,6 +68,21 @@ Notes:
 - leftover supervisor config **error**
 - one goal per parent session; a second epic is rejected until the current goal exits
 - children die with Pi; stuck child → `/halt` or process exit
+- the parent-model equivalent is `beadwork_start_goal({ epic_id })` — same domain operation, no slash-command synthesis
+
+## `beadwork_start_goal`
+
+```text
+beadwork_start_goal({ epic_id: "BW-100" })
+```
+
+Parent-only. Call it only after deliberately choosing to execute a ready, already-decomposed open epic. Do not auto-start because an epic exists, infer an epic, or treat the tool as a synchronous run wrapper.
+
+- same persisted goal/scope/review-policy state and continuation as `/bw run`
+- busy parent turns get `followUp` exactly once; the next turn receives the standing run appendix
+- same-epic retry resumes/re-arms without changing goal identity or start time
+- result vocabulary is `started` / `resumed` plus `queued_follow_up` / `triggered_turn`
+- does not dispatch children, mutate tickets, or claim completion
 
 ## `/bw adopt`
 
@@ -106,6 +121,7 @@ Notes:
 | `beadwork_defer_issue` | Defer one issue. **Parent only.** |
 | `beadwork_undefer_issue` | Undefer one issue. **Parent only.** |
 | `beadwork_sync` | Run `bw sync`. **Parent only.** |
+| `beadwork_start_goal` | Start manager-only goal mode for an explicit open epic and queue the parent continuation. **Parent only.** Does not implement the epic or dispatch children. |
 
 Child inspection allowlist (spawn and orchestrate): `beadwork_show`, `beadwork_list_issues`,
 `beadwork_issue_history`, `beadwork_ready`, `beadwork_blocked`, `beadwork_status`,

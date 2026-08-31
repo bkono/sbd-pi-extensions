@@ -41,6 +41,7 @@ const BEADWORK_PARENT_TOOLS = [
   "beadwork_defer_issue",
   "beadwork_undefer_issue",
   "beadwork_sync",
+  "beadwork_start_goal",
 ] as const;
 
 function truncate(value: string, maxChars: number): string {
@@ -99,6 +100,7 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
       "When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.",
       "Do not infer dependency graphs from ad hoc chat formatting.",
       "Do not autonomously launch children or act like a background orchestrator.",
+      "Do not auto-start goal mode merely because an epic exists.",
       "This standing appendix is policy only. It does not start a turn. Wait for the user.",
     ];
   }
@@ -120,7 +122,7 @@ function renderInterruptedRunGuidance(): string[] {
     "Beadwork run was interrupted.",
     "Do not orchestrate.",
     "Wait for the user.",
-    "Resume only after explicit `/bw run <epic-id>`.",
+    "Resume only after explicit `/bw run <epic-id>` or `beadwork_start_goal`.",
   ];
 }
 
@@ -202,6 +204,16 @@ function renderChildTaskComposition(): string {
   ].join("\n");
 }
 
+function renderGoalStartGuidance(): string {
+  return [
+    "## Goal mode entry",
+    "",
+    "Call `beadwork_start_goal({ epic_id })` only after you have intentionally chosen to execute a ready, already-decomposed open epic.",
+    "Do not infer an epic, do not auto-start because an epic exists, and do not treat this as a synchronous run wrapper.",
+    "The tool starts manager-only goal mode and queues a continuation. It does not implement the epic or dispatch children.",
+  ].join("\n");
+}
+
 function renderQualityCommands(): string {
   return [
     "## Quality commands",
@@ -217,6 +229,7 @@ function renderDoNot(): string {
     "",
     "Do not use tmux, landing, `--workers`, or polling.",
     "Do not classify review findings with a keyword matcher.",
+    "Do not auto-start goal mode merely because an epic exists.",
   ].join("\n");
 }
 
@@ -253,6 +266,7 @@ export function buildBeadworkPromptAppendix(input: {
   const sections = [
     "[BEADWORK SESSION ACTIVE]",
     renderModeGuidance(sessionState.mode).join("\n"),
+    renderGoalStartGuidance(),
     `Current scope: ${scopeLine}`,
     renderAgentVsTaskType(),
     renderTaskTypePolicy(),
