@@ -61,6 +61,14 @@ export function isDeniedChildBeadworkTool(name: string): boolean {
   return name.startsWith("beadwork_") && !BEADWORK_CHILD_INSPECTION_TOOL_SET.has(name);
 }
 
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
 function safeObserverError(err: unknown): string {
   try {
     if (typeof err === "string") return err;
@@ -482,12 +490,17 @@ export class SubsessionManager {
 
     let observerError: unknown;
     try {
-      child?.options.onComplete?.({
+      const observed = child?.options.onComplete?.({
         exitCode: event.exitCode,
         output: event.output,
         status: metadataStatus,
         error: event.error,
       });
+      if (isThenable(observed)) {
+        void Promise.resolve(observed).then(undefined, (err: unknown) => {
+          this.logObserverError(id, err);
+        });
+      }
     } catch (err) {
       observerError = err;
     }
@@ -781,9 +794,8 @@ export class SubsessionManager {
               // waitForIdle is best-effort; agent_settled is the primary idle signal.
             }
             await this.drainTrailingSessionEvents(id, session);
-          } catch (err) {
+          } finally {
             this.retireResume(child, resume);
-            throw err;
           }
         });
         try {

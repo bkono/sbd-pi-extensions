@@ -1016,55 +1016,146 @@ describe("terminal observer exception safety", () => {
     const logError = vi.spyOn(logger, "error").mockImplementation((_scope, msg) => {
       if (msg === "on-complete-error") throw new Error("log boom");
     });
-    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), bus, {
-      createChildRuntime: async () => ({
-        runtime: {
-          session,
-          dispose: () => {
-            session.dispose();
+    try {
+      const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), bus, {
+        createChildRuntime: async () => ({
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
           },
-        },
-        sessionPath: join(cwd, "child.jsonl"),
-      }),
-    });
-    const idle = createDeferred<void>();
-    session.waitForIdle = () => idle.promise;
-    const handle = await manager.startChild({
-      id: "child-obs",
-      name: "alpha",
-      task: "wrap up",
-      config,
-      spawnedBy: "parent",
-      cwd,
-      modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
-      onComplete,
-    });
+          sessionPath: join(cwd, "child.jsonl"),
+        }),
+      });
+      const idle = createDeferred<void>();
+      session.waitForIdle = () => idle.promise;
+      const handle = await manager.startChild({
+        id: "child-obs",
+        name: "alpha",
+        task: "wrap up",
+        config,
+        spawnedBy: "parent",
+        cwd,
+        modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
+        onComplete,
+      });
 
-    session.emit({ type: "agent_settled" });
-    idle.resolve();
-    await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
-    expect(manager.getTerminal("child-obs")?.class).toBe("settled");
-    expect(completions).toEqual([expect.objectContaining({ id: "child-obs", class: "settled" })]);
-    expect(onComplete).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => {
-      expect(session.disposed).toBe(true);
-      expect(manager.getSessionHandle("child-obs")).toBeUndefined();
+      session.emit({ type: "agent_settled" });
+      idle.resolve();
+      await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
+      expect(manager.getTerminal("child-obs")?.class).toBe("settled");
+      expect(completions).toEqual([expect.objectContaining({ id: "child-obs", class: "settled" })]);
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(session.disposed).toBe(true);
+        expect(manager.getSessionHandle("child-obs")).toBeUndefined();
+      });
+      expect(
+        manager.commitTerminal("child-obs", {
+          class: "failed",
+          exitCode: 1,
+          output: "",
+          error: "nope",
+        }),
+      ).toBe(false);
+      expect(manager.getTerminal("child-obs")?.class).toBe("settled");
+      expect(logError).toHaveBeenCalled();
+    } finally {
+      logError.mockRestore();
+    }
+  });
+
+  it("async onComplete rejection is contained without blocking terminal", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-settle-"));
+    const session = new FakeChildSession();
+    const bus = new EventBus();
+    const completions: Array<{ id: string; class: string }> = [];
+    bus.on(MINION_COMPLETE_CHANNEL, (event: { id: string; class: string }) => {
+      completions.push(event);
     });
-    expect(
-      manager.commitTerminal("child-obs", {
-        class: "failed",
-        exitCode: 1,
-        output: "",
-        error: "nope",
-      }),
-    ).toBe(false);
-    expect(manager.getTerminal("child-obs")?.class).toBe("settled");
-    expect(logError).toHaveBeenCalled();
+    const gate = createDeferred<void>();
+    const onComplete = vi.fn(async () => {
+      await gate.promise;
+      throw new Error("async observer boom");
+    });
+    const logError = vi.spyOn(logger, "error");
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), bus, {
+        createChildRuntime: async () => ({
+          runtime: {
+            session,
+            dispose: () => {
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, "child.jsonl"),
+        }),
+      });
+      const idle = createDeferred<void>();
+      session.waitForIdle = () => idle.promise;
+      const handle = await manager.startChild({
+        id: "child-obs-async",
+        name: "alpha",
+        task: "wrap up",
+        config,
+        spawnedBy: "parent",
+        cwd,
+        modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
+        onComplete,
+      });
+
+      session.emit({ type: "agent_settled" });
+      idle.resolve();
+      await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
+      expect(manager.getTerminal("child-obs-async")?.class).toBe("settled");
+      expect(completions).toEqual([
+        expect.objectContaining({ id: "child-obs-async", class: "settled" }),
+      ]);
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(session.disposed).toBe(true);
+        expect(manager.getSessionHandle("child-obs-async")).toBeUndefined();
+      });
+      expect(manager.getSession("child-obs-async")).toBeUndefined();
+      expect(logError.mock.calls.filter((call) => call[1] === "on-complete-error")).toHaveLength(0);
+
+      gate.resolve();
+      await vi.waitFor(() => {
+        expect(logError.mock.calls.filter((call) => call[1] === "on-complete-error")).toHaveLength(
+          1,
+        );
+      });
+      expect(logError).toHaveBeenCalledWith(
+        "subsession",
+        "on-complete-error",
+        expect.objectContaining({ childId: "child-obs-async", error: "async observer boom" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+      expect(manager.getTerminal("child-obs-async")?.class).toBe("settled");
+      expect(
+        manager.commitTerminal("child-obs-async", {
+          class: "failed",
+          exitCode: 1,
+          output: "",
+          error: "nope",
+        }),
+      ).toBe(false);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      logError.mockRestore();
+    }
   });
 });
 
 describe("waiting mailbox resume", () => {
-  async function setupWaitingChild(opts?: { streaming?: boolean }) {
+  async function setupWaitingChild(opts?: { streaming?: boolean; onWaitingResume?: () => void }) {
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-wait-"));
     const session = new FakeChildSession();
     if (opts?.streaming) session.isStreaming = true;
@@ -1100,7 +1191,10 @@ describe("waiting mailbox resume", () => {
       onTextDelta: bound.onTextDelta,
       onTurnEnd: bound.onTurnEnd,
       onAgentEnd: bound.onAgentEnd,
-      onWaitingResume: bound.onWaitingResume,
+      onWaitingResume: () => {
+        opts?.onWaitingResume?.();
+        bound.onWaitingResume();
+      },
     });
     if (opts?.streaming) session.isStreaming = true;
     const mailbox = new MinionCommMailbox({
@@ -1238,6 +1332,149 @@ describe("waiting mailbox resume", () => {
     expect(manager.pendingResumeCount("child-wait")).toBe(0);
   });
 
+  it("handled prompt without message_start leaves waiting sticky and retires resume", async () => {
+    const onWaitingResume = vi.fn();
+    const { session, manager, tree, idle, mailbox } = await setupWaitingChild({
+      onWaitingResume,
+    });
+    const initialPrompts = session.prompts.length;
+    const reply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(reply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBe(initialPrompts + 1);
+    });
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(onWaitingResume).not.toHaveBeenCalled();
+
+    idle.resolve();
+    await vi.waitFor(() => {
+      expect(manager.pendingResumeCount("child-wait")).toBe(0);
+    });
+    expect(manager.isLive("child-wait")).toBe(true);
+    expect(manager.getTerminal("child-wait")).toBeUndefined();
+    expect(tree.get("child-wait")?.status).toBe("running");
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(onWaitingResume).not.toHaveBeenCalled();
+  });
+
+  it("exact message_start before prompt resolution clears waiting and resume count", async () => {
+    const onWaitingResume = vi.fn();
+    const { session, manager, tree, mailbox } = await setupWaitingChild({
+      onWaitingResume,
+    });
+    const promptGate = createDeferred<void>();
+    session.prompt = async (text: string) => {
+      session.prompts.push(text);
+      await promptGate.promise;
+    };
+    const reply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(reply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBeGreaterThan(1);
+    });
+    const delivered = session.prompts.at(-1) ?? "";
+    expect(parseMinionMailDeliveryId(delivered)).toBe(reply.messageId);
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(onWaitingResume).not.toHaveBeenCalled();
+
+    session.emit(userStart(delivered));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
+    expect(onWaitingResume).toHaveBeenCalledTimes(1);
+
+    promptGate.resolve();
+    await vi.waitFor(() => {
+      expect(manager.pendingResumeCount("child-wait")).toBe(0);
+    });
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(manager.isLive("child-wait")).toBe(true);
+    expect(onWaitingResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("old job retirement cannot clear a newer resume token", async () => {
+    const onWaitingResume = vi.fn();
+    const { session, manager, tree, idle, mailbox } = await setupWaitingChild({
+      onWaitingResume,
+    });
+    const firstGate = createDeferred<void>();
+    const secondGate = createDeferred<void>();
+    let parentPrompts = 0;
+    session.prompt = async (text: string) => {
+      session.prompts.push(text);
+      parentPrompts++;
+      if (parentPrompts === 1) await firstGate.promise;
+      if (parentPrompts === 2) await secondGate.promise;
+    };
+
+    const firstReply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(firstReply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(parentPrompts).toBe(1);
+    });
+    const gen1Text = session.prompts.at(-1) ?? "";
+    expect(parseMinionMailDeliveryId(gen1Text)).toBe(firstReply.messageId);
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+
+    const askedAgain = mailbox.send({
+      from: "child-wait",
+      to: PARENT_RECIPIENT_ID,
+      groupId: "grp-1",
+      body: "still need a ruling",
+    });
+    expect(askedAgain.status).toBe(COMM_SEND_STATUS.queued);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+
+    const secondReply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(secondReply.status).toBe(COMM_SEND_STATUS.queued);
+    expect(secondReply.messageId).not.toBe(firstReply.messageId);
+
+    firstGate.resolve();
+    idle.resolve();
+    await vi.waitFor(() => {
+      expect(parentPrompts).toBe(2);
+    });
+    expect(parseMinionMailDeliveryId(session.prompts.at(-1) ?? "")).toBe(secondReply.messageId);
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(onWaitingResume).not.toHaveBeenCalled();
+
+    session.emit(userStart(gen1Text));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+    expect(onWaitingResume).not.toHaveBeenCalled();
+
+    session.emit(userStart(session.prompts.at(-1) ?? ""));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
+    expect(onWaitingResume).toHaveBeenCalledTimes(1);
+    secondGate.resolve();
+  });
+
   it("abort while waiting wins exactly once", async () => {
     const { manager, handle } = await setupWaitingChild();
     handle.abort();
@@ -1293,6 +1530,11 @@ describe("waiting mailbox resume", () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    const secondGate = createDeferred<void>();
+    session.prompt = async (text: string) => {
+      session.prompts.push(text);
+      await secondGate.promise;
+    };
     const secondReply = mailbox.send({
       from: PARENT_RECIPIENT_ID,
       to: "child-wait",
@@ -1316,6 +1558,7 @@ describe("waiting mailbox resume", () => {
     await Promise.resolve();
     expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
     expect(manager.pendingResumeCount("child-wait")).toBe(0);
+    secondGate.resolve();
   });
 
   it("serializes concurrent idle parent deliveries exactly once in order", async () => {
@@ -1375,7 +1618,11 @@ describe("waiting mailbox resume", () => {
     expect(parseMinionMailDeliveryId(delivered[1] ?? "")).toBe(second.messageId);
     expect(delivered[0]).toContain("\none");
     expect(delivered[1]).toContain("\ntwo");
-    expect(manager.pendingResumeCount("child-wait")).toBeLessThanOrEqual(1);
+    await vi.waitFor(() => {
+      expect(manager.pendingResumeCount("child-wait")).toBe(0);
+    });
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(manager.isLive("child-wait")).toBe(true);
   });
 
   it("async prompt rejection stays waiting and the next queued job still delivers", async () => {

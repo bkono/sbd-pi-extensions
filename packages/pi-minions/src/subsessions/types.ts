@@ -149,5 +149,5 @@ export interface CreateMinionSessionOptions {
     output: string;
     status?: MinionSessionMetadata["status"];
     error?: string;
-  }) => void;
+  }) => void | Promise<void>;
 }
