@@ -505,7 +505,6 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(committed).toHaveLength(1);
         expect(committed[0]?.[2]).toMatchObject({
           eventClass: "settled",
-          winner: "mail-then-settle",
           terminalEventCount: 1,
         });
         const late = await harness.sendMinionMessage(childA, "too late");

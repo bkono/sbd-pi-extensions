@@ -347,6 +347,8 @@ function addWhileFits<T>(
 export class LifecyclePacketDispatcher {
   private queue: OwnedLifecycleEvent[] = [];
   private scheduled = false;
+  private draining = false;
+  private automaticRecoveryUsed = false;
   private seq = 0;
   private closed = false;
   private readonly schedule: (run: () => void) => void;
@@ -378,6 +380,10 @@ export class LifecyclePacketDispatcher {
     const terminalKey = event.class === "parentMessage" ? undefined : event.lifecycleId;
     if (terminalKey && this.deliveredTerminals.has(terminalKey)) return;
     this.queue.push({ event, registration, terminalKey });
+    // A real enqueue after the recovery cycle is idle may retry again. Reentrant
+    // enqueue during drain/submit must not reset the automatic recovery cap.
+    if (!this.draining && !this.scheduled) this.automaticRecoveryUsed = false;
+    if (this.draining && this.automaticRecoveryUsed) return;
     this.scheduleDrain();
   }
 
@@ -387,6 +393,7 @@ export class LifecyclePacketDispatcher {
     this.seq = 0;
     this.deliveredTerminals.clear();
     this.deliveredTerminalOrder = [];
+    this.automaticRecoveryUsed = false;
   }
 
   close(): void {
@@ -424,7 +431,7 @@ export class LifecyclePacketDispatcher {
     }
   }
 
-  private scheduleDrain(recoverOnFailure = true): void {
+  private scheduleDrain(): void {
     if (this.scheduled || this.closed) return;
     this.scheduled = true;
     this.schedule(() => {
@@ -433,40 +440,50 @@ export class LifecyclePacketDispatcher {
         this.queue = [];
         return;
       }
-      this.drain(recoverOnFailure);
+      this.drain();
     });
   }
 
-  private drain(recoverOnFailure: boolean): void {
-    const batch: OwnedLifecycleEvent[] = [];
-    let packet: BuiltLifecyclePacket | undefined;
-    do {
-      batch.push(...this.queue.splice(0));
-      packet = this.build(batch);
-    } while (this.queue.length > 0);
+  private drain(): void {
+    this.draining = true;
+    try {
+      const batch: OwnedLifecycleEvent[] = [];
+      let packet: BuiltLifecyclePacket | undefined;
+      do {
+        batch.push(...this.queue.splice(0));
+        packet = this.build(batch);
+      } while (this.queue.length > 0);
 
-    if (!packet) return;
-    if (!this.submit(packet.details)) {
-      this.queue.unshift(...batch);
-      // One event-driven recovery submission handles a lone synchronous host failure.
-      // A second failure preserves evidence for the next real lifecycle event.
-      if (recoverOnFailure) this.scheduleDrain(false);
-      return;
-    }
+      if (!packet) return;
+      if (!this.submit(packet.details)) {
+        this.queue.unshift(...batch);
+        // One event-driven recovery submission handles a lone synchronous host failure.
+        // A second failure preserves evidence for the next real lifecycle event.
+        // Reentrant enqueue during submit must not schedule a third attempt.
+        if (!this.automaticRecoveryUsed) {
+          this.automaticRecoveryUsed = true;
+          this.scheduleDrain();
+        }
+        return;
+      }
 
-    for (const registration of packet.terminalRegistrations) {
-      this.recordDelivered(registration.lifecycleId, registration.groupId);
-    }
-    if (packet.idleReservation) {
-      this.deps
-        .getGroups()
-        .acknowledgeIdleTransition(packet.idleReservation.groupId, packet.idleReservation.epoch);
-    }
-    for (const snapshot of packet.parentMailSnapshots) this.deps.ackParentMail?.(snapshot);
-    this.deps.ackOverlaps?.(packet.overlapIds);
-    // Accepted packet/evidence ack happens before exact-lifecycle cleanup. Replacement nodes survive.
-    for (const registration of packet.terminalRegistrations) {
-      this.deps.onAcceptedTerminal?.(registration);
+      this.automaticRecoveryUsed = false;
+      for (const registration of packet.terminalRegistrations) {
+        this.recordDelivered(registration.lifecycleId, registration.groupId);
+      }
+      if (packet.idleReservation) {
+        this.deps
+          .getGroups()
+          .acknowledgeIdleTransition(packet.idleReservation.groupId, packet.idleReservation.epoch);
+      }
+      for (const snapshot of packet.parentMailSnapshots) this.deps.ackParentMail?.(snapshot);
+      this.deps.ackOverlaps?.(packet.overlapIds);
+      // Accepted packet/evidence ack happens before exact-lifecycle cleanup. Replacement nodes survive.
+      for (const registration of packet.terminalRegistrations) {
+        this.deps.onAcceptedTerminal?.(registration);
+      }
+    } finally {
+      this.draining = false;
     }
   }
 

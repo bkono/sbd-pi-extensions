@@ -512,6 +512,73 @@ describe("bounded submission recovery", () => {
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(dispatcher.inspectionCounts().queued).toBe(1);
   });
+
+  it("caps automatic recovery across reentrant enqueue and recovers later without loss", () => {
+    const { tree, sendMessage, dispatcher, pending } = harness();
+    addOrchestrated(tree, "mn-1");
+    addOrchestrated(tree, "mn-2");
+    tree.updateStatus("mn-1", "completed", 0);
+    tree.updateStatus("mn-2", "completed", 0);
+
+    let attempts = 0;
+    sendMessage.mockImplementation(() => {
+      attempts++;
+      if (attempts <= 2) {
+        dispatcher.enqueue({
+          class: "settled",
+          groupId: "grp-1",
+          childId: "mn-2",
+          output: "second",
+        });
+        throw new Error("host unavailable");
+      }
+    });
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "first",
+    });
+    expect(pending).toHaveLength(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pending).toHaveLength(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(pending).toHaveLength(0);
+    expect(dispatcher.inspectionCounts().queued).toBeGreaterThan(0);
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "first-later",
+    });
+    expect(pending).toHaveLength(1);
+    pending.shift()?.();
+
+    expect(attempts).toBe(3);
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(pending).toHaveLength(0);
+    expect(dispatcher.inspectionCounts().queued).toBe(0);
+
+    const recovered = packetOf(sendMessage, 2);
+    expect(recovered.message.details.seq).toBe(1);
+    expect(recovered.message.details.changed.map((child) => child.childId)).toEqual([
+      "mn-1",
+      "mn-2",
+    ]);
+    expect(recovered.message.details.changed.map((child) => child.output)).toEqual([
+      "first-later",
+      "second",
+    ]);
+    expect(recovered.message.details.groupIdleId).toBe("grp-1");
+  });
 });
 
 describe("delimiter", () => {
