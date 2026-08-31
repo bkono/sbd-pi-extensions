@@ -39,11 +39,15 @@
     {
       "text": "Fix implementation landed at 3385ecd06d0c078dafdab2e98c8c1b8fe041b6ed. Changed only manager.ts, subsessions/types.ts, and activity.test.ts. Implementer reports pi-minions lint/typecheck green, 264 tests green, focused 126 green. Parent inspection confirms delivery-job finally uses identity-checked retireResume; exact message_start remains the only visible waiting-clear path; onComplete now attaches immediate non-awaited rejection containment; worktree clean and diff check clean. Independent re-review required before acceptance.",
       "timestamp": "2026-08-31T05:26:59Z"
+    },
+    {
+      "text": "Independent re-review ea914d92 PASS at exact commit 3385ecd06d0c078dafdab2e98c8c1b8fe041b6ed. Both accepted closure blockers reproduced as fixed: handled/no-message_start delivery retires exact token to 0 while child remains live/waiting/retryable; exact event resumes once; stale/newer identity, concurrent serialization, failure/tail behavior pass. Delayed async onComplete rejection is attached/contained without awaiting; terminal event/waiter/state/disposal/removal remain authoritative and no unhandled rejection occurs. Prior REJECT dispositions retained. Validation: pi-minions lint/typecheck pass; 22 files/264 tests; focused 7 files/126 tests; targeted blockers 6 pass; clean HEAD and diff check. Parent accepts PASS; closure-ready.",
+      "timestamp": "2026-08-31T05:37:15Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Replace turn counters with bounded runtime-derived activity state",
   "type": "feature",
-  "updated_at": "2026-08-31T05:26:59Z"
+  "updated_at": "2026-08-31T05:37:15Z"
 }
