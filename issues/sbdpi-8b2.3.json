@@ -27,11 +27,15 @@
     {
       "text": "Final re-review of f77ff67 FAIL; all findings remain FIX/closure-blocking. Locked remediation: manager and visible ActivitySnapshot waiting must remain sticky through ordinary assistant tail text, thinking/tool start/tool end/turn/narrative/settling events, queue acceptance, and idle wait. Only a correlated parent-reply user-message-start (or equally proven per-delivery consumed token) may transition waiting→thinking. Active runs may queue followUp; idle-but-held children must start a new prompt/run; delivery failure remains waiting/retryable while abort/failure win. Tree notification must snapshot registrations, isolate/log each listener exception, continue delivery, and stale unsubscribe must only remove its own captured set/registration. Replay must quarantine duplicate active toolCallIds so no result can cross-pair into false waiting. Exact manager+tree lifecycle, active/idle reply, delivery throw, abort/failure, listener throw/stale-unsubscribe, and production-shaped duplicate/interleaved replay regressions required. Ticket remains blocked pending remediation and independent PASS.",
       "timestamp": "2026-08-31T03:36:24Z"
+    },
+    {
+      "text": "Closure review of 8d55fc8 settled FAIL. Accepted FIX blockers: mailbox delivery correlation still keys raw text, so stale identical-text generation can clear a newer wait and pending tokens grow unbounded; concurrent idle sends race prompt admission and lose one delivery. Propagate mailbox message.id as deliveryId into the actual trusted envelope consumed at user message_start; capture generation at acceptance; serialize per-child delivery jobs with a failure-safe promise tail; permit one active resume token and retire on consumption/failure/terminal/disposal. Tree subscriptions need unique registration identity so stale off(A) cannot remove replacement B with same callback; keep captured-set empty guard, no node-incarnation framework. Listener logging itself must be contained. Replay must require explicit queued acceptance, suppress duplicate-id second tool_start/results/waiting, and preserve valid unique calls. commitTerminal must contain onComplete observer errors and still publish completion, resolve waiters, dispose runtime, and retain settled authority. REJECTED: two calls for two explicit global/scoped registrations and nested notification for a distinct listener-triggered mutation are expected semantics; do not add dedupe/reentrancy machinery. Ticket remains blocked pending fix and independent PASS.",
+      "timestamp": "2026-08-31T04:20:00Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Replace turn counters with bounded runtime-derived activity state",
   "type": "feature",
-  "updated_at": "2026-08-31T03:36:24Z"
+  "updated_at": "2026-08-31T04:20:00Z"
 }
