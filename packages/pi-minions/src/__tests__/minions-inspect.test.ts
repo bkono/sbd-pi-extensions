@@ -166,14 +166,14 @@ describe("list_minions filters", () => {
     expect(listed.content[0]?.text).toContain("-- → read src/auth.ts");
   });
 
-  it("separates waiting and settling activity from message and output", async () => {
+  it("separates notification messages from thinking and settling activity", async () => {
     const tree = new AgentTree();
     tree.add("mn-wait", "alpha", "ask parent", {
       kind: "orchestrated",
       groupId: "grp-1",
       description: "Need a ruling",
     });
-    tree.applyActivityEvent("mn-wait", { type: "waiting" });
+    tree.applyActivityEvent("mn-wait", { type: "thinking" });
     tree.updateInspection("mn-wait", {
       output: "still reading the file",
       messages: [{ from: "mn-wait", to: "parent", text: "need a ruling" }],
@@ -192,24 +192,24 @@ describe("list_minions filters", () => {
     const listed = await list(tree);
     const waiting = listed.details.minions.find((m) => m.id === "mn-wait");
     const settling = listed.details.minions.find((m) => m.id === "mn-settle");
-    expect(waiting?.activity?.phase).toBe("waiting");
-    expect(waiting?.lastActivity).toBe("waiting on parent");
+    expect(waiting?.activity?.phase).toBe("thinking");
+    expect(waiting?.lastActivity).toBe("thinking");
     expect(waiting?.lastMessage).toBe("need a ruling");
     expect(waiting?.lastActivity).not.toBe(waiting?.lastMessage);
     expect(settling?.activity?.phase).toBe("settling");
     expect(settling?.lastActivity).toBe("settling");
     expect(settling?.lastMessage).toBe("ok continue");
-    expect(listed.content[0]?.text).toContain("waiting on parent");
+    expect(listed.content[0]?.text).toContain("thinking");
     expect(listed.content[0]?.text).toContain("settling");
 
     waiting!.activity!.summary = "hacked";
-    expect(tree.get("mn-wait")?.activity?.summary).toBe("waiting on parent");
+    expect(tree.get("mn-wait")?.activity?.summary).toBe("thinking");
 
     const shownWait = await show(tree, "mn-wait");
-    expect(shownWait.details.activity?.phase).toBe("waiting");
+    expect(shownWait.details.activity?.phase).toBe("thinking");
     expect(shownWait.details.lastMessage).toBe("need a ruling");
     expect(shownWait.details.output).toBe("still reading the file");
-    expect(shownWait.content[0]?.text).toContain("Activity: waiting — waiting on parent");
+    expect(shownWait.content[0]?.text).toContain("Activity: thinking — thinking");
     expect(shownWait.content[0]?.text).toContain("Last message: need a ruling");
     expect(shownWait.content[0]?.text).toContain("still reading the file");
 

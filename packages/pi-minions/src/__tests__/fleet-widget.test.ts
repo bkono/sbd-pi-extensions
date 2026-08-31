@@ -112,7 +112,7 @@ describe("FleetWidgetComponent", () => {
   it("renders every trusted phase and distinguishes pending from running", () => {
     const tree = new AgentTree();
     const groups = new OrchestrationGroupState();
-    const phases = ["starting", "thinking", "tool", "waiting", "settling"] as const;
+    const phases = ["starting", "thinking", "tool", "settling"] as const;
 
     phases.forEach((phase, index) => {
       const id = `mn-${index}`;
@@ -125,7 +125,6 @@ describe("FleetWidgetComponent", () => {
           args: { pattern: "x" },
         });
       }
-      if (phase === "waiting") tree.applyActivityEvent(id, { type: "waiting" });
       if (phase === "settling") tree.applyActivityEvent(id, { type: "settling" });
     });
 
@@ -133,7 +132,6 @@ describe("FleetWidgetComponent", () => {
     expect(text).toContain("pending · starting");
     expect(text).toContain("thinking");
     expect(text).toContain('→ grep {"pattern":"x"}');
-    expect(text).toContain("waiting on parent");
     expect(text).toContain("settling");
   });
 
@@ -319,9 +317,9 @@ describe("fleet widget reactivity and lifecycle", () => {
 
     const rendersBefore = harness.requestRender.mock.calls.length;
     tree.markLiveHandle("mn-1");
-    tree.applyActivityEvent("mn-1", { type: "waiting" });
+    tree.applyActivityEvent("mn-1", { type: "thinking" });
     expect(harness.requestRender.mock.calls.length).toBeGreaterThan(rendersBefore);
-    expect(plain(component?.render(80) ?? []).join("\n")).toContain("waiting on parent");
+    expect(plain(component?.render(80) ?? []).join("\n")).toContain("thinking");
 
     tree.updateStatus("mn-1", "completed", 0);
     expect(harness.setWidget).toHaveBeenLastCalledWith(FLEET_WIDGET_KEY, undefined);
@@ -345,7 +343,7 @@ describe("fleet widget reactivity and lifecycle", () => {
     expect(oldUi.setWidget).toHaveBeenLastCalledWith(FLEET_WIDGET_KEY, undefined);
     expect(staleComponent?.render(80)).toEqual([]);
 
-    oldTree.applyActivityEvent("old", { type: "waiting" });
+    oldTree.applyActivityEvent("old", { type: "thinking" });
     expect(oldUi.requestRender).toHaveBeenCalledTimes(callsAfterDestroy);
   });
 });
@@ -451,7 +449,7 @@ describe("extension session ownership", () => {
     nextTree?.add("next", "next-minion", "next task");
     expect(nextUi.component()?.render(80)).toHaveLength(2);
 
-    oldTree?.applyActivityEvent("old", { type: "waiting" });
+    oldTree?.applyActivityEvent("old", { type: "thinking" });
     expect(oldUi.requestRender).toHaveBeenCalledTimes(oldRendersAfterShutdown);
 
     await nextExtension.shutdown(next, { reason: "quit" });

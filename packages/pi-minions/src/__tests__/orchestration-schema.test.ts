@@ -180,7 +180,7 @@ describe("OrchestrateResult schema", () => {
     const starting = {
       groupId: "grp-1",
       accepted: [{ childId: "mn-1", description: "Registry refactor", state: "starting" as const }],
-      rejected: [{ index: 1, reason: "duplicate workItemId" }],
+      rejected: [{ index: 1, reason: "unknown agent" }],
     };
     const completed = {
       groupId: "grp-1",

@@ -50,7 +50,7 @@ export interface ChangedChildPacket {
   nudge: string;
 }
 
-export type FleetChildState = "pending" | "running" | "waiting" | "settling";
+export type FleetChildState = "pending" | "running" | "settling";
 
 export interface StillRunningChildPacket {
   childId: string;
@@ -306,7 +306,6 @@ export function formatLifecyclePacket(
 
 function fleetChildState(node: AgentNode): FleetChildState {
   if (node.status === "pending") return "pending";
-  if (node.activity?.phase === "waiting") return "waiting";
   if (node.activity?.phase === "settling") return "settling";
   return "running";
 }
@@ -426,7 +425,7 @@ export class LifecyclePacketDispatcher {
     }
   }
 
-  private scheduleDrain(): void {
+  private scheduleDrain(recoverOnFailure = true): void {
     if (this.scheduled || this.closed) return;
     this.scheduled = true;
     this.schedule(() => {
@@ -435,11 +434,11 @@ export class LifecyclePacketDispatcher {
         this.queue = [];
         return;
       }
-      this.drain();
+      this.drain(recoverOnFailure);
     });
   }
 
-  private drain(): void {
+  private drain(recoverOnFailure: boolean): void {
     const batch: OwnedLifecycleEvent[] = [];
     let packet: BuiltLifecyclePacket | undefined;
     do {
@@ -450,6 +449,9 @@ export class LifecyclePacketDispatcher {
     if (!packet) return;
     if (!this.submit(packet.details)) {
       this.queue.unshift(...batch);
+      // One event-driven recovery submission handles a lone synchronous host failure.
+      // A second failure preserves evidence for the next real lifecycle event.
+      if (recoverOnFailure) this.scheduleDrain(false);
       return;
     }
 

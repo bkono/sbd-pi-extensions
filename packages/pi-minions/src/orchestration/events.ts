@@ -5,7 +5,7 @@
  * settled | aborted | failed | parentMessage; 1.8 ignores `started`.
  * Start failure (startChild throws) is `failed` so it does not become an
  * unhandled rejection and is still visible to 1.8.
- * `parentMessage` is a live child → parent question (3.3). The child stays running.
+ * `parentMessage` is a live child → parent notification (3.3). It does not hold the child live.
  */
 export const ORCHESTRATION_LIFECYCLE_CHANNEL = "orchestration:lifecycle";
 

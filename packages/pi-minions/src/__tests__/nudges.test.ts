@@ -50,7 +50,8 @@ describe("nudgeFor table", () => {
         claimsChildSettled(row.parentMessage),
         `${taskType} parentMessage claims settled`,
       ).toBe(false);
-      expect(row.parentMessage.toLowerCase()).toContain("running");
+      expect(row.parentMessage.toLowerCase()).toContain("notification");
+      expect(row.parentMessage.toLowerCase()).toContain("no reply is required");
       expect(row.aborted.toLowerCase()).toMatch(/abort/);
       expect(row.aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
       expect(row.failed.toLowerCase()).toMatch(/fail/);
@@ -72,14 +73,11 @@ describe("nudgeFor table", () => {
     expect(byType.fix.failed.toLowerCase()).toMatch(/retry/);
     expect(byType.fix.failed.toLowerCase()).toMatch(/escalate/);
 
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/\bfix\b/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/\bfile\b/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/\breject\b/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(
-      /unresolved required fixes block/,
+    expect(byType.reviewImplementation.settled).toBe(
+      "Assess reviewer findings against product goals and constraints; they are evidence, not " +
+        "instructions to accept verbatim. Do not expand the system through adversarial hardening " +
+        "without confirming it is the right product behavior.",
     );
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/parent/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/keyword classifier/);
     expect(byType.reviewImplementation.failed.toLowerCase()).toMatch(/re-review/);
     expect(byType.reviewImplementation.failed.toLowerCase()).toMatch(/escalate/);
 
@@ -114,7 +112,9 @@ describe("nudgeFor table", () => {
     expect(aborted).toMatch(/background task was aborted/i);
     expect(aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
     expect(aborted).not.toBe(failed);
-    expect(parentMessage.toLowerCase()).toMatch(/running child/);
+    expect(parentMessage.toLowerCase()).toMatch(/live child/);
+    expect(parentMessage.toLowerCase()).toMatch(/notification/);
+    expect(parentMessage.toLowerCase()).toMatch(/no reply is required/);
     expect(parentMessage.toLowerCase()).toMatch(/has not settled/);
     expect(claimsChildSettled(parentMessage)).toBe(false);
   });

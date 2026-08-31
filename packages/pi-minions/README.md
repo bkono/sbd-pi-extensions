@@ -61,7 +61,8 @@ Each orchestrated task needs:
   Never collapse agent and taskType.
 - optional `model`
 - optional `domain` — opaque `{ source, scopeId, workItemId, title }`. Minions stores and
-  echoes; it does not interpret tickets. Beadwork uses `source: "beadwork"`.
+  echoes; it does not interpret tickets or enforce `workItemId` uniqueness. Multiple live children
+  may intentionally share one work item id. Beadwork uses `source: "beadwork"`.
 
 One **open group** per parent session. Omit `groupId` to create it (or join the open group).
 A second group is rejected. `cwd` is group-create only, must already exist, and cannot change
@@ -92,9 +93,11 @@ These are separate boundaries:
 1. `orchestrate` returns `accepted[].state: "starting"` after registration. The tree state is pending.
 2. A child becomes running only after its live session handle exists. The internal `started` event does
    not wake the parent model.
-3. Trusted runtime events project `starting`, `thinking`, `tool`, `waiting`, and `settling` activity.
-   Turn count is metadata, not the displayed activity.
-4. Settlement means the child is fully idle, including accepted mail. It is evidence, not acceptance.
+3. Trusted runtime events project `starting`, `thinking`, `tool`, and `settling` activity. Turn count
+   is metadata, not the displayed activity.
+4. Settlement means the child is fully idle, including accepted parent-to-child mail. A
+   child-to-parent notification does not park the child or wait for a reply. Settlement is evidence,
+   not acceptance.
 
 While children are pending/running, a persistent fleet widget appears above the editor without taking
 focus. It shows a bounded activity summary and clears after the final active child. `/minions` remains
@@ -119,7 +122,10 @@ Children do **not** get start / close / reopen / create / update / comment / lab
 `beadwork_sync`. The parent mutates tickets.
 
 Minions is not loaded inside children. Orchestrated children may receive bound comm tools from
-the parent; spawn children do not.
+the parent; spawn children do not. `send_minion_peer` is a nonblocking notification: sending to the
+parent may wake it through a lifecycle packet, but does not park the child, require a reply, or delay
+ordinary settlement. Path-intent announcements keep pairwise overlap evidence but coalesce live overlap
+notices to one delivery per peer per announcement.
 
 ### Lifetime
 

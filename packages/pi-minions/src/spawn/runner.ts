@@ -135,7 +135,6 @@ export async function runSingleMinion(opts: {
         },
         onTurnEnd: bound.onTurnEnd,
         onAgentEnd: bound.onAgentEnd,
-        onWaitingResume: bound.onWaitingResume,
         onUsageUpdate: (usage) => {
           tree.updateUsage(m.id, usage);
           m.usage = {

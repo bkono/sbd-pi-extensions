@@ -40,7 +40,7 @@ export type AgentStatus = "pending" | "running" | "completed" | "failed" | "abor
 export type AgentKind = "spawn" | "orchestrated";
 
 /** Runtime-derived work phase. Terminal status is separate and authoritative. */
-export type ActivityPhase = "starting" | "thinking" | "tool" | "waiting" | "settling";
+export type ActivityPhase = "starting" | "thinking" | "tool" | "settling";
 
 export interface ActivitySnapshot {
   phase: ActivityPhase;

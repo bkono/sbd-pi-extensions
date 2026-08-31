@@ -218,12 +218,8 @@ describe("AgentTree orchestration metadata", () => {
     expect(node.domain).toEqual(domain);
     expect(node.domain).toBe(domain);
     expect(tree.get("mn-orch")?.domain?.workItemId).toBe("ABC-123");
-    expect(tree.getLiveByWorkItemId("ABC-123").map((n) => n.id)).toEqual(["mn-orch"]);
-    expect(tree.getLiveByWorkItemId("abc-123")).toEqual([]);
-    expect(tree.getLiveByWorkItemId("ABC")).toEqual([]);
 
     tree.updateStatus("mn-orch", "completed", 0);
-    expect(tree.getLiveByWorkItemId("ABC-123")).toEqual([]);
     expect(tree.getOrchestratedGroup("grp-1")).toEqual([]);
   });
 });

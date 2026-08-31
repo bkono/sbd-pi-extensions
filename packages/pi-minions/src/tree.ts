@@ -294,13 +294,6 @@ export class AgentTree {
     );
   }
 
-  /** Live nodes with this domain.workItemId. String equality only; not ticket ownership. */
-  getLiveByWorkItemId(workItemId: string): AgentNode[] {
-    return Array.from(this.nodes.values()).filter(
-      (n) => n.domain?.workItemId === workItemId && !isTerminalStatus(n.status),
-    );
-  }
-
   getRoots(): AgentNode[] {
     return Array.from(this.nodes.values()).filter((n) => n.parentId === undefined);
   }

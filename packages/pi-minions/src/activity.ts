@@ -12,8 +12,6 @@ export type ActivityEvent =
   | { type: "thinking" }
   | { type: "tool_start"; toolName: string; args?: Record<string, unknown> }
   | { type: "tool_end" }
-  | { type: "waiting" }
-  | { type: "resume" }
   | { type: "settling" }
   | { type: "turn_end"; turn: number }
   | { type: "narrative"; text: string };
@@ -53,14 +51,6 @@ function replaceUnpairedSurrogates(text: string): string {
   }
   return result;
 }
-
-const FAILED_SEND_STATUSES = new Set([
-  "recipient-terminal",
-  "invalid-recipient",
-  "group-not-open",
-  "mailbox-full",
-  "body-too-large",
-]);
 
 export function sanitizeActivityText(text: string, max: number): string {
   const stripped = replaceUnpairedSurrogates(text)
@@ -145,15 +135,6 @@ function keepCurrent(
   };
 }
 
-function holdIfWaiting(
-  current: ActivitySnapshot | undefined,
-  event: ActivityEvent,
-  now: number,
-): ReduceActivityResult | undefined {
-  if (current?.phase !== "waiting") return undefined;
-  return keepCurrent(current, event, now);
-}
-
 export function reduceActivity(
   current: ActivitySnapshot | undefined,
   event: ActivityEvent,
@@ -166,8 +147,6 @@ export function reduceActivity(
         recordHistory: current?.phase !== "starting",
       };
     case "thinking": {
-      const held = holdIfWaiting(current, event, now);
-      if (held) return held;
       if (current?.phase === "tool") return keepCurrent(current, event, now);
       if (current?.phase === "thinking") return keepCurrent(current, event, now);
       return {
@@ -180,8 +159,6 @@ export function reduceActivity(
       };
     }
     case "tool_start": {
-      const held = holdIfWaiting(current, event, now);
-      if (held) return held;
       const formatted = formatToolActivity(event.toolName, event.args);
       return {
         snapshot: withMeta(current, event, now, {
@@ -194,9 +171,7 @@ export function reduceActivity(
       };
     }
     case "tool_end": {
-      if (current?.phase === "waiting" || current?.phase === "settling") {
-        return keepCurrent(current, event, now);
-      }
+      if (current?.phase === "settling") return keepCurrent(current, event, now);
       const keepTool = current?.phase === "tool";
       return {
         snapshot: withMeta(current, event, now, {
@@ -209,37 +184,7 @@ export function reduceActivity(
         recordHistory: current?.phase !== "thinking",
       };
     }
-    case "waiting":
-      return {
-        snapshot: withMeta(current, event, now, {
-          phase: "waiting",
-          summary: "waiting on parent",
-        }),
-        recordHistory: current?.phase !== "waiting",
-      };
-    case "resume": {
-      if (current?.phase !== "waiting") {
-        if (current?.phase === "tool") return keepCurrent(current, event, now);
-        if (current?.phase === "thinking") return keepCurrent(current, event, now);
-        return {
-          snapshot: withMeta(current, event, now, {
-            phase: "thinking",
-            summary: "thinking",
-            narrativePreview: current?.narrativePreview,
-          }),
-          recordHistory: true,
-        };
-      }
-      return {
-        snapshot: withMeta(current, event, now, {
-          phase: "thinking",
-          summary: "thinking",
-        }),
-        recordHistory: true,
-      };
-    }
     case "settling":
-      if (current?.phase === "waiting") return keepCurrent(current, event, now);
       return {
         snapshot: withMeta(current, event, now, { phase: "settling", summary: "settling" }),
         recordHistory: current?.phase !== "settling",
@@ -306,59 +251,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
-function evidenceBags(event: Record<string, unknown>): Record<string, unknown>[] {
-  const bags = [event];
-  const args = asRecord(event.args);
-  if (args) bags.push(args);
-  const result = asRecord(event.result);
-  if (result) {
-    bags.push(result);
-    const nested = asRecord(result.details);
-    if (nested) bags.push(nested);
-  }
-  const details = asRecord(event.details);
-  if (details) bags.push(details);
-  return bags;
-}
-
-function evidenceString(bags: Record<string, unknown>[], key: string): string | undefined {
-  for (const bag of bags) {
-    const value = bag[key];
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return undefined;
-}
-
-function toolEndFailed(event: Record<string, unknown>): boolean {
-  if (event.isError === true || event.success === false) return true;
-  const result = asRecord(event.result);
-  if (result?.isError === true) return true;
-  const status = evidenceString(evidenceBags(event), "status");
-  return status !== undefined && FAILED_SEND_STATUSES.has(status);
-}
-
-function isAcceptedParentBoundQuestion(
-  event: Record<string, unknown>,
-  pendingParentQuestion: boolean,
-): boolean {
-  if (toolEndFailed(event)) return false;
-  const bags = evidenceBags(event);
-  const to = evidenceString(bags, "to");
-  const status = evidenceString(bags, "status");
-  const toolName = String(event.toolName ?? "");
-  const parentBound =
-    pendingParentQuestion ||
-    to === "parent" ||
-    (toolName === "send_minion_peer" && to === "parent");
-  if (!parentBound) return false;
-  if (to !== undefined && to !== "parent") return false;
-  return status === "queued";
-}
-
-function isParentBoundPeerStart(toolName: string, args: Record<string, unknown>): boolean {
-  return toolName === "send_minion_peer" && String(args.to ?? "") === "parent";
-}
-
 function messageFromRecord(record: Record<string, unknown>): Record<string, unknown> | undefined {
   if (record.type !== "message") return undefined;
   return asRecord(record.message);
@@ -397,7 +289,7 @@ export function sessionRecordsToActivityEvents(
   records: Record<string, unknown>[],
 ): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  const pendingCalls = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+  const pendingCalls = new Set<string>();
   const quarantinedCallIds = new Set<string>();
   let turnCount = 0;
 
@@ -426,7 +318,7 @@ export function sessionRecordsToActivityEvents(
           continue;
         }
         events.push({ type: "tool_start", toolName: call.toolName, args: call.args });
-        pendingCalls.set(call.id, { toolName: call.toolName, args: call.args });
+        pendingCalls.add(call.id);
       }
       continue;
     }
@@ -435,29 +327,8 @@ export function sessionRecordsToActivityEvents(
 
     const callId = typeof message.toolCallId === "string" ? message.toolCallId : "";
     if (!callId || quarantinedCallIds.has(callId)) continue;
-    const pending = pendingCalls.get(callId);
-    if (!pending) continue;
-    pendingCalls.delete(callId);
+    if (!pendingCalls.delete(callId)) continue;
     events.push({ type: "tool_end" });
-
-    const details = asRecord(message.details);
-    const resultRecord: Record<string, unknown> = {
-      toolName: pending.toolName,
-      args: pending.args,
-      isError: message.isError === true,
-    };
-    if (details) {
-      resultRecord.result = { details };
-      resultRecord.details = details;
-    }
-    if (
-      isAcceptedParentBoundQuestion(
-        resultRecord,
-        isParentBoundPeerStart(pending.toolName, pending.args),
-      )
-    ) {
-      events.push({ type: "waiting" });
-    }
   }
 
   return events;
@@ -496,7 +367,6 @@ export function bindTreeActivity(
   onTextDelta: (delta: string, fullText: string) => void;
   onTurnEnd: (turnCount: number) => void;
   onAgentEnd: (info?: { willRetry?: boolean }) => void;
-  onWaitingResume: () => void;
 } {
   const isCurrent = (): boolean =>
     (lifecycleId === undefined || tree.get(id)?.lifecycleId === lifecycleId) &&
@@ -535,19 +405,9 @@ export function bindTreeActivity(
       if (!isCurrent() || info?.willRetry) return;
       tree.applyActivityEvent(id, { type: "settling" });
     },
-    onWaitingResume: () => {
-      if (!isCurrent()) return;
-      tree.applyActivityEvent(id, { type: "resume" });
-    },
   };
 }
 
 export function isActivityPhase(value: string): value is ActivityPhase {
-  return (
-    value === "starting" ||
-    value === "thinking" ||
-    value === "tool" ||
-    value === "waiting" ||
-    value === "settling"
-  );
+  return value === "starting" || value === "thinking" || value === "tool" || value === "settling";
 }

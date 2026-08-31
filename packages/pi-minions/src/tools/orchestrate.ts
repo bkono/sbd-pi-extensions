@@ -47,7 +47,6 @@ export const ORCHESTRATE_REJECT_REASONS = {
   missingDescription: "missing description",
   missingTask: "missing task",
   unknownTaskType: "unknown taskType",
-  duplicateWorkItemId: "duplicate workItemId",
   unknownAgent: "unknown agent",
   unknownModel: "unknown model",
   ephemeralDisabled: "ephemeral minions are disabled",
@@ -263,7 +262,6 @@ function startRegisteredChild(
       onToolOutput: bound.onToolOutput,
       onTextDelta: bound.onTextDelta,
       onAgentEnd: bound.onAgentEnd,
-      onWaitingResume: bound.onWaitingResume,
       onTurnEnd: (turnCount) => {
         if (!ownsLiveAuthority()) return;
         bound.onTurnEnd(turnCount);
@@ -403,7 +401,6 @@ export function orchestrate(deps: OrchestrateDeps) {
     const accepted: OrchestrateResult["accepted"] = [];
     const rejected: OrchestrateResult["rejected"] = [];
     const registered: RegisteredChild[] = [];
-    const claimedWorkItemIds = new Set<string>();
     const assignedNames = new Set<string>();
 
     for (let index = 0; index < tasks.length; index++) {
@@ -430,19 +427,6 @@ export function orchestrate(deps: OrchestrateDeps) {
           value: String(spec.taskType),
         });
         continue;
-      }
-
-      const workItemId = optionalString(spec.domain?.workItemId);
-      if (workItemId) {
-        const live = tree.getLiveByWorkItemId(workItemId);
-        if (live.length > 0 || claimedWorkItemIds.has(workItemId)) {
-          rejected.push({
-            index,
-            reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId,
-            value: workItemId,
-          });
-          continue;
-        }
       }
 
       const agent = optionalString(spec.agent);
@@ -479,7 +463,6 @@ export function orchestrate(deps: OrchestrateDeps) {
       }
 
       assignedNames.add(name);
-      if (workItemId) claimedWorkItemIds.add(workItemId);
 
       const descriptor: OrchestratedTaskDescriptor = {
         task,

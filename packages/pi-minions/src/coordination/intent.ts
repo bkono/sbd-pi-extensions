@@ -263,6 +263,8 @@ export function announcePathIntent(input: AnnouncePathIntentInput): AnnouncePath
     uniqueHits.push(hit);
   }
 
+  const noticesByPeer = new Map<string, PathOverlapNotice[]>();
+
   for (const hit of uniqueHits) {
     const notice: PathOverlapNotice = {
       groupId,
@@ -277,20 +279,29 @@ export function announcePathIntent(input: AnnouncePathIntentInput): AnnouncePath
       editAllowed: true,
     };
     input.overlaps?.record(notice);
-    input.mailbox?.enqueue({
-      from: childId,
-      to: hit.otherId,
-      groupId,
-      lifecycleId,
-      lifecycleEpoch: epoch,
-      body: formatOverlapBody(notice),
-    });
+    const peerNotices = noticesByPeer.get(hit.otherId);
+    if (peerNotices) peerNotices.push(notice);
+    else noticesByPeer.set(hit.otherId, [notice]);
     logger.info("path-intent", "overlap", {
       paths: [hit.path, hit.otherPath],
       childId,
       otherId: hit.otherId,
       overlap: true,
       editAllowed: true,
+    });
+  }
+
+  for (const [peerId, notices] of noticesByPeer) {
+    const first = notices[0];
+    if (!first) continue;
+    const additional = notices.length > 1 ? ` ${notices.length - 1} additional overlap(s).` : "";
+    input.mailbox?.enqueue({
+      from: childId,
+      to: peerId,
+      groupId,
+      lifecycleId,
+      lifecycleEpoch: epoch,
+      body: `${formatOverlapBody(first)}${additional}`,
     });
   }
 

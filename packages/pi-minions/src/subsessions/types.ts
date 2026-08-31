@@ -99,7 +99,7 @@ export interface MinionSessionHandle {
   id: string;
   path: string;
   steer(text: string): Promise<void>;
-  followUp(text: string, opts?: { parentReply?: boolean; deliveryId?: string }): Promise<void>;
+  followUp(text: string): Promise<void>;
   abort(): void;
   wait(): Promise<ChildTerminalEvent>;
 }
@@ -136,7 +136,6 @@ export interface CreateMinionSessionOptions {
   onTextDelta?: (delta: string, fullText: string) => void;
   onTurnEnd?: (turnCount: number) => void;
   onAgentEnd?: (info: { willRetry?: boolean }) => void;
-  onWaitingResume?: () => void;
   onUsageUpdate?: (usage: {
     input: number;
     output: number;

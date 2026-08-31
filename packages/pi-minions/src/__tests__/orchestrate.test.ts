@@ -326,10 +326,10 @@ describe("accepted state and start failure", () => {
   });
 });
 
-describe("workItemId uniqueness", () => {
-  it("rejects a second live duplicate workItemId and allows reuse after terminal", async () => {
+describe("opaque workItemId metadata", () => {
+  it("accepts multiple simultaneous live children with the same workItemId", async () => {
     const { execute, ctx, tree, groups } = setup();
-    const first = detailsOf(
+    const result = detailsOf(
       await run(
         execute,
         {
@@ -337,7 +337,7 @@ describe("workItemId uniqueness", () => {
             { ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } },
             {
               ...baseTask,
-              description: "Dup",
+              description: "Independent review",
               domain: { source: "beadwork", workItemId: "BW-123" },
             },
           ],
@@ -346,50 +346,23 @@ describe("workItemId uniqueness", () => {
       ),
     );
 
-    expect(first.accepted).toHaveLength(1);
-    expect(first.rejected).toEqual([
-      {
-        index: 1,
-        reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId,
-        value: "BW-123",
-      },
-    ]);
-    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
-
-    await expect(
-      run(
-        execute,
-        { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
-        ctx,
-      ),
-    ).rejects.toThrow(/0 starting, 1 rejected/);
-    await expect(
-      run(
-        execute,
-        { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
-        ctx,
-      ),
-    ).rejects.toThrow(ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId);
-    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
-
-    tree.updateStatus(first.accepted[0]!.childId, "completed", 0);
-    const reused = detailsOf(
-      await run(
-        execute,
-        { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
-        ctx,
-      ),
-    );
-    expect(reused.accepted).toHaveLength(1);
-    expect(reused.rejected).toEqual([]);
+    expect(result.accepted).toHaveLength(2);
+    expect(result.rejected).toEqual([]);
+    expect(groups.getOpenGroup()?.groupId).toBe(result.groupId);
+    expect(
+      result.accepted.map((accepted) => tree.get(accepted.childId)?.domain?.workItemId),
+    ).toEqual(["BW-123", "BW-123"]);
+    expect(
+      result.accepted.every((accepted) => tree.get(accepted.childId)?.status === "running"),
+    ).toBe(true);
 
     logCall("workItemId", {
-      groupId: first.groupId,
-      childId: `${first.accepted[0]?.childId},${reused.accepted[0]?.childId}`,
+      groupId: result.groupId,
+      childId: result.accepted.map((accepted) => accepted.childId).join(","),
       hostMode: ctx.mode,
-      accepted: reused.accepted.length,
-      rejected: 1,
-      reasons: [ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId],
+      accepted: result.accepted.length,
+      rejected: 0,
+      reasons: [],
     });
   });
 });

@@ -50,7 +50,6 @@ export interface MinionCallbacks {
   onTextDelta?: (delta: string, fullText: string) => void;
   onTurnEnd?: (turnCount: number) => void;
   onAgentEnd?: (info: { willRetry?: boolean }) => void;
-  onWaitingResume?: () => void;
   onUsageUpdate?: (usage: {
     input: number;
     output: number;
@@ -204,10 +203,6 @@ export async function runMinionSession(
 
       onAgentEnd: (info) => {
         opts.onAgentEnd?.(info);
-      },
-
-      onWaitingResume: () => {
-        opts.onWaitingResume?.();
       },
     });
 

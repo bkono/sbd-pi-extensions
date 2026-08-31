@@ -14,7 +14,7 @@ import {
   sessionRecordsToActivityEvents,
 } from "../activity.js";
 import { logger } from "../logger.js";
-import { PARENT_ONLY_MINION_TOOLS, parseMinionMailDeliveryId } from "../orchestration/comm.js";
+import { PARENT_ONLY_MINION_TOOLS } from "../orchestration/comm.js";
 import type { ActivitySnapshot } from "../types.js";
 import type { EventBus } from "./event-bus.js";
 import { MINION_COMPLETE_CHANNEL, MINION_PROGRESS_CHANNEL } from "./event-bus.js";
@@ -218,12 +218,6 @@ interface ChildRecord {
   pendingMail: number;
   /** True once any inbound mail was accepted on this run. */
   mailAccepted: boolean;
-  /** Accepted child→parent question. Idle settlement must not terminalize. */
-  waitingOnParent: boolean;
-  /** Incremented on each accepted parent-bound wait so stale replies cannot resume a newer wait. */
-  waitGeneration: number;
-  /** At most one admitted parent-reply awaiting a matching consumed user message_start. */
-  activeResume?: { generation: number; deliveryId: string };
   /** Serializes accepted deliveries so only one job admits prompt/followUp. */
   deliveryTail: Promise<void>;
 }
@@ -332,8 +326,6 @@ export class SubsessionManager {
       unsubscribe: () => {},
       pendingMail: 0,
       mailAccepted: false,
-      waitingOnParent: false,
-      waitGeneration: 0,
       deliveryTail: Promise.resolve(),
       sessionPath,
     };
@@ -486,8 +478,6 @@ export class SubsessionManager {
       event.class === "settled" ? "completed" : event.class;
     this.updateStatus(id, metadataStatus, event.exitCode, event.error);
 
-    if (child) child.activeResume = undefined;
-
     let observerError: unknown;
     try {
       const observed = child?.options.onComplete?.({
@@ -535,14 +525,6 @@ export class SubsessionManager {
 
   isLive(id: string): boolean {
     return this.activeHandles.has(id) && !this.terminals.has(id) && !this.shutdown;
-  }
-
-  /** Hold idle settlement until a parent reply or the child resumes model work. */
-  markWaitingOnParent(id: string): void {
-    const child = this.children.get(id);
-    if (!child || child.terminal || this.terminals.has(id)) return;
-    child.waitingOnParent = true;
-    child.waitGeneration += 1;
   }
 
   /** Re-apply the child tool formula. Call after late-registered tools. */
@@ -677,28 +659,6 @@ export class SubsessionManager {
     if (child.pendingMail === 0) this.tryCommitIdle(id);
   }
 
-  private consumeParentReply(id: string, event: ChildSessionEvent): void {
-    const child = this.children.get(id);
-    if (!child || child.terminal || !child.waitingOnParent) return;
-    const text = userMessageText(event);
-    if (text === undefined) return;
-    const deliveryId = parseMinionMailDeliveryId(text);
-    const pending = child.activeResume;
-    if (!pending || !deliveryId || pending.deliveryId !== deliveryId) return;
-    child.activeResume = undefined;
-    if (pending.generation !== child.waitGeneration) return;
-    child.waitingOnParent = false;
-    child.options.onWaitingResume?.();
-  }
-
-  private retireResume(
-    child: ChildRecord | undefined,
-    resume: { generation: number; deliveryId: string } | undefined,
-  ): void {
-    if (!child || !resume) return;
-    if (child.activeResume === resume) child.activeResume = undefined;
-  }
-
   private enqueueDelivery(id: string, work: () => Promise<void>): Promise<void> {
     const child = this.children.get(id);
     if (!child) {
@@ -735,15 +695,6 @@ export class SubsessionManager {
       this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
       return;
     }
-    if (record.waitingOnParent) {
-      logger.info("subsession", "lifecycle", {
-        childId: id,
-        eventClass: "waiting",
-        terminalLatchFired: false,
-        winner: "waiting",
-      });
-      return;
-    }
     if (record.pendingMail > 0) {
       logger.info("subsession", "lifecycle", {
         childId: id,
@@ -771,32 +722,21 @@ export class SubsessionManager {
       steer: async (text: string) => {
         await this.requireLiveSession(id).steer(text);
       },
-      followUp: async (text: string, opts?: { parentReply?: boolean; deliveryId?: string }) => {
+      followUp: async (text: string) => {
         this.acceptMail(id);
         const job = this.enqueueDelivery(id, async () => {
           const session = this.requireLiveSession(id);
-          const child = this.children.get(id);
-          const deliveryId = opts?.deliveryId ?? parseMinionMailDeliveryId(text);
-          const resume =
-            opts?.parentReply === true && child?.waitingOnParent && deliveryId
-              ? { generation: child.waitGeneration, deliveryId }
-              : undefined;
-          if (resume && child) child.activeResume = resume;
-          try {
-            if (session.isStreaming) {
-              await session.followUp(text);
-            } else {
-              await session.prompt(text);
-            }
-            try {
-              await session.waitForIdle();
-            } catch {
-              // waitForIdle is best-effort; agent_settled is the primary idle signal.
-            }
-            await this.drainTrailingSessionEvents(id, session);
-          } finally {
-            this.retireResume(child, resume);
+          if (session.isStreaming) {
+            await session.followUp(text);
+          } else {
+            await session.prompt(text);
           }
+          try {
+            await session.waitForIdle();
+          } catch {
+            // waitForIdle is best-effort; agent_settled is the primary idle signal.
+          }
+          await this.drainTrailingSessionEvents(id, session);
         });
         try {
           await job;
@@ -846,7 +786,6 @@ export class SubsessionManager {
   }
 
   private async runDisposeChild(id: string, child: ChildRecord): Promise<void> {
-    child.activeResume = undefined;
     child.unsubscribe();
     this.unsubscribers.delete(id);
     child.abortCleanup?.();
@@ -896,10 +835,6 @@ export class SubsessionManager {
     if (!child || child.terminal) return;
 
     this.emitProgress(id, event);
-
-    if (event.type === "message_start") {
-      this.consumeParentReply(id, event);
-    }
 
     if (event.type === "tool_execution_start" && event.toolName) {
       child.options.onToolActivity?.({
@@ -1159,11 +1094,6 @@ export class SubsessionManager {
 
   getSessionHandle(id: string): MinionSessionHandle | undefined {
     return this.activeHandles.get(id);
-  }
-
-  /** Test/inspection: 0 or 1 admitted parent-reply resume tokens. */
-  pendingResumeCount(id: string): number {
-    return this.children.get(id)?.activeResume ? 1 : 0;
   }
 
   /** Check if a session path is a minion session and return the minion ID */
@@ -1458,26 +1388,6 @@ function sessionEventMessage(event: Record<string, unknown>): unknown | undefine
   if (event.type === "message" && event.message) return event.message;
   if (typeof event.role === "string") return event;
   return undefined;
-}
-
-function userContentText(content: unknown): string | undefined {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return undefined;
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const rec = block as Record<string, unknown>;
-    if (rec.type === "text" && typeof rec.text === "string") parts.push(rec.text);
-  }
-  return parts.length > 0 ? parts.join("") : undefined;
-}
-
-function userMessageText(event: ChildSessionEvent): string | undefined {
-  if (event.type !== "message_start") return undefined;
-  const message = event.message;
-  if (!message || typeof message !== "object") return undefined;
-  if (message.role !== "user") return undefined;
-  return userContentText(message.content);
 }
 
 function extractLastAssistantText(messages: unknown[]): string {

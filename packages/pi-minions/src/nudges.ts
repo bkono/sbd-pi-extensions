@@ -12,13 +12,13 @@ const ABORTED =
   "The child was aborted. Do not retry unless the user asks. Abort is a halt, not a failure.";
 
 const PARENT_MESSAGE =
-  "The child is still running. Answer via a parent-to-child message or halt. This is not settlement.";
+  "A live child sent a notification. Assess it alongside current work; no reply is required.";
 
 const GENERIC: EventNudges = {
   settled: "A background task settled. Inspect its result and decide the next action.",
   failed: "A background task failed. Inspect the error and decide the next action.",
   aborted: "A background task was aborted. Do not retry unless the user asks.",
-  parentMessage: "A running child sent a question. Answer or halt; it has not settled.",
+  parentMessage: "A live child sent a notification. No reply is required; it has not settled.",
 };
 
 const REVIEW_FAILED = "Inspect the failure. Decide whether to re-review or escalate.";
@@ -41,10 +41,9 @@ const BY_TASK_TYPE: Record<TaskType, EventNudges> = {
   },
   reviewImplementation: {
     settled:
-      "Disposition every finding as fix (blocking; remediate and re-review), " +
-      "file (nonblocking follow-up unless the user waives a blocker in an ordinary turn), " +
-      "or reject (record why). Unresolved required fixes block acceptance. " +
-      "Judgment is the parent's, not a keyword classifier.",
+      "Assess reviewer findings against product goals and constraints; they are evidence, not " +
+      "instructions to accept verbatim. Do not expand the system through adversarial hardening " +
+      "without confirming it is the right product behavior.",
     failed: REVIEW_FAILED,
     aborted: ABORTED,
     parentMessage: PARENT_MESSAGE,

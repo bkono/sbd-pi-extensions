@@ -263,6 +263,50 @@ describe("announce and inspect tools", () => {
     });
   });
 
+  it("coalesces multiple overlap pairs into one live notification per peer", () => {
+    const { tree, groups, childId, peerId, groupId } = groupTree();
+    const followUp = vi.fn(async () => {});
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => groups,
+      isLive: () => true,
+      followUp,
+    });
+    const now = 1_000;
+
+    announcePathIntent({
+      tree,
+      childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
+      groupId,
+      groups,
+      cwd: CWD,
+      paths: ["a", "b"],
+      ttlMs: 30_000,
+      now,
+    });
+    const announced = announcePathIntent({
+      tree,
+      childId,
+      lifecycleId: "life-self",
+      epoch: 1,
+      groupId,
+      groups,
+      cwd: CWD,
+      paths: ["a/x.ts", "b/y.ts"],
+      ttlMs: 30_000,
+      now,
+      mailbox,
+    });
+
+    expect(announced.overlaps).toHaveLength(2);
+    expect(mailbox.list()).toHaveLength(1);
+    expect(mailbox.list()[0]).toMatchObject({ from: childId, to: peerId });
+    expect(mailbox.list()[0]?.body).toContain("1 additional overlap(s)");
+    expect(followUp).toHaveBeenCalledTimes(1);
+  });
+
   it("does not overlap a/b.ts with c/ and still allows the edit", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const { tree, groups, childId, peerId, groupId } = groupTree();
