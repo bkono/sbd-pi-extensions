@@ -32,11 +32,15 @@
     {
       "text": "Re-review source audit found no source defect: historical-doc and assertion-boundary fixes are correct, sequencing/manager assertions remain, scope is exact, rejected Git-inspection design was not reintroduced. Reviewer returned NEEDS_FIXES only because it invoked Vitest with the wrong path from the workspace cwd and stopped. Disposition: REJECT as a source finding; this is reviewer command error, not implementation remediation. Parent already ran the correct workspace-relative focused command successfully (1 file/5 tests) and the current-HEAD root lint/test/typecheck/build chain successfully at 6bfc7e3. No retry or code change required. Automated vertical slice accepted subject only to the issue's manual persistent-TUI smoke.",
       "timestamp": "2026-08-31T18:31:34Z"
+    },
+    {
+      "text": "Real persistent-TUI smoke reached goal mode after cleaning ignored local .pi/beadwork-config.json to current review.policy-only shape. Built-in worker/investigate resolved; two simultaneous live children shared workItemId; widget showed pending/running/activity and cleared; child-to-parent notification did not park sender; one group-idle adjudication packet arrived; reviewer launched afterward. Reviewer surfaced two valid product-correctness gaps: successful automatic retry can strand reentrant evidence, and parentMessage nudge may claim 'has not settled'/stillRunning while coalesced terminal+group-idle evidence proves otherwise. Smoke stopped read-only after the nested parent attempted remediation instead of reporting. No repository diff remains. sbdpi-8b2.9 must reopen for targeted fixes before final smoke.",
+      "timestamp": "2026-08-31T20:49:36Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T19:24:03Z"
+  "updated_at": "2026-08-31T20:49:36Z"
 }
