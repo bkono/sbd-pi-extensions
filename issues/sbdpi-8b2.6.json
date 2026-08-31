@@ -20,11 +20,15 @@
     {
       "text": "Baseline note before implementation: at d7f2acc, supplemental root test has one repeatable failure in `packages/pi-beadwork-extension/src/__tests__/e2e/in-process-ticket-epic.test.ts` overlap-notice. `ScriptedChildSession` lacks production `isStreaming` truth, so manager routes live notice through prompt while assertion waits on `followUps`. Widget diff has no causal path. `.6` requires cross-package in-process Beadwork tests; implementer must diagnose and make the harness production-faithful (or correct the assertion based on installed runtime), add regression, and restore full green without weakening behavior. Treat as tracked FILE from `.5`, mandatory by `.6`/epic quality gates.",
       "timestamp": "2026-08-31T06:51:21Z"
+    },
+    {
+      "text": "Independent review of 9618819: NEEDS_FIXES. Blocking: (1) before_agent_start is bypassed by Pi 0.84.3 followUp/_runAgentPrompt lifecycle turns, so a packet-triggered turn can lack the live-group invariant; need source-verified system-prompt path for every real parent turn without synthetic user/progress wake. (2) dispatcher dedupe is batch-local; repeated/stale terminal events cause extra wakes and can consume a re-armed idle epoch. Must durably identify terminal delivery/epoch membership and suppress duplicates. (3) still-active fleet fields/count are unbounded (e.g. 10k description yields 10k packet). Bound descriptions/snapshots deterministically. (4) idle is consumed before packet submission; failed submission can lose the adjudication indication. Preserve existing delivery semantics while ensuring idle acknowledgment/consumption occurs only once delivery is accepted or is safely retryable. Reviewer evidence: scoped gates green but adversarial probes failed. Ticket remains open; fix + re-review required.",
+      "timestamp": "2026-08-31T07:33:07Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T06:52:03Z"
+  "updated_at": "2026-08-31T07:33:07Z"
 }
