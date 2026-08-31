@@ -22,11 +22,15 @@
     {
       "text": "Implementation commits 697208f0 and 5852cd7c plus adjudicated packet-cap fix 3ed0b234 independently closure-reviewed PASS. Removed parked-child/reply correlation and workItem uniqueness; added reviewer evidence nudge; bounded incremental activity; removed redundant lifecycle diagnostics; coalesced peer overlap turns while preserving evidence; exactly one reentrant-safe automatic packet retry. pi-minions lint, 330 tests, typecheck, build, and focused Beadwork integration pass.",
       "timestamp": "2026-08-31T20:26:28Z"
+    },
+    {
+      "text": "Reopened from real TUI reviewer evidence. Valid targeted gaps: (1) if automatic retry succeeds while sendMessage reentrantly enqueues another lifecycle event, enqueue returns due automaticRecoveryUsed and successful drain resets the flag without scheduling the newly queued event, so final evidence can strand absent a later event; (2) generic parentMessage nudge says child 'has not settled' and diagnostic stillRunning:true even though nonparking semantics permit mail+terminal+groupIdle in one valid packet. Fix semantics to remain truthful without restoring parking, polling, or extra protocol. Add focused regressions for successful retry + reentrant enqueue, and same-lifecycle parentMessage+terminal+idle.",
+      "timestamp": "2026-08-31T20:49:37Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Remove semantic orchestration policy from Minions mechanics",
   "type": "task",
-  "updated_at": "2026-08-31T20:49:36Z"
+  "updated_at": "2026-08-31T20:49:37Z"
 }
