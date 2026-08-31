@@ -14,9 +14,15 @@
     "test"
   ],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Independent review of a3c050f found three required remediation items before acceptance: (1) high: test trusts scripted implementer/reviewer prose and never validates named commit contents with real git inspection; add test-only terminal SHA extraction + actual git show evidence and gate reviewer settlement on it, without production heuristics/schema. (2) medium: proposal docs still claim living authority/prescribe legacy role and lack explicit historical/superseded banners; point to package READMEs/migration as authoritative without rewriting historical bodies. (3) low but acceptance-relevant: manager-only no-edit assertion is tautological because harness does not observe edit/write; replace false proof with an observable parent coding-tool boundary or remove the claim and prove the prompt boundary accurately. Root gates currently pass. All three are dispositioned FIX because #1/#2 block closure and #3 otherwise leaves acceptance item 5 only partially proved.",
+      "timestamp": "2026-08-31T18:19:20Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T17:42:40Z"
+  "updated_at": "2026-08-31T18:19:20Z"
 }
