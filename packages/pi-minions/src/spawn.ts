@@ -206,7 +206,7 @@ export async function runMinionSession(
       },
     });
 
-    tree?.applyActivityEvent(id, { type: "thinking" });
+    tree?.markLiveHandle(id);
 
     sessionTimeout = installSessionTimeout({
       timeoutMs: effectiveTimeout,

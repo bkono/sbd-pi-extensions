@@ -244,6 +244,57 @@ describe("foreground spawn tool", () => {
     await pending;
     expect(settled.value).toBe(true);
   });
+
+  it("foreground spawn activity follows shared thinking/tool/settling, not starting...", async () => {
+    const activities: string[] = [];
+    const h = harness();
+    const pending = h.execute(
+      "tool-1",
+      { task: "review the auth flow" },
+      undefined,
+      (update) => {
+        const details = update.details as {
+          activity?: string;
+          minions?: Array<{ activity?: string }>;
+        };
+        const activity = details.minions?.[0]?.activity ?? details.activity;
+        if (activity) activities.push(activity);
+      },
+      h.ctx,
+    );
+    pendingExecutes.push(pending);
+    await vi.waitFor(() => {
+      expect(h.started).toHaveLength(1);
+    });
+
+    await vi.waitFor(() => {
+      expect(h.tree.get(h.started[0]!.id)?.activity?.phase).toBe("thinking");
+    });
+    expect(activities.at(-1)).toBe("thinking");
+    expect(activities).not.toContain("starting...");
+
+    h.started[0]?.onTextDelta?.("drafting", "drafting");
+    await vi.waitFor(() => {
+      expect(activities.at(-1)).toBe("thinking");
+    });
+
+    h.started[0]?.onToolActivity?.({
+      type: "start",
+      toolName: "read",
+      args: { path: "src/auth.ts" },
+    });
+    await vi.waitFor(() => {
+      expect(activities.at(-1)).toBe("→ read src/auth.ts");
+    });
+
+    h.started[0]?.onAgentEnd?.({ willRetry: false });
+    await vi.waitFor(() => {
+      expect(activities.at(-1)).toBe("settling");
+    });
+
+    h.waiters[0]?.resolve({ class: "settled", exitCode: 0, output: "done" });
+    await pending;
+  });
 });
 
 describe("runMinionSession usage accumulator", () => {

@@ -1,6 +1,7 @@
 import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import { cloneActivitySnapshot } from "../activity.js";
 import { logger } from "../logger.js";
 import { formatDuration, formatUsage } from "../render.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
@@ -112,7 +113,7 @@ export function toInfo(node: AgentNode): MinionInfo {
     agentName: node.agentName,
     model: node.model,
     lastActivity: node.lastActivity,
-    activity: node.activity,
+    activity: node.activity ? cloneActivitySnapshot(node.activity) : undefined,
     lastMessage: lastMessageOf(node),
     peerMessageFailed: peerFailed(node),
     lastPeerError: node.lastPeerError,
@@ -205,7 +206,7 @@ export function buildShowMinion(
     node.output ?? terminal?.output ?? subsessionManager?.parseSessionOutput?.(node.id) ?? "";
   const messages = node.messages ?? [];
   const pathIntent = node.pathIntent ?? [];
-  const history = node.activityHistory ?? [];
+  const history = (node.activityHistory ?? []).map(cloneActivitySnapshot);
   const info: ShowMinionInfo = {
     ...infoBase,
     output,

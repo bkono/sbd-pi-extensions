@@ -8,7 +8,7 @@ import { runMinionSession } from "../spawn.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { BatchMinionItem } from "../tools/spawn.js";
 import type { AgentTree } from "../tree.js";
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, SpawnResult } from "../types.js";
 import type { BatchCoordinator } from "./batch.js";
 
 function resolveAgentConfig(agentName: string, cwd: string): AgentConfig {
@@ -76,7 +76,7 @@ export async function runSingleMinion(opts: {
   coordinator: BatchCoordinator;
 }): Promise<{
   success: boolean;
-  result?: import("../types.js").SpawnResult;
+  result?: SpawnResult;
   error?: string;
 }> {
   const {
@@ -107,48 +107,51 @@ export async function runSingleMinion(opts: {
     coordinator.emit(true);
 
     const bound = bindTreeActivity(tree, m.id);
-    const result = await runMinionSession(config, spec.task, {
-      id: m.id,
-      name: m.name,
-      signal: controller.signal,
-      modelRegistry: ctx.modelRegistry,
-      parentModel: selectedModel,
-      cwd: ctx.cwd,
-      subsessionManager,
-      spawnedBy: toolCallId,
-      parentSessionPath: ctx.sessionManager?.getSessionFile() ?? undefined,
-      parentToolNames,
-      toolSyncEnabled: piConfig.toolSync.enabled,
-      toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
-      tree,
-      onToolActivity: (activity) => {
-        bound.onToolActivity(activity);
-        if (activity.type === "start") {
-          m.activity = tree.get(m.id)?.lastActivity;
-          coordinator.emit(true);
-        }
-      },
-      onToolOutput: bound.onToolOutput,
-      onTextDelta: (delta, fullText) => {
-        bound.onTextDelta(delta, fullText);
-        m.finalOutput = lastNarrativeLine(fullText);
-        coordinator.emit(true);
-      },
-      onTurnEnd: bound.onTurnEnd,
-      onAgentEnd: bound.onAgentEnd,
-      onUsageUpdate: (usage) => {
-        tree.updateUsage(m.id, usage);
-        m.usage = {
-          ...m.usage,
-          input: usage.input,
-          output: usage.output,
-          cacheRead: usage.cacheRead,
-          cacheWrite: usage.cacheWrite,
-          cost: usage.cost,
-        };
-        coordinator.emit(true);
-      },
-    });
+    const syncSpawnActivity = () => {
+      m.activity = tree.get(m.id)?.lastActivity;
+      coordinator.emit(true);
+    };
+    const unsubActivity = tree.onChange(syncSpawnActivity);
+    syncSpawnActivity();
+    let result: SpawnResult;
+    try {
+      result = await runMinionSession(config, spec.task, {
+        id: m.id,
+        name: m.name,
+        signal: controller.signal,
+        modelRegistry: ctx.modelRegistry,
+        parentModel: selectedModel,
+        cwd: ctx.cwd,
+        subsessionManager,
+        spawnedBy: toolCallId,
+        parentSessionPath: ctx.sessionManager?.getSessionFile() ?? undefined,
+        parentToolNames,
+        toolSyncEnabled: piConfig.toolSync.enabled,
+        toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
+        tree,
+        onToolActivity: bound.onToolActivity,
+        onToolOutput: bound.onToolOutput,
+        onTextDelta: (delta, fullText) => {
+          bound.onTextDelta(delta, fullText);
+          m.finalOutput = lastNarrativeLine(fullText);
+        },
+        onTurnEnd: bound.onTurnEnd,
+        onAgentEnd: bound.onAgentEnd,
+        onUsageUpdate: (usage) => {
+          tree.updateUsage(m.id, usage);
+          m.usage = {
+            ...m.usage,
+            input: usage.input,
+            output: usage.output,
+            cacheRead: usage.cacheRead,
+            cacheWrite: usage.cacheWrite,
+            cost: usage.cost,
+          };
+        },
+      });
+    } finally {
+      unsubActivity();
+    }
 
     const resultStatus = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
     m.status = resultStatus;

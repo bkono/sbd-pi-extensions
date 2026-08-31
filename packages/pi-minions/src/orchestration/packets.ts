@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { projectTrustedActivity } from "../activity.js";
 import type { PathOverlapNotice } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { nudgeFor } from "../nudges.js";
@@ -6,12 +7,12 @@ import { formatDuration } from "../render.js";
 import { NUDGE_EVENTS, type NudgeEvent } from "../task-types.js";
 import type { AgentTree } from "../tree.js";
 import {
-  type ActivitySnapshot,
   type AgentNode,
   type AgentStatus,
   namedAgent,
   type OrchestrationDomain,
   type TaskType,
+  type TrustedActivityProjection,
 } from "../types.js";
 import type { OrchestrationLifecycleEvent } from "./events.js";
 
@@ -43,7 +44,7 @@ export interface StillRunningChildPacket {
   state: AgentStatus;
   elapsedMs?: number;
   lastActivity?: string;
-  activity?: ActivitySnapshot;
+  activity?: TrustedActivityProjection;
 }
 
 export interface LifecyclePacketDetails {
@@ -209,7 +210,7 @@ function toStillRunning(node: AgentNode, now: number): StillRunningChildPacket {
     state: node.status,
     elapsedMs: now - node.startTime,
     lastActivity: node.lastActivity,
-    activity: node.activity,
+    activity: node.activity ? projectTrustedActivity(node.activity) : undefined,
   };
 }
 

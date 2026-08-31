@@ -269,7 +269,7 @@ function startRegisteredChild(
           });
           return;
         }
-        tree.updateStatus(id, "running");
+        tree.markLiveHandle(id);
         deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
         const terminal = await handle.wait();
         deps.onLifecycle?.({

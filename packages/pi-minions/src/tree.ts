@@ -2,6 +2,7 @@ import {
   ACTIVITY_HISTORY_CAP,
   type ActivityEvent,
   capActivityHistory,
+  cloneActivitySnapshot,
   reduceActivity,
 } from "./activity.js";
 import { logger } from "./logger.js";
@@ -242,11 +243,23 @@ export class AgentTree {
     if (exitCode !== undefined) node.exitCode = exitCode;
     if (error !== undefined) node.error = error;
     if (status !== "running" && status !== "pending") node.endTime = Date.now();
-    else if (status === "running" && (!node.activity || node.activity.phase === "starting")) {
-      this.applyActivityToNode(node, { type: "thinking" });
-    }
+    else if (status === "running") this.applyLiveHandleThinking(node);
 
     this.notify();
+  }
+
+  /**
+   * Live handle acquired. Pending becomes running; starting becomes thinking.
+   * Does not clobber an already-started tool. Preserves pending until this call.
+   */
+  markLiveHandle(id: string): void {
+    const node = this.nodes.get(id);
+    if (!node || isTerminalStatus(node.status)) return;
+    if (node.status !== "running") {
+      this.updateStatus(id, "running");
+      return;
+    }
+    if (this.applyLiveHandleThinking(node)) this.notify();
   }
 
   updateUsage(id: string, partial: Partial<UsageStats>): void {
@@ -282,23 +295,30 @@ export class AgentTree {
   setActivityHistory(id: string, history: ActivitySnapshot[]): void {
     const node = this.nodes.get(id);
     if (!node) return;
-    const capped = capActivityHistory(history);
+    const capped = capActivityHistory(history.map(cloneActivitySnapshot));
     node.activityHistory = capped;
     const last = capped.at(-1);
     if (last) {
-      node.activity = last;
+      node.activity = cloneActivitySnapshot(last);
       node.lastActivity = last.summary;
     }
     this.notify();
   }
 
+  private applyLiveHandleThinking(node: AgentNode): boolean {
+    if (node.activity && node.activity.phase !== "starting") return false;
+    this.applyActivityToNode(node, { type: "thinking" });
+    return true;
+  }
+
   private applyActivityToNode(node: AgentNode, event: ActivityEvent, now = Date.now()): void {
     const result = reduceActivity(node.activity, event, now);
-    node.activity = result.snapshot;
-    node.lastActivity = result.snapshot.summary;
+    const snapshot = cloneActivitySnapshot(result.snapshot);
+    node.activity = snapshot;
+    node.lastActivity = snapshot.summary;
     if (!result.recordHistory) return;
     if (!node.activityHistory) node.activityHistory = [];
-    node.activityHistory.push(result.snapshot);
+    node.activityHistory.push(cloneActivitySnapshot(snapshot));
     if (node.activityHistory.length > ACTIVITY_HISTORY_CAP) {
       node.activityHistory.splice(0, node.activityHistory.length - ACTIVITY_HISTORY_CAP);
     }

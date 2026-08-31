@@ -9,9 +9,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   ACTIVITY_HISTORY_CAP,
-  type ActivityEvent,
-  activityEventsFromSessionRecord,
+  parseJsonlRecords,
   replayActivity,
+  sessionRecordsToActivityEvents,
 } from "../activity.js";
 import { logger } from "../logger.js";
 import { PARENT_ONLY_MINION_TOOLS } from "../orchestration/comm.js";
@@ -1114,24 +1114,8 @@ export class SubsessionManager {
   }
 
   parseSessionHistory(id: string): ActivitySnapshot[] {
-    const path = this.getSessionPath(id);
-    if (!path) return [];
-    const events: ActivityEvent[] = [];
-    let turnCount = 0;
-    try {
-      for (const raw of readFileSync(path, "utf-8").split("\n")) {
-        if (!raw.trim()) continue;
-        const event = JSON.parse(raw) as Record<string, unknown>;
-        if (event.type === "turn_end") {
-          turnCount++;
-          events.push({ type: "turn_end", turn: turnCount });
-          continue;
-        }
-        events.push(...activityEventsFromSessionRecord(event));
-      }
-    } catch {
-      /* ignore */
-    }
+    const records = this.readSessionRecords(id);
+    const events = sessionRecordsToActivityEvents(records);
     const replayed = replayActivity(events);
     if (!replayed.current) return [];
     if (replayed.history.at(-1) === replayed.current) return replayed.history;
@@ -1139,20 +1123,22 @@ export class SubsessionManager {
   }
 
   parseSessionOutput(id: string): string {
-    const path = this.getSessionPath(id);
-    if (!path) return "";
     const messages: unknown[] = [];
-    try {
-      for (const raw of readFileSync(path, "utf-8").split("\n")) {
-        if (!raw.trim()) continue;
-        const event = JSON.parse(raw) as Record<string, unknown>;
-        const message = sessionEventMessage(event);
-        if (message !== undefined) messages.push(message);
-      }
-    } catch {
-      /* ignore */
+    for (const event of this.readSessionRecords(id)) {
+      const message = sessionEventMessage(event);
+      if (message !== undefined) messages.push(message);
     }
     return extractLastAssistantText(messages);
+  }
+
+  private readSessionRecords(id: string): Record<string, unknown>[] {
+    const path = this.getSessionPath(id);
+    if (!path) return [];
+    try {
+      return parseJsonlRecords(readFileSync(path, "utf-8"));
+    } catch {
+      return [];
+    }
   }
 
   private rememberSessionPath(id: string, sessionPath: string): void {

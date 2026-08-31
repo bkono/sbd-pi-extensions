@@ -9,13 +9,18 @@ import {
   bindTreeActivity,
   formatToolActivity,
   NARRATIVE_PREVIEW_MAX,
+  parseJsonlRecords,
   reduceActivity,
   replayActivity,
   sanitizeActivityText,
+  sessionRecordsToActivityEvents,
 } from "../activity.js";
 import {
+  COMM_SEND_STATUS,
   createLifecyclePacketDispatcher,
   type LifecyclePacketDetails,
+  MinionCommMailbox,
+  PARENT_RECIPIENT_ID,
 } from "../orchestration/index.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type {
@@ -92,7 +97,7 @@ const config: AgentConfig = {
 };
 
 describe("activity reducer phases", () => {
-  it("transitions starting → thinking → tool → thinking → waiting → settling", () => {
+  it("transitions starting → thinking → tool → thinking → waiting → thinking → settling", () => {
     let snap: ActivitySnapshot | undefined;
     const apply = (event: Parameters<typeof reduceActivity>[1]) => {
       snap = reduceActivity(snap, event, NOW).snapshot;
@@ -118,11 +123,36 @@ describe("activity reducer phases", () => {
       summary: "waiting on parent",
     });
     expect(apply({ type: "settling" }).phase).toBe("waiting");
+    expect(apply({ type: "thinking" })).toMatchObject({ phase: "thinking", summary: "thinking" });
+    expect(apply({ type: "settling" }).phase).toBe("settling");
+  });
+
+  it("does not let a late thinking event overwrite an active tool", () => {
+    const tool = reduceActivity(
+      undefined,
+      { type: "tool_start", toolName: "read", args: { path: "src/auth.ts" } },
+      NOW,
+    ).snapshot;
+    const next = reduceActivity(tool, { type: "thinking" }, NOW + 1).snapshot;
+    expect(next.phase).toBe("tool");
+    expect(next.summary).toBe("→ read src/auth.ts");
   });
 
   it("uses formatToolCall-quality previews for bash and read", () => {
     expect(formatToolActivity("read", { path: "src/tree.ts" }).summary).toBe("→ read src/tree.ts");
     expect(formatToolActivity("bash", { command: "npm test" }).summary).toBe("→ $ npm test");
+  });
+
+  it("sanitizes ANSI, control, and multiline tool args through the real formatter", () => {
+    const dirty = formatToolActivity("bash", {
+      command: "\u001B[31mecho hi\u001B[0m\r\nsecond line\u0007",
+    });
+    expect(dirty.summary.includes("\n")).toBe(false);
+    expect(dirty.summary.includes("\r")).toBe(false);
+    expect(dirty.summary.includes("\u001B")).toBe(false);
+    expect(dirty.toolPreview.includes("\n")).toBe(false);
+    expect(dirty.summary.startsWith("→ $")).toBe(true);
+    expect(dirty.summary.length).toBeLessThanOrEqual(120);
   });
 
   it("preserves useful phase/summary on turn_end and never records turn N", () => {
@@ -188,10 +218,58 @@ describe("AgentTree activity", () => {
     expect(pending.activity?.phase).toBe("starting");
     expect(pending.lastActivity).toBe("starting");
 
-    tree.updateStatus("mn-pending", "running");
+    tree.markLiveHandle("mn-pending");
     expect(tree.get("mn-pending")?.status).toBe("running");
     expect(tree.get("mn-pending")?.activity?.phase).toBe("thinking");
     expect(tree.get("mn-pending")?.lastActivity).toBe("thinking");
+  });
+
+  it("does not let spawn or orchestrate live-handle thinking clobber a started tool", () => {
+    const tree = new AgentTree();
+    tree.add("mn-spawn", "alpha", "read the file");
+    tree.applyActivityEvent("mn-spawn", {
+      type: "tool_start",
+      toolName: "read",
+      args: { path: "src/auth.ts" },
+    });
+    tree.markLiveHandle("mn-spawn");
+    expect(tree.get("mn-spawn")?.status).toBe("running");
+    expect(tree.get("mn-spawn")?.activity?.phase).toBe("tool");
+    expect(tree.get("mn-spawn")?.lastActivity).toBe("→ read src/auth.ts");
+
+    tree.add("mn-orch", "bravo", "read the file", {
+      kind: "orchestrated",
+      groupId: "grp-1",
+      status: "pending",
+    });
+    tree.applyActivityEvent("mn-orch", {
+      type: "tool_start",
+      toolName: "read",
+      args: { path: "src/auth.ts" },
+    });
+    tree.markLiveHandle("mn-orch");
+    expect(tree.get("mn-orch")?.status).toBe("running");
+    expect(tree.get("mn-orch")?.activity?.phase).toBe("tool");
+    expect(tree.get("mn-orch")?.lastActivity).toBe("→ read src/auth.ts");
+  });
+
+  it("does not alias current activity with history tail", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    tree.applyActivityEvent("mn-1", {
+      type: "tool_start",
+      toolName: "read",
+      args: { path: "src/auth.ts" },
+    });
+    const node = tree.get("mn-1")!;
+    const current = node.activity!;
+    const tail = node.activityHistory.at(-1)!;
+    expect(current).not.toBe(tail);
+    expect(current).toEqual(tail);
+    current.summary = "mutated";
+    expect(tail.summary).toBe("→ read src/auth.ts");
+    expect(tree.get("mn-1")?.activity?.summary).toBe("mutated");
+    expect(tree.get("mn-1")?.lastActivity).toBe("→ read src/auth.ts");
   });
 
   it("shows a bounded formatted read path instead of turn N", () => {
@@ -259,18 +337,60 @@ describe("transcript rehydration", () => {
       { type: "tool_execution_end" },
       { type: "turn_end" },
       { type: "tool_execution_start", toolName: "send_minion_peer", args: { to: "parent" } },
-      { type: "agent_end", willRetry: false },
+      {
+        type: "tool_execution_end",
+        toolName: "send_minion_peer",
+        result: { details: { to: "parent", status: "queued" } },
+      },
     ];
-    const flattened = events.flatMap((event) => {
-      if (event.type === "turn_end") return [{ type: "turn_end" as const, turn: 1 }];
-      return activityEventsFromSessionRecord(event);
-    });
+    const flattened = sessionRecordsToActivityEvents(events);
     const replayed = replayActivity(flattened, NOW);
     expect(replayed.current?.phase).toBe("waiting");
     expect(replayed.current?.summary).toBe("waiting on parent");
     expect(replayed.current?.turn).toBe(1);
     expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
     expect(summaries(replayed.history).some((line) => /turn \d/.test(line))).toBe(false);
+  });
+
+  it("does not treat a mere parent-bound tool start as waiting", () => {
+    const startOnly = sessionRecordsToActivityEvents([
+      { type: "tool_execution_start", toolName: "send_minion_peer", args: { to: "parent" } },
+    ]);
+    expect(startOnly.some((event) => event.type === "waiting")).toBe(false);
+    expect(replayActivity(startOnly, NOW).current?.phase).toBe("tool");
+    expect(
+      activityEventsFromSessionRecord({
+        type: "tool_execution_start",
+        toolName: "send_minion_peer",
+        args: { to: "parent" },
+      }).some((event) => event.type === "waiting"),
+    ).toBe(false);
+
+    const failed = sessionRecordsToActivityEvents([
+      { type: "tool_execution_start", toolName: "send_minion_peer", args: { to: "parent" } },
+      {
+        type: "tool_execution_end",
+        toolName: "send_minion_peer",
+        result: { details: { to: "parent", status: "mailbox-full" } },
+      },
+    ]);
+    expect(failed.some((event) => event.type === "waiting")).toBe(false);
+    expect(replayActivity(failed, NOW).current?.phase).toBe("thinking");
+  });
+
+  it("skips malformed and truncated JSONL records without dropping later events", () => {
+    const content = [
+      '{"type":"tool_execution_start","toolName":"read","args":{"path":"src/auth.ts"}}',
+      "{not json",
+      '{"type":"tool_execution_end",',
+      '{"type":"tool_execution_start","toolName":"send_minion_peer","args":{"to":"parent"}}',
+      '{"type":"tool_execution_end","result":{"details":{"to":"parent","status":"queued"}}}',
+    ].join("\n");
+    const records = parseJsonlRecords(content);
+    expect(records).toHaveLength(3);
+    const replayed = replayActivity(sessionRecordsToActivityEvents(records), NOW);
+    expect(replayed.current?.phase).toBe("waiting");
+    expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
   });
 
   it("parseSessionHistory reconstructs snapshots without turn N entries", () => {
@@ -325,6 +445,59 @@ describe("transcript rehydration", () => {
       expect(history.at(-1)?.turn).toBe(2);
     });
   });
+
+  it("parseSessionHistory skips malformed records and reconstructs accepted waiting", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-malformed-"));
+    const session = new FakeChildSession();
+    const sessionPath = join(cwd, "child.jsonl");
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath,
+      }),
+    });
+    await manager.startChild({
+      id: "child-1",
+      name: "alpha",
+      task: "do work",
+      config,
+      spawnedBy: "parent",
+      cwd,
+      modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
+    });
+    writeFileSync(
+      sessionPath,
+      [
+        JSON.stringify({
+          type: "tool_execution_start",
+          toolName: "read",
+          args: { path: "src/auth.ts" },
+        }),
+        "{not-json",
+        '{"type":"tool_execution_end",',
+        JSON.stringify({
+          type: "tool_execution_start",
+          toolName: "send_minion_peer",
+          args: { to: "parent" },
+        }),
+        JSON.stringify({
+          type: "tool_execution_end",
+          result: { details: { to: "parent", status: "queued" } },
+        }),
+      ].join("\n"),
+      "utf-8",
+    );
+    const history = manager.parseSessionHistory("child-1");
+    expect(history.some((item) => item.summary === "→ read src/auth.ts")).toBe(true);
+    expect(history.at(-1)?.phase).toBe("waiting");
+    expect(history.at(-1)?.summary).toBe("waiting on parent");
+    expect(manager.parseSessionOutput("child-1")).toBe("");
+  });
 });
 
 describe("spawn and orchestrated share activity; packets exclude spawn", () => {
@@ -374,6 +547,10 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
       toolName: "read",
       args: { path: "src/auth.ts" },
     });
+    tree.applyActivityEvent("mn-orch", {
+      type: "narrative",
+      text: "untrusted packet prose should not leak",
+    });
     tree.add("mn-done", "charlie", "finished", {
       kind: "orchestrated",
       groupId: "grp-1",
@@ -400,6 +577,17 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     expect(details.changed.map((child) => child.childId)).toEqual(["mn-done"]);
     expect(details.stillRunning.map((child) => child.childId)).toEqual(["mn-orch"]);
     expect(details.stillRunning[0]?.activity?.summary).toBe("→ read src/auth.ts");
+    expect(details.stillRunning[0]?.activity?.phase).toBe("tool");
+    expect(details.stillRunning[0]?.activity?.toolPreview).toBe("read src/auth.ts");
+    expect(details.stillRunning[0]?.activity).not.toHaveProperty("toolName");
+    expect(details.stillRunning[0]?.activity).not.toHaveProperty("narrativePreview");
+    expect(JSON.stringify(details.stillRunning[0]?.activity)).not.toContain(
+      "untrusted packet prose",
+    );
+    expect(details.stillRunning[0]?.activity).not.toBe(tree.get("mn-orch")?.activity);
+    const projected = { ...details.stillRunning[0]!.activity! };
+    projected.summary = "hacked";
+    expect(tree.get("mn-orch")?.activity?.summary).toBe("→ read src/auth.ts");
     expect(details.stillRunning.some((child) => child.childId === "mn-spawn")).toBe(false);
     expect(JSON.stringify(details)).not.toContain("spawn-only.ts");
   });
@@ -469,5 +657,93 @@ describe("manager settling callback", () => {
     session.emit({ type: "agent_settled" });
     idle.resolve();
     await expect(wait).resolves.toMatchObject({ class: "settled" });
+  });
+});
+
+describe("waiting mailbox resume", () => {
+  it("accepted question waits, parent reply and work think, later agent_end settles", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-wait-"));
+    const session = new FakeChildSession();
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath: join(cwd, "child.jsonl"),
+      }),
+    });
+    const tree = new AgentTree();
+    tree.add("child-wait", "alpha", "ask parent", {
+      kind: "orchestrated",
+      groupId: "grp-1",
+    });
+    const bound = bindTreeActivity(tree, "child-wait");
+    const idle = createDeferred<void>();
+    session.waitForIdle = () => idle.promise;
+
+    const handle = await manager.startChild({
+      id: "child-wait",
+      name: "alpha",
+      task: "ask parent",
+      config,
+      spawnedBy: "parent",
+      cwd,
+      modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
+      onToolActivity: bound.onToolActivity,
+      onTextDelta: bound.onTextDelta,
+      onAgentEnd: bound.onAgentEnd,
+    });
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => ({ getOpenGroup: () => ({ groupId: "grp-1", cwd }) }),
+      isLive: (id) => id === "child-wait",
+      followUp: (_id, text) => handle.followUp(text),
+    });
+
+    const asked = mailbox.send({
+      from: "child-wait",
+      to: PARENT_RECIPIENT_ID,
+      groupId: "grp-1",
+      body: "need a ruling",
+    });
+    expect(asked.status).toBe(COMM_SEND_STATUS.queued);
+    expect(tree.get("child-wait")?.status).toBe("running");
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(tree.get("child-wait")?.lastActivity).toBe("waiting on parent");
+
+    session.emit({ type: "agent_end", willRetry: false });
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(tree.get("child-wait")?.status).toBe("running");
+
+    const reply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(reply.status).toBe(COMM_SEND_STATUS.queued);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+
+    session.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "working" },
+    });
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(tree.get("child-wait")?.activity?.narrativePreview).toBe("working");
+
+    session.emit({ type: "agent_end", willRetry: false });
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("settling");
+    expect(tree.get("child-wait")?.status).toBe("running");
+    expect(manager.getTerminal("child-wait")).toBeUndefined();
+
+    session.emit({ type: "agent_settled" });
+    idle.resolve();
+    await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
   });
 });

@@ -143,7 +143,6 @@ async function executeSpawn(
       usage: emptyUsage(),
       model: resolvedModel,
       finalOutput: "",
-      activity: "starting...",
       spinnerFrame: 0,
     };
   });
@@ -155,6 +154,7 @@ async function executeSpawn(
       agentName: m.agentName,
       model: m.model,
     });
+    m.activity = node.lastActivity;
     logger.info("spawn:tool", "child", {
       id: node.id,
       kind: node.kind,

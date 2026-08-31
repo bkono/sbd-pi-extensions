@@ -56,6 +56,15 @@ export interface ActivitySnapshot {
   narrativePreview?: string;
 }
 
+/** Bounded fleet-facing activity. Never narrativePreview or raw toolName/prose. */
+export interface TrustedActivityProjection {
+  phase: ActivityPhase;
+  summary: string;
+  toolPreview?: string;
+  turn?: number;
+  updatedAt: number;
+}
+
 export interface UsageStats {
   input: number;
   output: number;
