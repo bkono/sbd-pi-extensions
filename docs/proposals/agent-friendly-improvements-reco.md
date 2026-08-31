@@ -74,7 +74,7 @@ Instead:
 
 - Preserve meaningful snapshots in `list_minions`.
 - Include the fleet snapshot in real lifecycle packets.
-- Inject a short live-group invariant into active parent turns: background work is still running and must not be represented as complete.
+- **Superseded:** The initial recommendation was to inject current live-group state into active parent turns. Do not implement that design. State-driven system-prompt changes create provider cache churn, and Pi queued continuations can retain a frozen prompt override that makes the state stale or contradictory. The replacement is cache-stable static conditional `orchestrate` guidance; lifecycle registration/results, state-change and terminal packets, explicit inspection, and halt are authoritative.
 - Emit an explicit **group idle** indication when the final child settles. Idle means “ready for adjudication,” not success.
 
 Internally, use a small structured live activity state—`starting`, `thinking`, `tool`, `waiting`, `settling`—derived from runtime events. This is not the rejected structured terminal-result contract. Avoid treating arbitrary streamed prose as canonical progress.
