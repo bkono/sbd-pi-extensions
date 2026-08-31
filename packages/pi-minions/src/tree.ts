@@ -15,6 +15,10 @@ export function isTerminalStatus(status: AgentStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
+export function isLiveStatus(status: AgentStatus): boolean {
+  return status === "pending" || status === "running";
+}
+
 export const PARENT_SESSION_RESTARTED = "parent session restarted";
 
 export interface RehydratableMinionMetadata {
@@ -69,6 +73,8 @@ export interface AddAgentOptions {
   description?: string;
   domain?: OrchestrationDomain;
   completionNudge?: string;
+  /** Spawn defaults to running. Orchestrate registers accepted nodes as pending. */
+  status?: AgentStatus;
 }
 
 export class AgentTree {
@@ -115,7 +121,7 @@ export class AgentTree {
       agentName: options.agentName,
       task,
       model: options.model,
-      status: "running",
+      status: options.status ?? "running",
       parentId: options.parentId,
       children: [],
       usage: emptyUsage(),
@@ -168,6 +174,11 @@ export class AgentTree {
 
   getRunning(): AgentNode[] {
     return Array.from(this.nodes.values()).filter((n) => n.status === "running");
+  }
+
+  /** Non-terminal nodes. Pending is live work, not running. */
+  getLive(): AgentNode[] {
+    return Array.from(this.nodes.values()).filter((n) => isLiveStatus(n.status));
   }
 
   /** Live orchestrated members of one group. Spawn and terminal nodes are excluded. */

@@ -26,6 +26,7 @@ import {
 } from "./orchestration/index.js";
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
+import { renderOrchestrateCall, renderOrchestrateResult } from "./renderers/orchestrate.js";
 import { getMinionsSkill } from "./skill.js";
 import { createStatusTracker } from "./status.js";
 import { EventBus } from "./subsessions/event-bus.js";
@@ -141,6 +142,8 @@ export default function (pi: ExtensionAPI): void {
         onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
       })(...args);
     },
+    renderCall: renderOrchestrateCall,
+    renderResult: renderOrchestrateResult,
   });
 
   pi.registerTool({

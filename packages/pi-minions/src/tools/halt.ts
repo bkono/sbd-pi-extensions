@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { logger } from "../logger.js";
 import type { OrchestrationGroupState } from "../orchestration/index.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
-import type { AgentTree } from "../tree.js";
+import { type AgentTree, isTerminalStatus } from "../tree.js";
 import type { AgentKind, AgentStatus } from "../types.js";
 
 export const HaltToolParams = Type.Object({
@@ -107,11 +107,11 @@ export async function runHalt(
   const trimmed = id.trim();
 
   if (trimmed === "all") {
-    const running = tree.getRunning();
+    const live = tree.getLive();
     const { halted } =
-      running.length > 0
+      live.length > 0
         ? await abortAgents(
-            running.map((n) => n.id),
+            live.map((n) => n.id),
             tree,
             subsessionManager,
           )
@@ -147,7 +147,7 @@ export async function runHalt(
 
   const node = tree.resolve(trimmed);
   if (node) {
-    if (node.status !== "running") {
+    if (isTerminalStatus(node.status)) {
       return {
         text: `Minion ${node.name} (${node.id}) is not running (status: ${node.status}).`,
         halted: [],

@@ -14,6 +14,7 @@ import {
   PARENT_ONLY_MINION_TOOLS,
 } from "../orchestration/index.js";
 import { TIMEOUT_GRACE_MS, TIMEOUT_WRAP_UP_MESSAGE } from "../session-timeout.js";
+import { createStatusTracker, MINIONS_STATUS_KEY } from "../status.js";
 import { STEP_LIMIT_WRAP_UP_MESSAGE } from "../step-limit.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type {
@@ -23,6 +24,7 @@ import type {
   MinionSessionHandle,
 } from "../subsessions/types.js";
 import { runHalt } from "../tools/halt.js";
+import { listMinions } from "../tools/minions.js";
 import { isPersistentHost, ORCHESTRATE_REJECT_REASONS, orchestrate } from "../tools/orchestrate.js";
 import { AgentTree } from "../tree.js";
 import type { OrchestrateInput, OrchestrateResult } from "../types.js";
@@ -209,7 +211,7 @@ describe("task validation", () => {
     expect(result.accepted[0]?.description).toBe("Registry refactor");
     expect(result.rejected).toEqual([
       { index: 1, reason: ORCHESTRATE_REJECT_REASONS.missingDescription },
-      { index: 2, reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType },
+      { index: 2, reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType, value: "validation" },
     ]);
   });
 });
@@ -296,7 +298,7 @@ describe("accepted state and start failure", () => {
 
 describe("workItemId uniqueness", () => {
   it("rejects a second live duplicate workItemId and allows reuse after terminal", async () => {
-    const { execute, ctx, tree } = setup();
+    const { execute, ctx, tree, groups } = setup();
     const first = detailsOf(
       await run(
         execute,
@@ -316,20 +318,29 @@ describe("workItemId uniqueness", () => {
 
     expect(first.accepted).toHaveLength(1);
     expect(first.rejected).toEqual([
-      { index: 1, reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId },
+      {
+        index: 1,
+        reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId,
+        value: "BW-123",
+      },
     ]);
+    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
 
-    const liveAgain = detailsOf(
-      await run(
+    await expect(
+      run(
         execute,
         { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
         ctx,
       ),
-    );
-    expect(liveAgain.accepted).toEqual([]);
-    expect(liveAgain.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId },
-    ]);
+    ).rejects.toThrow(/0 starting, 1 rejected/);
+    await expect(
+      run(
+        execute,
+        { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
+        ctx,
+      ),
+    ).rejects.toThrow(ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId);
+    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
 
     tree.updateStatus(first.accepted[0]!.childId, "completed", 0);
     const reused = detailsOf(
@@ -347,32 +358,29 @@ describe("workItemId uniqueness", () => {
       childId: `${first.accepted[0]?.childId},${reused.accepted[0]?.childId}`,
       hostMode: ctx.mode,
       accepted: reused.accepted.length,
-      rejected: liveAgain.rejected.length,
-      reasons: liveAgain.rejected.map((item) => item.reason),
+      rejected: 1,
+      reasons: [ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId],
     });
   });
 });
 
 describe("registration abort and startChild wiring", () => {
   it("cancels remaining registration on AbortSignal and does not forward the signal to children", async () => {
-    const { execute, ctx, startChild } = setup();
+    const { execute, ctx, startChild, tree, groups } = setup();
     const controller = new AbortController();
     controller.abort();
 
-    const result = detailsOf(
-      await run(
+    await expect(
+      run(
         execute,
         { tasks: [baseTask, { ...baseTask, description: "Two" }] },
         ctx,
         controller.signal,
       ),
-    );
-    expect(result.accepted).toEqual([]);
-    expect(result.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.registrationAborted },
-      { index: 1, reason: ORCHESTRATE_REJECT_REASONS.registrationAborted },
-    ]);
+    ).rejects.toThrow(/0 starting, 2 rejected/);
     expect(startChild).not.toHaveBeenCalled();
+    expect(tree.getRoots()).toEqual([]);
+    expect(groups.getOpenGroup()).toBeUndefined();
 
     const started = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
     const call = startChild.mock.calls[0]?.[0] as {
@@ -424,7 +432,9 @@ describe("halt during detached start", () => {
     const { execute, ctx, tree, startChild } = setup();
     tree.onChange(() => {
       for (const node of tree.getRoots()) {
-        if (node.status === "running") tree.updateStatus(node.id, "aborted");
+        if (node.status === "pending" || node.status === "running") {
+          tree.updateStatus(node.id, "aborted");
+        }
       }
     });
 
@@ -467,7 +477,7 @@ describe("halt during detached start", () => {
 
     const result = detailsOf(await run(execute, { tasks: [baseTask] }, createCtx(cwd)));
     const childId = result.accepted[0]!.childId;
-    expect(tree.get(childId)?.status).toBe("running");
+    expect(tree.get(childId)?.status).toBe("pending");
     expect(startChild).toHaveBeenCalledTimes(1);
 
     const haltResult = await runHalt(
@@ -666,8 +676,8 @@ describe("agent resolution cwd", () => {
     expect(startChild.mock.calls[0]?.[0]?.cwd).toBe(realpathSync(groupCwd));
 
     const callsBeforeUnknown = startChild.mock.calls.length;
-    const parentOnly = detailsOf(
-      await run(
+    await expect(
+      run(
         execute,
         {
           tasks: [
@@ -680,16 +690,24 @@ describe("agent resolution cwd", () => {
         },
         ctx,
       ),
-    );
-    expect(parentOnly.accepted).toEqual([]);
-    expect(parentOnly.rejected).toEqual([
-      { index: 0, reason: unknownAgentMessage("parent-only-role-xyz") },
-    ]);
-    expect(parentOnly.rejected[0]?.reason).toContain("parent-only-role-xyz");
-    expect(parentOnly.rejected[0]?.reason).toContain("list_agents");
-    expect(parentOnly.rejected[0]?.reason).not.toContain("implementation");
-    expect(parentOnly.rejected[0]?.reason).not.toContain("taskType");
+    ).rejects.toThrow(unknownAgentMessage("parent-only-role-xyz"));
+    await expect(
+      run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "do parent work",
+              description: "Parent work",
+              agent: "parent-only-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/list_agents/);
     expect(startChild.mock.calls.length).toBe(callsBeforeUnknown);
+    expect(groups.getOpenGroup()?.groupId).toBe(groupOnly.groupId);
 
     const shared = detailsOf(
       await run(
@@ -734,8 +752,10 @@ describe("orchestration policy cwd", () => {
     );
 
     const startChild = vi.fn(async (opts: { id: string }) => hangingHandle(opts.id, groupCwd));
+    const tree = new AgentTree();
+    const groups = new OrchestrationGroupState();
     const execute = orchestrate({
-      tree: new AgentTree(),
+      tree,
       pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
         ExtensionAPI,
         "getAllTools"
@@ -744,17 +764,18 @@ describe("orchestration policy cwd", () => {
         SubsessionManager,
         "startChild" | "getSessionHandle" | "abortSession"
       >,
-      groups: new OrchestrationGroupState(),
+      groups,
     });
 
-    const result = detailsOf(
-      await run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
-    );
-    expect(result.accepted).toEqual([]);
-    expect(result.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.ephemeralDisabled },
-    ]);
+    await expect(
+      run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
+    ).rejects.toThrow(/0 starting, 1 rejected/);
+    await expect(
+      run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
+    ).rejects.toThrow(ORCHESTRATE_REJECT_REASONS.ephemeralDisabled);
     expect(startChild).not.toHaveBeenCalled();
+    expect(groups.getOpenGroup()).toBeUndefined();
+    expect(tree.getRoots()).toEqual([]);
   });
 
   it("allows ephemeral when the group cwd enables it even if the parent disables it", async () => {
@@ -918,9 +939,22 @@ describe("agent system prompt and model defaults", () => {
 
 describe("extension registration", () => {
   it("registers orchestrate on persistent hosts and keeps spawn blocking", () => {
-    const tools = new Map<string, { name: string; promptGuidelines?: string[] }>();
+    const tools = new Map<
+      string,
+      {
+        name: string;
+        promptGuidelines?: string[];
+        renderCall?: unknown;
+        renderResult?: unknown;
+      }
+    >();
     const pi = {
-      registerTool: (tool: { name: string; promptGuidelines?: string[] }) => {
+      registerTool: (tool: {
+        name: string;
+        promptGuidelines?: string[];
+        renderCall?: unknown;
+        renderResult?: unknown;
+      }) => {
         tools.set(tool.name, tool);
       },
       registerCommand: () => {},
@@ -933,6 +967,12 @@ describe("extension registration", () => {
     expect(tools.has("spawn")).toBe(true);
     expect(tools.has("orchestrate")).toBe(true);
     expect(tools.has("send_minion_message")).toBe(true);
+    expect(typeof tools.get("spawn")?.renderCall).toBe("function");
+    expect(typeof tools.get("spawn")?.renderResult).toBe("function");
+    expect(typeof tools.get("orchestrate")?.renderCall).toBe("function");
+    expect(typeof tools.get("orchestrate")?.renderResult).toBe("function");
+    expect(tools.get("orchestrate")?.renderCall).not.toBe(tools.get("spawn")?.renderCall);
+    expect(tools.get("orchestrate")?.renderResult).not.toBe(tools.get("spawn")?.renderResult);
     expect(tools.get("spawn")?.promptGuidelines?.some((line) => /block/i.test(line))).toBe(true);
     expect(
       tools
@@ -1120,6 +1160,131 @@ describe("integration timing", () => {
         rejected: returned.rejected.length,
         reasons: ["boot failed"],
       });
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});
+
+describe("registration liveness", () => {
+  it("observes pending before the handle exists, running after started, then terminal", async () => {
+    const startGate = createDeferred<void>();
+    const waitGate = createDeferred<ChildTerminalEvent>();
+    const startChild = vi.fn(async (opts: CreateMinionSessionOptions) => {
+      await startGate.promise;
+      return {
+        id: opts.id,
+        path: join(opts.cwd, `${opts.id}.jsonl`),
+        steer: async () => {},
+        followUp: async () => {},
+        abort: () => {},
+        wait: async () => {
+          const terminal = await waitGate.promise;
+          opts.onComplete?.({
+            exitCode: terminal.exitCode ?? 0,
+            output: terminal.output ?? "",
+            status: terminal.class === "settled" ? "completed" : terminal.class,
+          });
+          return terminal;
+        },
+      };
+    });
+    const { execute, ctx, tree, events, groups } = setup({ startChild });
+    const result = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+    const childId = result.accepted[0]!.childId;
+    expect(result.accepted[0]?.state).toBe("starting");
+    expect(tree.get(childId)?.status).toBe("pending");
+    expect(tree.getRunning()).toEqual([]);
+    expect(events.some((event) => event.class === "started")).toBe(false);
+    expect(groups.getOpenGroup()?.groupId).toBe(result.groupId);
+
+    const listedPending = await listMinions(tree)("tool-1", {}, undefined, undefined, ctx);
+    expect(listedPending.details?.minions.map((m) => m.status)).toEqual(["pending"]);
+    const listedRunning = await listMinions(tree)(
+      "tool-1",
+      { status: "running" },
+      undefined,
+      undefined,
+      ctx,
+    );
+    expect(listedRunning.details?.minions).toEqual([]);
+
+    const setStatus = vi.fn();
+    const tracker = createStatusTracker(tree, {} as SubsessionManager, ctx);
+    tracker.setUi({
+      setStatus,
+      theme: { fg: (_color: string, text: string) => text },
+    } as never);
+    tracker.refresh();
+    expect(setStatus).toHaveBeenCalledWith(MINIONS_STATUS_KEY, undefined);
+
+    startGate.resolve();
+    await vi.waitFor(() => {
+      expect(tree.get(childId)?.status).toBe("running");
+    });
+    expect(events.some((event) => event.class === "started")).toBe(true);
+    expect(tree.getRunning().map((n) => n.id)).toEqual([childId]);
+
+    waitGate.resolve({ class: "settled", exitCode: 0, output: "done" });
+    await vi.waitFor(() => {
+      expect(tree.get(childId)?.status).toBe("completed");
+    });
+    expect(tree.getRunning()).toEqual([]);
+  });
+
+  it("leaves no newly open group on all-rejected registration", async () => {
+    const { execute, ctx, tree, groups, startChild } = setup();
+    await expect(
+      run(
+        execute,
+        {
+          tasks: [
+            { task: "a", description: " " },
+            { task: "b", description: " ", taskType: "validation" as never },
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/0 starting, 2 rejected/);
+    expect(startChild).not.toHaveBeenCalled();
+    expect(groups.getOpenGroup()).toBeUndefined();
+    expect(tree.getRoots()).toEqual([]);
+  });
+
+  it("preserves a pre-existing group when a later batch is all rejected", async () => {
+    const { execute, ctx, groups } = setup();
+    const first = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
+    await expect(
+      run(execute, { tasks: [{ task: "later", description: " " }] }, ctx),
+    ).rejects.toThrow(/0 starting, 1 rejected/);
+    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
+  });
+
+  it("shows a later boot failure as failed after pending without unhandled rejection", async () => {
+    const startGate = createDeferred<void>();
+    const startChild = vi.fn(async () => {
+      await startGate.promise;
+      throw new Error("boot failed");
+    });
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const { execute, ctx, tree, events } = setup({ startChild });
+      const result = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+      const childId = result.accepted[0]!.childId;
+      expect(tree.get(childId)?.status).toBe("pending");
+      startGate.resolve();
+      await vi.waitFor(() => {
+        expect(tree.get(childId)?.status).toBe("failed");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+      expect(events.some((event) => event.class === "failed")).toBe(true);
+      expect(events.some((event) => event.class === "started")).toBe(false);
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }

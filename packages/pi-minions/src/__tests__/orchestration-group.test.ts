@@ -257,6 +257,41 @@ describe("OrchestrationGroupState close/forget", () => {
   });
 });
 
+describe("OrchestrationGroupState preview and commit", () => {
+  it("does not open a group until commitGroup", () => {
+    const parentCwd = tempDir("pi-minions-group-preview-");
+    const groups = new OrchestrationGroupState();
+
+    const previewed = groups.previewGroup({ parentCwd });
+    expect(isResolveGroupReject(previewed)).toBe(false);
+    if (isResolveGroupReject(previewed)) return;
+    expect(previewed.created).toBe(true);
+    expect(groups.getOpenGroup()).toBeUndefined();
+
+    groups.commitGroup(previewed);
+    expect(groups.getOpenGroup()).toEqual({
+      groupId: previewed.groupId,
+      cwd: previewed.cwd,
+    });
+  });
+
+  it("joining an existing group does not require commit", () => {
+    const parentCwd = tempDir("pi-minions-group-preview-join-");
+    const groups = new OrchestrationGroupState();
+    const created = groups.resolveGroup({ parentCwd });
+    expect(isResolveGroupReject(created)).toBe(false);
+    if (isResolveGroupReject(created)) return;
+
+    const previewed = groups.previewGroup({ parentCwd });
+    expect(previewed).toEqual({
+      groupId: created.groupId,
+      cwd: created.cwd,
+      created: false,
+    });
+    expect(groups.getOpenGroup()).toEqual(created);
+  });
+});
+
 describe("OrchestrationGroupState logging", () => {
   it("logs groupId, cwd, and reject reason on resolve and close", () => {
     const parentCwd = tempDir("pi-minions-group-log-");

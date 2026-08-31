@@ -35,6 +35,7 @@ describe("AgentTree spawn default", () => {
     logNode("spawn-default", node);
 
     expect(node.kind).toBe("spawn");
+    expect(node.status).toBe("running");
     expect(node.task).toBe("Implement the registry refactor");
     expect(node.description).toBeUndefined();
     expect(node.groupId).toBeUndefined();
@@ -43,6 +44,19 @@ describe("AgentTree spawn default", () => {
     expect(node.domain).toBeUndefined();
     expect(node.agentName).toBe("ephemeral");
     expect(node.model).toBe("gpt-test");
+  });
+
+  it("registers orchestrated nodes as pending when requested", () => {
+    const tree = new AgentTree();
+    const node = tree.add("mn-pending", "bravo", "implement the registry", {
+      kind: "orchestrated",
+      groupId: "grp-1",
+      status: "pending",
+      description: "Registry",
+    });
+    expect(node.status).toBe("pending");
+    expect(tree.getRunning()).toEqual([]);
+    expect(tree.getLive().map((n) => n.id)).toEqual(["mn-pending"]);
   });
 });
 
@@ -117,6 +131,13 @@ describe("AgentTree orchestrated group snapshot", () => {
 
     expect(snapshot.map((n) => n.id).sort()).toEqual(["mn-pending", "mn-running"]);
     expect(snapshot.map((n) => n.status).sort()).toEqual(["pending", "running"]);
+    expect(tree.getRunning().map((n) => n.id)).toEqual(["mn-running"]);
+    expect(
+      tree
+        .getLive()
+        .map((n) => n.id)
+        .sort(),
+    ).toEqual(["mn-pending", "mn-running"]);
     expect(
       tree
         .listOrchestratedGroup("grp-1")

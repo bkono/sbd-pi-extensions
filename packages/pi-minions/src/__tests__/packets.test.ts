@@ -304,6 +304,18 @@ describe("spawn exclusion", () => {
 
     expect(sendMessage).not.toHaveBeenCalled();
   });
+
+  it("does not wake the parent for a started lifecycle event", () => {
+    const { tree, sendMessage, dispatcher, drain } = harness();
+    addOrchestrated(tree, "mn-orch");
+    tree.updateStatus("mn-orch", "pending");
+
+    dispatcher.enqueue({ class: "started", groupId: "grp-1", childId: "mn-orch" });
+    drain();
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls.some((call) => call[1]?.triggerTurn)).toBe(false);
+  });
 });
 
 describe("event classes", () => {

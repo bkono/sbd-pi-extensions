@@ -17,6 +17,11 @@ export interface OpenOrchestrationGroup {
   cwd: string;
 }
 
+export interface PreviewedOrchestrationGroup extends OpenOrchestrationGroup {
+  /** True when this preview would create a group that is not yet open. */
+  created: boolean;
+}
+
 export interface ResolveGroupInput {
   groupId?: string;
   cwd?: string;
@@ -24,9 +29,10 @@ export interface ResolveGroupInput {
 }
 
 export type ResolveGroupResult = OpenOrchestrationGroup | { reject: GroupRejectReason };
+export type PreviewGroupResult = PreviewedOrchestrationGroup | { reject: GroupRejectReason };
 
 export function isResolveGroupReject(
-  result: ResolveGroupResult,
+  result: ResolveGroupResult | PreviewGroupResult,
 ): result is { reject: GroupRejectReason } {
   return "reject" in result;
 }
@@ -64,10 +70,10 @@ function newGroupId(): string {
 export class OrchestrationGroupState {
   private open: OpenOrchestrationGroup | undefined;
 
-  resolveGroup(input: ResolveGroupInput): ResolveGroupResult {
+  previewGroup(input: ResolveGroupInput): PreviewGroupResult {
     const groupId = optionalString(input.groupId);
     const cwdInput = optionalString(input.cwd);
-    const result = this.resolve(groupId, cwdInput, input.parentCwd);
+    const result = this.compute(groupId, cwdInput, input.parentCwd);
     if (isResolveGroupReject(result)) {
       logger.info("orchestration-group", "resolve", {
         groupId,
@@ -82,6 +88,23 @@ export class OrchestrationGroupState {
       });
     }
     return result;
+  }
+
+  commitGroup(group: OpenOrchestrationGroup): void {
+    if (this.open) return;
+    this.open = { groupId: group.groupId, cwd: group.cwd };
+    logger.info("orchestration-group", "commit", {
+      groupId: group.groupId,
+      cwd: group.cwd,
+      reject: undefined,
+    });
+  }
+
+  resolveGroup(input: ResolveGroupInput): ResolveGroupResult {
+    const result = this.previewGroup(input);
+    if (isResolveGroupReject(result)) return result;
+    this.commitGroup(result);
+    return { groupId: result.groupId, cwd: result.cwd };
   }
 
   closeGroup(groupId?: string): void {
@@ -115,11 +138,11 @@ export class OrchestrationGroupState {
     return this.open === undefined ? undefined : { ...this.open };
   }
 
-  private resolve(
+  private compute(
     groupId: string | undefined,
     cwdInput: string | undefined,
     parentCwd: string,
-  ): ResolveGroupResult {
+  ): PreviewGroupResult {
     const open = this.open;
     if (open) {
       if (groupId !== undefined && groupId !== open.groupId) {
@@ -134,7 +157,7 @@ export class OrchestrationGroupState {
           return { reject: GROUP_REJECT_REASONS.cwdMismatch };
         }
       }
-      return { groupId: open.groupId, cwd: open.cwd };
+      return { groupId: open.groupId, cwd: open.cwd, created: false };
     }
 
     if (groupId !== undefined) {
@@ -146,8 +169,6 @@ export class OrchestrationGroupState {
       return { reject: GROUP_REJECT_REASONS.cwdMissing };
     }
 
-    const created: OpenOrchestrationGroup = { groupId: newGroupId(), cwd };
-    this.open = created;
-    return created;
+    return { groupId: newGroupId(), cwd, created: true };
   }
 }

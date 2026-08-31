@@ -17,6 +17,7 @@ import {
   type OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
 } from "../orchestration/index.js";
+import { formatOrchestrateText } from "../renderers/orchestrate.js";
 import { installSessionTimeout, resolveEffectiveTimeout } from "../session-timeout.js";
 import { applyStepLimit } from "../step-limit.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
@@ -131,23 +132,14 @@ function resolveAgentConfig(
   return found;
 }
 
-function formatResult(result: OrchestrateResult): string {
-  const lines = [
-    `Orchestrated group ${result.groupId}: ${result.accepted.length} starting, ${result.rejected.length} rejected.`,
-  ];
-  if (result.accepted.length > 0) {
-    lines.push("Accepted:");
-    for (const item of result.accepted) {
-      lines.push(`- ${item.childId} starting: ${item.description}`);
-    }
-  }
-  if (result.rejected.length > 0) {
-    lines.push("Rejected:");
-    for (const item of result.rejected) {
-      lines.push(`- [${item.index}] ${item.reason}`);
-    }
-  }
-  return lines.join("\n");
+function allRejectedError(rejected: OrchestrateResult["rejected"]): Error {
+  return new Error(
+    formatOrchestrateText({
+      groupId: "",
+      accepted: [],
+      rejected,
+    }),
+  );
 }
 
 function logOrchestrate(
@@ -281,6 +273,7 @@ function startRegisteredChild(
           });
           return;
         }
+        tree.updateStatus(id, "running");
         deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
         const terminal = await handle.wait();
         deps.onLifecycle?.({
@@ -337,24 +330,24 @@ export function orchestrate(deps: OrchestrateDeps) {
       throw new Error("Must specify at least one task.");
     }
 
-    const resolved = deps.groups.resolveGroup({
+    const previewed = deps.groups.previewGroup({
       groupId: optionalString(params.groupId),
       cwd: optionalString(params.cwd),
       parentCwd: ctx.cwd,
     });
-    if (isResolveGroupReject(resolved)) {
+    if (isResolveGroupReject(previewed)) {
       logOrchestrate("group-rejected", {
         groupId: optionalString(params.groupId),
         hostMode,
         accepted: 0,
         rejected: 0,
-        reasons: [resolved.reject],
+        reasons: [previewed.reject],
       });
-      throw new Error(resolved.reject);
+      throw new Error(previewed.reject);
     }
 
     const { tree } = deps;
-    const piConfig = getConfig({ ...ctx, cwd: resolved.cwd });
+    const piConfig = getConfig({ ...ctx, cwd: previewed.cwd });
     const accepted: OrchestrateResult["accepted"] = [];
     const rejected: OrchestrateResult["rejected"] = [];
     const registered: RegisteredChild[] = [];
@@ -379,7 +372,11 @@ export function orchestrate(deps: OrchestrateDeps) {
         continue;
       }
       if (spec.taskType !== undefined && !isTaskType(spec.taskType)) {
-        rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType });
+        rejected.push({
+          index,
+          reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType,
+          value: String(spec.taskType),
+        });
         continue;
       }
 
@@ -387,7 +384,11 @@ export function orchestrate(deps: OrchestrateDeps) {
       if (workItemId) {
         const live = tree.getLiveByWorkItemId(workItemId);
         if (live.length > 0 || claimedWorkItemIds.has(workItemId)) {
-          rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId });
+          rejected.push({
+            index,
+            reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId,
+            value: workItemId,
+          });
           continue;
         }
       }
@@ -400,9 +401,9 @@ export function orchestrate(deps: OrchestrateDeps) {
 
       const id = generateId();
       const name = pickMinionName(tree, id, ctx, agent, assignedNames);
-      const config = resolveAgentConfig(agent, name, optionalString(spec.model), resolved.cwd);
+      const config = resolveAgentConfig(agent, name, optionalString(spec.model), previewed.cwd);
       if ("reject" in config) {
-        rejected.push({ index, reason: config.reject });
+        rejected.push({ index, reason: config.reject, value: agent });
         continue;
       }
 
@@ -410,7 +411,11 @@ export function orchestrate(deps: OrchestrateDeps) {
       try {
         parentModel = resolveModelReference(optionalString(spec.model) ?? config.model, ctx);
       } catch {
-        rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.unknownModel });
+        rejected.push({
+          index,
+          reason: ORCHESTRATE_REJECT_REASONS.unknownModel,
+          value: optionalString(spec.model) ?? config.model,
+        });
         continue;
       }
 
@@ -428,17 +433,33 @@ export function orchestrate(deps: OrchestrateDeps) {
 
       tree.add(id, name, task, {
         kind: "orchestrated",
-        groupId: resolved.groupId,
+        groupId: previewed.groupId,
         taskType: descriptor.taskType,
         description,
         domain: spec.domain,
         agentName: agent ?? "ephemeral",
         model: descriptor.model ?? (parentModel ? formatModelReference(parentModel) : undefined),
         completionNudge: config.completionNudge,
+        status: "pending",
       });
 
       accepted.push({ childId: id, description, state: "starting" });
       registered.push({ id, name, task: descriptor, config, parentModel });
+    }
+
+    if (accepted.length === 0) {
+      logOrchestrate("result", {
+        groupId: previewed.created ? undefined : previewed.groupId,
+        hostMode,
+        accepted: 0,
+        rejected: rejected.length,
+        reasons: rejected.map((item) => item.reason),
+      });
+      throw allRejectedError(rejected);
+    }
+
+    if (previewed.created) {
+      deps.groups.commitGroup(previewed);
     }
 
     const parentToolNames = deps.pi.getAllTools().map((tool) => tool.name);
@@ -448,7 +469,7 @@ export function orchestrate(deps: OrchestrateDeps) {
         deps,
         mailbox,
         ctx,
-        resolved,
+        previewed,
         toolCallId,
         parentToolNames,
         child,
@@ -456,7 +477,7 @@ export function orchestrate(deps: OrchestrateDeps) {
       ).catch((err: unknown) => {
         const error = err instanceof Error ? err.message : String(err);
         logger.error("orchestrate", "detached-start", {
-          groupId: resolved.groupId,
+          groupId: previewed.groupId,
           childId: child.id,
           hostMode,
           error,
@@ -465,7 +486,7 @@ export function orchestrate(deps: OrchestrateDeps) {
     }
 
     const result: OrchestrateResult = {
-      groupId: resolved.groupId,
+      groupId: previewed.groupId,
       accepted,
       rejected,
     };
@@ -480,7 +501,7 @@ export function orchestrate(deps: OrchestrateDeps) {
     });
 
     return {
-      content: [{ type: "text", text: formatResult(result) }],
+      content: [{ type: "text", text: formatOrchestrateText(result) }],
       details: result,
     };
   };

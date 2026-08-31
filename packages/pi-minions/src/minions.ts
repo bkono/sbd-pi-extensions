@@ -15,7 +15,7 @@ export function pickMinionName(
   reservedNames?: Set<string>,
 ): string {
   const inUse = new Set([
-    ...tree.getRunning().map((n) => n.name),
+    ...tree.getLive().map((n) => n.name),
     ...(reservedNames ? Array.from(reservedNames) : []),
   ]);
 

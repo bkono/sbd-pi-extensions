@@ -123,6 +123,27 @@ describe("list_minions filters", () => {
     expect(spawnInGroup).toEqual([]);
   });
 
+  it("does not count pending children as running", async () => {
+    const tree = new AgentTree();
+    tree.add("mn-pending", "echo", "starting work", {
+      kind: "orchestrated",
+      groupId: "grp-1",
+      status: "pending",
+      description: "Pending child",
+    });
+    tree.add("mn-running", "foxtrot", "live work", {
+      kind: "orchestrated",
+      groupId: "grp-1",
+      description: "Running child",
+    });
+
+    const pending = await list(tree, { status: "pending" });
+    const running = await list(tree, { status: "running" });
+    expect(pending.details.minions.map((m) => m.id)).toEqual(["mn-pending"]);
+    expect(running.details.minions.map((m) => m.id)).toEqual(["mn-running"]);
+    expect(tree.getRunning().map((n) => n.id)).toEqual(["mn-running"]);
+  });
+
   it("exposes last said and peer-message failure so the parent can inspect without packets", async () => {
     const tree = seedTree();
     const listed = await list(tree, { kind: "orchestrated", groupId: "grp-1" });

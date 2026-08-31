@@ -186,6 +186,7 @@ export type OrchestrateAccepted = Static<typeof OrchestrateAcceptedSchema>;
 export const OrchestrateRejectedSchema = Type.Object({
   index: Type.Number(),
   reason: Type.String(),
+  value: Type.Optional(Type.String()),
 });
 export type OrchestrateRejected = Static<typeof OrchestrateRejectedSchema>;
 

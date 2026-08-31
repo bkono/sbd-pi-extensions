@@ -42,6 +42,8 @@ export {
   isResolveGroupReject,
   type OpenOrchestrationGroup,
   OrchestrationGroupState,
+  type PreviewedOrchestrationGroup,
+  type PreviewGroupResult,
   type ResolveGroupInput,
   type ResolveGroupResult,
 } from "./group-state.js";
