@@ -54,7 +54,6 @@ export type RunActionDeps = {
     state: SessionState,
     mode: SessionState["mode"],
     scope?: SessionScope,
-    runOptions?: SessionState["runOptions"],
   ) => Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }>;
   writeSessionState: (
     ctx: ExtensionCommandContext,
@@ -346,7 +345,6 @@ export async function startGoal(input: {
     scope,
     goal,
     runInterrupted: undefined,
-    runOptions: undefined,
   });
 
   const prompt = buildGoalRunPrompt({

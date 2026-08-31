@@ -30,7 +30,7 @@ import {
   type IssueExplorerDataSource,
   type IssueExplorerHooks,
 } from "./issue-explorer.js";
-import { formatRunManagerLines } from "./run-manager.js";
+import { formatGoalModeLines } from "./run-manager.js";
 
 export type DashboardTabId = "issues" | "run" | "scope";
 
@@ -93,14 +93,9 @@ function describeBackground(theme: Theme, state: SessionState): string | undefin
   if (state.mode === "run" && state.scope.kind === "epic" && !isInterruptedRun(state)) {
     return `${styledAccent(theme, "run armed")} for ${styledValue(theme, state.scope.id)}`;
   }
-  if (state.recentRunSummary) {
-    const goalState =
-      state.recentRunSummary.stopReason === "completed"
-        ? styledDim(theme, state.recentRunSummary.stopReason)
-        : styledWarning(theme, "interrupted");
-    return `${styledLabel(theme, "last run")} ${state.recentRunSummary.epicId} · ${goalState}`;
+  if (isInterruptedRun(state) && state.scope.kind === "epic") {
+    return `${styledWarning(theme, "run interrupted")} for ${styledValue(theme, state.scope.id)}`;
   }
-
   return undefined;
 }
 
@@ -159,7 +154,7 @@ function buildPanelLines(theme: Theme, model: DashboardModel, tab: DashboardTabI
       ];
     }
     case "run":
-      return formatRunManagerLines(model, theme);
+      return formatGoalModeLines(model, theme);
     case "scope":
       return [
         sectionTitle(theme, "Current scope"),

@@ -24,6 +24,8 @@ Operator README: [../README.md](../README.md). Minions: [../../pi-minions/README
 | `/bw workers`, worker registry, `worker.log` | `list_minions` / `show_minion` |
 | `/bw cancel` | `/halt <id\|all>` |
 | `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check` | not registered. Use beadwork issue tools + minions `orchestrate`/`halt` |
+| persisted `trackedWorkerIds`, `workerNotices`, run options, and worker/run/cycle summaries | no replacement; old JSON fields are dropped on read and never written again |
+| attribution evidence packs, runtime/log/tmux paths, branch evidence, and commit heuristics | no Beadwork API; parent and reviewers inspect explicit child evidence and named SHAs directly |
 
 ## `orchestrate.role` was removed
 
@@ -80,6 +82,21 @@ Delete those families. Keep:
 Do **not** copy `landing.validateCommands` into a new beadwork validation key. Quality stays in
 the implementer/reviewer `task` or a repo checkpoint.
 
+## Reduced session state
+
+Session JSON now contains only current mode/scope, goal identity and review policy, interruption/entry
+bookkeeping, prime cache, and timestamps. The deleted supervisor projections are not migrated:
+
+- `trackedWorkerIds` and `workerNotices`
+- `runOptions` / `lastRunOptions`
+- `recentRunSummary` / `lastCycleSummary` and nested worker/cycle/run summaries
+
+These fields are ignored when old JSON is loaded and disappear on the next write. Live child state belongs
+to pi-minions inspection and lifecycle packets; Beadwork does not persist a fleet mirror.
+
+The exported attribution evidence builder and its runtime-directory, prompt/log/state/exit, tmux,
+current-branch, validation/review-status, and commit-heuristic types were deleted. Reviewers inspect the
+named child commit and report evidence to the parent; no compatibility export replaces them.
 ## Removed tools
 
 These tools are gone for parent and children:

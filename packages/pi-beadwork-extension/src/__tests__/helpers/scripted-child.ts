@@ -34,7 +34,6 @@ export class ScriptedChildSession implements ChildSession {
   followUps: string[] = [];
   steers: string[] = [];
   followUpCalls = 0;
-  private followUpBarrier: ReturnType<typeof createDeferred<void>> | undefined;
   private streaming = false;
   state: { messages: unknown[] } = { messages: [] };
 
@@ -89,17 +88,6 @@ export class ScriptedChildSession implements ChildSession {
     }
   }
 
-  pauseFollowUps(): void {
-    if (this.followUpBarrier) throw new Error("follow-up delivery is already paused");
-    this.followUpBarrier = createDeferred<void>();
-  }
-
-  resumeFollowUps(): void {
-    const barrier = this.followUpBarrier;
-    this.followUpBarrier = undefined;
-    barrier?.resolve();
-  }
-
   prompt(text: string): Promise<void> {
     this.promptCalls += 1;
     this.lastPrompt = text;
@@ -127,8 +115,6 @@ export class ScriptedChildSession implements ChildSession {
       throw new Error("Child is terminal; further mail is rejected");
     }
     this.followUpCalls += 1;
-    const barrier = this.followUpBarrier;
-    if (barrier) await barrier.promise;
     this.followUps.push(text);
     this.emit({ type: "message_start", message: { role: "user", content: text } });
   }

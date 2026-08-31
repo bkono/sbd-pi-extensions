@@ -476,8 +476,6 @@ describe("injected goal prompt", () => {
       reviewPolicy: "ticket",
       startedAt: "2026-08-27T00:00:00.000Z",
     });
-    expect(persisted.runOptions).toBeUndefined();
-    expect(persisted.trackedWorkerIds).toBeUndefined();
     expect(deps.pi.sendMessage).toHaveBeenCalledTimes(1);
   });
 

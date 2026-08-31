@@ -274,9 +274,9 @@ Full reference: [docs/commands.md](./docs/commands.md).
 - [docs/README.md](./docs/README.md) — docs index
 - [docs/workflows.md](./docs/workflows.md) — dashboard-first operator flow, `/bw run`, review, checkout
 - [docs/configuration.md](./docs/configuration.md) — config keys and environment variables
-- [docs/migration.md](./docs/migration.md) — removed tmux workers, flags, tools, and leftover config
+- [docs/migration.md](./docs/migration.md) — deleted supervisor state, attribution APIs, flags, tools, and config
 - [docs/commands.md](./docs/commands.md) — slash commands, dashboard controls, tool surface
-- [docs/worker-conventions.md](./docs/worker-conventions.md) — shared-checkout attribution habits
+- [docs/worker-conventions.md](./docs/worker-conventions.md) — shared-checkout commit and handoff habits
 
 ## Tool surface
 

@@ -826,7 +826,6 @@ describe("pi beadwork extension", () => {
     expect(persisted.mode).toBe("run");
     expect(persisted.goal?.scopeIds).toEqual(["BW-100"]);
     expect(persisted.goal?.reviewPolicy).toBe("ticket");
-    expect(persisted.runOptions).toBeUndefined();
   });
 
   it("exits goal mode when beadwork_close_issue closes the scoped epic", async () => {
@@ -1382,7 +1381,6 @@ describe("pi beadwork extension", () => {
       expect(commandState.goal?.goalId).toBeTruthy();
       expect(toolState.goal?.startedAt).toBeTruthy();
       expect(commandState.goal?.startedAt).toBeTruthy();
-      expect(toolState.runOptions).toEqual(commandState.runOptions);
       expect((commandPrompt?.message as { content?: string }).content).toBe(
         (toolPrompt?.message as { content?: string }).content,
       );

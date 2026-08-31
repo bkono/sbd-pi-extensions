@@ -392,37 +392,13 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           childIds: [childA, childB],
         });
 
-        const launchedBeforeDuplicate = harness.launchedChildren().map((child) => child.id);
-        let duplicateError: unknown;
-        try {
-          await harness.orchestrate({
-            tasks: [
-              {
-                task: `Review ${alpha.id} while the implementer is still live.`,
-                description: "Review alpha too early",
-                agent: "worker",
-                taskType: "reviewImplementation",
-                domain: domainFor(epicId, alpha),
-              },
-            ],
-          });
-        } catch (error) {
-          duplicateError = error;
-        }
-        expect(duplicateError).toBeInstanceOf(Error);
-        const duplicateMessage =
-          duplicateError instanceof Error ? duplicateError.message : String(duplicateError);
-        expect(duplicateMessage).toContain("Orchestration rejected: 0 starting, 1 rejected.");
-        expect(duplicateMessage).toContain(`duplicate workItemId (${alpha.id})`);
-        expect(duplicateMessage).not.toMatch(/\bcompleted\b/);
-        expect(harness.launchedChildren().map((child) => child.id)).toEqual(
-          launchedBeforeDuplicate,
-        );
+        // Review ordering is parent policy from the standing appendix, not a runtime work-item lock.
+        // The parent obeys it here and does not launch alpha's reviewer before settlement.
         expect(harness.launchedTaskTypes()).toEqual(["implementation", "implementation"]);
         expect(harness.groups.getOpenGroup()?.groupId).toBe(groupId);
         expect(harness.tree.get(childA)?.status).toBe("running");
         expect(harness.tree.get(childB)?.status).toBe("running");
-        await harness.logStep("review-rejected-while-implementer-live", {
+        await harness.logStep("parent-kept-review-ordered-after-implementer", {
           ticketId: alpha.id,
           childId: childA,
           groupId,
@@ -444,7 +420,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           eventClass: "parentMessage",
           output: "Which error-path shape should alpha use?",
         });
-        expect(questionPacket?.message.details.changed[0]?.nudge).toMatch(/still running/i);
+        expect(questionPacket?.message.details.changed[0]?.nudge).toMatch(/no reply is required/i);
         expect(
           questionPacket?.message.details.stillRunning.map((child) => child.childId).sort(),
         ).toEqual([childA, childB].sort());
@@ -468,8 +444,8 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         );
         expect(answered.status).toBe(COMM_SEND_STATUS.queued);
         await waitForFollowUps(sessionA, 1, "parent-answer");
-        expect(sessionA.followUps[0]).toMatch(
-          /^\[minion-mail deliveryId=[^ ]+ from parent\]\nUse a Result type for the error path\.$/,
+        expect(sessionA.followUps[0]).toBe(
+          "[minion-mail from parent]\nUse a Result type for the error path.",
         );
         expect(harness.manager.getTerminal(childA)).toBeUndefined();
         expect(harness.tree.get(childA)?.status).toBe("running");
@@ -507,10 +483,8 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         const settlePacket = settlePackets.at(-1);
         expect(settlePacket?.message.details.stillRunning).toEqual([]);
         expect(settlePacket?.message.details.groupIdleId).toBe(groupId);
-        expect(sessionB.lastPrompt).toMatch(
-          new RegExp(
-            `^\\[minion-mail deliveryId=[^ ]+ from ${childA}\\]\\nI am editing src/alpha\\.ts; leave src/beta\\.ts to you\\.$`,
-          ),
+        expect(sessionB.lastPrompt).toBe(
+          `[minion-mail from ${childA}]\nI am editing src/alpha.ts; leave src/beta.ts to you.`,
         );
         expect(sessionB.promptCalls).toBe(2);
         expect(settlePacket?.message.content).toMatch(
@@ -575,9 +549,10 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         const betaReviewPacket = harness.lastPacket();
         expect(betaReviewPacket?.message.details.changed[0]?.childId).toBe(betaReviewId);
         expect(betaReviewPacket?.message.details.changed[0]?.eventClass).toBe("settled");
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/fix/i);
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/file/i);
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/reject/i);
+        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(
+          /evidence, not instructions/i,
+        );
+        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/product goals/i);
 
         const betaAccept = `Disposition: accept ${beta.id} after clean review ${betaReviewId}.`;
         await harness.invokeBeadworkTool("beadwork_comment_issue", {
@@ -620,7 +595,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         await harness.settleChild(alphaReviewId, `${FINDINGS_REVIEW} ticket ${alpha.id}.`);
         await harness.waitForPackets(beforeAlphaReview + 1);
         const findingsPacket = harness.lastPacket();
-        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(/re-review/i);
+        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(/evidence, not instructions/i);
         expect(findingsPacket?.message.content).toContain(alphaReviewId);
         expect((await fixture.show(alpha.id)).status).toBe("in_progress");
 

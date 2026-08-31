@@ -375,9 +375,6 @@ export async function createInProcessHarness(
       }
       await handle.followUp(text, followOptions);
     },
-    markWaitingOnParent: (id) => {
-      manager.markWaitingOnParent(id);
-    },
     onParentDirected: (message) => {
       if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
       dispatcher.enqueue({

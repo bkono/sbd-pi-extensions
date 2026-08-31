@@ -1,110 +1,67 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { isInterruptedRun } from "../session-state.js";
-import {
-  kv,
-  styledAccent,
-  styledDim,
-  styledError,
-  styledSuccess,
-  styledWarning,
-} from "./common.js";
+import { kv, styledAccent, styledDim, styledSuccess, styledWarning } from "./common.js";
 import type { DashboardStatusSnapshot } from "./dashboard.js";
 
-/** Fallback theme that returns text unchanged */
+/** Fallback theme that returns text unchanged. */
 const passthroughTheme: Theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
 } as Theme;
 
-function describeRunScope(
+function describeGoalScope(
   theme: Theme,
   snapshot: Pick<DashboardStatusSnapshot, "state" | "scopeDetail">,
 ): string {
-  if (snapshot.state.scope.kind === "epic") {
-    const title = snapshot.state.scope.title ?? snapshot.scopeDetail?.title;
-    return title
-      ? `${styledAccent(theme, snapshot.state.scope.id)} · ${title}`
-      : styledAccent(theme, snapshot.state.scope.id);
+  if (snapshot.state.scope.kind !== "epic") {
+    return styledDim(theme, "no epic selected");
   }
 
-  return snapshot.state.recentRunSummary?.epicId
-    ? styledAccent(theme, snapshot.state.recentRunSummary.epicId)
-    : styledDim(theme, "no epic selected");
+  const title = snapshot.state.scope.title ?? snapshot.scopeDetail?.title;
+  return title
+    ? `${styledAccent(theme, snapshot.state.scope.id)} · ${title}`
+    : styledAccent(theme, snapshot.state.scope.id);
 }
 
 function describeReviewPolicy(
   theme: Theme,
-  snapshot: Pick<DashboardStatusSnapshot, "config">,
+  snapshot: Pick<DashboardStatusSnapshot, "state" | "config">,
 ): string {
-  const config = snapshot.config;
-  if (!config) {
+  const policy = snapshot.state.goal?.reviewPolicy ?? snapshot.config?.review.policy;
+  if (!policy) {
     return styledDim(theme, "unavailable");
   }
-
-  return config.review.policy === "none"
-    ? styledDim(theme, "none")
-    : styledAccent(theme, config.review.policy);
+  return policy === "none" ? styledDim(theme, policy) : styledAccent(theme, policy);
 }
 
-function describeGoalState(theme: Theme, snapshot: Pick<DashboardStatusSnapshot, "state">): string {
+function describeGoalMode(theme: Theme, snapshot: Pick<DashboardStatusSnapshot, "state">): string {
   if (isInterruptedRun(snapshot.state)) {
     return styledWarning(theme, "interrupted");
   }
-
   if (snapshot.state.mode === "run") {
     return styledSuccess(theme, "active");
   }
-
-  const stopReason = snapshot.state.recentRunSummary?.stopReason;
-  if (stopReason && stopReason !== "completed") {
-    const reasonStyle =
-      stopReason === "blocked" || stopReason === "attention"
-        ? styledError(theme, stopReason)
-        : styledWarning(theme, stopReason);
-    return `${styledWarning(theme, "interrupted")} · last stop=${reasonStyle}`;
-  }
-
-  if (stopReason === "completed") {
-    return `${styledDim(theme, "idle")} · last stop=${styledSuccess(theme, stopReason)}`;
-  }
-
-  return styledDim(theme, "idle");
+  return styledDim(theme, "inactive");
 }
 
-function describeGoalNextAction(snapshot: Pick<DashboardStatusSnapshot, "state">): string {
+function describeNextAction(snapshot: Pick<DashboardStatusSnapshot, "state">): string {
   if (isInterruptedRun(snapshot.state)) {
-    return "The last run was interrupted; resume only with an explicit /bw run <epic-id>.";
+    return "Resume only with an explicit /bw run <epic-id>, or abandon the interrupted goal.";
   }
-
   if (snapshot.state.mode === "run") {
-    return "Goal mode is active; the session appendix stays armed until the epic is closed or abandoned.";
+    return "The goal appendix remains active until the epic closes or the parent abandons it.";
   }
-
-  const stopReason = snapshot.state.recentRunSummary?.stopReason;
-  switch (stopReason) {
-    case "completed":
-      return "The last goal finished; pick another epic from Issues when you are ready.";
-    case "blocked":
-      return "The last run paused because no additional scoped ready work was available.";
-    case "empty":
-      return "The last run found no scoped ready work; retarget scope or wait for new ready tickets.";
-    case "attention":
-      return "The last run needs operator follow-up; resume from Issues or /bw run <epic-id>.";
-    case "max-cycles":
-      return "The last run hit its cycle bound; resume with /bw run <epic-id> if the epic is still open.";
-    default:
-      return "Pick an epic in Issues and press r, or run /bw run <epic-id>.";
-  }
+  return "Select an open epic in Issues and press r, or run /bw run <epic-id>.";
 }
 
-export function formatRunManagerLines(snapshot: DashboardStatusSnapshot, theme?: Theme): string[] {
+export function formatGoalModeLines(snapshot: DashboardStatusSnapshot, theme?: Theme): string[] {
   const t = theme ?? passthroughTheme;
   return [
-    styledDim(t, "Goal summary · epic, review policy, and run state."),
-    kv(t, "Epic", describeRunScope(t, snapshot)),
+    styledDim(t, "Current explicit goal-mode entry and review policy."),
+    kv(t, "Epic", describeGoalScope(t, snapshot)),
     kv(t, "Review policy", describeReviewPolicy(t, snapshot)),
-    kv(t, "Goal state", describeGoalState(t, snapshot)),
-    kv(t, "Next", describeGoalNextAction(snapshot)),
+    kv(t, "Goal mode", describeGoalMode(t, snapshot)),
+    kv(t, "Next", describeNextAction(snapshot)),
   ];
 }

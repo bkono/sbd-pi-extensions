@@ -302,47 +302,25 @@ describe("agent-friendly orchestration vertical slice", () => {
           beta.id,
         );
 
+        const beforeQuestion = harness.packets.length;
         const asked = (await harness.invokeChildTool(childA, SEND_MINION_PEER_TOOL, {
           to: PARENT_RECIPIENT_ID,
-          body: "Should alpha preserve the legacy error code?",
+          body: "Alpha is preserving the legacy error code; parent can redirect if needed.",
         })) as { details?: { status?: string } };
         expect(asked.details?.status).toBe("queued");
         expect(harness.tree.get(childA)?.status).toBe("running");
-        expect(harness.tree.get(childA)?.activity?.phase).toBe("waiting");
-        expect(harness.fleetSnapshot().join("\n")).toContain("waiting on parent");
-        await harness.logStep("child-question-waiting", {
+        expect(harness.tree.get(childA)?.activity?.phase).not.toBe("waiting");
+        expect(harness.fleetSnapshot().join("\n")).not.toContain("waiting on parent");
+        await harness.waitForPackets(beforeQuestion + 1);
+        expect(harness.lastPacket()?.message.details.changed).toContainEqual(
+          expect.objectContaining({ childId: childA, eventClass: "parentMessage" }),
+        );
+        await harness.settleChild(childA, `${IMPLEMENTER_OUTPUT} commit ${alphaCommit}`);
+        expect(harness.manager.getTerminal(childA)?.class).toBe("settled");
+        await harness.logStep("child-notified-parent-and-settled-without-parking", {
           childId: childA,
           groupId: launched.groupId,
-          activityPhase: "waiting",
-          issueIds: [alpha.id, beta.id],
-        });
-
-        sessionA.pauseFollowUps();
-        const answer = await harness.sendMinionMessage(
-          childA,
-          "Preserve it and document the compatibility boundary.",
-        );
-        expect(answer.status).toBe("queued");
-        await waitFor(
-          () => sessionA.followUpCalls === 1,
-          "parent answer was not accepted for delivery",
-        );
-        sessionA.beginSettling(`${IMPLEMENTER_OUTPUT} commit ${alphaCommit}`);
-        sessionA.completeSettlement();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(harness.manager.getTerminal(childA)).toBeUndefined();
-        expect(harness.tree.get(childA)?.activity?.phase).toBe("waiting");
-        sessionA.resumeFollowUps();
-        await waitFor(
-          () => harness.manager.getTerminal(childA)?.class === "settled",
-          "alpha did not settle after accepted parent mail drained",
-        );
-        expect(sessionA.followUps[0]).toMatch(
-          /^\[minion-mail deliveryId=[^ ]+ from parent\]\nPreserve it and document the compatibility boundary\.$/,
-        );
-        await harness.logStep("parent-mail-drained-before-settlement", {
-          childId: childA,
-          groupId: launched.groupId,
+          activityPhase: "settled",
           terminalState: "settled",
           issueIds: [alpha.id, beta.id],
         });

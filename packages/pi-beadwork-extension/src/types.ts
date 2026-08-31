@@ -42,14 +42,6 @@ export type PrimeCache = {
   repoRoot?: string;
 };
 
-export type SessionRunOptions = {
-  workers: number;
-  until: RunUntil;
-  noSpawn: boolean;
-  dryRun: boolean;
-  maxCycles?: number;
-};
-
 export type SessionState = {
   mode: SessionMode;
   scope: SessionScope;
@@ -59,14 +51,7 @@ export type SessionState = {
   goal?: Goal;
   /** Disk rehydration of mode=run. Stays set across in-memory writes until a later /bw run. */
   runInterrupted?: boolean;
-  trackedWorkerIds?: string[];
-  workerNotices?: Record<string, string>;
-  runOptions?: SessionRunOptions;
-  lastRunOptions?: SessionRunOptions;
-  recentRunSummary?: RunSummary;
 };
-
-export type RunUntil = "blocked" | "empty";
 
 export type BeadworkConfig = {
   ui: {
@@ -204,56 +189,4 @@ export type AdoptionApplyResult = {
   mode: AdoptionLandMode;
   root?: BeadworkIssue;
   created: BeadworkIssue[];
-};
-
-export type WorkerSummary = {
-  total: number;
-  active: number;
-  launching: number;
-  running: number;
-  exited: number;
-  held: number;
-  landed: number;
-  verified: number;
-  successfulTerminal: number;
-  failed: number;
-  attention: number;
-  cleaned: number;
-  worktree?: number;
-  currentBranch?: number;
-  activeWorktree?: number;
-  activeCurrentBranch?: number;
-};
-
-export type RunOptions = {
-  workers: number;
-  until: RunUntil;
-  dryRun: boolean;
-  maxCycles: number;
-  pollIntervalMs: number;
-  noSpawn: boolean;
-};
-
-export type RunCycleSummary = {
-  cycle: number;
-  ready: string[];
-  launched: string[];
-  running: string[];
-  held: string[];
-  landed: string[];
-  verified: string[];
-  failed: string[];
-  attention: string[];
-  exited: string[];
-};
-
-export type RunSummary = {
-  epicId: string;
-  stopReason: "completed" | "blocked" | "empty" | "max-cycles" | "attention";
-  cycles: number;
-  launched: string[];
-  activeWorkerIds: string[];
-  workerSummary: WorkerSummary;
-  notes: string[];
-  cycleSummaries: RunCycleSummary[];
 };

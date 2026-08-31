@@ -47,13 +47,10 @@ import type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
-  SessionRunOptions,
   SessionScope,
   SessionState,
 } from "./types.js";
 
-export type { AttributionCommitEvidence, AttributionEvidencePack } from "./attribution.js";
-export { buildAttributionEvidencePack } from "./attribution.js";
 export { loadConfig } from "./config.js";
 export type {
   ActivationState,
@@ -71,10 +68,7 @@ export type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
-  RunOptions,
-  RunSummary,
   SessionMode,
-  SessionRunOptions,
   SessionScope,
   SessionState,
 } from "./types.js";
@@ -390,7 +384,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     state: SessionState,
     mode: SessionState["mode"],
     scope?: SessionScope,
-    runOptions?: SessionRunOptions,
   ): Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }> {
     const stateWithPrime = await ensurePrime(ctx, activation, config, state, false);
     const nextState = await writeSessionState(ctx, activation, config, {
@@ -398,7 +391,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       mode,
       engagedAt: new Date().toISOString(),
       scope: scope ?? state.scope,
-      runOptions: mode === "run" ? (runOptions ?? state.runOptions) : undefined,
     });
     const scopeDetail = await resolveScopeDetail(ctx, activation, nextState);
     updateStatusline(ctx, activation, nextState, config);
