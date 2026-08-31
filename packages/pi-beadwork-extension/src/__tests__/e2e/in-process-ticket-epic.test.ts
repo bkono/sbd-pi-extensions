@@ -230,6 +230,13 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           "Do not start review of ticket A while A's implementer is still live.",
         );
         expect(standing).toContain("Beadwork does not own a validation gate.");
+        expect(standing).toContain("This is a manager-only loop.");
+        expect(standing).toContain(
+          "The parent does not implement a delegated ticket concurrently with its live child.",
+        );
+        expect(standing).toContain(
+          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+        );
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");

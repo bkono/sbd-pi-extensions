@@ -95,6 +95,13 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(standing).toContain(
           "This standing appendix is policy only. It does not start a turn.",
         );
+        expect(standing).toContain("This is a manager-only loop.");
+        expect(standing).toContain(
+          "The parent does not implement a delegated ticket concurrently with its live child.",
+        );
+        expect(standing).toContain(
+          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+        );
         expect(harness.launchedChildren()).toEqual([]);
         await harness.logStep("bw-start-goal-injected", { ticketId: ticket.id });
 

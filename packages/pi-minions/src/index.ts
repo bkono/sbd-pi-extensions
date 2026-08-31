@@ -27,7 +27,7 @@ import {
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
 import { renderOrchestrateCall, renderOrchestrateResult } from "./renderers/orchestrate.js";
-import { getMinionsSkill } from "./skill.js";
+import { getMinionsSkill, ORCHESTRATE_SIDECAR_GUIDELINES } from "./skill.js";
 import { createStatusTracker } from "./status.js";
 import { EventBus } from "./subsessions/event-bus.js";
 import { SubsessionManager } from "./subsessions/manager.js";
@@ -127,6 +127,7 @@ export default function (pi: ExtensionAPI): void {
       "taskType is a closed workflow-policy enum. Never collapse agent and taskType.",
       "Omit groupId to create the open group if none exists, otherwise join it. A second groupId is rejected.",
       "cwd is group-create only, must already exist, and cannot change later.",
+      ...ORCHESTRATE_SIDECAR_GUIDELINES,
     ],
     parameters: OrchestrateToolParams,
     execute: (...args) => {

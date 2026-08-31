@@ -1406,6 +1406,13 @@ describe("pi beadwork extension", () => {
       expect(toolStanding).toContain(
         "This standing appendix is policy only. It does not start a turn.",
       );
+      expect(toolStanding).toContain("This is a manager-only loop.");
+      expect(toolStanding).toContain(
+        "The parent does not implement a delegated ticket concurrently with its live child.",
+      );
+      expect(toolStanding).toContain(
+        "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+      );
 
       expect(toolResult.details).toMatchObject({
         epic_id: "BW-100",
@@ -1613,7 +1620,9 @@ describe("pi beadwork extension", () => {
       );
       const text = appendix?.systemPrompt ?? "";
 
-      expect(text).toContain("Do not auto-start goal mode merely because an epic exists.");
+      expect(text).toContain(
+        "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+      );
       expect(text).toContain("`beadwork_start_goal({ epic_id })`");
       expect(harness.sentMessages).toEqual([]);
       expect(harness.sentUserMessages).toEqual([]);

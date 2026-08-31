@@ -100,7 +100,7 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
       "When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.",
       "Do not infer dependency graphs from ad hoc chat formatting.",
       "Do not autonomously launch children or act like a background orchestrator.",
-      "Do not auto-start goal mode merely because an epic exists.",
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
       "This standing appendix is policy only. It does not start a turn. Wait for the user.",
     ];
   }
@@ -108,9 +108,13 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
   return [
     "You are in beadwork run mode.",
     "Goal mode: run the scoped epic to completion.",
+    "This is a manager-only loop.",
     "Prefer durable beadwork state over conversational replanning.",
     "Use `orchestrate` plus beadwork tools. Do not poll.",
-    "Child settlement is evidence, not acceptance. Do not close a ticket solely because a child settled.",
+    "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
+    "The parent does not implement a delegated ticket concurrently with its live child.",
+    "Children do not start, close, or reopen tickets, and do not start goals.",
+    "Child settlement is evidence, not acceptance or ticket closure. Do not close a ticket solely because a child settled.",
     "Use beadwork tools for durable graph mutations instead of text parsing heuristics.",
     "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
     "This standing appendix is policy only. It does not start a turn.",
@@ -198,8 +202,8 @@ function renderChildTaskComposition(): string {
     "Start-before-work: call `beadwork_start_issue` (or `bw start`) on the ticket before the child begins work.",
     "Compose `task` yourself: the `orchestrate` `task` field is the complete child prompt. Beadwork does not wrap it.",
     'Attach domain metadata: source "beadwork", scopeId (epic id), workItemId (ticket id), title.',
-    "Tell implementation children not to close tickets. The parent closes after it judges evidence.",
-    "Reviewer children inspect named commits, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.",
+    "Tell implementation children to make one atomic ticket-scoped commit, return the commit SHA, stage only owned files, and not close tickets. The parent closes after it judges evidence.",
+    "Reviewer children start only after the implementer settles. They inspect named commits, the named SHA, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.",
     "Do not start review of ticket A while A's implementer is still live. That is an instruction, not a lock.",
   ].join("\n");
 }
@@ -208,9 +212,12 @@ function renderGoalStartGuidance(): string {
   return [
     "## Goal mode entry",
     "",
+    "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
     "Call `beadwork_start_goal({ epic_id })` only after you have intentionally chosen to execute a ready, already-decomposed open epic.",
-    "Do not infer an epic, do not auto-start because an epic exists, and do not treat this as a synchronous run wrapper.",
-    "The tool starts manager-only goal mode and queues a continuation. It does not implement the epic or dispatch children.",
+    "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation. It does not implement the epic or dispatch children.",
+    "Do not infer an epic. Do not auto-start because an epic exists, becomes ready, or was just created. Do not treat this as a synchronous run wrapper.",
+    "Planning/decomposition and executing the graph are distinct decisions.",
   ].join("\n");
 }
 
@@ -229,7 +236,7 @@ function renderDoNot(): string {
     "",
     "Do not use tmux, landing, `--workers`, or polling.",
     "Do not classify review findings with a keyword matcher.",
-    "Do not auto-start goal mode merely because an epic exists.",
+    "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
   ].join("\n");
 }
 

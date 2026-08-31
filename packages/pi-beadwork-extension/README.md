@@ -17,8 +17,14 @@ Use this package for:
 
 Truths to keep in mind:
 
-- `/bw run` and `beadwork_start_goal` **inject a prompt** that asks the parent to refresh `bw` and
-  `orchestrate`. They do not start a polling supervisor or freeze a ready list.
+- `/bw run` and `beadwork_start_goal` are **equivalent entry surfaces** for the same lifecycle.
+  They **inject a prompt** that asks the parent to refresh `bw` and `orchestrate`. They do not
+  start a polling supervisor, freeze a ready list, dispatch children, or implement the epic.
+- Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.
+  Planning/decomposition and executing the graph are distinct decisions.
+- Goal mode is a **manager-only loop**. The parent owns ready/show, ticket start/close, task
+  composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping work in
+  flight. It does not implement a delegated ticket concurrently with its live child.
 - The standing beadwork appendix is **policy**. It does not start a turn.
 - Children are **process-local**. They die with the parent Pi process. A stuck child may require
   `/halt` or process exit. There is no daemon and no restart recovery.
@@ -111,7 +117,9 @@ What happens:
 2. it injects a prompt: identifiers, policy, “refresh `bw` and `orchestrate`”
 3. if the parent is idle, that prompt starts a turn; if busy, it is delivered as follow-up
 4. the standing appendix stays armed as policy for later turns
-5. the parent starts ready work, composes each child’s `task`, and calls minions `orchestrate`
+5. the parent starts ready work, composes each child’s `task`, and calls minions `orchestrate`.
+   This is a manager-only loop: the parent does not implement delegated ticket scope while the
+   child is live
 
 Do **not** pass `--workers`, `--until`, `--max-cycles`, `--dry-run`, or `--no-spawn`. Those flags
 error.
@@ -261,8 +269,9 @@ Children spawned or orchestrated by minions get **inspection only**: `beadwork_s
 parent mutates tickets after it judges evidence.
 
 Call `beadwork_start_goal({ epic_id })` only after deliberately choosing to execute an already-decomposed
-open epic. It queues the same continuation `/bw run` injects. It does not implement the epic,
-dispatch children, or infer which epic to run.
+open epic. Human `/bw run` and this tool share the same lifecycle. It queues the same continuation
+`/bw run` injects. It does not implement the epic, dispatch children, or infer which epic to run.
+Do not auto-start because an epic exists, becomes ready, or was just created.
 
 Deleted for everyone: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`,
 `beadwork_worker_check`.

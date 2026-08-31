@@ -190,6 +190,13 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           "Launch a `reviewScope` child before declaring the epic complete.",
         );
         expect(standing).toContain("Dependents may start before aggregate review finds a problem.");
+        expect(standing).toContain("This is a manager-only loop.");
+        expect(standing).toContain(
+          "The parent does not implement a delegated ticket concurrently with its live child.",
+        );
+        expect(standing).toContain(
+          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+        );
         await harness.logStep("bw-start-goal-injected", { ticketId: parentTicket.id });
 
         const runState = await sessionState(harness);

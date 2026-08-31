@@ -16,7 +16,8 @@ journal.
 
 For Beadwork epic runs, enable this extension alongside
 [`@solvedbydev/pi-beadwork-extension`](../pi-beadwork-extension/README.md) and use `/bw run <epic>`
-on tui. Beadwork injects the goal prompt; this package owns live child sessions.
+or `beadwork_start_goal({ epic_id })` on tui. Beadwork injects the manager-only goal prompt; this
+package owns live child sessions.
 
 ## Tools
 
@@ -37,6 +38,16 @@ Use `orchestrate` when the parent must keep talking to the user or continue an e
 Use `spawn` when you intend to wait.
 
 `orchestrate` requires a persistent host. It is rejected in print and json.
+
+### Cooperative sidecar
+
+Use `orchestrate` only for slices independent of the parent's continuing work. Once scope is
+delegated, the parent must not edit that delegated scope while the child is live; message or halt
+the child instead. The parent may continue user interaction, inspection, planning, or
+non-overlapping work.
+
+Path intent and overlap notices are advisory, not locks. A parent turn ending while children run
+is normal. Do not represent delegated work as complete while children are live.
 
 Each orchestrated task needs:
 
@@ -121,6 +132,7 @@ On tui with both extensions enabled:
 /bw run EPIC_ID
 ```
 
-Beadwork injects a goal prompt. The parent should `orchestrate` ready work with domain metadata.
+Beadwork injects a manager-only goal prompt. The parent should `orchestrate` ready work with
+domain metadata and must not implement a delegated ticket concurrently with its live child.
 Do not use tmux, `/bw delegate`, or `spawn` as the epic runtime. `spawn` remains valid for
 foreground one-off waits outside that loop.

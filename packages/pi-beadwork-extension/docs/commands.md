@@ -64,6 +64,7 @@ Notes:
 - persistent host (`tui` or `rpc`) required; print/json **error**
 - injects a prompt (ids + review policy + refresh/`orchestrate`); does not freeze ready
 - standing appendix is policy and does not start a turn
+- manager-only: parent owns tickets/reviews; does not implement delegated scope while the child is live
 - `--workers`, `--until`, `--max-cycles`, `--dry-run`, `--no-spawn` **error**
 - leftover supervisor config **error**
 - one goal per parent session; a second epic is rejected until the current goal exits
@@ -76,7 +77,7 @@ Notes:
 beadwork_start_goal({ epic_id: "BW-100" })
 ```
 
-Parent-only. Call it only after deliberately choosing to execute a ready, already-decomposed open epic. Do not auto-start because an epic exists, infer an epic, or treat the tool as a synchronous run wrapper.
+Parent-only. Call it only after deliberately choosing to execute a ready, already-decomposed open epic. Human `/bw run` and this tool share the same lifecycle. Do not auto-start because an epic exists, becomes ready, or was just created. Do not infer an epic or treat the tool as a synchronous run wrapper.
 
 - same persisted goal/scope/review-policy state and continuation as `/bw run`
 - busy parent turns get `followUp` exactly once; the next turn receives the standing run appendix

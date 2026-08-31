@@ -106,19 +106,29 @@ or `beadwork_start_goal` again.
 ### Agent-initiated goal mode
 
 After the parent has decomposed and polished an epic, it can call `beadwork_start_goal({ epic_id })`
-instead of waiting for a human `/bw run`. That is a deliberate mode transition, not discovery and
-not a synchronous supervisor. The next turn refreshes `bw ready`/`bw show` and orchestrates; the
-tool itself does not dispatch children or close tickets.
+instead of waiting for a human `/bw run`. Human `/bw run` and the tool are equivalent entry
+surfaces for the same lifecycle. That is a deliberate manager-intent transition: it arms policy and
+queues continuation. It does not implement, dispatch, or complete the epic. Do not auto-start
+merely because an epic exists, becomes ready, or was just created. Planning/decomposition and
+executing the graph remain distinct decisions. Do not imitate `/bw run` with `ready`, ticket
+mutations, and `orchestrate`.
 
 ### Parent loop (model)
+
+Goal mode is **manager-only**. The parent owns ready/show, ticket start/close, task composition,
+dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.
+The parent does not implement a delegated ticket concurrently with its live child. Children do not
+start, close, or reopen tickets, and do not start goals.
 
 When a turn runs:
 
 1. refresh `bw ready` / `bw show`
 2. `beadwork_start_issue` on work about to begin
-3. compose each child’s complete `task` (beadwork does not wrap it)
+3. compose each child’s complete `task` (beadwork does not wrap it), requiring an atomic
+   ticket-scoped commit and returned commit SHA; stage only owned files
 4. `orchestrate` with domain `{ source: "beadwork", scopeId, workItemId, title }` and a `taskType`
-5. on settlement: judge evidence; apply review policy; parent closes
+5. on settlement: judge evidence; apply review policy; parent closes. Settlement is evidence, not
+   acceptance or ticket closure
 
 `orchestrate` `accepted` means starting, not liveness. Do not poll.
 
@@ -130,9 +140,9 @@ When a turn runs:
 
 Disposition findings as fix | file | reject by judgment. No keyword classifier.
 
-Do not start review of ticket A while A’s implementer is still live. That is an instruction, not
-a lock. Reviewer tasks should name commits, the ticket id, and `git show` — not “read the whole
-dirty workspace.”
+Do not start review of ticket A while A’s implementer is still live. Reviewer children start only
+after the implementer settles. That is an instruction, not a lock. Reviewer tasks should inspect
+the named SHA/ticket with `git show` — not “read the whole dirty workspace.”
 
 ### Quality
 
