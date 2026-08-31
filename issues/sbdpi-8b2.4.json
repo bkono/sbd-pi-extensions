@@ -20,11 +20,15 @@
     {
       "text": "Independent review of acf3ae81 found one FIX/blocker: `renderGoalStartGuidance()` injects entry-only “Do not imitate /bw run with ready, ticket mutations, and orchestrate” copy into the active run appendix, directly contradicting the adjacent required manager loop that must use ready/start/orchestrate. Adjudication: keep entry/discovery and auto-start prohibition on interactive planning surfaces; active run-mode standing copy must retain lifecycle equivalence and manager-only behavior without forbidding the loop it is executing. Everything else reviewed PASS. Final integration must also confirm live sbdpi-8b2.3 preserves ORCHESTRATE_SIDECAR_GUIDELINES wiring in pi-minions index.ts.",
       "timestamp": "2026-08-31T02:11:11Z"
+    },
+    {
+      "text": "Acceptance complete. Guidance implementation acf3ae81 plus contradiction fix 9f0be1c independently reviewed/re-reviewed PASS. Interactive planning directs deliberate polished-epic entry through beadwork_start_goal and forbids auto-entry; active run appendices retain lifecycle equivalence and the complete manager loop without the entry-only imitate ban. Generic sidecar guidance forbids concurrent delegated-scope edits while permitting non-overlap and preserves advisory path intent. Parent owns ticket/goal lifecycle, SHA handoffs, reviews, adjudication and closure; settlement remains evidence only. Final workspace gates pass: lint 681 files; tests 438 files / 2259 tests; all-workspace typecheck. Closed doors remain explicit: no operatingMode/domain inference/runtime imports/locks/interception/commit heuristics/polling/result schema/aliases/implicit goal entry/child mutation.",
+      "timestamp": "2026-08-31T02:21:54Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Define sidecar and Beadwork manager-only orchestration boundaries",
   "type": "task",
-  "updated_at": "2026-08-31T02:11:11Z"
+  "updated_at": "2026-08-31T02:21:54Z"
 }
