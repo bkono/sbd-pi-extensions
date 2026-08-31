@@ -11,14 +11,13 @@ type EventNudges = Record<NudgeEvent, string>;
 const ABORTED =
   "The child was aborted. Do not retry unless the user asks. Abort is a halt, not a failure.";
 
-const PARENT_MESSAGE =
-  "A live child sent a notification. Assess it alongside current work; no reply is required.";
+const PARENT_MESSAGE = "A child sent a notification. No reply is required.";
 
 const GENERIC: EventNudges = {
   settled: "A background task settled. Inspect its result and decide the next action.",
   failed: "A background task failed. Inspect the error and decide the next action.",
   aborted: "A background task was aborted. Do not retry unless the user asks.",
-  parentMessage: "A live child sent a notification. No reply is required; it has not settled.",
+  parentMessage: PARENT_MESSAGE,
 };
 
 const REVIEW_FAILED = "Inspect the failure. Decide whether to re-review or escalate.";

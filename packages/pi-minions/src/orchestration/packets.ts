@@ -381,7 +381,8 @@ export class LifecyclePacketDispatcher {
     if (terminalKey && this.deliveredTerminals.has(terminalKey)) return;
     this.queue.push({ event, registration, terminalKey });
     // A real enqueue after the recovery cycle is idle may retry again. Reentrant
-    // enqueue during drain/submit must not reset the automatic recovery cap.
+    // enqueue during a recovery drain must not reset the cap or schedule another
+    // retry of the failed batch. Newly arrived evidence is drained after accept.
     if (!this.draining && !this.scheduled) this.automaticRecoveryUsed = false;
     if (this.draining && this.automaticRecoveryUsed) return;
     this.scheduleDrain();
@@ -482,6 +483,9 @@ export class LifecyclePacketDispatcher {
       for (const registration of packet.terminalRegistrations) {
         this.deps.onAcceptedTerminal?.(registration);
       }
+      // Reentrant arrivals during this accepted submit are new evidence, not a
+      // retry of a failed batch. Drain them causally; do not leave them queued.
+      if (this.queue.length > 0) this.scheduleDrain();
     } finally {
       this.draining = false;
     }
@@ -575,7 +579,6 @@ export class LifecyclePacketDispatcher {
         logger.info("packets", "parent-message", {
           childId: changed?.childId,
           eventClass: event.class,
-          stillRunning: true,
           nudgeExcerpt: changed?.nudge.slice(0, 80),
         });
       }

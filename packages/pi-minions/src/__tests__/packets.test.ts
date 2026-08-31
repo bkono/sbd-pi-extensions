@@ -579,6 +579,71 @@ describe("bounded submission recovery", () => {
     ]);
     expect(recovered.message.details.groupIdleId).toBe("grp-1");
   });
+
+  it("drains reentrant evidence after a successful automatic recovery submit", () => {
+    const { tree, groups, sendMessage, dispatcher, pending } = harness();
+    addOrchestrated(tree, "mn-1");
+    addOrchestrated(tree, "mn-2");
+    tree.updateStatus("mn-1", "completed", 0);
+
+    let attempts = 0;
+    sendMessage.mockImplementation(() => {
+      attempts++;
+      if (attempts === 1) throw new Error("host unavailable");
+      if (attempts === 2) {
+        tree.updateStatus("mn-2", "completed", 0);
+        dispatcher.enqueue({
+          class: "settled",
+          groupId: "grp-1",
+          childId: "mn-2",
+          output: "second",
+        });
+      }
+    });
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "first",
+    });
+    expect(pending).toHaveLength(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pending).toHaveLength(1);
+    expect(dispatcher.inspectionCounts().queued).toBe(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(pending).toHaveLength(1);
+    expect(dispatcher.inspectionCounts()).toEqual({ queued: 1, deliveredHistory: 1 });
+
+    const recovered = packetOf(sendMessage, 1);
+    expect(recovered.message.details.seq).toBe(1);
+    expect(recovered.message.details.changed.map((child) => child.childId)).toEqual(["mn-1"]);
+    expect(recovered.message.details.changed.map((child) => child.output)).toEqual(["first"]);
+    expect(recovered.message.details.stillRunning.map((child) => child.childId)).toEqual(["mn-2"]);
+    expect(recovered.message.details.groupIdleId).toBeUndefined();
+
+    pending.shift()?.();
+    expect(attempts).toBe(3);
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(pending).toHaveLength(0);
+    expect(dispatcher.inspectionCounts()).toEqual({ queued: 0, deliveredHistory: 2 });
+
+    const followOn = packetOf(sendMessage, 2);
+    expect(followOn.message.details.seq).toBe(2);
+    expect(followOn.message.details.changed.map((child) => child.childId)).toEqual(["mn-2"]);
+    expect(followOn.message.details.changed.map((child) => child.output)).toEqual(["second"]);
+    expect(followOn.message.details.stillRunning).toEqual([]);
+    expect(followOn.message.details.groupIdleId).toBe("grp-1");
+    expect(
+      groups.peekIdleTransition("grp-1", false, new Set([tree.get("mn-2")!.lifecycleEpoch!])),
+    ).toBeUndefined();
+  });
 });
 
 describe("delimiter", () => {
@@ -1154,19 +1219,20 @@ describe("live child parentMessage wake", () => {
       stillRunning: packet.message.details.stillRunning.some((child) => child.childId === askId),
       nudgeExcerpt: liveQuestion.slice(0, 80),
     });
-    expect(info).toHaveBeenCalledWith(
-      "packets",
-      "parent-message",
+    const parentLog = info.mock.calls.find(
+      (call) => call[0] === "packets" && call[1] === "parent-message",
+    );
+    expect(parentLog?.[2]).toEqual(
       expect.objectContaining({
         eventClass: "parentMessage",
         childId: askId,
-        stillRunning: true,
         nudgeExcerpt: liveQuestion.slice(0, 80),
       }),
     );
+    expect(parentLog?.[2]).not.toHaveProperty("stillRunning");
   });
 
-  it("uses the live-notification nudge, not the settled generic", () => {
+  it("uses the notification nudge, not the settled generic", () => {
     const { tree, sendMessage, dispatcher, drain } = harness();
     addOrchestrated(tree, "mn-ask", { taskType: "implementation" });
     dispatcher.enqueue({
@@ -1241,16 +1307,68 @@ describe("live child parentMessage wake", () => {
       stillRunning: packet.message.details.stillRunning.some((child) => child.childId === askId),
       nudgeExcerpt: liveQuestion.slice(0, 80),
     });
-    expect(info).toHaveBeenCalledWith(
-      "packets",
-      "parent-message",
+    const parentLog = info.mock.calls.find(
+      (call) => call[0] === "packets" && call[1] === "parent-message",
+    );
+    expect(parentLog?.[2]).toEqual(
       expect.objectContaining({
         eventClass: "parentMessage",
         childId: askId,
-        stillRunning: true,
         nudgeExcerpt: liveQuestion.slice(0, 80),
       }),
     );
+    expect(parentLog?.[2]).not.toHaveProperty("stillRunning");
+  });
+
+  it("keeps same-lifecycle notification, terminal, and group-idle coalesced and truthful", () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const { tree, sendMessage, dispatcher, drain } = harness();
+    addOrchestrated(tree, "mn-ask", { taskType: "implementation" });
+    dispatcher.enqueue({
+      class: "parentMessage",
+      groupId: "grp-1",
+      childId: "mn-ask",
+      output: "Need a decision",
+    });
+    tree.updateStatus("mn-ask", "completed", 0);
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-ask",
+      output: "done",
+    });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const packet = packetOf(sendMessage);
+    const changed = packet.message.details.changed;
+    expect(changed.map((child) => child.eventClass)).toEqual(["parentMessage", "settled"]);
+    expect(changed.map((child) => child.childId)).toEqual(["mn-ask", "mn-ask"]);
+    expect(packet.message.details.stillRunning).toEqual([]);
+    expect(packet.message.details.stillRunningCount).toBe(0);
+    expect(packet.message.details.groupIdleId).toBe("grp-1");
+
+    const parentNudge = changed[0]?.nudge ?? "";
+    expect(parentNudge).toBe(nudgeFor({ taskType: "implementation" }, "parentMessage"));
+    expect(parentNudge.toLowerCase()).toContain("no reply is required");
+    expect(parentNudge.toLowerCase()).not.toMatch(/\blive\b/);
+    expect(parentNudge.toLowerCase()).not.toContain("has not settled");
+    expect(changed[1]?.nudge).toBe(nudgeFor({ taskType: "implementation" }, "settled"));
+    expect(packet.message.content).toContain(parentNudge);
+    expect(packet.message.content).toMatch(/group idle:/i);
+    expect(packet.message.content).not.toMatch(/state: running/i);
+
+    const parentLog = info.mock.calls.find(
+      (call) => call[0] === "packets" && call[1] === "parent-message",
+    );
+    expect(parentLog?.[2]).toEqual(
+      expect.objectContaining({
+        eventClass: "parentMessage",
+        childId: "mn-ask",
+        nudgeExcerpt: parentNudge.slice(0, 80),
+      }),
+    );
+    expect(parentLog?.[2]).not.toHaveProperty("stillRunning");
   });
 
   it("folds multiple notifications from the same live child into one packet with drained bodies", async () => {

@@ -52,6 +52,8 @@ describe("nudgeFor table", () => {
       ).toBe(false);
       expect(row.parentMessage.toLowerCase()).toContain("notification");
       expect(row.parentMessage.toLowerCase()).toContain("no reply is required");
+      expect(row.parentMessage.toLowerCase()).not.toMatch(/\blive\b/);
+      expect(row.parentMessage.toLowerCase()).not.toContain("has not settled");
       expect(row.aborted.toLowerCase()).toMatch(/abort/);
       expect(row.aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
       expect(row.failed.toLowerCase()).toMatch(/fail/);
@@ -112,10 +114,10 @@ describe("nudgeFor table", () => {
     expect(aborted).toMatch(/background task was aborted/i);
     expect(aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
     expect(aborted).not.toBe(failed);
-    expect(parentMessage.toLowerCase()).toMatch(/live child/);
     expect(parentMessage.toLowerCase()).toMatch(/notification/);
     expect(parentMessage.toLowerCase()).toMatch(/no reply is required/);
-    expect(parentMessage.toLowerCase()).toMatch(/has not settled/);
+    expect(parentMessage.toLowerCase()).not.toMatch(/\blive\b/);
+    expect(parentMessage.toLowerCase()).not.toContain("has not settled");
     expect(claimsChildSettled(parentMessage)).toBe(false);
   });
 });
