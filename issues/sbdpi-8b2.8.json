@@ -16,9 +16,15 @@
     "ux"
   ],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Independent review of 99e8174 PASSed runtime architecture but identified proof/UX gaps. Parent adjudication: FIX/blocking: explicitly dispatch the next `before_agent_start` after tool entry and assert the standing run appendix, because next-turn equivalence is an acceptance behavior; update the epic in-process goal-entry scenario to use `beadwork_start_goal` as the issue explicitly requires (human command parity remains locked by unit tests). FILE/nonblocking but fold into same focused fix: make shared thrown errors surface-neutral rather than saying only `/bw run requires…`; replace tautological cross-session goalId parity with meaningful state/continuation parity. REJECT: busy-parent behavior need not be duplicated in e2e because exact followUp behavior is covered in domain and tool unit tests. Also adapt the one e2e duplicate-workItem all-rejected assertion to expect 8b2.2's intentional rich throw; do not restore success-shaped rejection.",
+      "timestamp": "2026-08-31T01:30:20Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Expose an agent-callable Beadwork goal-mode transition",
   "type": "feature",
-  "updated_at": "2026-08-31T00:55:06Z"
+  "updated_at": "2026-08-31T01:30:20Z"
 }
