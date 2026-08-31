@@ -18,11 +18,15 @@
     {
       "text": "Independent review of cbeb998 PASSed production behavior but found two test-proof gaps. Parent adjudication: (1) builtin spawn/orchestrate tool-path tests depending on real user-home agent discovery is FIX/blocking because the ticket explicitly requires deterministic built-in resolution without filesystem setup and the test can fail when a developer has worker.md/investigate.md; remediate before closure. (2) no explicit regression proving a legacy extra `role` key is ignored rather than selected is FILE/nonblocking in isolation, but fold it into the same focused test fix because it directly locks the clean-cutover boundary. Reviewer correctly REJECTED adding `additionalProperties: false`: `role` is absent from provider-visible properties and runtime does not read it; rejecting all extra keys would be broader behavior not required by this ticket. Workspace lint/test/typecheck passed: 436 files, 2211 tests.",
       "timestamp": "2026-08-31T00:42:24Z"
+    },
+    {
+      "text": "Acceptance complete after independent re-review. Commits: cbeb998b9c799ff6daad577d7010232857968c6f (implementation) + 1052ea9ff4348fdb31d58efa2b631c42cb146d35 (deterministic regression fix). Re-review PASS: original blocking home-discovery test flaw is fixed; role-only is proven ephemeral and canonical agent wins when both keys are supplied; no compatibility path or additionalProperties:false introduced. Final workspace gates pass: lint 677 files; tests 436 files / 2212 tests; typecheck all workspaces. Decisions: canonical public selector is agent; taskType remains workflow policy; builtins are package-owned lowest-precedence definitions; test-only discovery-root seam is internal/unpublished and production defaults remain unchanged. Closed doors: no role alias/dual field, no fake builtin files, no hardcoded builtin models, no strict rejection of unrelated extra object keys.",
+      "timestamp": "2026-08-31T00:54:32Z"
     }
   ],
   "priority": 0,
   "status": "in_progress",
   "title": "Canonicalize orchestrated agent selection and ship worker/investigate defaults",
   "type": "feature",
-  "updated_at": "2026-08-31T00:42:24Z"
+  "updated_at": "2026-08-31T00:54:32Z"
 }
