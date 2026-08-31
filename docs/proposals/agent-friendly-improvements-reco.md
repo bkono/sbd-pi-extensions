@@ -1,5 +1,11 @@
 ## Assessment
 
+> **Historical recommendation (implemented and superseded).** This document records the
+> pre-implementation assessment. Current behavior is documented in the
+> [pi-minions README](../../packages/pi-minions/README.md), the
+> [pi-beadwork-extension README](../../packages/pi-beadwork-extension/README.md), and the
+> [migration guide](../../packages/pi-beadwork-extension/docs/migration.md).
+
 The feedback identifies real problems, but several proposed remedies target the wrong layer.
 
 ### 1. `role` semantics and validation — valid
@@ -174,6 +180,6 @@ This remains an intentional transition, not automatic behavior. The model should
 
 ## Handoff
 
-- **Status:** Recommendation expanded and Beadwork implementation graph created; no production implementation performed.
+- **Status at time of writing:** Recommendation expanded and Beadwork implementation graph created; no production implementation had yet been performed.
 - **Validation:** Source review plus Beadwork dependency/ready-set validation.
 - **Next step:** Implement from the ready frontier, beginning with the canonical agent cutover.

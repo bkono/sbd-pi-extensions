@@ -1,8 +1,13 @@
 # Beadwork and Minions Orchestration
 
 **Date:** 2026-08-28
-**Status:** Baseline proposal. This is the single living spec.
+**Status:** Historical proposal; superseded by the implementation documentation below.
 **Scope:** `packages/pi-minions` + `packages/pi-beadwork-extension`
+
+> This document preserves design history and may use retired API names such as `role`. Current
+> behavior is documented in the [pi-minions README](../../packages/pi-minions/README.md), the
+> [pi-beadwork-extension README](../../packages/pi-beadwork-extension/README.md), and the
+> [migration guide](../../packages/pi-beadwork-extension/docs/migration.md).
 **Supersedes:**
 - `docs/proposals/beadwork-minions-mission-control.md` (first pass; retained as history)
 - `docs/proposals/beadwork-minions-native-orchestration.md` (second pass; deleted)

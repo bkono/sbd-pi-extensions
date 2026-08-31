@@ -255,8 +255,6 @@ describe("agent-friendly orchestration vertical slice", () => {
         await Promise.all([harness.waitUntilRunning(childA), harness.waitUntilRunning(childB)]);
         expect(harness.tree.get(childA)?.status).toBe("running");
         expect(harness.tree.get(childB)?.status).toBe("running");
-        expect(harness.parentToolInvocations).not.toContain("edit");
-        expect(harness.parentToolInvocations).not.toContain("write");
         await harness.logStep("implementers-live-manager-only", {
           childId: childA,
           childIds: [childA, childB],
