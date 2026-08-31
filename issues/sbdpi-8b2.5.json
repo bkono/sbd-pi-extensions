@@ -16,9 +16,15 @@
     "ux"
   ],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Implementation landed at 71b5e645d8ddef640f1aa41832865c57a8a043cf. Files: new fleet-widget.ts, focused fleet-widget.test.ts, index.ts lifecycle wiring. Implementer reports pi-minions lint/typecheck/build pass, 23 files/277 tests, 13 focused fleet tests, clean diff/checkout. Interactive TUI smoke explicitly not claimed and remains required. Parent inspection confirms setWidget aboveEditor, supplied-width ANSI-aware rendering, one AgentTree subscription/controller, terminal clear, and session-owned destroy wiring; independent source/API review required before acceptance.",
+      "timestamp": "2026-08-31T05:52:09Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add a persistent compact fleet progress widget",
   "type": "feature",
-  "updated_at": "2026-08-31T05:37:30Z"
+  "updated_at": "2026-08-31T05:52:09Z"
 }
