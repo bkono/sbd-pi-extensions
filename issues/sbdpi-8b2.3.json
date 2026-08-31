@@ -19,11 +19,15 @@
     {
       "text": "Independent review of 9d21675 found one stated blocker plus several findings parent elevates because they directly violate this ticket's locked acceptance. FIX: waiting must clear on accepted parent reply/resumed model work and later agent_end must enter settling; prove mailbox→waiting→reply/work→thinking→agent_end→settling through runtime integration. FIX: share guarded transition ordering so spawn cannot clobber an already-started tool with a late thinking update. FIX: outward packet activity must be a bounded trusted projection, excluding narrativePreview/raw toolName, and snapshots/history/packet payloads must not share mutable aliases. FIX: live vs rehydrated waiting must represent accepted parent-bound questions truthfully (not merely tool start), and malformed JSONL must skip bad records without discarding valid later history. FIX: foreground spawn rendering must consume the shared activity model beyond tool-start. FIX: add user-visible list/show, ANSI/multiline tool-arg, waiting/resume/settling, malformed replay regressions. REJECTED as non-contract issues: unused isActivityPhase export, pre-existing tmp parser, preserved last-tool summary while thinking, restore-time updatedAt, and terminal-status separation (already correct). Ticket remains blocked pending fix + re-review.",
       "timestamp": "2026-08-31T02:23:02Z"
+    },
+    {
+      "text": "Re-review of 209605a FAIL; all three findings adjudicated FIX and closure-blocking. (1) Natural agent_settled after an accepted/queued child→parent question currently commits terminal while activity is waiting, so the later parent reply fails recipient-terminal. Waiting must remain live across idle settlement until reply/resumption, without weakening terminal authority elsewhere. (2) Rehydration consumes synthetic top-level tool_execution records, but actual Pi persistence stores assistant toolCall/toolResult inside type=message records; production-shaped transcripts currently yield empty activity. Parse actual SessionManager persistence shape, bind start/end within the same real call identity, and ensure malformed records cannot cross-pair into false waiting. (3) 209605a introduced one global tree listener per foreground child: 3 children × two mutations creates six updates per text event (O(N²)); an initial onUpdate throw after subscription leaks a listener. Update only the relevant child on meaningful change, emit once per text event, and guarantee cleanup around subscription/initial sync/start failure/abort/settlement. Required regressions must reproduce all three failures with production-shaped records and runtime paths. Ticket remains blocked pending remediation and another independent re-review.",
+      "timestamp": "2026-08-31T02:56:34Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Replace turn counters with bounded runtime-derived activity state",
   "type": "feature",
-  "updated_at": "2026-08-31T02:23:02Z"
+  "updated_at": "2026-08-31T02:56:34Z"
 }
