@@ -14,9 +14,15 @@
     "orchestration"
   ],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Independent review of cbeb998 PASSed production behavior but found two test-proof gaps. Parent adjudication: (1) builtin spawn/orchestrate tool-path tests depending on real user-home agent discovery is FIX/blocking because the ticket explicitly requires deterministic built-in resolution without filesystem setup and the test can fail when a developer has worker.md/investigate.md; remediate before closure. (2) no explicit regression proving a legacy extra `role` key is ignored rather than selected is FILE/nonblocking in isolation, but fold it into the same focused test fix because it directly locks the clean-cutover boundary. Reviewer correctly REJECTED adding `additionalProperties: false`: `role` is absent from provider-visible properties and runtime does not read it; rejecting all extra keys would be broader behavior not required by this ticket. Workspace lint/test/typecheck passed: 436 files, 2211 tests.",
+      "timestamp": "2026-08-31T00:42:24Z"
+    }
+  ],
   "priority": 0,
   "status": "in_progress",
   "title": "Canonicalize orchestrated agent selection and ship worker/investigate defaults",
   "type": "feature",
-  "updated_at": "2026-08-31T00:08:34Z"
+  "updated_at": "2026-08-31T00:42:24Z"
 }
