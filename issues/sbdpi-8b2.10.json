@@ -9,6 +9,12 @@
   "id": "sbdpi-8b2.10",
   "labels": [],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Concurrency boundary: own packages/pi-beadwork-extension only. Update the integrated agent-friendly harness step that currently requires a parked waiting child so it instead proves nonblocking child-to-parent notification and ordinary settlement; pi-minions implementation is owned by sbdpi-8b2.9.",
+      "timestamp": "2026-08-31T19:22:28Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Delete superseded Beadwork supervisor-era state and attribution surfaces",
