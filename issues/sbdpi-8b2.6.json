@@ -47,11 +47,15 @@
       "text": "Independent review of 057c242: NEEDS_FIXES with exactly one accepted blocking finding. `docs/proposals/agent-friendly-improvements-reco.md:77` still unqualifiedly recommends dynamically injecting current live-group state into active parent turns. Although the document is historical, this is a zombie implementation path that contradicts the locked static/cache-stable policy and event-authoritative lifecycle contract. Disposition: FIX now, narrowly preserve historical context while explicitly marking the dynamic recommendation superseded and naming static conditional guidance plus lifecycle evidence as replacement. Code/tests otherwise PASS with no integration gap or upstream Pi change needed; minions 340, Beadwork 267 + focused 5, root 2,371, all lint/typecheck/build green. `.6` remains open pending docs fix and re-review.",
       "author": "pi",
       "timestamp": "2026-08-31T17:35:26Z"
+    },
+    {
+      "text": "Independent implementation re-review PASS on combined commits 057c242 + 90e0824. Dynamic live-state prompt injection is explicitly superseded; cache-stable static conditional guidance is authoritative alongside registration/tool results, lifecycle packets, inspection, and halt. Reviewer verified Pi freezes the before_agent_start override across queued continuations, making dynamic state projection stale and cache-hostile. Commit scope is exact, worktree clean, diff checks pass, no conflicting repo-doc recommendation remains, no upstream Pi change needed. Revised acceptance is satisfied; .7 may unblock.",
+      "timestamp": "2026-08-31T17:42:32Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T17:35:26Z"
+  "updated_at": "2026-08-31T17:42:32Z"
 }
