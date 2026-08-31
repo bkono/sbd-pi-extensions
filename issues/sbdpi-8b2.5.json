@@ -24,11 +24,15 @@
     {
       "text": "Independent review 07e2b111 FAIL at 71b5e645. Parent disposition: FIX all four findings. Blocking: (1) sanitizeActivityText UTF-16 slicing can create orphan surrogates and post-UTF8 width overflow; truncate at grapheme boundaries and test emoji/ZWJ/combining + round-trip width. (2) Unterminated OSC/APC/DCS terminal-string payloads survive as visible hostile identity; strip string-command payload through terminator or EOS and test terminated/unterminated BEL/ST forms. (3) fitEnds one-column ellipsis budget removes identity at widths 4–7; preserve at least first identity grapheme and assert useful narrow output. (4) Lifecycle parameterization is cosmetic; acceptance explicitly requires /new/resume/fork/reload/shutdown cleanup, so replace/collapse fake direct-destroy cases and add real emitted lifecycle/non-TUI/stale-transition regressions. Source/API, theme, footer/status, packet/group, reactive and main lifecycle design otherwise passed. Manual real TUI smoke remains a separate closure gate after fixes.",
       "timestamp": "2026-08-31T06:00:37Z"
+    },
+    {
+      "text": "Review fixes landed at final superseding SHA d7f2acc517d77a6e6cb8724605fa20ab15bfc8bb (all prior 2ff95ab references superseded/invalid). Four scoped files: activity sanitizer + tests, fleet widget + tests. Reported: grapheme-safe Intl.Segmenter truncation with hostile surrogate replacement; complete ESC/C1 terminal string stripping through terminator/EOS; useful identity retained widths 4–7; production-shaped lifecycle sequences including TUI→RPC. Validation: 23/313 package, focused 5/142, lint/typecheck/build/diff/status clean. Manual TUI smoke not claimed. Independent re-review required.",
+      "timestamp": "2026-08-31T06:18:57Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add a persistent compact fleet progress widget",
   "type": "feature",
-  "updated_at": "2026-08-31T06:00:37Z"
+  "updated_at": "2026-08-31T06:18:57Z"
 }
