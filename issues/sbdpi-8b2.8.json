@@ -20,11 +20,15 @@
     {
       "text": "Independent review of 99e8174 PASSed runtime architecture but identified proof/UX gaps. Parent adjudication: FIX/blocking: explicitly dispatch the next `before_agent_start` after tool entry and assert the standing run appendix, because next-turn equivalence is an acceptance behavior; update the epic in-process goal-entry scenario to use `beadwork_start_goal` as the issue explicitly requires (human command parity remains locked by unit tests). FILE/nonblocking but fold into same focused fix: make shared thrown errors surface-neutral rather than saying only `/bw run requires…`; replace tautological cross-session goalId parity with meaningful state/continuation parity. REJECT: busy-parent behavior need not be duplicated in e2e because exact followUp behavior is covered in domain and tool unit tests. Also adapt the one e2e duplicate-workItem all-rejected assertion to expect 8b2.2's intentional rich throw; do not restore success-shaped rejection.",
       "timestamp": "2026-08-31T01:30:20Z"
+    },
+    {
+      "text": "Acceptance complete. Implementation 99e8174 plus fixes 81ee772 and 5dcee29 independently reviewed/re-reviewed PASS. One shared startGoal domain transition powers `/bw run` and `beadwork_start_goal({ epic_id })`; tool entry is explicit, parent-only, truthful started/resumed + continuation disposition, preserves same-goal identity, rejects conflict/validation without partial state, and proves the real next-turn standing appendix. Epic e2e enters via tool; command parity remains unit-tested. Final workspace gates: lint 679 files, tests 437 files / 2235 tests, all-workspace typecheck pass. Closed doors: no inferred tool epic, aliases, synthetic command invocation, child dispatch/ticket mutation, auto-start, polling, await/run-wrapper semantics, or tool-accessible child path.",
+      "timestamp": "2026-08-31T01:49:45Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Expose an agent-callable Beadwork goal-mode transition",
   "type": "feature",
-  "updated_at": "2026-08-31T01:30:20Z"
+  "updated_at": "2026-08-31T01:49:45Z"
 }
