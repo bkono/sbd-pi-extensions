@@ -28,11 +28,15 @@
     {
       "text": "Closure re-review of 6ab1c5e remains NEEDS_FIXES. New blockers: (1) Pi 0.84.3 freezes `_systemPromptOverride` for an active run/queued continuation, so dynamic tool-guideline refresh cannot make live→idle or idle→live follow-up provider turns current. Reviewer found no supported extension-only per-followup system-prompt hook; fully correct behavior requires upstream Pi dynamic prompt-provider support, or explicit acceptance relaxation to a static conditional invariant / agent-run-boundary semantics. Do not add timing hacks. (2) mutable childId→epoch identity fails on child-ID reuse; add immutable lifecycle/registration identity carried by node/event/group ownership. (3) aggregate packet content/details can exceed 80KB; enforce deterministic aggregate UTF-8 budgets (\u003c10KB target), ANSI/control sanitization, honest omission counts. (4) failed submission transactionally preserves terminal+idle but destructively loses drained parent mail/overlap evidence; use peek+ack at accepted-submit boundary. Root/scoped gates are green but adversarial runtime probes fail these contracts. Ticket remains open.",
       "timestamp": "2026-08-31T08:37:00Z"
+    },
+    {
+      "text": "Independent re-review of fb38351: NEEDS_FIXES; all findings dispositioned as blocking fixes. A: reload-local lifecycle counter repeats under Jiti moduleCache:false; terminal/stale child mail and path tools retain mutation authority; parent mail omits captured epoch; overlap records lack lifecycle ownership; public 32-bit ID collision can overwrite tree nodes. Required: reload-safe opaque UUID lifecycle identity, exact live registration+epoch+nonterminal checks for every child tool/mutation, identity-bearing mail/overlap, revoke/clear authority at accepted terminal, add-if-absent tree registration and bounded collision retry. B: aggregate budget works for valid states (\u003c9.8KB) but hostile unknown taskType crashes nudge lookup; normalize/fallback defensively. C: submit transaction passes, but failed evidence followed by explicit group halt/close becomes unreachable and leaks mailbox/overlap capacity. Required: extension-level discardGroup cancellation coordinator wired into halt (discard != ack), bounded inspection history, remove lifecycle ownership after accepted terminal. Dynamic prompt blocker remains separately unresolved. Root/scoped gates green but runtime probes fail acceptance.",
+      "timestamp": "2026-08-31T09:56:12Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T08:37:00Z"
+  "updated_at": "2026-08-31T09:56:12Z"
 }
