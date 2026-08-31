@@ -35,11 +35,15 @@
     {
       "text": "Closure review of exact commit 5c87512f61dc9b0698408fe4d17a583743be8525 by reviewer 7f6b9946: REJECT with exactly two accepted FIX blockers; no additional blockers. FIX 1: serialized delivery must retire the exact admitted activeResume object in finally even when Pi prompt()/waitForIdle() succeeds without matching message_start (e.g. input handler returns handled). Keep waiting sticky/retryable; do not call onWaitingResume or clear visible waiting from mere prompt success; object identity must protect any newer token. Add handled/no-event, exact-event, newer-token, and eventual pendingResumeCount===0 regressions. FIX 2: onComplete must accept void|Promise\u003cvoid\u003e; attach immediate rejection containment without awaiting so async observer failure cannot become unhandled and terminal event/waiter/state/disposal remain synchronous and authoritative. Add gated async rejection regression plus logger containment. Prior dispositions remain REJECT/non-blocking: explicit global+scoped registrations produce two calls; distinct nested mutations produce another notification. Validation at reviewed SHA: pi-minions lint/typecheck and 260 tests green, focused 122 green. Ticket remains open pending fix and independent re-review.",
       "timestamp": "2026-08-31T05:14:49Z"
+    },
+    {
+      "text": "Fix implementation landed at 3385ecd06d0c078dafdab2e98c8c1b8fe041b6ed. Changed only manager.ts, subsessions/types.ts, and activity.test.ts. Implementer reports pi-minions lint/typecheck green, 264 tests green, focused 126 green. Parent inspection confirms delivery-job finally uses identity-checked retireResume; exact message_start remains the only visible waiting-clear path; onComplete now attaches immediate non-awaited rejection containment; worktree clean and diff check clean. Independent re-review required before acceptance.",
+      "timestamp": "2026-08-31T05:26:59Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Replace turn counters with bounded runtime-derived activity state",
   "type": "feature",
-  "updated_at": "2026-08-31T05:14:49Z"
+  "updated_at": "2026-08-31T05:26:59Z"
 }
