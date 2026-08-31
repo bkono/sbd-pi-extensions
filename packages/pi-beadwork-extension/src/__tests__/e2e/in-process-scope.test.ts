@@ -146,7 +146,22 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         const initialBlocked = await fixture.adapter.blocked(fixture.cwd);
         expect(issueIds(initialBlocked)).toContain(dependentTicket.id);
 
-        await harness.bwRun(epicId);
+        const started = (await harness.invokeBeadworkTool("beadwork_start_goal", {
+          epic_id: epicId,
+        })) as {
+          details: {
+            epic_id: string;
+            epic_title: string;
+            review_policy: string;
+            state: string;
+            continuation: string;
+          };
+        };
+        expect(started.details.state).toBe("started");
+        expect(started.details.continuation).toBe("triggered_turn");
+        expect(started.details.epic_id).toBe(epicId);
+        expect(started.details.epic_title).toBe("Scope-policy epic");
+        expect(started.details.review_policy).toBe("scope");
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
@@ -164,6 +179,9 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           harness.ctx,
         );
         const standing = appendix?.systemPrompt ?? "";
+        expect(standing).toContain("Base prompt");
+        expect(standing).toContain("You are in beadwork run mode.");
+        expect(standing).toContain(`Current scope: epic:${epicId}`);
         expect(standing).toContain("Review policy branch: scope");
         expect(standing).toContain(
           "You may close individual tickets from evidence without an independent per-ticket review child.",
@@ -172,7 +190,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           "Launch a `reviewScope` child before declaring the epic complete.",
         );
         expect(standing).toContain("Dependents may start before aggregate review finds a problem.");
-        await harness.logStep("bw-run-injected", { ticketId: parentTicket.id });
+        await harness.logStep("bw-start-goal-injected", { ticketId: parentTicket.id });
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");

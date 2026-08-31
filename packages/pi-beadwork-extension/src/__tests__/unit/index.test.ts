@@ -1327,7 +1327,7 @@ describe("pi beadwork extension", () => {
       expect(adapterMock.removeDependency).not.toHaveBeenCalled();
     }
 
-    it("matches /bw run persisted state and continuation content", async () => {
+    it("matches /bw run persisted state, continuation, and next-turn standing appendix", async () => {
       const harness = await createExtensionTestHarness(beadworkExtension);
       const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-start-goal-parity-"));
       detectActivationMock.mockResolvedValue({ kind: "active", repoRoot: tempDir });
@@ -1344,6 +1344,11 @@ describe("pi beadwork extension", () => {
         resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
         "session-command",
       );
+      const commandAppendix = await harness.dispatch<{ systemPrompt?: string }>(
+        "before_agent_start",
+        { systemPrompt: "Base prompt" },
+        commandCtx,
+      );
 
       const toolCtx = createFakeExtensionContext({
         cwd: tempDir,
@@ -1359,15 +1364,49 @@ describe("pi beadwork extension", () => {
         resolveSessionStateDir(tempDir, ".pi/beadwork/session-state"),
         "session-tool",
       );
+      const toolAppendix = await harness.dispatch<{ systemPrompt?: string }>(
+        "before_agent_start",
+        { systemPrompt: "Base prompt" },
+        toolCtx,
+      );
 
+      expect(commandState.mode).toBe("run");
       expect(toolState.mode).toBe(commandState.mode);
       expect(toolState.scope).toEqual(commandState.scope);
+      expect(toolState.scope).toEqual({ kind: "epic", id: "BW-100", title: "Runnable epic" });
       expect(toolState.goal?.scopeIds).toEqual(commandState.goal?.scopeIds);
+      expect(toolState.goal?.scopeIds).toEqual(["BW-100"]);
       expect(toolState.goal?.reviewPolicy).toBe(commandState.goal?.reviewPolicy);
-      expect(toolState.goal?.goalId).toBe(commandState.goal?.goalId);
+      expect(toolState.goal?.reviewPolicy).toBe("ticket");
+      expect(toolState.goal?.goalId).toBeTruthy();
+      expect(commandState.goal?.goalId).toBeTruthy();
+      expect(toolState.goal?.startedAt).toBeTruthy();
+      expect(commandState.goal?.startedAt).toBeTruthy();
+      expect(toolState.runOptions).toEqual(commandState.runOptions);
       expect((commandPrompt?.message as { content?: string }).content).toBe(
         (toolPrompt?.message as { content?: string }).content,
       );
+      expect((commandPrompt?.message as { customType?: string }).customType).toBe(
+        "beadwork-goal-run",
+      );
+      expect((toolPrompt?.message as { customType?: string }).customType).toBe("beadwork-goal-run");
+      expect(commandPrompt?.options).toEqual({ triggerTurn: true });
+      expect(toolPrompt?.options).toEqual({ triggerTurn: true });
+
+      const commandStanding = commandAppendix?.systemPrompt ?? "";
+      const toolStanding = toolAppendix?.systemPrompt ?? "";
+      expect(commandStanding).toContain("Base prompt");
+      expect(toolStanding).toBe(commandStanding);
+      expect(toolStanding).toContain("You are in beadwork run mode.");
+      expect(toolStanding).toContain("Review policy branch: ticket");
+      expect(toolStanding).toContain("Current scope: epic:BW-100");
+      expect(toolStanding).toContain(
+        "Launch an independent `reviewImplementation` child before closing that ticket.",
+      );
+      expect(toolStanding).toContain(
+        "This standing appendix is policy only. It does not start a turn.",
+      );
+
       expect(toolResult.details).toMatchObject({
         epic_id: "BW-100",
         epic_title: "Runnable epic",
@@ -1451,7 +1490,7 @@ describe("pi beadwork extension", () => {
             mode: "print",
           }),
         ),
-      ).rejects.toThrow(/print and json/);
+      ).rejects.toThrow(/Goal mode requires a persistent Pi host[\s\S]*print and json/);
       await expectClean("host-print");
 
       await expect(
@@ -1464,7 +1503,7 @@ describe("pi beadwork extension", () => {
             mode: "json",
           }),
         ),
-      ).rejects.toThrow(/print and json/);
+      ).rejects.toThrow(/Goal mode requires a persistent Pi host[\s\S]*print and json/);
       await expectClean("host-json");
 
       detectActivationMock.mockResolvedValueOnce({ kind: "inactive", reason: "no-bw" });
@@ -1489,7 +1528,7 @@ describe("pi beadwork extension", () => {
           { epic_id: "BW-101" },
           createFakeExtensionContext({ cwd: tempDir, sessionId: "task" }),
         ),
-      ).rejects.toThrow(/is a task/);
+      ).rejects.toThrow(/Goal mode requires an epic id[\s\S]*is a task/);
       await expectClean("task");
 
       adapterMock.show.mockResolvedValueOnce({ ...runnableEpic(), status: "closed" });
@@ -1499,7 +1538,7 @@ describe("pi beadwork extension", () => {
           { epic_id: "BW-100" },
           createFakeExtensionContext({ cwd: tempDir, sessionId: "closed" }),
         ),
-      ).rejects.toThrow(/is closed/);
+      ).rejects.toThrow(/Goal mode requires an open epic[\s\S]*is closed/);
       await expectClean("closed");
 
       adapterMock.show.mockResolvedValueOnce({ ...runnableEpic(), children: [] });
@@ -1509,7 +1548,9 @@ describe("pi beadwork extension", () => {
           { epic_id: "BW-100" },
           createFakeExtensionContext({ cwd: tempDir, sessionId: "empty" }),
         ),
-      ).rejects.toThrow(/has none/);
+      ).rejects.toThrow(
+        /Goal mode requires an open epic with traversable descendants[\s\S]*has none/,
+      );
       await expectClean("empty");
 
       await expect(

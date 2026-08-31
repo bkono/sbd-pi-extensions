@@ -164,15 +164,15 @@ export function conflictingGoalEpicId(state: SessionState, epicId: string): stri
 
 export function validateOpenEpicWithDescendants(epic: BeadworkIssueDetail): string | undefined {
   if (epic.type !== "epic") {
-    return `/bw run requires an epic id. ${epic.id} is a ${epic.type}.`;
+    return `Goal mode requires an epic id. ${epic.id} is a ${epic.type}.`;
   }
 
   if (epic.status === "closed") {
-    return `/bw run requires an open epic. ${epic.id} is closed.`;
+    return `Goal mode requires an open epic. ${epic.id} is closed.`;
   }
 
   if (epic.children.length === 0) {
-    return `/bw run requires an open epic with traversable descendants. ${epic.id} has none.`;
+    return `Goal mode requires an open epic with traversable descendants. ${epic.id} has none.`;
   }
 
   return undefined;
@@ -263,7 +263,7 @@ export async function startGoal(input: {
     });
     throw new GoalStartError(
       "host",
-      `/bw run requires a persistent Pi host (tui or rpc). It is rejected in print and json.`,
+      "Goal mode requires a persistent Pi host (tui or rpc). It is rejected in print and json.",
     );
   }
 

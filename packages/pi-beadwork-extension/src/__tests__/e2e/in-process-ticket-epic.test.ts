@@ -179,7 +179,26 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(issueIds(initialReady)).not.toContain(gamma.id);
         expect(issueIds(await fixture.adapter.blocked(fixture.cwd))).toContain(gamma.id);
 
-        await harness.bwRun(epicId);
+        const started = (await harness.invokeBeadworkTool("beadwork_start_goal", {
+          epic_id: epicId,
+        })) as {
+          details: {
+            epic_id: string;
+            epic_title: string;
+            goal_id: string;
+            review_policy: string;
+            state: string;
+            continuation: string;
+          };
+        };
+        expect(started.details.state).toBe("started");
+        expect(started.details.continuation).toBe("triggered_turn");
+        expect(started.details.epic_id).toBe(epicId);
+        expect(started.details.epic_title).toBe("Ticket-policy epic");
+        expect(started.details.review_policy).toBe("ticket");
+        expect(JSON.stringify(started.details).toLowerCase()).not.toMatch(
+          /complet|succeed|finished|orchestrated/,
+        );
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
@@ -199,6 +218,9 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           harness.ctx,
         );
         const standing = appendix?.systemPrompt ?? "";
+        expect(standing).toContain("Base prompt");
+        expect(standing).toContain("You are in beadwork run mode.");
+        expect(standing).toContain(`Current scope: epic:${epicId}`);
         expect(standing).toContain("Review policy branch: ticket");
         expect(standing).toContain(
           "Launch an independent `reviewImplementation` child before closing that ticket.",
@@ -208,14 +230,13 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           "Do not start review of ticket A while A's implementer is still live.",
         );
         expect(standing).toContain("Beadwork does not own a validation gate.");
-        expect(standing).toContain("Review policy branch: ticket");
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");
         expect(runState.goal?.reviewPolicy).toBe("ticket");
         expect(runState.goal?.scopeIds).toEqual([epicId]);
         expect(harness.groups.getOpenGroup()).toBeUndefined();
-        await harness.logStep("bw-run-injected", {
+        await harness.logStep("bw-start-goal-injected", {
           ticketId: alpha.id,
           issueIds: tickets,
         });
@@ -353,20 +374,36 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           childIds: [childA, childB],
         });
 
-        const tooEarly = await harness.orchestrate({
-          tasks: [
-            {
-              task: `Review ${alpha.id} while the implementer is still live.`,
-              description: "Review alpha too early",
-              agent: "worker",
-              taskType: "reviewImplementation",
-              domain: domainFor(epicId, alpha),
-            },
-          ],
-        });
-        expect(tooEarly.accepted).toEqual([]);
-        expect(tooEarly.rejected[0]?.reason).toBe("duplicate workItemId");
+        const launchedBeforeDuplicate = harness.launchedChildren().map((child) => child.id);
+        let duplicateError: unknown;
+        try {
+          await harness.orchestrate({
+            tasks: [
+              {
+                task: `Review ${alpha.id} while the implementer is still live.`,
+                description: "Review alpha too early",
+                agent: "worker",
+                taskType: "reviewImplementation",
+                domain: domainFor(epicId, alpha),
+              },
+            ],
+          });
+        } catch (error) {
+          duplicateError = error;
+        }
+        expect(duplicateError).toBeInstanceOf(Error);
+        const duplicateMessage =
+          duplicateError instanceof Error ? duplicateError.message : String(duplicateError);
+        expect(duplicateMessage).toContain("Orchestration rejected: 0 starting, 1 rejected.");
+        expect(duplicateMessage).toContain(`duplicate workItemId (${alpha.id})`);
+        expect(duplicateMessage).not.toMatch(/\bcompleted\b/);
+        expect(harness.launchedChildren().map((child) => child.id)).toEqual(
+          launchedBeforeDuplicate,
+        );
         expect(harness.launchedTaskTypes()).toEqual(["implementation", "implementation"]);
+        expect(harness.groups.getOpenGroup()?.groupId).toBe(groupId);
+        expect(harness.tree.get(childA)?.status).toBe("running");
+        expect(harness.tree.get(childB)?.status).toBe("running");
         await harness.logStep("review-rejected-while-implementer-live", {
           ticketId: alpha.id,
           childId: childA,

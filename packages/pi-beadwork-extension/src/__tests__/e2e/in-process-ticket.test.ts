@@ -78,6 +78,24 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(prompt).not.toContain(ticket.id);
         expect((await fixture.show(ticket.id)).status).toBe("open");
         expect(harness.launchedChildren()).toEqual([]);
+
+        const appendix = await harness.beadwork.dispatch<{ systemPrompt?: string }>(
+          "before_agent_start",
+          { systemPrompt: "Base prompt" },
+          harness.ctx,
+        );
+        const standing = appendix?.systemPrompt ?? "";
+        expect(standing).toContain("Base prompt");
+        expect(standing).toContain("You are in beadwork run mode.");
+        expect(standing).toContain("Review policy branch: ticket");
+        expect(standing).toContain(`Current scope: epic:${epicId}`);
+        expect(standing).toContain(
+          "Launch an independent `reviewImplementation` child before closing that ticket.",
+        );
+        expect(standing).toContain(
+          "This standing appendix is policy only. It does not start a turn.",
+        );
+        expect(harness.launchedChildren()).toEqual([]);
         await harness.logStep("bw-start-goal-injected", { ticketId: ticket.id });
 
         const orchestrateStarted = Date.now();

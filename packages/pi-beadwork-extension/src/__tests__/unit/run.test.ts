@@ -217,6 +217,9 @@ describe("run flag and host validation", () => {
       });
 
       expect(ui.notifications.at(-1)?.level).toBe("error");
+      expect(ui.notifications.at(-1)?.message).toContain(
+        "/bw run requires a persistent Pi host (tui or rpc)",
+      );
       expect(ui.notifications.at(-1)?.message).toMatch(/print and json/);
       expect(logSpy).toHaveBeenCalledWith("reject-host", expect.objectContaining({ hostMode }));
       expect(deps.pi.sendMessage).not.toHaveBeenCalled();
@@ -226,13 +229,19 @@ describe("run flag and host validation", () => {
 
 describe("epic validation", () => {
   it("rejects non-epics, closed epics, and epics without descendants", () => {
-    expect(validateOpenEpicWithDescendants(epic({ type: "task", children: [issue()] }))).toMatch(
-      /is a task/,
-    );
-    expect(validateOpenEpicWithDescendants(epic({ status: "closed" }))).toMatch(/is closed/);
-    expect(validateOpenEpicWithDescendants(epic({ children: [] }))).toMatch(
-      /traversable descendants/,
-    );
+    const task = validateOpenEpicWithDescendants(epic({ type: "task", children: [issue()] }));
+    const closed = validateOpenEpicWithDescendants(epic({ status: "closed" }));
+    const empty = validateOpenEpicWithDescendants(epic({ children: [] }));
+
+    expect(task).toMatch(/Goal mode requires an epic id/);
+    expect(task).toMatch(/is a task/);
+    expect(closed).toMatch(/Goal mode requires an open epic/);
+    expect(closed).toMatch(/is closed/);
+    expect(empty).toMatch(/Goal mode requires an open epic with traversable descendants/);
+    expect(empty).toMatch(/has none/);
+    for (const message of [task, closed, empty]) {
+      expect(message).not.toMatch(/\/bw run requires/);
+    }
     expect(validateOpenEpicWithDescendants(epic())).toBeUndefined();
   });
 
@@ -248,7 +257,9 @@ describe("epic validation", () => {
     await executeRunAction({ ctx, deps, epicId: "BW-101" });
 
     expect(ui.notifications.at(-1)?.level).toBe("warning");
+    expect(ui.notifications.at(-1)?.message).toContain("Goal mode requires an epic id");
     expect(ui.notifications.at(-1)?.message).toContain("BW-101 is a task");
+    expect(ui.notifications.at(-1)?.message).not.toContain("/bw run requires");
     expect(deps.pi.sendMessage).not.toHaveBeenCalled();
   });
 });
@@ -582,6 +593,7 @@ describe("startGoal domain operation", () => {
       expect(error).toBeInstanceOf(GoalStartError);
       expect((error as GoalStartError).code).toBe(code);
       expect((error as GoalStartError).message).toMatch(pattern);
+      expect((error as GoalStartError).message).not.toContain("/bw run requires");
       expect(writeSpy).not.toHaveBeenCalled();
       expect(deps.pi.sendMessage).not.toHaveBeenCalled();
       expect(deps.pi.sendUserMessage).not.toHaveBeenCalled();
@@ -599,7 +611,7 @@ describe("startGoal domain operation", () => {
       () => {
         throw new Error("expected host rejection");
       },
-      async (error) => expectUnchanged(error, "host", /print and json/),
+      async (error) => expectUnchanged(error, "host", /Goal mode requires a persistent Pi host/),
     );
 
     adapter.show.mockResolvedValueOnce(epic({ type: "task", children: [] }));
