@@ -195,6 +195,10 @@ interface ChildRecord {
   mailAccepted: boolean;
   /** Accepted child→parent question. Idle settlement must not terminalize. */
   waitingOnParent: boolean;
+  /** Incremented on each accepted parent-bound wait so stale replies cannot resume a newer wait. */
+  waitGeneration: number;
+  /** Parent-reply deliveries awaiting a matching consumed user message_start. */
+  pendingResumes: Array<{ generation: number; text: string }>;
 }
 
 export class SubsessionManager {
@@ -302,6 +306,8 @@ export class SubsessionManager {
       pendingMail: 0,
       mailAccepted: false,
       waitingOnParent: false,
+      waitGeneration: 0,
+      pendingResumes: [],
       sessionPath,
     };
     this.children.set(id, child);
@@ -495,6 +501,7 @@ export class SubsessionManager {
     const child = this.children.get(id);
     if (!child || child.terminal || this.terminals.has(id)) return;
     child.waitingOnParent = true;
+    child.waitGeneration += 1;
   }
 
   /** Re-apply the child tool formula. Call after late-registered tools. */
@@ -618,14 +625,8 @@ export class SubsessionManager {
     if (child) {
       child.pendingMail += 1;
       child.mailAccepted = true;
-      child.waitingOnParent = false;
     }
     return session;
-  }
-
-  private clearWaitingOnParent(id: string): void {
-    const child = this.children.get(id);
-    if (child) child.waitingOnParent = false;
   }
 
   private releaseMail(id: string): void {
@@ -633,6 +634,20 @@ export class SubsessionManager {
     if (!child) return;
     if (child.pendingMail > 0) child.pendingMail -= 1;
     if (child.pendingMail === 0) this.tryCommitIdle(id);
+  }
+
+  private consumeParentReply(id: string, event: ChildSessionEvent): void {
+    const child = this.children.get(id);
+    if (!child || child.terminal || !child.waitingOnParent) return;
+    const text = userMessageText(event);
+    if (text === undefined) return;
+    const idx = child.pendingResumes.findIndex((item) => item.text === text);
+    if (idx === -1) return;
+    const pending = child.pendingResumes[idx];
+    child.pendingResumes.splice(idx, 1);
+    if (!pending || pending.generation !== child.waitGeneration) return;
+    child.waitingOnParent = false;
+    child.options.onWaitingResume?.();
   }
 
   /**
@@ -686,16 +701,32 @@ export class SubsessionManager {
       steer: async (text: string) => {
         await this.requireLiveSession(id).steer(text);
       },
-      followUp: async (text: string) => {
+      followUp: async (text: string, opts?: { parentReply?: boolean }) => {
         const session = this.acceptMail(id);
+        const child = this.children.get(id);
+        const resume =
+          opts?.parentReply === true && child?.waitingOnParent
+            ? { generation: child.waitGeneration, text }
+            : undefined;
+        if (resume && child) child.pendingResumes.push(resume);
         try {
-          await session.followUp(text);
+          if (session.isStreaming) {
+            await session.followUp(text);
+          } else {
+            await session.prompt(text);
+          }
           try {
             await session.waitForIdle();
           } catch {
             // waitForIdle is best-effort; agent_settled is the primary idle signal.
           }
           await this.drainTrailingSessionEvents(id, session);
+        } catch (err) {
+          if (resume && child) {
+            const idx = child.pendingResumes.lastIndexOf(resume);
+            if (idx !== -1) child.pendingResumes.splice(idx, 1);
+          }
+          throw err;
         } finally {
           this.releaseMail(id);
         }
@@ -792,8 +823,11 @@ export class SubsessionManager {
 
     this.emitProgress(id, event);
 
+    if (event.type === "message_start") {
+      this.consumeParentReply(id, event);
+    }
+
     if (event.type === "tool_execution_start" && event.toolName) {
-      this.clearWaitingOnParent(id);
       child.options.onToolActivity?.({
         type: "start",
         toolName: event.toolName,
@@ -808,7 +842,6 @@ export class SubsessionManager {
       child.options.onToolOutput(event.toolName, fullText);
     }
     if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-      this.clearWaitingOnParent(id);
       const delta = event.assistantMessageEvent.delta ?? "";
       child.currentFullText += delta;
       child.options.onTextDelta?.(delta, child.currentFullText);
@@ -1346,6 +1379,26 @@ function sessionEventMessage(event: Record<string, unknown>): unknown | undefine
   if (event.type === "message" && event.message) return event.message;
   if (typeof event.role === "string") return event;
   return undefined;
+}
+
+function userContentText(content: unknown): string | undefined {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const rec = block as Record<string, unknown>;
+    if (rec.type === "text" && typeof rec.text === "string") parts.push(rec.text);
+  }
+  return parts.length > 0 ? parts.join("") : undefined;
+}
+
+function userMessageText(event: ChildSessionEvent): string | undefined {
+  if (event.type !== "message_start") return undefined;
+  const message = event.message;
+  if (!message || typeof message !== "object") return undefined;
+  if (message.role !== "user") return undefined;
+  return userContentText(message.content);
 }
 
 function extractLastAssistantText(messages: unknown[]): string {

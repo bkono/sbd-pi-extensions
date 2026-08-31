@@ -228,6 +228,7 @@ function startRegisteredChild(
       onToolOutput: bound.onToolOutput,
       onTextDelta: bound.onTextDelta,
       onAgentEnd: bound.onAgentEnd,
+      onWaitingResume: bound.onWaitingResume,
       onTurnEnd: (turnCount) => {
         bound.onTurnEnd(turnCount);
         applyStepLimit({

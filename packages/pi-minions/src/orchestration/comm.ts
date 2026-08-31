@@ -155,7 +155,7 @@ export interface CommMailboxBind {
   getTree: () => AgentTree;
   getGroups: () => Pick<OrchestrationGroupState, "getOpenGroup">;
   isLive: (id: string) => boolean;
-  followUp: (id: string, text: string) => Promise<void>;
+  followUp: (id: string, text: string, opts?: { parentReply?: boolean }) => Promise<void>;
   /**
    * Child → parent mail is a parent-waking event (3.3). Peer mail must not call this.
    * The packet dispatcher coalesces; this callback must not send a parent packet itself.
@@ -429,9 +429,6 @@ export class MinionCommMailbox {
         tree.applyActivityEvent(input.from, { type: "waiting" });
         this.bindState?.markWaitingOnParent?.(input.from);
       }
-      if (input.from === PARENT_RECIPIENT_ID && input.to !== PARENT_RECIPIENT_ID) {
-        tree.applyActivityEvent(input.to, { type: "thinking" });
-      }
     }
 
     const details: CommSendDetails = {
@@ -448,7 +445,11 @@ export class MinionCommMailbox {
     if (deliverToChild) {
       // Handed to followUp: no longer pending. Inspection id stays in `items`.
       const text = formatMinionMail(input.from, input.body);
-      void Promise.resolve(this.bindState?.followUp(input.to, text)).catch((err: unknown) => {
+      void Promise.resolve(
+        this.bindState?.followUp(input.to, text, {
+          parentReply: input.from === PARENT_RECIPIENT_ID,
+        }),
+      ).catch((err: unknown) => {
         logger.warn("comm", "deliver-failed", {
           messageId: message.id,
           from: input.from,

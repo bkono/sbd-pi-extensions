@@ -81,6 +81,7 @@ class FakeChildSession implements ChildSession {
   listeners = new Set<(event: ChildSessionEvent) => void>();
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
+  isStreaming = false;
   state = { messages: [] as unknown[] };
 
   constructor(customTools: Array<{ name: string }> = []) {
@@ -105,7 +106,10 @@ class FakeChildSession implements ChildSession {
     };
   }
   prompt(_text: string): Promise<void> {
-    return this.promptDeferred.promise;
+    this.isStreaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.isStreaming = false;
+    });
   }
   abort(): void {
     this.promptDeferred.resolve();

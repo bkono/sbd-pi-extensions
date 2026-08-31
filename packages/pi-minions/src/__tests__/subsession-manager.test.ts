@@ -32,6 +32,7 @@ class FakeChildSession implements ChildSession {
   listeners = new Set<(event: ChildSessionEvent) => void>();
   disposed = false;
   aborted = false;
+  isStreaming = false;
   abortedBash = false;
   disposeCount = 0;
   callOrder: string[] = [];
@@ -100,7 +101,10 @@ class FakeChildSession implements ChildSession {
 
   prompt(_text: string): Promise<void> {
     this.thinkingLevelAtPrompt = this.thinkingLevel;
-    return this.promptDeferred.promise;
+    this.isStreaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.isStreaming = false;
+    });
   }
 
   resolveIdle(): void {

@@ -332,12 +332,12 @@ export default function (pi: ExtensionAPI): void {
       getTree: () => tree,
       getGroups: () => groups,
       isLive: (id) => subsessionManager?.isLive(id) === true,
-      followUp: async (id, text) => {
+      followUp: async (id, text, opts) => {
         const handle = subsessionManager?.getSessionHandle(id);
         if (!handle) {
           throw new Error(`Child ${id} is terminal; further mail is rejected`);
         }
-        await handle.followUp(text);
+        await handle.followUp(text, opts);
       },
       markWaitingOnParent: (id) => {
         subsessionManager?.markWaitingOnParent(id);

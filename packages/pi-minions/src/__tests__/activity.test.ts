@@ -15,6 +15,7 @@ import {
   sanitizeActivityText,
   sessionRecordsToActivityEvents,
 } from "../activity.js";
+import { logger } from "../logger.js";
 import {
   COMM_SEND_STATUS,
   createLifecyclePacketDispatcher,
@@ -53,6 +54,9 @@ class FakeChildSession implements ChildSession {
   active = new Set(["read"]);
   listeners = new Set<(event: ChildSessionEvent) => void>();
   disposed = false;
+  isStreaming = false;
+  prompts: string[] = [];
+  followUps: string[] = [];
   state = { messages: [] as unknown[] };
 
   async bindExtensions(): Promise<void> {}
@@ -75,10 +79,14 @@ class FakeChildSession implements ChildSession {
   emit(event: ChildSessionEvent): void {
     for (const listener of this.listeners) listener(event);
   }
-  async prompt(): Promise<void> {}
+  async prompt(text: string): Promise<void> {
+    this.prompts.push(text);
+  }
   abort(): void {}
   async steer(): Promise<void> {}
-  async followUp(): Promise<void> {}
+  async followUp(text: string): Promise<void> {
+    this.followUps.push(text);
+  }
   async waitForIdle(): Promise<void> {}
   dispose(): void {
     this.disposed = true;
@@ -86,6 +94,13 @@ class FakeChildSession implements ChildSession {
   getSessionStats() {
     return { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 };
   }
+}
+
+function userStart(text: string): ChildSessionEvent {
+  return {
+    type: "message_start",
+    message: { role: "user", content: [{ type: "text", text }] },
+  };
 }
 
 const config: AgentConfig = {
@@ -97,7 +112,7 @@ const config: AgentConfig = {
 };
 
 describe("activity reducer phases", () => {
-  it("transitions starting → thinking → tool → thinking → waiting → thinking → settling", () => {
+  it("transitions starting → thinking → tool → thinking → waiting → resume → settling", () => {
     let snap: ActivitySnapshot | undefined;
     const apply = (event: Parameters<typeof reduceActivity>[1]) => {
       snap = reduceActivity(snap, event, NOW).snapshot;
@@ -123,8 +138,32 @@ describe("activity reducer phases", () => {
       summary: "waiting on parent",
     });
     expect(apply({ type: "settling" }).phase).toBe("waiting");
-    expect(apply({ type: "thinking" })).toMatchObject({ phase: "thinking", summary: "thinking" });
+    expect(apply({ type: "thinking" }).phase).toBe("waiting");
+    expect(apply({ type: "tool_start", toolName: "read", args: { path: "x.ts" } }).phase).toBe(
+      "waiting",
+    );
+    expect(apply({ type: "tool_end" }).phase).toBe("waiting");
+    expect(apply({ type: "turn_end", turn: 4 }).phase).toBe("waiting");
+    expect(apply({ type: "narrative", text: "tail" }).phase).toBe("waiting");
+    expect(apply({ type: "resume" })).toMatchObject({ phase: "thinking", summary: "thinking" });
     expect(apply({ type: "settling" }).phase).toBe("settling");
+  });
+
+  it("keeps waiting through thinking, tool, turn, narrative, and settling", () => {
+    let snap = reduceActivity(undefined, { type: "waiting" }, NOW).snapshot;
+    for (const event of [
+      { type: "thinking" as const },
+      { type: "tool_start" as const, toolName: "bash", args: { command: "ls" } },
+      { type: "tool_end" as const },
+      { type: "turn_end" as const, turn: 2 },
+      { type: "narrative" as const, text: "still waiting" },
+      { type: "settling" as const },
+    ]) {
+      snap = reduceActivity(snap, event, NOW).snapshot;
+      expect(snap.phase).toBe("waiting");
+    }
+    snap = reduceActivity(snap, { type: "resume" }, NOW).snapshot;
+    expect(snap.phase).toBe("thinking");
   });
 
   it("does not let a late thinking event overwrite an active tool", () => {
@@ -341,6 +380,51 @@ describe("AgentTree activity", () => {
     tree.updateStatus("mn-1", "failed", 1, "nope");
     expect(tree.get("mn-1")?.status).toBe("completed");
   });
+
+  it("isolates a throwing global listener and still delivers later global and node listeners once", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    const order: string[] = [];
+    vi.spyOn(logger, "error").mockImplementation(() => {});
+    tree.onChange(() => {
+      order.push("g1");
+      throw new Error("global boom");
+    });
+    tree.onChange(() => {
+      order.push("g2");
+    });
+    tree.onNodeChange("mn-1", () => {
+      order.push("n1");
+    });
+    expect(() => tree.applyActivityEvent("mn-1", { type: "thinking" })).not.toThrow();
+    expect(order).toEqual(["g1", "g2", "n1"]);
+    expect(logger.error).toHaveBeenCalledWith(
+      "tree",
+      "listener-error",
+      expect.objectContaining({ error: "global boom" }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("stale unsubscribe after remove/readd keeps the replacement listener", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    const stale: string[] = [];
+    const staleUnsub = tree.onNodeChange("mn-1", () => {
+      stale.push("old");
+    });
+    staleUnsub();
+    tree.remove("mn-1");
+    tree.add("mn-1", "bravo", "work again");
+    const hits: string[] = [];
+    tree.onNodeChange("mn-1", () => {
+      hits.push("new");
+    });
+    staleUnsub();
+    tree.applyActivityEvent("mn-1", { type: "thinking" });
+    expect(stale).toEqual([]);
+    expect(hits).toEqual(["new"]);
+  });
 });
 
 const SESSION_TS = "2024-12-03T14:00:01.000Z";
@@ -505,6 +589,32 @@ describe("transcript rehydration", () => {
     const replayed = replayActivity(sessionRecordsToActivityEvents(records), NOW);
     expect(replayed.current?.phase).toBe("waiting");
     expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
+  });
+
+  it("quarantines duplicate active toolCallIds so no result can wait", () => {
+    const content = [
+      JSON.stringify(
+        assistantRecord("a1", null, [
+          toolCall("dup", "read", { path: "src/auth.ts" }),
+          toolCall("dup", "send_minion_peer", {
+            to: "parent",
+            body: "need a ruling",
+          }),
+        ]),
+      ),
+      JSON.stringify(
+        toolResultRecord("t1", "a1", "dup", "send_minion_peer", {
+          isError: false,
+          details: { status: "queued", to: "parent" },
+        }),
+      ),
+    ].join("\n");
+    const replayed = replayActivity(
+      sessionRecordsToActivityEvents(parseJsonlRecords(content)),
+      NOW,
+    );
+    expect(replayed.current?.phase).not.toBe("waiting");
+    expect(summaries(replayed.history)).not.toContain("waiting on parent");
   });
 
   it("parseSessionHistory reconstructs snapshots without turn N entries", () => {
@@ -769,9 +879,10 @@ describe("manager settling callback", () => {
 });
 
 describe("waiting mailbox resume", () => {
-  it("accepted question stays live across idle settlement until reply and later settle", async () => {
+  async function setupWaitingChild(opts?: { streaming?: boolean }) {
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-wait-"));
     const session = new FakeChildSession();
+    if (opts?.streaming) session.isStreaming = true;
     const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
       createChildRuntime: async () => ({
         runtime: {
@@ -802,20 +913,22 @@ describe("waiting mailbox resume", () => {
       modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
       onToolActivity: bound.onToolActivity,
       onTextDelta: bound.onTextDelta,
+      onTurnEnd: bound.onTurnEnd,
       onAgentEnd: bound.onAgentEnd,
+      onWaitingResume: bound.onWaitingResume,
     });
+    if (opts?.streaming) session.isStreaming = true;
     const mailbox = new MinionCommMailbox({
       getTree: () => tree,
       getGroups: () => ({ getOpenGroup: () => ({ groupId: "grp-1", cwd }) }),
       isLive: (id) => manager.isLive(id),
-      followUp: async (id, text) => {
+      followUp: async (id, text, followOpts) => {
         const live = manager.getSessionHandle(id);
         if (!live) throw new Error(`Child ${id} is terminal; further mail is rejected`);
-        await live.followUp(text);
+        await live.followUp(text, followOpts);
       },
       markWaitingOnParent: (id) => manager.markWaitingOnParent(id),
     });
-
     const asked = mailbox.send({
       from: "child-wait",
       to: PARENT_RECIPIENT_ID,
@@ -823,18 +936,40 @@ describe("waiting mailbox resume", () => {
       body: "need a ruling",
     });
     expect(asked.status).toBe(COMM_SEND_STATUS.queued);
-    expect(tree.get("child-wait")?.status).toBe("running");
     expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
-    expect(tree.get("child-wait")?.lastActivity).toBe("waiting on parent");
+    return { session, manager, tree, idle, handle, mailbox };
+  }
 
+  it("no-reply tail text/tool/end/settled remains running and waiting", async () => {
+    const { session, manager, tree } = await setupWaitingChild();
+    session.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "still asking" },
+    });
+    session.emit({
+      type: "tool_execution_start",
+      toolName: "read",
+      args: { path: "src/auth.ts" },
+    });
+    session.emit({ type: "tool_execution_end", toolName: "read" });
     session.emit({ type: "agent_end", willRetry: false });
     session.emit({ type: "agent_settled" });
     await Promise.resolve();
+    expect(manager.isLive("child-wait")).toBe(true);
     expect(manager.getTerminal("child-wait")).toBeUndefined();
+    expect(tree.get("child-wait")?.status).toBe("running");
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+  });
+
+  it("idle reply acceptance stays waiting, starts prompt, matching user start resumes then settles", async () => {
+    const { session, manager, tree, idle, handle, mailbox } = await setupWaitingChild();
+    session.emit({ type: "agent_end", willRetry: false });
+    session.emit({ type: "agent_settled" });
+    await Promise.resolve();
     expect(manager.isLive("child-wait")).toBe(true);
     expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
-    expect(tree.get("child-wait")?.status).toBe("running");
 
+    const initialPrompts = session.prompts.length;
     const reply = mailbox.send({
       from: PARENT_RECIPIENT_ID,
       to: "child-wait",
@@ -842,24 +977,132 @@ describe("waiting mailbox resume", () => {
       body: "continue",
     });
     expect(reply.status).toBe(COMM_SEND_STATUS.queued);
-    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
-
-    session.emit({
-      type: "message_update",
-      assistantMessageEvent: { type: "text_delta", delta: "working" },
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBe(initialPrompts + 1);
     });
+    expect(session.followUps).toEqual([]);
+    const delivered = session.prompts.at(-1);
+    expect(delivered).toBeTruthy();
+
+    session.emit(userStart(delivered ?? ""));
     await Promise.resolve();
     expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
-    expect(tree.get("child-wait")?.activity?.narrativePreview).toBe("working");
+    expect(session.prompts.length).toBe(initialPrompts + 1);
 
     session.emit({ type: "agent_end", willRetry: false });
     await Promise.resolve();
     expect(tree.get("child-wait")?.activity?.phase).toBe("settling");
     expect(tree.get("child-wait")?.status).toBe("running");
-    expect(manager.getTerminal("child-wait")).toBeUndefined();
 
     session.emit({ type: "agent_settled" });
     idle.resolve();
     await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
+    expect(manager.getTerminal("child-wait")?.class).toBe("settled");
+  });
+
+  it("active-run followUp remains waiting until matching user message_start", async () => {
+    const { session, tree, mailbox } = await setupWaitingChild({ streaming: true });
+    const reply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(reply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.followUps.length).toBe(1);
+    });
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    const delivered = session.followUps[0] ?? "";
+    session.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "tail" },
+    });
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    session.emit(userStart(delivered));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+  });
+
+  it("delivery throw stays waiting and retryable", async () => {
+    const { session, manager, tree, mailbox } = await setupWaitingChild();
+    session.prompt = async (text: string) => {
+      session.prompts.push(text);
+      throw new Error("queue boom");
+    };
+    const reply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "continue",
+    });
+    expect(reply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBeGreaterThan(1);
+    });
+    expect(manager.isLive("child-wait")).toBe(true);
+    expect(tree.get("child-wait")?.status).toBe("running");
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+  });
+
+  it("abort while waiting wins exactly once", async () => {
+    const { manager, handle } = await setupWaitingChild();
+    handle.abort();
+    await expect(handle.wait()).resolves.toMatchObject({ class: "aborted" });
+    expect(manager.getTerminal("child-wait")?.class).toBe("aborted");
+    expect(manager.isLive("child-wait")).toBe(false);
+  });
+
+  it("provider failure while waiting wins exactly once", async () => {
+    const { session, manager, handle } = await setupWaitingChild();
+    session.emit({
+      type: "auto_retry_end",
+      success: false,
+      finalError: "provider down",
+    });
+    session.emit({ type: "agent_settled" });
+    await expect(handle.wait()).resolves.toMatchObject({ class: "failed" });
+    expect(manager.getTerminal("child-wait")?.class).toBe("failed");
+    expect(manager.isLive("child-wait")).toBe(false);
+  });
+
+  it("stale user messages do not clear a newer wait", async () => {
+    const { session, tree, mailbox } = await setupWaitingChild();
+    const firstReply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "first",
+    });
+    expect(firstReply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBeGreaterThan(1);
+    });
+    const stale = session.prompts.at(-1) ?? "";
+    const askedAgain = mailbox.send({
+      from: "child-wait",
+      to: PARENT_RECIPIENT_ID,
+      groupId: "grp-1",
+      body: "still need a ruling",
+    });
+    expect(askedAgain.status).toBe(COMM_SEND_STATUS.queued);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    session.emit(userStart(stale));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    const secondReply = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "second",
+    });
+    expect(secondReply.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.at(-1)).not.toBe(stale);
+    });
+    session.emit(userStart(session.prompts.at(-1) ?? ""));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
   });
 });

@@ -13,6 +13,7 @@ export type ActivityEvent =
   | { type: "tool_start"; toolName: string; args?: Record<string, unknown> }
   | { type: "tool_end" }
   | { type: "waiting" }
+  | { type: "resume" }
   | { type: "settling" }
   | { type: "turn_end"; turn: number }
   | { type: "narrative"; text: string };
@@ -110,6 +111,15 @@ function keepCurrent(
   };
 }
 
+function holdIfWaiting(
+  current: ActivitySnapshot | undefined,
+  event: ActivityEvent,
+  now: number,
+): ReduceActivityResult | undefined {
+  if (current?.phase !== "waiting") return undefined;
+  return keepCurrent(current, event, now);
+}
+
 export function reduceActivity(
   current: ActivitySnapshot | undefined,
   event: ActivityEvent,
@@ -121,7 +131,9 @@ export function reduceActivity(
         snapshot: withMeta(current, event, now, { phase: "starting", summary: "starting" }),
         recordHistory: current?.phase !== "starting",
       };
-    case "thinking":
+    case "thinking": {
+      const held = holdIfWaiting(current, event, now);
+      if (held) return held;
       if (current?.phase === "tool") return keepCurrent(current, event, now);
       if (current?.phase === "thinking") return keepCurrent(current, event, now);
       return {
@@ -132,7 +144,10 @@ export function reduceActivity(
         }),
         recordHistory: true,
       };
+    }
     case "tool_start": {
+      const held = holdIfWaiting(current, event, now);
+      if (held) return held;
       const formatted = formatToolActivity(event.toolName, event.args);
       return {
         snapshot: withMeta(current, event, now, {
@@ -168,6 +183,27 @@ export function reduceActivity(
         }),
         recordHistory: current?.phase !== "waiting",
       };
+    case "resume": {
+      if (current?.phase !== "waiting") {
+        if (current?.phase === "tool") return keepCurrent(current, event, now);
+        if (current?.phase === "thinking") return keepCurrent(current, event, now);
+        return {
+          snapshot: withMeta(current, event, now, {
+            phase: "thinking",
+            summary: "thinking",
+            narrativePreview: current?.narrativePreview,
+          }),
+          recordHistory: true,
+        };
+      }
+      return {
+        snapshot: withMeta(current, event, now, {
+          phase: "thinking",
+          summary: "thinking",
+        }),
+        recordHistory: true,
+      };
+    }
     case "settling":
       if (current?.phase === "waiting") return keepCurrent(current, event, now);
       return {
@@ -330,6 +366,7 @@ export function sessionRecordsToActivityEvents(
 ): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const pendingCalls = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+  const quarantinedCallIds = new Set<string>();
   let turnCount = 0;
 
   for (const record of records) {
@@ -352,6 +389,11 @@ export function sessionRecordsToActivityEvents(
         const call = toolCallFromBlock(block);
         if (!call) continue;
         events.push({ type: "tool_start", toolName: call.toolName, args: call.args });
+        if (quarantinedCallIds.has(call.id) || pendingCalls.has(call.id)) {
+          pendingCalls.delete(call.id);
+          quarantinedCallIds.add(call.id);
+          continue;
+        }
         pendingCalls.set(call.id, { toolName: call.toolName, args: call.args });
       }
       continue;
@@ -360,7 +402,7 @@ export function sessionRecordsToActivityEvents(
     if (message.role !== "toolResult") continue;
 
     const callId = typeof message.toolCallId === "string" ? message.toolCallId : "";
-    if (!callId) continue;
+    if (!callId || quarantinedCallIds.has(callId)) continue;
     const pending = pendingCalls.get(callId);
     if (!pending) continue;
     pendingCalls.delete(callId);
@@ -420,6 +462,7 @@ export function bindTreeActivity(
   onTextDelta: (delta: string, fullText: string) => void;
   onTurnEnd: (turnCount: number) => void;
   onAgentEnd: (info?: { willRetry?: boolean }) => void;
+  onWaitingResume: () => void;
 } {
   return {
     onToolActivity: (activity) => {
@@ -450,6 +493,9 @@ export function bindTreeActivity(
     onAgentEnd: (info) => {
       if (info?.willRetry) return;
       tree.applyActivityEvent(id, { type: "settling" });
+    },
+    onWaitingResume: () => {
+      tree.applyActivityEvent(id, { type: "resume" });
     },
   };
 }

@@ -52,6 +52,8 @@ export interface ChildSession {
   /** Child-safe queued continuation. Pi delivers after the current tool/steer drain. */
   followUp(text: string): Promise<void>;
   waitForIdle(): Promise<void>;
+  /** Proven Pi AgentSession run-state. True while an agent run or post-run continuation is active. */
+  readonly isStreaming: boolean;
   dispose(): void;
   getSessionStats(): {
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
@@ -69,6 +71,7 @@ export interface ChildSessionEvent {
   finalError?: string;
   assistantMessageEvent?: { type: string; delta?: string };
   partialResult?: { content?: Array<{ text?: string }> };
+  message?: { role?: string; content?: unknown };
   [key: string]: unknown;
 }
 
@@ -96,7 +99,7 @@ export interface MinionSessionHandle {
   id: string;
   path: string;
   steer(text: string): Promise<void>;
-  followUp(text: string): Promise<void>;
+  followUp(text: string, opts?: { parentReply?: boolean }): Promise<void>;
   abort(): void;
   wait(): Promise<ChildTerminalEvent>;
 }
@@ -133,6 +136,7 @@ export interface CreateMinionSessionOptions {
   onTextDelta?: (delta: string, fullText: string) => void;
   onTurnEnd?: (turnCount: number) => void;
   onAgentEnd?: (info: { willRetry?: boolean }) => void;
+  onWaitingResume?: () => void;
   onUsageUpdate?: (usage: {
     input: number;
     output: number;

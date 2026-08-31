@@ -229,6 +229,7 @@ class FakeChildSession implements ChildSession {
   idleDeferred = createDeferred<void>();
   aborted = false;
   disposed = false;
+  isStreaming = false;
   state = { messages: [] as unknown[] };
 
   async bindExtensions(): Promise<void> {}
@@ -248,7 +249,10 @@ class FakeChildSession implements ChildSession {
     };
   }
   prompt(_text: string): Promise<void> {
-    return this.promptDeferred.promise;
+    this.isStreaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.isStreaming = false;
+    });
   }
   abort(): void {
     this.aborted = true;

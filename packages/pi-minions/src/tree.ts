@@ -106,7 +106,9 @@ export class AgentTree {
     set.add(listener);
     return () => {
       set.delete(listener);
-      if (set.size === 0) this.nodeListeners.delete(id);
+      if (set.size === 0 && this.nodeListeners.get(id) === set) {
+        this.nodeListeners.delete(id);
+      }
     };
   }
 
@@ -117,14 +119,27 @@ export class AgentTree {
   }
 
   private notify(id?: string): void {
-    for (const listener of this.listeners) listener();
-    if (id) {
+    const globals = [...this.listeners];
+    const scoped: Array<() => void> = [];
+    if (id !== undefined) {
       const set = this.nodeListeners.get(id);
-      if (set) for (const listener of set) listener();
-      return;
+      if (set) scoped.push(...set);
+    } else {
+      for (const set of [...this.nodeListeners.values()]) scoped.push(...set);
     }
-    for (const set of this.nodeListeners.values()) {
-      for (const listener of set) listener();
+    this.invokeListeners(globals);
+    this.invokeListeners(scoped);
+  }
+
+  private invokeListeners(listeners: Array<() => void>): void {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch (err) {
+        logger.error("tree", "listener-error", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

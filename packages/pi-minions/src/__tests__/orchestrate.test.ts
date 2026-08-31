@@ -1033,6 +1033,7 @@ class FakeChildSession implements ChildSession {
   idleDeferred = createDeferred<void>();
   promptCalls = 0;
   disposed = false;
+  isStreaming = false;
   state = { messages: [] as unknown[] };
 
   async bindExtensions(): Promise<void> {}
@@ -1053,7 +1054,10 @@ class FakeChildSession implements ChildSession {
   }
   prompt(_text: string): Promise<void> {
     this.promptCalls++;
-    return this.promptDeferred.promise;
+    this.isStreaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.isStreaming = false;
+    });
   }
   abort(): void {
     this.promptDeferred.resolve();
