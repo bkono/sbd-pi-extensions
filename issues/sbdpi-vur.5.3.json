@@ -2,6 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-31T22:15:43Z",
+  "close_reason": "Superseded by the persistent pi-minions fleet widget and /minions drill-down. Preserve the architecture boundary: Beadwork owns issues and goal policy; pi-minions owns live fleet status; the parent model joins the two. Do not add a replacement Beadwork-owned minion-status surface without a new explicit product need.",
   "created": "2026-08-28T21:31:31Z",
   "defer_until": "2027-01-01",
   "description": "Deferred: optional beadwork TUI link to minion status without importing the live AgentTree (or with a future public inspect API).\n\nV1: issues/goal in beadwork; fleet in minions. Parent model is the join.",
@@ -12,8 +14,8 @@
   ],
   "parent": "sbdpi-vur.5",
   "priority": 3,
-  "status": "deferred",
+  "status": "closed",
   "title": "Later: optional Beadwork TUI link to minion status",
   "type": "task",
-  "updated_at": "2026-08-28T21:33:38Z"
+  "updated_at": "2026-08-31T22:15:43Z"
 }
