@@ -4,6 +4,8 @@
   "blocks": [
     "sbdpi-8b2.7"
   ],
+  "closed_at": "2026-08-31T20:00:31Z",
+  "close_reason": "Supervisor-era state, TUI, attribution exports/files, and positive preservation tests deleted; old persisted fields dropped; exact commits independently reviewed PASS.",
   "created": "2026-08-31T19:22:03Z",
   "description": "Finish the clean in-process cutover by deleting supervisor/tmux/current-branch worker state that remains exported, persisted, normalized, rendered, and tested even though the runtime was replaced by parent-model + Minions orchestration.\n\n## Remove completely\n\n- `SessionRunOptions`, including workers/until/noSpawn/dryRun/maxCycles.\n- tracked worker IDs/notices and worker/cycle/run summaries retained for the deleted supervisor.\n- recentRunSummary/lastCycleSummary and associated normalization/persistence/defaulting.\n- Run TUI/dashboard lines for max-cycles, goal summaries, stop reasons, tracked worker/supervisor presentation, and historical run summaries.\n- supervisor/current-branch attribution surfaces, including exported attribution types/functions that model worker runtime directories, prompt/log/state/exit files, tmux pane/session/window, branch-launch evidence, validation/review status, and commit heuristics, where no active model-driven runtime caller exists.\n- tests/goldens/docs that preserve or advertise these deleted elements.\n\nKeep only goal-mode state required by the current explicit `/bw run` / `beadwork_start_goal` transition and parent manager policy: interactive/run mode, scope/goal identity, review policy, interruption/entry bookkeeping actually used by current runtime, and timestamps if required. Derive current live fleet state from pi-minions rather than persisting supervisor projections.\n\n## Migration and compatibility\n\nThis is an intentional clean deletion, not a compatibility wrapper. Persisted old session fields should be ignored/dropped safely when read; they must not remain in live types or be reserialized. Update migration docs to name the deleted surfaces and current replacement. Do not preserve deprecated exports just because tests reference them.\n\n## Tests\n\n- Rewrite session-state tests around the reduced schema and old-field drop behavior.\n- Remove deleted-symbol tests that positively preserve supervisor APIs; add focused source/type/runtime probes only where needed to prevent reintroduction.\n- Verify `/bw run` and `beadwork_start_goal` parity, resume/conflict behavior, review policy, interruption/abandon, prompt appendices, dashboard, and agent-friendly E2E still pass.\n- Run Beadwork scoped lint/test/typecheck/build and relevant root gates.\n\n## Do not\n\n- Do not add a migration adapter, compatibility facade, alternate supervisor, commit parser, worker registry, scheduler, polling, automatic ticket mutation, or new persisted replacement summaries.",
   "id": "sbdpi-8b2.10",
@@ -29,7 +31,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Delete superseded Beadwork supervisor-era state and attribution surfaces",
   "type": "task",
   "updated_at": "2026-08-31T20:00:31Z"
