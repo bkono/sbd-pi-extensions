@@ -25,6 +25,21 @@ Operator README: [../README.md](../README.md). Minions: [../../pi-minions/README
 | `/bw cancel` | `/halt <id\|all>` |
 | `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`, `beadwork_worker_check` | not registered. Use beadwork issue tools + minions `orchestrate`/`halt` |
 
+## `orchestrate.role` was removed
+
+Minions now uses the canonical `agent` selector on both foreground `spawn` and background
+`orchestrate` tasks:
+
+```diff
+-{ "role": "worker", "taskType": "implementation" }
++{ "agent": "worker", "taskType": "implementation" }
+```
+
+There is no `role` compatibility alias. `agent` names a discovered template; `taskType` remains the
+separate closed workflow-policy selector. Built-in `worker` and `investigate` definitions are the
+lowest-precedence layer. User definitions override built-ins and project definitions override users.
+Call `list_agents` to inspect the effective source and definition.
+
 ## Removed `/bw run` flags
 
 These error (not ignored):

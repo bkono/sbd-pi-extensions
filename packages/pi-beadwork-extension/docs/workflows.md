@@ -132,6 +132,15 @@ When a turn runs:
 
 `orchestrate` `accepted` means starting, not liveness. Do not poll.
 
+Registration is pending/starting, not confirmed liveness. A child is running only after its live handle
+exists. The ambient fleet widget shows bounded trusted `tool`, `waiting`, and `settling` activity; use
+`/minions` for drill-down. A parent answer is accepted as mail before settlement can commit.
+
+When the final active children settle together, their real lifecycle events coalesce into a bounded
+packet with one group-idle boundary. Treat that boundary as a request for adjudication: inspect named
+commits and review evidence, then decide ticket mutations. It never closes work or declares the goal
+successful. Foreground `spawn` remains blocking and is excluded from these group packets.
+
 ### Review
 
 - `ticket` (default): independent `reviewImplementation` before close

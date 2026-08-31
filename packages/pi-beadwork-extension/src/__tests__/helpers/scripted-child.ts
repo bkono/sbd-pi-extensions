@@ -33,6 +33,8 @@ export class ScriptedChildSession implements ChildSession {
   idleDeferred = createDeferred<void>();
   followUps: string[] = [];
   steers: string[] = [];
+  followUpCalls = 0;
+  private followUpBarrier: ReturnType<typeof createDeferred<void>> | undefined;
   private streaming = false;
   state: { messages: unknown[] } = { messages: [] };
 
@@ -87,6 +89,17 @@ export class ScriptedChildSession implements ChildSession {
     }
   }
 
+  pauseFollowUps(): void {
+    if (this.followUpBarrier) throw new Error("follow-up delivery is already paused");
+    this.followUpBarrier = createDeferred<void>();
+  }
+
+  resumeFollowUps(): void {
+    const barrier = this.followUpBarrier;
+    this.followUpBarrier = undefined;
+    barrier?.resolve();
+  }
+
   prompt(text: string): Promise<void> {
     this.promptCalls += 1;
     this.lastPrompt = text;
@@ -113,7 +126,11 @@ export class ScriptedChildSession implements ChildSession {
     if (this.disposed) {
       throw new Error("Child is terminal; further mail is rejected");
     }
+    this.followUpCalls += 1;
+    const barrier = this.followUpBarrier;
+    if (barrier) await barrier.promise;
     this.followUps.push(text);
+    this.emit({ type: "message_start", message: { role: "user", content: text } });
   }
 
   async executeTool(name: string, params: unknown): Promise<unknown> {
@@ -143,10 +160,7 @@ export class ScriptedChildSession implements ChildSession {
     return { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 };
   }
 
-  /**
-   * Settle with unstructured prose. Does not close tickets; that is the parent's job.
-   */
-  finishWithProse(prose: string): void {
+  beginSettling(prose: string): void {
     this.streaming = false;
     this.state.messages.push({ role: "assistant", content: prose });
     this.emit({
@@ -154,8 +168,19 @@ export class ScriptedChildSession implements ChildSession {
       assistantMessageEvent: { type: "text_delta", delta: prose },
     });
     this.emit({ type: "agent_end", willRetry: false });
+  }
+
+  completeSettlement(): void {
     this.emit({ type: "agent_settled" });
     this.idleDeferred.resolve();
     this.promptDeferred.resolve();
+  }
+
+  /**
+   * Settle with unstructured prose. Does not close tickets; that is the parent's job.
+   */
+  finishWithProse(prose: string): void {
+    this.beginSettling(prose);
+    this.completeSettlement();
   }
 }

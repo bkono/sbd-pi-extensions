@@ -20,7 +20,13 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { installDiscoverAgentsOptions } from "../../../../pi-minions/src/agents.js";
 import { PathOverlapLog } from "../../../../pi-minions/src/coordination/index.js";
+import {
+  createFleetWidgetController,
+  FLEET_WIDGET_KEY,
+  type FleetWidgetController,
+} from "../../../../pi-minions/src/fleet-widget.js";
 import {
   ANNOUNCE_MINION_PATHS_TOOL,
   COMM_SEND_STATUS,
@@ -48,6 +54,11 @@ import { halt } from "../../../../pi-minions/src/tools/halt.js";
 import type { MinionInfo } from "../../../../pi-minions/src/tools/minions.js";
 import { listMinions, showMinion } from "../../../../pi-minions/src/tools/minions.js";
 import { orchestrate } from "../../../../pi-minions/src/tools/orchestrate.js";
+import {
+  type SpawnToolDetails,
+  type SpawnToolParams,
+  spawn,
+} from "../../../../pi-minions/src/tools/spawn.js";
 import { AgentTree } from "../../../../pi-minions/src/tree.js";
 import type { OrchestrateInput, OrchestrateResult } from "../../../../pi-minions/src/types.js";
 import beadworkExtension from "../../index.js";
@@ -122,14 +133,18 @@ export type StepLogEntry = {
   step: string;
   epicId?: string;
   ticketId?: string;
-  childId?: string;
-  groupId?: string;
+  childId?: string | null;
+  groupId?: string | null;
   issueStatus?: string;
+  goalEntrySource?: "tool" | "command" | "none";
+  registrationState?: string | null;
+  terminalState?: string | null;
+  activityPhase?: string | null;
   packetCount: number;
   /** Active review policy. Filled from the fixture unless a step overrides it. */
   policy?: string;
-  eventClass?: string;
-  packetSeq?: number;
+  eventClass?: string | null;
+  packetSeq?: number | null;
   issueIds?: string[];
   childIds?: string[];
 };
@@ -182,6 +197,10 @@ export type InProcessHarnessOptions = {
   fixtureOptions?: GitBwFixtureOptions;
   log?: StepLog;
   sessionId?: string;
+  parentBusy?: boolean;
+  deferChildStart?: boolean;
+  failChildStart?: (input: CreateChildRuntimeInput) => string | undefined;
+  isolateAgentDiscovery?: boolean;
 };
 
 export type InProcessHarness = {
@@ -197,6 +216,9 @@ export type InProcessHarness = {
   manager: SubsessionManager;
   children: Map<string, ScriptedChildSession>;
   packets: SentPacket[];
+  parentToolInvocations: string[];
+  releaseChildStarts: () => void;
+  fleetSnapshot: (width?: number) => string[];
   tmuxPidsAtStart: string[];
   parentToolNames: string[];
   logStep: (step: string, extra?: Partial<StepLogEntry>) => Promise<StepLogEntry>;
@@ -206,6 +228,7 @@ export type InProcessHarness = {
   ) => Promise<{ ui: FakeUi; ctx: ExtensionCommandContext }>;
   injectedPrompt: () => string | undefined;
   orchestrate: (input: OrchestrateInput) => Promise<OrchestrateResult>;
+  spawn: (input: SpawnToolParams) => Promise<{ details: SpawnToolDetails; text: string }>;
   listMinions: () => Promise<{ minions: MinionInfo[]; text: string }>;
   showMinion: (target: string) => Promise<unknown>;
   halt: (id: string) => Promise<unknown>;
@@ -226,6 +249,14 @@ export type InProcessHarness = {
   dispose: () => Promise<void>;
 };
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 function parentToolNamesFrom(beadwork: ExtensionTestHarness): string[] {
   const beadworkNames = [...beadwork.tools.keys()];
   return [
@@ -243,6 +274,15 @@ export async function createInProcessHarness(
   const ownsFixture = options.fixture === undefined;
   const fixture = options.fixture ?? (await createGitBwFixture(options.fixtureOptions));
   const log = options.log ?? new StepLog();
+  const restoreDiscovery =
+    options.isolateAgentDiscovery === false
+      ? undefined
+      : installDiscoverAgentsOptions({
+          agentDir: join(fixture.cwd, ".test-empty-agent-dir"),
+          homeDir: join(fixture.cwd, ".test-empty-home"),
+        });
+  const childStartGate = options.deferChildStart ? deferred<void>() : undefined;
+  const parentToolInvocations: string[] = [];
   const tmuxPidsAtStart = await snapshotTmuxPids();
   const ui = createFakeUi();
   const ctx = createFakeExtensionContext({
@@ -250,13 +290,18 @@ export async function createInProcessHarness(
     ui,
     mode: "tui",
     sessionId: options.sessionId ?? "in-process-parent",
-    isIdle: () => true,
+    isIdle: () => options.parentBusy !== true,
   });
   const beadwork = await createExtensionTestHarness(beadworkExtension);
   await beadwork.dispatch("session_start", {}, ctx);
 
   const tree = new AgentTree();
   const groups = new OrchestrationGroupState();
+  const fleetWidget: FleetWidgetController = createFleetWidgetController(
+    tree,
+    groups,
+    ui as unknown as ExtensionContext["ui"],
+  );
   const packets: SentPacket[] = [];
   const overlaps = new PathOverlapLog();
   let mailbox!: MinionCommMailbox;
@@ -299,6 +344,9 @@ export async function createInProcessHarness(
   const parentTools = parentToolNamesFrom(beadwork);
   const manager = new SubsessionManager(fixture.cwd, join(fixture.cwd, "parent.jsonl"), undefined, {
     createChildRuntime: async (input: CreateChildRuntimeInput) => {
+      if (childStartGate) await childStartGate.promise;
+      const startFailure = options.failChildStart?.(input);
+      if (startFailure) throw new Error(startFailure);
       const session = new ScriptedChildSession(
         [...PARENT_CODING_TOOLS, ...ALL_BEADWORK_TOOLS],
         input.customTools ?? [],
@@ -320,12 +368,15 @@ export async function createInProcessHarness(
     getTree: () => tree,
     getGroups: () => groups,
     isLive: (id) => manager.isLive(id),
-    followUp: async (id, text) => {
+    followUp: async (id, text, followOptions) => {
       const handle = manager.getSessionHandle(id);
       if (!handle) {
         throw new Error(`Child ${id} is terminal; further mail is rejected`);
       }
-      await handle.followUp(text);
+      await handle.followUp(text, followOptions);
+    },
+    markWaitingOnParent: (id) => {
+      manager.markWaitingOnParent(id);
     },
     onParentDirected: (message) => {
       if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
@@ -363,6 +414,13 @@ export async function createInProcessHarness(
   const executeShow = showMinion(tree, manager);
   const executeHalt = halt(tree, manager, groups, lifecycleCoordinator);
   const executeSend = sendMinionMessage({ mailbox, groups });
+  const executeSpawn = spawn(
+    tree,
+    {
+      getAllTools: () => parentTools.map((name) => ({ name })),
+    } as Pick<ExtensionAPI, "getAllTools"> as ExtensionAPI,
+    manager,
+  );
 
   const ids = () => ({
     epicId: fixture.epic.id,
@@ -387,18 +445,33 @@ export async function createInProcessHarness(
       step,
       epicId: extra.epicId ?? ids().epicId,
       ticketId,
-      childId: extra.childId,
-      groupId: extra.groupId ?? groups.getOpenGroup()?.groupId,
+      childId: extra.childId ?? null,
+      groupId: extra.groupId ?? groups.getOpenGroup()?.groupId ?? null,
       issueStatus,
       packetCount: extra.packetCount ?? packets.length,
       policy: extra.policy ?? fixture.reviewPolicy,
       eventClass:
         extra.eventClass ??
         last?.message.details.changed.map((child) => child.eventClass).join(",") ??
-        undefined,
-      packetSeq: extra.packetSeq ?? last?.message.details.seq,
-      issueIds: extra.issueIds,
-      childIds: extra.childIds,
+        null,
+      packetSeq: extra.packetSeq ?? last?.message.details.seq ?? null,
+      issueIds: extra.issueIds ?? [ticketId],
+      childIds: extra.childIds ?? (extra.childId ? [extra.childId] : []),
+      goalEntrySource: extra.goalEntrySource ?? "none",
+      registrationState:
+        extra.registrationState ??
+        (extra.childId ? tree.get(extra.childId)?.status : undefined) ??
+        null,
+      terminalState:
+        extra.terminalState ??
+        (extra.childId && manager.getTerminal(extra.childId)
+          ? manager.getTerminal(extra.childId)?.class
+          : undefined) ??
+        null,
+      activityPhase:
+        extra.activityPhase ??
+        (extra.childId ? tree.get(extra.childId)?.activity?.phase : undefined) ??
+        null,
     });
   };
 
@@ -447,8 +520,16 @@ export async function createInProcessHarness(
     packets,
     tmuxPidsAtStart,
     parentToolNames: parentTools,
+    parentToolInvocations,
+    releaseChildStarts() {
+      childStartGate?.resolve();
+    },
+    fleetSnapshot(width = 120) {
+      return ui.widgets.get(FLEET_WIDGET_KEY)?.render(width) ?? [];
+    },
     logStep,
     async bwRun(epicId, mode = "tui") {
+      parentToolInvocations.push("/bw run");
       if (mode === ctx.mode) {
         await beadwork.invokeCommand("bw", `run ${epicId}`, ctx);
         return { ui, ctx };
@@ -469,9 +550,15 @@ export async function createInProcessHarness(
         return message?.customType === "beadwork-goal-run";
       });
       const message = sent?.message as { content?: string } | undefined;
-      return message?.content;
+      if (message?.content) return message.content;
+      const user = beadwork.sentUserMessages.find(
+        (entry) =>
+          typeof entry.content === "string" && entry.content.includes("Beadwork goal mode"),
+      );
+      return typeof user?.content === "string" ? user.content : undefined;
     },
     async orchestrate(input) {
+      parentToolInvocations.push("orchestrate");
       const result = await executeOrchestrate(
         "parent-orchestrate",
         input,
@@ -480,6 +567,14 @@ export async function createInProcessHarness(
         ctx,
       );
       return result.details as OrchestrateResult;
+    },
+    async spawn(input) {
+      parentToolInvocations.push("spawn");
+      const result = await executeSpawn("parent-spawn", input, undefined, undefined, ctx);
+      return {
+        details: result.details as SpawnToolDetails,
+        text: result.content.map((block) => ("text" in block ? String(block.text) : "")).join("\n"),
+      };
     },
     async listMinions() {
       const result = await executeList("parent-list", {}, undefined, undefined, ctx);
@@ -492,13 +587,16 @@ export async function createInProcessHarness(
       return executeShow("parent-show", { target }, undefined, undefined, ctx);
     },
     async halt(id) {
+      parentToolInvocations.push("halt");
       return executeHalt("parent-halt", { id }, undefined, undefined, ctx);
     },
     async sendMinionMessage(to, body) {
+      parentToolInvocations.push("send_minion_message");
       const result = await executeSend("parent-send", { to, body }, undefined, undefined, ctx);
       return result.details as CommSendDetails;
     },
     async invokeBeadworkTool(name, params) {
+      parentToolInvocations.push(name);
       const tool = beadwork.tools.get(name) as
         | { execute?: (...args: unknown[]) => unknown }
         | undefined;
@@ -619,11 +717,34 @@ export async function createInProcessHarness(
           error: probeError instanceof Error ? probeError.message : String(probeError),
         };
       }
+      let beadworkState: unknown;
+      let promptAppendix: unknown;
+      try {
+        beadworkState = await harness.invokeBeadworkTool("beadwork_status", {});
+      } catch (statusError) {
+        beadworkState = {
+          error: statusError instanceof Error ? statusError.message : String(statusError),
+        };
+      }
+      try {
+        promptAppendix = await beadwork.dispatch<{ systemPrompt?: string }>(
+          "before_agent_start",
+          { systemPrompt: "failure-dump-base" },
+          ctx,
+        );
+      } catch (promptError) {
+        promptAppendix = {
+          error: promptError instanceof Error ? promptError.message : String(promptError),
+        };
+      }
       const dump = {
         error: error instanceof Error ? error.message : error ? String(error) : undefined,
         injectedPrompt: harness.injectedPrompt(),
+        beadworkState,
+        promptAppendix,
         lastPacket: harness.lastPacket(),
         lastPackets: packets.slice(-5),
+        lastFleetSnapshot: harness.fleetSnapshot(),
         fleet: tree.getRoots().map((node) => ({
           id: node.id,
           kind: node.kind,
@@ -648,8 +769,11 @@ export async function createInProcessHarness(
       console.error("[in-process] failure dump", JSON.stringify(dump, null, 2));
     },
     async dispose() {
+      childStartGate?.resolve();
+      fleetWidget.destroy();
       dispatcher.close();
       await manager.disposeAll();
+      restoreDiscovery?.();
       if (ownsFixture) {
         await fixture.dispose();
       }

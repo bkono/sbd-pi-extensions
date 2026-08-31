@@ -121,6 +121,23 @@ What happens:
    This is a manager-only loop: the parent does not implement delegated ticket scope while the
    child is live
 
+The parent-model entrypoint is:
+
+```text
+beadwork_start_goal({ epic_id: "sbdpi-vur.4" })
+```
+
+Call it only after the parent deliberately chooses to execute an existing, open, already-decomposed
+epic. It runs the same goal transition as `/bw run`: persisted epic scope and review policy, conflict
+checks, statusline state, and the same continuation. During an active parent turn the continuation is
+queued once as a follow-up. The result is truthful lifecycle vocabulary: `started` or `resumed`, plus
+`queued_follow_up` or `triggered_turn`. It does not select work, start a ticket, launch a child, or claim
+success. Repeating the same epic resumes/re-arms the existing goal; interrupted disk state never
+silently resumes itself.
+
+Planning does not imply execution. Creating or discovering an epic, decomposing it, or making work
+ready must not auto-call `beadwork_start_goal`.
+
 Do **not** pass `--workers`, `--until`, `--max-cycles`, `--dry-run`, or `--no-spawn`. Those flags
 error.
 
@@ -132,6 +149,13 @@ Stay in the tui session. Children live in this Pi process.
 - Parent uses `orchestrate` (returns handles immediately; `accepted` means **starting**, not live)
 - Inspect children with minions `list_minions` / `show_minion` (or `/minions`, `/halt`)
 - Child settlement is **evidence**, not acceptance. The parent closes tickets after it judges.
+
+The minions fleet widget appears above the editor while children are pending or running and clears at
+idle; `/minions` remains the drill-down. Registration (`starting`), confirmed liveness (`running`),
+trusted activity (`tool` / `waiting` / `settling`), and settlement are distinct. The final coalesced
+lifecycle packet may declare the group idle and ask the parent to adjudicate. Group idle is not review
+acceptance, ticket closure, or goal success; only the parent applies the configured review policy and
+mutates Beadwork.
 
 When the scoped epic is closed through beadwork tools, goal mode exits. `/bw abandon` exits goal
 mode and queues a group halt without closing the epic. `/bw off` returns the session to
