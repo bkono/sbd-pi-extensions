@@ -23,11 +23,36 @@ export interface ReduceActivityResult {
   recordHistory: boolean;
 }
 
-const ANSI_AND_OSC =
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: strip terminal control sequences from untrusted text
-  /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
+const TERMINAL_STRING_SEQUENCE =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strip terminal string commands through BEL/ST or end-of-input
+  /(?:\u001B(?:\]|P|X|\^|_)|[\u0090\u0098\u009D-\u009F])[\s\S]*?(?:\u0007|\u001B\\|\u009C|$)/g;
+const ANSI_SEQUENCE =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strip non-string ANSI escape sequences from untrusted text
+  /\u001B(?:\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: strip remaining C0/C1 controls
 const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/g;
+const GRAPHEME_SEGMENTER = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+function replaceUnpairedSurrogates(text: string): string {
+  let result = "";
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += text[index] + text[index + 1];
+        index++;
+      } else {
+        result += "�";
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      result += "�";
+    } else {
+      result += text[index];
+    }
+  }
+  return result;
+}
 
 const FAILED_SEND_STATUSES = new Set([
   "recipient-terminal",
@@ -38,14 +63,23 @@ const FAILED_SEND_STATUSES = new Set([
 ]);
 
 export function sanitizeActivityText(text: string, max: number): string {
-  const stripped = text
-    .replace(ANSI_AND_OSC, "")
+  const stripped = replaceUnpairedSurrogates(text)
+    .replace(TERMINAL_STRING_SEQUENCE, "")
+    .replace(ANSI_SEQUENCE, "")
     .replace(CONTROL_CHARS, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (stripped.length <= max) return stripped;
-  const budget = Math.max(1, max - 1);
-  return `${stripped.slice(0, budget)}…`;
+  if (max <= 0) return "";
+  if (max === 1) return "…";
+
+  const budget = max - 1;
+  let prefix = "";
+  for (const { segment } of GRAPHEME_SEGMENTER.segment(stripped)) {
+    if (prefix.length + segment.length > budget) break;
+    prefix += segment;
+  }
+  return `${prefix}…`;
 }
 
 export function formatToolActivity(

@@ -1,7 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  SessionShutdownEvent,
+  SessionStartEvent,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -58,6 +64,20 @@ function renderWidget(
 function plain(lines: string[]): string[] {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: test helper removes ANSI SGR only
   return lines.map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+}
+
+function hasUnpairedSurrogate(text: string): boolean {
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      index++;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
 }
 
 describe("FleetWidgetComponent", () => {
@@ -136,6 +156,49 @@ describe("FleetWidgetComponent", () => {
     }
   });
 
+  it.each([
+    ["emoji", "😀".repeat(40)],
+    ["ZWJ families", "👨‍👩‍👧‍👦".repeat(12)],
+    ["flags", "🇺🇳".repeat(20)],
+    ["skin tones", "👍🏽".repeat(20)],
+    ["combining marks", "e\u0301".repeat(40)],
+    ["unpaired hostile input", `safe\uD83Dhigh\uDC00low${"😀".repeat(40)}`],
+  ])("keeps %s grapheme-safe and width-bounded after UTF-8 round-trip", (_label, name) => {
+    const tree = new AgentTree();
+    tree.add("mn-unicode", name, "useful activity");
+    const groups = new OrchestrationGroupState();
+
+    for (const width of [4, 5, 6, 7, 31, 46, 47, 80]) {
+      for (const line of renderWidget(tree, groups, width)) {
+        const roundTripped = Buffer.from(line, "utf8").toString("utf8");
+        expect(hasUnpairedSurrogate(line)).toBe(false);
+        expect(roundTripped).toBe(line);
+        expect(visibleWidth(roundTripped)).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  it("preserves identity and useful activity at widths 4–7", () => {
+    const tree = new AgentTree();
+    tree.add("mn-narrow", "otto", "work");
+    const groups = new OrchestrationGroupState();
+
+    expect([4, 5, 6, 7].map((width) => plain(renderWidget(tree, groups, width))[1])).toEqual([
+      "o  s",
+      "o  s…",
+      "o  st…",
+      "o  sta…",
+    ]);
+    const emojiTree = new AgentTree();
+    emojiTree.add("mn-emoji-narrow", "👨‍👩‍👧‍👦", "work");
+    expect(plain(renderWidget(emojiTree, groups, 4))[1]).toBe("👨‍👩‍👧‍👦");
+    for (const width of [4, 5, 6, 7]) {
+      expect(renderWidget(tree, groups, width).every((line) => visibleWidth(line) <= width)).toBe(
+        true,
+      );
+    }
+  });
+
   it("uses a deterministic modest cap and a bounded +N more row", () => {
     const tree = new AgentTree();
     const groups = new OrchestrationGroupState();
@@ -155,22 +218,35 @@ describe("FleetWidgetComponent", () => {
     expect(lines.every((line) => visibleWidth(line) <= 36)).toBe(true);
   });
 
-  it("sanitizes identity text and never renders narrative previews", () => {
+  it.each([
+    ["OSC/BEL", "safe \u001B]8;;https://evil.example\u0007 identity"],
+    ["OSC/ST", "safe \u001B]0;hostile title\u001B\\ identity"],
+    ["DCS/ST multiline", "safe \u001BPcommand\nwith payload\u001B\\ identity"],
+    ["APC/ST", "safe \u001B_private command\u001B\\ identity"],
+    ["PM/ST", "safe \u001B^private message\u001B\\ identity"],
+    ["SOS/ST", "safe \u001BXstart of string\u001B\\ identity"],
+    ["unterminated OSC", "safe \u001B]8;;https://evil.example"],
+    ["unterminated DCS", "safe \u001BPcommand\nwith payload"],
+    ["unterminated APC", "safe \u001B_private command"],
+    ["unterminated PM", "safe \u001B^private message"],
+    ["unterminated SOS", "safe \u001BXstart of string"],
+  ])("sanitizes hostile %s identity without exposing its payload", (_label, name) => {
     const tree = new AgentTree();
     const groups = new OrchestrationGroupState();
-    tree.add("mn-hostile", "bad\u001b[31m name", "task\nwith controls", {
-      description: "\u001b]8;;https://evil.example\u0007desc\u001b]8;;\u0007 hidden",
+    tree.add("mn-hostile", name, "task\nwith controls", {
+      description: "ordinary description",
     });
     tree.applyActivityEvent("mn-hostile", {
       type: "narrative",
       text: "untrusted streamed child prose",
     });
 
-    const text = plain(renderWidget(tree, groups, 100)).join("\n");
-    expect(text).toContain("bad name");
-    expect(text).toContain("desc hidden");
-    expect(text).not.toContain("evil.example");
+    const text = plain(renderWidget(tree, groups, 160)).join("\n");
+    expect(text).toContain("safe");
+    expect(text).toContain("ordinary description");
+    expect(text).not.toMatch(/evil\.example|hostile title|command|payload|private|start of string/);
     expect(text).not.toContain("untrusted streamed child prose");
+    expect(text).not.toContain("\u001B");
   });
 
   it("rebuilds themed output after invalidation instead of retaining pre-themed ANSI", () => {
@@ -255,13 +331,7 @@ describe("fleet widget reactivity and lifecycle", () => {
     expect(tree.listenerCount()).toBe(0);
   });
 
-  it.each([
-    "new",
-    "resume",
-    "fork",
-    "reload",
-    "quit",
-  ])("%s replacement cleanup unsubscribes, clears, and makes stale tree/component inert", () => {
+  it("destroy unsubscribes, clears, and makes an active stale tree/component inert", () => {
     const oldTree = new AgentTree();
     const oldGroups = new OrchestrationGroupState();
     const oldUi = fakeUi();
@@ -277,17 +347,6 @@ describe("fleet widget reactivity and lifecycle", () => {
 
     oldTree.applyActivityEvent("old", { type: "waiting" });
     expect(oldUi.requestRender).toHaveBeenCalledTimes(callsAfterDestroy);
-
-    const nextTree = new AgentTree();
-    const nextUi = fakeUi();
-    const nextController = createFleetWidgetController(
-      nextTree,
-      new OrchestrationGroupState(),
-      nextUi.ui,
-    );
-    nextTree.add("new", "new-minion", "new task");
-    expect(nextUi.component()?.render(80)).toHaveLength(2);
-    nextController.destroy();
   });
 });
 
@@ -306,18 +365,27 @@ function extensionHarness() {
     },
   } as unknown as ExtensionAPI;
   registerMinions(pi);
+
+  const emit = async (event: SessionStartEvent | SessionShutdownEvent, ctx: ExtensionContext) => {
+    for (const handler of handlers.get(event.type) ?? []) await handler(event, ctx);
+  };
   return {
-    async emit(event: string, ctx: ExtensionContext, payload: unknown = {}) {
-      for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
-    },
+    start: (ctx: ExtensionContext, event: Omit<SessionStartEvent, "type">) =>
+      emit({ type: "session_start", ...event }, ctx),
+    shutdown: (ctx: ExtensionContext, event: Omit<SessionShutdownEvent, "type">) =>
+      emit({ type: "session_shutdown", ...event }, ctx),
   };
 }
 
-function fakeContext(cwd: string, uiHarness: FakeUiHarness): ExtensionContext {
+function fakeContext(
+  cwd: string,
+  uiHarness: FakeUiHarness,
+  mode: ExtensionContext["mode"] = "tui",
+): ExtensionContext {
   return {
     cwd,
-    mode: "tui",
-    hasUI: true,
+    mode,
+    hasUI: mode === "tui" || mode === "rpc",
     model: undefined,
     modelRegistry: { isUsingOAuth: () => false },
     sessionManager: {
@@ -331,19 +399,94 @@ function fakeContext(cwd: string, uiHarness: FakeUiHarness): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
+function captureSessionTrees(): AgentTree[] {
+  const trees: AgentTree[] = [];
+  const onChange = AgentTree.prototype.onChange;
+  vi.spyOn(AgentTree.prototype, "onChange").mockImplementation(function (
+    this: AgentTree,
+    listener: () => void,
+  ) {
+    if (!trees.includes(this)) trees.push(this);
+    return onChange.call(this, listener);
+  });
+  return trees;
+}
+
 describe("extension session ownership", () => {
-  it("defensively clears the prior session widget on replacement and shutdown", async () => {
-    const extension = extensionHarness();
-    const firstUi = fakeUi();
-    const secondUi = fakeUi();
-    const first = fakeContext(tempDir(), firstUi);
-    const second = fakeContext(tempDir(), secondUi);
+  it.each([
+    "new",
+    "resume",
+    "fork",
+    "reload",
+  ] as const)("%s follows installed shutdown→rebind→start ordering and leaves the old widget inert", async (reason) => {
+    const trees = captureSessionTrees();
+    const oldExtension = extensionHarness();
+    const oldUi = fakeUi();
+    const old = fakeContext(tempDir(), oldUi);
 
-    await extension.emit("session_start", first, { reason: "startup" });
-    await extension.emit("session_start", second, { reason: "resume" });
-    expect(firstUi.setWidget).toHaveBeenCalledWith(FLEET_WIDGET_KEY, undefined);
+    await oldExtension.start(old, { reason: "startup" });
+    const oldTree = trees.at(-1);
+    expect(oldTree).toBeDefined();
+    oldTree?.add("old", "old-minion", "old task");
+    const staleComponent = oldUi.component();
+    expect(staleComponent?.render(80)).toHaveLength(2);
 
-    await extension.emit("session_shutdown", second, { reason: "reload" });
-    expect(secondUi.setWidget).toHaveBeenCalledWith(FLEET_WIDGET_KEY, undefined);
+    await oldExtension.shutdown(old, {
+      reason,
+      ...(reason === "reload" ? {} : { targetSessionFile: join(tempDir(), "next.jsonl") }),
+    });
+    const oldRendersAfterShutdown = oldUi.requestRender.mock.calls.length;
+    expect(oldUi.setWidget).toHaveBeenLastCalledWith(FLEET_WIDGET_KEY, undefined);
+    expect(staleComponent?.render(80)).toEqual([]);
+
+    const nextExtension = extensionHarness();
+    const nextUi = fakeUi();
+    const next = fakeContext(tempDir(), nextUi);
+    await nextExtension.start(next, {
+      reason,
+      ...(reason === "reload" ? {} : { previousSessionFile: old.sessionManager.getSessionFile() }),
+    });
+    const nextTree = trees.at(-1);
+    expect(nextTree).not.toBe(oldTree);
+    nextTree?.add("next", "next-minion", "next task");
+    expect(nextUi.component()?.render(80)).toHaveLength(2);
+
+    oldTree?.applyActivityEvent("old", { type: "waiting" });
+    expect(oldUi.requestRender).toHaveBeenCalledTimes(oldRendersAfterShutdown);
+
+    await nextExtension.shutdown(next, { reason: "quit" });
+    expect(nextUi.setWidget).toHaveBeenLastCalledWith(FLEET_WIDGET_KEY, undefined);
+  });
+
+  it("clears a TUI widget before replacement by a non-TUI session", async () => {
+    const trees = captureSessionTrees();
+    const oldExtension = extensionHarness();
+    const oldUi = fakeUi();
+    const old = fakeContext(tempDir(), oldUi);
+    await oldExtension.start(old, { reason: "startup" });
+    trees.at(-1)?.add("old", "old-minion", "old task");
+    expect(oldUi.component()?.render(80)).toHaveLength(2);
+
+    await oldExtension.shutdown(old, {
+      reason: "resume",
+      targetSessionFile: join(tempDir(), "next.jsonl"),
+    });
+    expect(oldUi.setWidget).toHaveBeenLastCalledWith(FLEET_WIDGET_KEY, undefined);
+
+    const headlessExtension = extensionHarness();
+    const headlessUi = fakeUi();
+    const headless = fakeContext(tempDir(), headlessUi, "rpc");
+    await headlessExtension.start(headless, {
+      reason: "resume",
+      previousSessionFile: old.sessionManager.getSessionFile(),
+    });
+    trees.at(-1)?.add("headless", "headless-minion", "headless task");
+    expect(headlessUi.setWidget).not.toHaveBeenCalledWith(
+      FLEET_WIDGET_KEY,
+      expect.any(Function),
+      expect.anything(),
+    );
+
+    await headlessExtension.shutdown(headless, { reason: "quit" });
   });
 });

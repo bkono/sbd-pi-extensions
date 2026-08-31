@@ -11,16 +11,22 @@ export const FLEET_WIDGET_ROW_CAP = 5;
 
 const IDENTITY_TEXT_MAX = 80;
 const COLUMN_GAP = "  ";
-// biome-ignore lint/suspicious/noControlCharactersInRegex: strip complete terminal OSC sequences before generic ANSI cleanup
-const OSC_SEQUENCE = /\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g;
+const GRAPHEME_SEGMENTER = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 function clean(text: string | undefined, max = IDENTITY_TEXT_MAX): string {
-  return text ? sanitizeActivityText(text.replace(OSC_SEQUENCE, ""), max) : "";
+  return text ? sanitizeActivityText(text, max) : "";
 }
 
 function bounded(line: string, width: number): string {
   if (width <= 0) return "";
   return visibleWidth(line) > width ? truncateToWidth(line, width, "") : line;
+}
+
+function firstGraphemeWidth(text: string): number {
+  for (const { segment } of GRAPHEME_SEGMENTER.segment(text)) {
+    return Math.max(1, visibleWidth(segment));
+  }
+  return 0;
 }
 
 function activityLabel(node: AgentNode): string {
@@ -41,11 +47,19 @@ function fitEnds(left: string, right: string, width: number, theme: Theme): stri
   const gapWidth = visibleWidth(COLUMN_GAP);
   if (width <= gapWidth + 1) return bounded(theme.fg("accent", left), width);
 
-  const rightWidth = visibleWidth(right);
-  const rightBudget = Math.min(rightWidth, Math.max(1, Math.ceil(width * 0.48)));
-  const leftBudget = Math.max(1, width - gapWidth - rightBudget);
-  const renderedLeft = truncateToWidth(theme.fg("accent", left), leftBudget, "…");
-  const renderedRight = truncateToWidth(theme.fg("dim", right), rightBudget, "…");
+  const available = width - gapWidth;
+  const desiredRightBudget = Math.min(visibleWidth(right), Math.max(1, Math.ceil(width * 0.48)));
+  const minimumLeftBudget = Math.min(available, firstGraphemeWidth(left));
+  const leftBudget = Math.max(minimumLeftBudget, available - desiredRightBudget);
+  const rightBudget = Math.max(0, available - leftBudget);
+  const leftSuffix = visibleWidth(left) > leftBudget && leftBudget > minimumLeftBudget ? "…" : "";
+  const renderedLeft = truncateToWidth(theme.fg("accent", left), leftBudget, leftSuffix);
+  if (rightBudget === 0) return bounded(renderedLeft, width);
+
+  const minimumRightBudget = firstGraphemeWidth(right);
+  const rightSuffix =
+    visibleWidth(right) > rightBudget && rightBudget > minimumRightBudget ? "…" : "";
+  const renderedRight = truncateToWidth(theme.fg("dim", right), rightBudget, rightSuffix);
   return bounded(`${renderedLeft}${COLUMN_GAP}${renderedRight}`, width);
 }
 

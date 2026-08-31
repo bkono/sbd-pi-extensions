@@ -246,6 +246,52 @@ describe("sanitization", () => {
     expect(cleaned.includes("\u001B")).toBe(false);
     expect(sanitizeActivityText("a".repeat(200), NARRATIVE_PREVIEW_MAX).endsWith("…")).toBe(true);
   });
+
+  it.each([
+    ["OSC/BEL", "before \u001B]8;;https://evil.example\u0007 after"],
+    ["OSC/ST", "before \u001B]0;hostile title\u001B\\ after"],
+    ["DCS/ST", "before \u001BPcommand\nwith payload\u001B\\ after"],
+    ["APC/ST", "before \u001B_private command\u001B\\ after"],
+    ["PM/ST", "before \u001B^private message\u001B\\ after"],
+    ["SOS/ST", "before \u001BXstart of string\u001B\\ after"],
+    ["C1 OSC/ST", "before \u009D8;;https://evil.example\u009C after"],
+  ])("strips terminated %s strings while preserving surrounding text", (_label, dirty) => {
+    expect(sanitizeActivityText(dirty, 200)).toBe("before after");
+  });
+
+  it.each([
+    ["OSC", "\u001B]8;;https://evil.example"],
+    ["DCS", "\u001BPcommand\nwith payload"],
+    ["APC", "\u001B_private command"],
+    ["PM", "\u001B^private message"],
+    ["SOS", "\u001BXstart of string"],
+    ["C1 APC", "\u009Fprivate command"],
+  ])("strips unterminated %s payload through end-of-input", (_label, sequence) => {
+    const cleaned = sanitizeActivityText(`ordinary text ${sequence}`, 200);
+    expect(cleaned).toBe("ordinary text");
+    expect(cleaned).not.toMatch(/evil|command|payload|message|string/);
+  });
+
+  it.each([
+    ["emoji", "😀"],
+    ["ZWJ family", "👨‍👩‍👧‍👦"],
+    ["flag", "🇺🇳"],
+    ["skin tone", "👍🏽"],
+    ["combining mark", "e\u0301"],
+  ])("truncates %s only after a complete grapheme", (_label, grapheme) => {
+    const max = grapheme.length + 1;
+    const cleaned = sanitizeActivityText(`A${grapheme}tail`, max);
+    expect(cleaned).toBe("A…");
+    expect(cleaned.length).toBeLessThanOrEqual(max);
+    expect(Buffer.from(cleaned, "utf8").toString("utf8")).toBe(cleaned);
+  });
+
+  it("replaces hostile unpaired surrogates before truncation and UTF-8 encoding", () => {
+    const cleaned = sanitizeActivityText("A\uD83DB\uDC00C", 80);
+    expect(cleaned).toBe("A�B�C");
+    expect(Buffer.from(cleaned, "utf8").toString("utf8")).toBe(cleaned);
+    expect(cleaned).not.toMatch(/[\uD800-\uDFFF]/u);
+  });
 });
 
 describe("AgentTree activity", () => {
