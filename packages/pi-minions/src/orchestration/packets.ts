@@ -107,7 +107,6 @@ interface IdleReservation {
 
 interface BuiltLifecyclePacket {
   details: LifecyclePacketDetails;
-  terminalKeys: string[];
   terminalRegistrations: LifecycleRegistration[];
   idleReservation?: IdleReservation;
   parentMailSnapshots: ParentMailSnapshot[];
@@ -506,7 +505,6 @@ export class LifecyclePacketDispatcher {
     const allChanged: ChangedChildPacket[] = [];
     const terminalLifecycleIds = new Set<string>();
     const terminalGroupEpochs = new Map<string, Set<number>>();
-    const terminalKeys = new Set<string>();
     const terminalRegistrations = new Map<string, LifecycleRegistration>();
     const groupIds: string[] = [];
     const parentMailSnapshots: ParentMailSnapshot[] = [];
@@ -529,7 +527,6 @@ export class LifecyclePacketDispatcher {
         const epochs = terminalGroupEpochs.get(event.groupId) ?? new Set<number>();
         epochs.add(event.epoch);
         terminalGroupEpochs.set(event.groupId, epochs);
-        if (owned.terminalKey) terminalKeys.add(owned.terminalKey);
         terminalRegistrations.set(event.lifecycleId, owned.registration);
       }
 
@@ -657,7 +654,6 @@ export class LifecyclePacketDispatcher {
     }
     return {
       details,
-      terminalKeys: [...terminalKeys],
       terminalRegistrations: [...terminalRegistrations.values()],
       idleReservation,
       parentMailSnapshots,

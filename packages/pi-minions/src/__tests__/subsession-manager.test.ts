@@ -902,7 +902,7 @@ describe("startChild bindExtensions failure", () => {
   });
 });
 
-describe("single-winner mail vs terminal", () => {
+describe("single terminal latch with inbound mail", () => {
   const logs: Array<{ msg: string; data: Record<string, unknown> }> = [];
 
   afterEach(() => {
@@ -925,7 +925,6 @@ describe("single-winner mail vs terminal", () => {
   async function expectOneTerminal(
     handle: { wait: () => Promise<{ class: string }> },
     session: FakeChildSession,
-    winner: string,
     eventClass: string,
   ) {
     const terminal = await handle.wait();
@@ -936,7 +935,6 @@ describe("single-winner mail vs terminal", () => {
     expect(committed[0]?.data).toMatchObject({
       eventClass,
       terminalLatchFired: true,
-      winner,
       terminalEventCount: 1,
     });
     return terminal;
@@ -965,7 +963,7 @@ describe("single-winner mail vs terminal", () => {
     await mail;
     session.emit({ type: "agent_settled" });
 
-    await expectOneTerminal(handle, session, "mail-then-settle", "settled");
+    await expectOneTerminal(handle, session, "settled");
     expect(session.followUps).toEqual(["peer hello"]);
     await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
   });
@@ -978,7 +976,7 @@ describe("single-winner mail vs terminal", () => {
     const handle = await manager.startChild(startOptions("child-sm", cwd));
 
     session.emit({ type: "agent_settled" });
-    await expectOneTerminal(handle, session, "settle", "settled");
+    await expectOneTerminal(handle, session, "settled");
 
     await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
     expect(session.followUps).toEqual([]);
@@ -993,7 +991,7 @@ describe("single-winner mail vs terminal", () => {
     const handle = await manager.startChild(startOptions("child-fm", cwd));
 
     session.rejectPrompt(new Error("provider exploded"));
-    await expectOneTerminal(handle, session, "fail", "failed");
+    await expectOneTerminal(handle, session, "failed");
 
     await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
     expect(session.followUps).toEqual([]);
@@ -1017,12 +1015,12 @@ describe("single-winner mail vs terminal", () => {
 
     session.rejectPrompt(new Error("provider exploded"));
     session.releaseFollowUp();
-    await expectOneTerminal(handle, session, "fail", "failed");
+    await expectOneTerminal(handle, session, "failed");
     expect(session.followUps).toEqual(["peer hello"]);
     await expect(mail).resolves.toBeUndefined();
   });
 
-  it("shutdown then mail → recipient-terminal; winner shutdown", async () => {
+  it("shutdown then mail → recipient-terminal; one aborted", async () => {
     spyLogger();
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-shut-mail-"));
     const session = new FakeChildSession();
@@ -1030,14 +1028,14 @@ describe("single-winner mail vs terminal", () => {
     const handle = await manager.startChild(startOptions("child-shm", cwd));
 
     await manager.disposeAll();
-    await expectOneTerminal(handle, session, "shutdown", "aborted");
+    await expectOneTerminal(handle, session, "aborted");
 
     await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
     expect(session.followUps).toEqual([]);
     expect(committedLogs()).toHaveLength(1);
   });
 
-  it("mail then shutdown → one aborted, winner shutdown; no settle", async () => {
+  it("mail then shutdown → one aborted; no settle", async () => {
     spyLogger();
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-mail-shut-"));
     const session = new FakeChildSession();
@@ -1053,12 +1051,12 @@ describe("single-winner mail vs terminal", () => {
     expect(manager.getTerminal("child-msh")).toBeUndefined();
 
     await manager.disposeAll();
-    await expectOneTerminal(handle, session, "shutdown", "aborted");
+    await expectOneTerminal(handle, session, "aborted");
     expect(session.followUps).toEqual(["peer hello"]);
     await expect(mail).resolves.toBeUndefined();
   });
 
-  it("halt then mail → recipient-terminal; winner abort", async () => {
+  it("halt then mail → recipient-terminal; one aborted", async () => {
     spyLogger();
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-halt-mail-"));
     const session = new FakeChildSession();
@@ -1066,14 +1064,14 @@ describe("single-winner mail vs terminal", () => {
     const handle = await manager.startChild(startOptions("child-hm", cwd));
 
     handle.abort();
-    await expectOneTerminal(handle, session, "abort", "aborted");
+    await expectOneTerminal(handle, session, "aborted");
 
     await expect(handle.followUp("too late")).rejects.toThrow(/terminal; further mail is rejected/);
     expect(session.followUps).toEqual([]);
     expect(committedLogs()).toHaveLength(1);
   });
 
-  it("mail then halt → one aborted, winner abort; no settle", async () => {
+  it("mail then halt → one aborted; no settle", async () => {
     spyLogger();
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-mail-halt-"));
     const session = new FakeChildSession();
@@ -1089,7 +1087,7 @@ describe("single-winner mail vs terminal", () => {
     expect(manager.getTerminal("child-mh")).toBeUndefined();
 
     handle.abort();
-    await expectOneTerminal(handle, session, "abort", "aborted");
+    await expectOneTerminal(handle, session, "aborted");
     expect(session.followUps).toEqual(["peer hello"]);
     await expect(mail).resolves.toBeUndefined();
   });

@@ -352,6 +352,15 @@ export function lastNarrativeLine(text: string): string {
   return text.split("\n").filter(Boolean).at(-1) ?? "";
 }
 
+const LIVE_NARRATIVE_TAIL_MAX = NARRATIVE_PREVIEW_MAX * 4;
+
+/** Track only the bounded current line; never rescan the accumulated assistant output. */
+export function appendLiveNarrativeTail(current: string, delta: string): string {
+  const lineBreak = Math.max(delta.lastIndexOf("\n"), delta.lastIndexOf("\r"));
+  const next = lineBreak >= 0 ? delta.slice(lineBreak + 1) : current + delta;
+  return next.slice(0, LIVE_NARRATIVE_TAIL_MAX);
+}
+
 export function bindTreeActivity(
   tree: AgentTree,
   id: string,
@@ -364,13 +373,15 @@ export function bindTreeActivity(
     args?: Record<string, unknown>;
   }) => void;
   onToolOutput: (toolName: string, delta: string) => void;
-  onTextDelta: (delta: string, fullText: string) => void;
+  onTextDelta: (delta: string) => void;
   onTurnEnd: (turnCount: number) => void;
   onAgentEnd: (info?: { willRetry?: boolean }) => void;
 } {
   const isCurrent = (): boolean =>
     (lifecycleId === undefined || tree.get(id)?.lifecycleId === lifecycleId) &&
     (ownsLifecycle === undefined || ownsLifecycle());
+
+  let narrativeTail = "";
   return {
     onToolActivity: (activity) => {
       if (!isCurrent()) return;
@@ -389,15 +400,23 @@ export function bindTreeActivity(
       const line = lastNarrativeLine(delta.trimEnd());
       if (line) tree.applyActivityEvent(id, { type: "narrative", text: line });
     },
-    onTextDelta: (_delta, fullText) => {
+    onTextDelta: (delta) => {
       if (!isCurrent()) return;
-      const events: ActivityEvent[] = [{ type: "thinking" }];
-      const preview = lastNarrativeLine(fullText);
-      if (preview) events.push({ type: "narrative", text: preview });
-      tree.applyActivityEvents(id, events);
+      narrativeTail = appendLiveNarrativeTail(narrativeTail, delta);
+      const current = tree.get(id)?.activity;
+      const events: ActivityEvent[] = [];
+      if (current?.phase !== "thinking" && current?.phase !== "tool") {
+        events.push({ type: "thinking" });
+      }
+      const preview = sanitizeActivityText(narrativeTail, NARRATIVE_PREVIEW_MAX);
+      if (preview && preview !== current?.narrativePreview) {
+        events.push({ type: "narrative", text: narrativeTail });
+      }
+      if (events.length > 0) tree.applyActivityEvents(id, events);
     },
     onTurnEnd: (turnCount) => {
       if (!isCurrent()) return;
+      narrativeTail = "";
       tree.applyActivityEvent(id, { type: "turn_end", turn: turnCount });
       tree.updateUsage(id, { turns: turnCount });
     },

@@ -1219,7 +1219,7 @@ describe("live vs disposed delivery", () => {
   });
 });
 
-describe("mailbox vs child terminal single winner", () => {
+describe("mailbox vs child terminal latch", () => {
   it("mail then settle delivers and emits one settled", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const cwd = tempDir("pi-minions-mail-settle-mb-");
@@ -1303,7 +1303,6 @@ describe("mailbox vs child terminal single winner", () => {
     expect(committed).toHaveLength(1);
     expect(committed[0]?.[2]).toMatchObject({
       eventClass: "settled",
-      winner: "mail-then-settle",
       terminalEventCount: 1,
     });
 
@@ -1316,7 +1315,7 @@ describe("mailbox vs child terminal single winner", () => {
     expect(late.status).toBe(COMM_SEND_STATUS.recipientTerminal);
   });
 
-  it("settle then mail is recipient-terminal with one settle winner", async () => {
+  it("settle then mail is recipient-terminal with one settled event", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const cwd = tempDir("pi-minions-settle-mail-mb-");
     const tree = new AgentTree();
@@ -1383,7 +1382,6 @@ describe("mailbox vs child terminal single winner", () => {
     expect(committed).toHaveLength(1);
     expect(committed[0]?.[2]).toMatchObject({
       eventClass: "settled",
-      winner: "settle",
       terminalEventCount: 1,
     });
   });

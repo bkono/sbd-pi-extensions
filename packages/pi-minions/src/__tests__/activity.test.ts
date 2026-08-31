@@ -308,6 +308,32 @@ describe("AgentTree activity", () => {
     expect(tree.listenerCount()).toBe(1);
   });
 
+  it("bounds streaming projection scans and notifications per line", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    const bound = bindTreeActivity(tree, "mn-1");
+    let notifications = 0;
+    tree.onChange(() => {
+      notifications += 1;
+    });
+    for (let i = 0; i < 1_000; i++) bound.onTextDelta("x");
+
+    expect(notifications).toBe(NARRATIVE_PREVIEW_MAX + 1);
+    expect(tree.get("mn-1")?.activity?.narrativePreview).toBe(
+      `${"x".repeat(NARRATIVE_PREVIEW_MAX - 1)}…`,
+    );
+
+    bound.onTextDelta("\nnext line");
+    expect(notifications).toBe(NARRATIVE_PREVIEW_MAX + 2);
+    expect(tree.get("mn-1")?.activity?.narrativePreview).toBe("next line");
+
+    bound.onTurnEnd(1);
+    notifications = 0;
+    bound.onTextDelta("fresh turn");
+    expect(notifications).toBe(1);
+    expect(tree.get("mn-1")?.activity?.narrativePreview).toBe("fresh turn");
+  });
+
   it("does not alias current activity with history tail", () => {
     const tree = new AgentTree();
     tree.add("mn-1", "alpha", "work");

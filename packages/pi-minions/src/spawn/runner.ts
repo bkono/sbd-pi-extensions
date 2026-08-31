@@ -1,6 +1,11 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { bindTreeActivity, lastNarrativeLine } from "../activity.js";
+import {
+  appendLiveNarrativeTail,
+  bindTreeActivity,
+  NARRATIVE_PREVIEW_MAX,
+  sanitizeActivityText,
+} from "../activity.js";
 import { requireAgent } from "../agents.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate } from "../minions.js";
@@ -105,6 +110,7 @@ export async function runSingleMinion(opts: {
     }
 
     const bound = bindTreeActivity(tree, m.id);
+    let narrativeTail = "";
     const pushForeground = () => {
       m.activity = tree.get(m.id)?.lastActivity;
       coordinator.emit(true);
@@ -129,11 +135,15 @@ export async function runSingleMinion(opts: {
         tree,
         onToolActivity: bound.onToolActivity,
         onToolOutput: bound.onToolOutput,
-        onTextDelta: (delta, fullText) => {
-          m.finalOutput = lastNarrativeLine(fullText);
-          bound.onTextDelta(delta, fullText);
+        onTextDelta: (delta) => {
+          narrativeTail = appendLiveNarrativeTail(narrativeTail, delta);
+          m.finalOutput = sanitizeActivityText(narrativeTail, NARRATIVE_PREVIEW_MAX);
+          bound.onTextDelta(delta);
         },
-        onTurnEnd: bound.onTurnEnd,
+        onTurnEnd: (turnCount) => {
+          narrativeTail = "";
+          bound.onTurnEnd(turnCount);
+        },
         onAgentEnd: bound.onAgentEnd,
         onUsageUpdate: (usage) => {
           tree.updateUsage(m.id, usage);

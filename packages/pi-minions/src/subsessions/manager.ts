@@ -196,9 +196,6 @@ async function defaultCreateChildRuntime(
   };
 }
 
-/** First terminal commit wins. Logged; not a wait-state machine. */
-export type TerminalWinner = "settle" | "fail" | "abort" | "shutdown" | "mail-then-settle";
-
 interface ChildRecord {
   id: string;
   runtime: ChildRuntime;
@@ -216,8 +213,6 @@ interface ChildRecord {
   sessionPath?: string;
   /** Accepted followUp continuations that have not gone idle yet. */
   pendingMail: number;
-  /** True once any inbound mail was accepted on this run. */
-  mailAccepted: boolean;
   /** Serializes accepted deliveries so only one job admits prompt/followUp. */
   deliveryTail: Promise<void>;
 }
@@ -227,7 +222,6 @@ export class SubsessionManager {
   private activeHandles = new Map<string, MinionSessionHandle>();
   private children = new Map<string, ChildRecord>();
   private terminals = new Map<string, ChildTerminalEvent>();
-  private terminalWinners = new Map<string, TerminalWinner>();
   private metadataCache = new Map<string, MinionSessionMetadata>();
   private unsubscribers = new Map<string, () => void>();
   private shutdown = false;
@@ -325,7 +319,6 @@ export class SubsessionManager {
       turnCount: 0,
       unsubscribe: () => {},
       pendingMail: 0,
-      mailAccepted: false,
       deliveryTail: Promise.resolve(),
       sessionPath,
     };
@@ -453,8 +446,8 @@ export class SubsessionManager {
   }
 
   /**
-   * Single-flight terminal latch. First caller wins so later mail/settle
-   * share one winner. Returns true if this caller committed.
+   * Single-flight terminal latch. The first terminal event commits and later
+   * events are ignored. Returns true if this caller committed.
    */
   commitTerminal(id: string, event: ChildTerminalEvent): boolean {
     if (this.terminals.has(id)) {
@@ -462,16 +455,13 @@ export class SubsessionManager {
         childId: id,
         eventClass: event.class,
         terminalLatchFired: false,
-        winner: this.terminalWinners.get(id),
         terminalEventCount: 1,
       });
       return false;
     }
 
     const child = this.children.get(id);
-    const winner = this.inferWinner(child, event);
     this.terminals.set(id, event);
-    this.terminalWinners.set(id, winner);
     if (child) child.terminal = event;
 
     const metadataStatus: MinionSessionMetadata["status"] =
@@ -510,7 +500,6 @@ export class SubsessionManager {
       childId: id,
       eventClass: event.class,
       terminalLatchFired: true,
-      winner,
       terminalEventCount: 1,
     });
 
@@ -576,7 +565,6 @@ export class SubsessionManager {
   private commitSyntheticAbort(id: string): void {
     if (this.terminals.has(id)) return;
     this.terminals.set(id, { class: "aborted", exitCode: 1, output: "" });
-    this.terminalWinners.set(id, "abort");
   }
 
   private async finishAbortedStart(
@@ -647,7 +635,6 @@ export class SubsessionManager {
     const child = this.children.get(id);
     if (child) {
       child.pendingMail += 1;
-      child.mailAccepted = true;
     }
     return session;
   }
@@ -695,24 +682,8 @@ export class SubsessionManager {
       this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
       return;
     }
-    if (record.pendingMail > 0) {
-      logger.info("subsession", "lifecycle", {
-        childId: id,
-        eventClass: "mail-then-settle",
-        terminalLatchFired: false,
-        winner: "mail-then-settle",
-      });
-      return;
-    }
+    if (record.pendingMail > 0) return;
     this.commitTerminal(id, this.makeTerminal(record, "settled"));
-  }
-
-  private inferWinner(child: ChildRecord | undefined, event: ChildTerminalEvent): TerminalWinner {
-    if (this.shutdown) return "shutdown";
-    if (event.class === "aborted") return "abort";
-    if (event.class === "failed") return "fail";
-    if (child?.mailAccepted) return "mail-then-settle";
-    return "settle";
   }
 
   private buildHandle(id: string, path: string): MinionSessionHandle {
@@ -853,7 +824,7 @@ export class SubsessionManager {
     if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
       const delta = event.assistantMessageEvent.delta ?? "";
       child.currentFullText += delta;
-      child.options.onTextDelta?.(delta, child.currentFullText);
+      child.options.onTextDelta?.(delta);
     }
     if (event.type === "turn_end") {
       child.turnCount++;

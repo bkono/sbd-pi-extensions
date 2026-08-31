@@ -273,7 +273,7 @@ describe("foreground spawn tool", () => {
     expect(activities.at(-1)).toBe("thinking");
     expect(activities).not.toContain("starting...");
 
-    h.started[0]?.onTextDelta?.("drafting", "drafting");
+    h.started[0]?.onTextDelta?.("drafting");
     await vi.waitFor(() => {
       expect(activities.at(-1)).toBe("thinking");
     });
@@ -320,7 +320,7 @@ describe("foreground spawn tool", () => {
     expect(h.tree.listenerCount()).toBe(3);
 
     const before = signatures.length;
-    h.started[0]?.onTextDelta?.("hello", "hello");
+    h.started[0]?.onTextDelta?.("hello");
     expect(signatures.length - before).toBe(1);
 
     for (const waiter of h.waiters) {
