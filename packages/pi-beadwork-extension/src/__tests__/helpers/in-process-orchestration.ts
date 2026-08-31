@@ -261,6 +261,7 @@ export async function createInProcessHarness(
   let mailbox!: MinionCommMailbox;
   const dispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
+    getGroups: () => groups,
     sendMessage: (message, sendOptions) => {
       packets.push({
         message: message as SentPacket["message"],

@@ -257,6 +257,34 @@ describe("OrchestrationGroupState close/forget", () => {
   });
 });
 
+describe("OrchestrationGroupState idle epochs", () => {
+  it("arms only after accepted live work and consumes one active-to-idle transition", () => {
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-idle", cwd: "/tmp" });
+
+    expect(groups.consumeIdleTransition("grp-idle", false)).toBe(false);
+    expect(groups.acceptLiveWork("grp-other")).toBe(false);
+    expect(groups.acceptLiveWork("grp-idle")).toBe(true);
+    expect(groups.consumeIdleTransition("grp-idle", true)).toBe(false);
+    expect(groups.consumeIdleTransition("grp-idle", false)).toBe(true);
+    expect(groups.consumeIdleTransition("grp-idle", false)).toBe(false);
+  });
+
+  it("re-arms a later epoch in the same open group and clears state on close", () => {
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-reuse", cwd: "/tmp" });
+    groups.acceptLiveWork("grp-reuse");
+    expect(groups.consumeIdleTransition("grp-reuse", false)).toBe(true);
+
+    groups.acceptLiveWork("grp-reuse");
+    expect(groups.consumeIdleTransition("grp-reuse", false)).toBe(true);
+
+    groups.acceptLiveWork("grp-reuse");
+    groups.closeGroup("grp-reuse");
+    expect(groups.consumeIdleTransition("grp-reuse", false)).toBe(false);
+  });
+});
+
 describe("OrchestrationGroupState preview and commit", () => {
   it("does not open a group until commitGroup", () => {
     const parentCwd = tempDir("pi-minions-group-preview-");

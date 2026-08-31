@@ -13,6 +13,7 @@ import {
 } from "./delegation.js";
 import { createFleetWidgetController, type FleetWidgetController } from "./fleet-widget.js";
 import { buildFooterFactory } from "./footer.js";
+import { createLiveGroupPromptHandler } from "./live-group-invariant.js";
 import { LOG_FILE, logger } from "./logger.js";
 import {
   createLifecyclePacketDispatcher,
@@ -76,6 +77,7 @@ export default function (pi: ExtensionAPI): void {
   const packets = createLifecyclePacketDispatcher({
     getTree: () => tree,
     sendMessage: (message, options) => pi.sendMessage(message, options),
+    getGroups: () => groups,
     consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
     drainParentMail: (childId) => {
       const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
@@ -279,6 +281,14 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async () => {
     toolCallCount++;
   });
+
+  pi.on(
+    "before_agent_start",
+    createLiveGroupPromptHandler(
+      () => tree,
+      () => groups,
+    ),
+  );
 
   pi.on("before_agent_start", (event, ctx) => {
     const config = getConfig(ctx);

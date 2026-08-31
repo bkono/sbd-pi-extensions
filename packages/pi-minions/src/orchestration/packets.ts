@@ -8,13 +8,13 @@ import { NUDGE_EVENTS, type NudgeEvent } from "../task-types.js";
 import type { AgentTree } from "../tree.js";
 import {
   type AgentNode,
-  type AgentStatus,
   namedAgent,
   type OrchestrationDomain,
   type TaskType,
   type TrustedActivityProjection,
 } from "../types.js";
 import type { OrchestrationLifecycleEvent } from "./events.js";
+import type { OrchestrationGroupState } from "./group-state.js";
 
 export const LIFECYCLE_PACKET_CUSTOM_TYPE = "minion-lifecycle";
 
@@ -36,14 +36,15 @@ export interface ChangedChildPacket {
   nudge: string;
 }
 
+export type FleetChildState = "pending" | "running" | "waiting" | "settling";
+
 export interface StillRunningChildPacket {
   childId: string;
   agent?: string;
   taskType?: TaskType;
   description?: string;
-  state: AgentStatus;
+  state: FleetChildState;
   elapsedMs?: number;
-  lastActivity?: string;
   activity?: TrustedActivityProjection;
 }
 
@@ -52,12 +53,15 @@ export interface LifecyclePacketDetails {
   groupIds: string[];
   changed: ChangedChildPacket[];
   stillRunning: StillRunningChildPacket[];
+  /** Present exactly once for one armed active→idle epoch. */
+  groupIdleId?: string;
   /** Advisory overlaps recorded since the last real packet. Never a wake by themselves. */
   overlaps: PathOverlapNotice[];
 }
 
 export interface LifecyclePacketDispatcherDeps {
   getTree: () => AgentTree;
+  getGroups: () => OrchestrationGroupState;
   sendMessage: ExtensionAPI["sendMessage"];
   now?: () => number;
   schedule?: (run: () => void) => void;
@@ -118,8 +122,6 @@ function stillRunningLine(child: StillRunningChildPacket): string[] {
   if (child.activity) {
     lines.push(`  activity: ${child.activity.summary}`);
     lines.push(`  phase: ${child.activity.phase}`);
-  } else if (child.lastActivity) {
-    lines.push(`  activity: ${child.lastActivity}`);
   }
   return lines;
 }
@@ -190,6 +192,14 @@ export function formatLifecyclePacket(
     }
   }
 
+  if (details.groupIdleId) {
+    lines.push(
+      "",
+      `Group idle: ${details.groupIdleId}`,
+      "Inspect the evidence and decide the next action.",
+    );
+  }
+
   if (details.overlaps && details.overlaps.length > 0) {
     lines.push("", "Overlaps (advisory; edits are not blocked):");
     for (const notice of details.overlaps) {
@@ -201,15 +211,21 @@ export function formatLifecyclePacket(
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+function fleetChildState(node: AgentNode): FleetChildState {
+  if (node.status === "pending") return "pending";
+  if (node.activity?.phase === "waiting") return "waiting";
+  if (node.activity?.phase === "settling") return "settling";
+  return "running";
+}
+
 function toStillRunning(node: AgentNode, now: number): StillRunningChildPacket {
   return {
     childId: node.id,
     agent: namedAgent(node),
     taskType: node.taskType,
     description: node.description,
-    state: node.status,
+    state: fleetChildState(node),
     elapsedMs: now - node.startTime,
-    lastActivity: node.lastActivity,
     activity: node.activity ? projectTrustedActivity(node.activity) : undefined,
   };
 }
@@ -285,6 +301,7 @@ export class LifecyclePacketDispatcher {
     const folded = foldEvents(events);
     const changed: ChangedChildPacket[] = [];
     const terminalChanged = new Set<string>();
+    const terminalGroupIds = new Set<string>();
     const groupIds: string[] = [];
 
     for (const event of folded) {
@@ -293,7 +310,10 @@ export class LifecyclePacketDispatcher {
       if (node?.kind !== "orchestrated") continue;
 
       if (!groupIds.includes(event.groupId)) groupIds.push(event.groupId);
-      if (event.class !== "parentMessage") terminalChanged.add(event.childId);
+      if (event.class !== "parentMessage") {
+        terminalChanged.add(event.childId);
+        terminalGroupIds.add(event.groupId);
+      }
 
       const drained =
         event.class === "parentMessage" ? this.deps.drainParentMail?.(event.childId) : undefined;
@@ -330,6 +350,16 @@ export class LifecyclePacketDispatcher {
       }
     }
 
+    let groupIdleId: string | undefined;
+    const groups = this.deps.getGroups();
+    for (const groupId of terminalGroupIds) {
+      const hasLiveWork = tree.getOrchestratedGroup(groupId).length > 0;
+      if (groups.consumeIdleTransition(groupId, hasLiveWork)) {
+        groupIdleId = groupId;
+        break;
+      }
+    }
+
     const overlaps = this.deps.consumeOverlaps?.(groupIds) ?? [];
 
     return {
@@ -337,6 +367,7 @@ export class LifecyclePacketDispatcher {
       groupIds,
       changed,
       stillRunning,
+      groupIdleId,
       overlaps,
     };
   }
@@ -354,6 +385,7 @@ export class LifecyclePacketDispatcher {
       childIds,
       eventClasses,
       fleetIds,
+      groupIdleId: packet.groupIdleId,
       byteSize,
     });
 

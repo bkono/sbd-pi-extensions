@@ -20,6 +20,7 @@ import {
   type LifecyclePacketDetails,
   MinionCommMailbox,
   ORCHESTRATED_COMM_TOOL_NAMES,
+  OrchestrationGroupState,
 } from "../orchestration/index.js";
 import { AgentTree } from "../tree.js";
 
@@ -401,8 +402,11 @@ describe("overlap on next real parent packet", () => {
     const overlaps = new PathOverlapLog();
     const pending: Array<() => void> = [];
     const sendMessage = vi.fn();
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId, cwd: CWD });
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
+      getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
       now: () => 10_000,
       schedule: (run) => pending.push(run),

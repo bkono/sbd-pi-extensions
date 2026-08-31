@@ -33,6 +33,7 @@ export class ScriptedChildSession implements ChildSession {
   idleDeferred = createDeferred<void>();
   followUps: string[] = [];
   steers: string[] = [];
+  private streaming = false;
   state: { messages: unknown[] } = { messages: [] };
 
   constructor(toolNames: readonly string[], customTools: ToolDefinition[] = []) {
@@ -44,6 +45,10 @@ export class ScriptedChildSession implements ChildSession {
       this.customTools.set(tool.name, tool);
     }
     this.active = new Set(this.tools.keys());
+  }
+
+  get isStreaming(): boolean {
+    return this.streaming;
   }
 
   async bindExtensions(): Promise<void> {}
@@ -85,10 +90,14 @@ export class ScriptedChildSession implements ChildSession {
   prompt(text: string): Promise<void> {
     this.promptCalls += 1;
     this.lastPrompt = text;
-    return this.promptDeferred.promise;
+    this.streaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.streaming = false;
+    });
   }
 
   abort(): void {
+    this.streaming = false;
     this.aborted = true;
     this.idleDeferred.resolve();
     this.promptDeferred.resolve();
@@ -126,6 +135,7 @@ export class ScriptedChildSession implements ChildSession {
   }
 
   dispose(): void {
+    this.streaming = false;
     this.disposed = true;
   }
 
@@ -137,6 +147,7 @@ export class ScriptedChildSession implements ChildSession {
    * Settle with unstructured prose. Does not close tickets; that is the parent's job.
    */
   finishWithProse(prose: string): void {
+    this.streaming = false;
     this.state.messages.push({ role: "assistant", content: prose });
     this.emit({
       type: "message_update",

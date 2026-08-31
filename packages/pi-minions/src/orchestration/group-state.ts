@@ -69,6 +69,7 @@ function newGroupId(): string {
  */
 export class OrchestrationGroupState {
   private open: OpenOrchestrationGroup | undefined;
+  private idleArmed = false;
 
   previewGroup(input: ResolveGroupInput): PreviewGroupResult {
     const groupId = optionalString(input.groupId);
@@ -93,6 +94,7 @@ export class OrchestrationGroupState {
   commitGroup(group: OpenOrchestrationGroup): void {
     if (this.open) return;
     this.open = { groupId: group.groupId, cwd: group.cwd };
+    this.idleArmed = false;
     logger.info("orchestration-group", "commit", {
       groupId: group.groupId,
       cwd: group.cwd,
@@ -105,6 +107,20 @@ export class OrchestrationGroupState {
     if (isResolveGroupReject(result)) return result;
     this.commitGroup(result);
     return { groupId: result.groupId, cwd: result.cwd };
+  }
+
+  /** Arm one idle epoch only after orchestrate accepted at least one live child. */
+  acceptLiveWork(groupId: string): boolean {
+    if (this.open?.groupId !== groupId) return false;
+    this.idleArmed = true;
+    return true;
+  }
+
+  /** Consume the armed active→idle epoch once current tree truth has no live members. */
+  consumeIdleTransition(groupId: string, hasLiveWork: boolean): boolean {
+    if (this.open?.groupId !== groupId || hasLiveWork || !this.idleArmed) return false;
+    this.idleArmed = false;
+    return true;
   }
 
   closeGroup(groupId?: string): void {
@@ -127,6 +143,7 @@ export class OrchestrationGroupState {
       return;
     }
     this.open = undefined;
+    this.idleArmed = false;
     logger.info("orchestration-group", "close", {
       groupId: current.groupId,
       cwd: current.cwd,

@@ -376,10 +376,14 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           from: childA,
           to: childB,
         });
-        await waitForFollowUps(sessionB, 2, "peer-mail");
-        expect(sessionB.followUps).toContainEqual(
-          formatMinionMail(childA, "I am editing src/alpha.ts; leave src/beta.ts to you."),
+        const peerMail = formatMinionMail(
+          childA,
+          "I am editing src/alpha.ts; leave src/beta.ts to you.",
         );
+        // Production serializes accepted deliveries per child. The live overlap follow-up
+        // must drain before this queued mail starts a fresh prompt after the run becomes idle.
+        expect(sessionB.followUps).toHaveLength(1);
+        expect(sessionB.followUps).not.toContain(peerMail);
         expect(harness.packets).toHaveLength(0);
         await harness.logStep("peer-send-no-parent-turn", {
           ticketId: beta.id,
@@ -464,8 +468,8 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         );
         expect(answered.status).toBe(COMM_SEND_STATUS.queued);
         await waitForFollowUps(sessionA, 1, "parent-answer");
-        expect(sessionA.followUps).toContainEqual(
-          formatMinionMail(PARENT_RECIPIENT_ID, "Use a Result type for the error path."),
+        expect(sessionA.followUps[0]).toMatch(
+          /^\[minion-mail deliveryId=[^ ]+ from parent\]\nUse a Result type for the error path\.$/,
         );
         expect(harness.manager.getTerminal(childA)).toBeUndefined();
         expect(harness.tree.get(childA)?.status).toBe("running");
@@ -486,17 +490,29 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
             prose: `${IMPLEMENT_PROSE} commit ${betaCommit}`,
           },
         ]);
-        await harness.waitForPackets(beforeSettle + 1);
-        const settlePacket = harness.lastPacket();
-        expect(settlePacket?.message.details.seq).toBe(
+        await harness.waitForPackets(beforeSettle + 2);
+        const settlePackets = harness.packets.slice(beforeSettle);
+        expect(settlePackets.map((packet) => packet.message.details.seq)).toEqual([
           (questionPacket?.message.details.seq ?? 0) + 1,
-        );
-        const settled = settlePacket?.message.details.changed.filter(
-          (child) => child.eventClass === "settled",
+          (questionPacket?.message.details.seq ?? 0) + 2,
+        ]);
+        const settled = settlePackets.flatMap((packet) =>
+          packet.message.details.changed.filter((child) => child.eventClass === "settled"),
         );
         expect(settled).toHaveLength(2);
-        expect(settled?.map((child) => child.childId).sort()).toEqual([childA, childB].sort());
+        expect(settled.map((child) => child.childId).sort()).toEqual([childA, childB].sort());
+        expect(settlePackets[0]?.message.details.stillRunning).toEqual([
+          expect.objectContaining({ childId: childB, state: "settling" }),
+        ]);
+        const settlePacket = settlePackets.at(-1);
         expect(settlePacket?.message.details.stillRunning).toEqual([]);
+        expect(settlePacket?.message.details.groupIdleId).toBe(groupId);
+        expect(sessionB.lastPrompt).toMatch(
+          new RegExp(
+            `^\\[minion-mail deliveryId=[^ ]+ from ${childA}\\]\\nI am editing src/alpha\\.ts; leave src/beta\\.ts to you\\.$`,
+          ),
+        );
+        expect(sessionB.promptCalls).toBe(2);
         expect(settlePacket?.message.content).toMatch(
           /do not close a ticket solely because the child settled/i,
         );

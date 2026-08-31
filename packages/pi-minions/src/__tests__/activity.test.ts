@@ -22,6 +22,7 @@ import {
   formatMinionMail,
   type LifecyclePacketDetails,
   MinionCommMailbox,
+  OrchestrationGroupState,
   PARENT_RECIPIENT_ID,
   parseMinionMailDeliveryId,
 } from "../orchestration/index.js";
@@ -911,9 +912,11 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
   it("fleet packets include orchestrated activity and exclude spawn children", () => {
     const tree = new AgentTree();
     const sendMessage = vi.fn();
+    const groups = new OrchestrationGroupState();
     const pending: Array<() => void> = [];
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
+      getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
       now: () => 10_000,
       schedule: (run) => pending.push(run),

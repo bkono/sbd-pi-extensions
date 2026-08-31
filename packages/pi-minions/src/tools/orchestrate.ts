@@ -458,6 +458,7 @@ export function orchestrate(deps: OrchestrateDeps) {
     if (previewed.created) {
       deps.groups.commitGroup(previewed);
     }
+    deps.groups.acceptLiveWork(previewed.groupId);
 
     const parentToolNames = deps.pi.getAllTools().map((tool) => tool.name);
     for (const child of registered) {

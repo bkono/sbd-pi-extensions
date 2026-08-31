@@ -108,9 +108,12 @@ function addOrchestrated(
 function harness() {
   const pending: Array<() => void> = [];
   const tree = new AgentTree();
+  const groups = new OrchestrationGroupState();
+  groups.commitGroup({ groupId: "grp-1", cwd: "/tmp" });
   const sendMessage = vi.fn();
   const dispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
+    getGroups: () => groups,
     sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     now: () => 10_000,
     schedule: (run) => pending.push(run),
@@ -120,7 +123,7 @@ function harness() {
     while (pending.length > 0) pending.shift()?.();
   }
 
-  return { tree, sendMessage, dispatcher, drain, pending };
+  return { tree, groups, sendMessage, dispatcher, drain, pending };
 }
 
 async function execTool(tool: ToolDefinition, params: unknown) {
@@ -137,8 +140,11 @@ async function execTool(tool: ToolDefinition, params: unknown) {
 function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string }) {
   const pending: Array<() => void> = [];
   const tree = new AgentTree();
+  const groups = new OrchestrationGroupState();
   const sendMessage = vi.fn();
   const groupId = opts?.groupId ?? "grp-1";
+  groups.commitGroup({ groupId, cwd: "/tmp" });
+  groups.acceptLiveWork(groupId);
   const askId = opts?.askId ?? "mn-ask";
   const otherId = opts?.otherId ?? "mn-other";
   addOrchestrated(tree, askId, {
@@ -156,6 +162,7 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
   let mailbox!: MinionCommMailbox;
   const dispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
+    getGroups: () => groups,
     sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     now: () => 10_000,
     schedule: (run) => pending.push(run),
@@ -184,7 +191,18 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
     while (pending.length > 0) pending.shift()?.();
   }
 
-  return { tree, sendMessage, dispatcher, mailbox, drain, pending, groupId, askId, otherId };
+  return {
+    tree,
+    groups,
+    sendMessage,
+    dispatcher,
+    mailbox,
+    drain,
+    pending,
+    groupId,
+    askId,
+    otherId,
+  };
 }
 
 function logPacket(
@@ -242,7 +260,7 @@ describe("idle coalescing", () => {
       true,
     );
     expect(sent.message.details.stillRunning.map((child) => child.childId)).toEqual(["mn-live"]);
-    expect(sent.message.details.stillRunning[0]?.lastActivity).toBe("→ read src/auth.ts");
+    expect(sent.message.details.stillRunning[0]).not.toHaveProperty("lastActivity");
     expect(sent.message.details.stillRunning[0]?.activity?.phase).toBe("tool");
     expect(sent.message.details.stillRunning[0]?.activity?.summary).not.toMatch(/turn \d/);
     expect(sent.message.content).toContain("Orchestration update");
@@ -325,6 +343,13 @@ describe("spawn exclusion", () => {
     tree.updateStatus("mn-orch", "pending");
 
     dispatcher.enqueue({ class: "started", groupId: "grp-1", childId: "mn-orch" });
+    tree.applyActivityEvent("mn-orch", {
+      type: "tool_start",
+      toolName: "read",
+      args: { path: "src/live.ts" },
+    });
+    drain();
+    tree.applyActivityEvent("mn-orch", { type: "tool_end" });
     drain();
 
     expect(sendMessage).not.toHaveBeenCalled();
@@ -495,6 +520,159 @@ describe("delivery options", () => {
   });
 });
 
+describe("trusted fleet state", () => {
+  it("distinguishes pending, running, waiting, and settling with bounded trusted activity", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    groups.acceptLiveWork("grp-1");
+
+    addOrchestrated(tree, "mn-pending");
+    tree.updateStatus("mn-pending", "pending");
+    addOrchestrated(tree, "mn-running");
+    addOrchestrated(tree, "mn-waiting", { waiting: true });
+    addOrchestrated(tree, "mn-settling");
+    tree.applyActivityEvent("mn-settling", { type: "settling" });
+    addOrchestrated(tree, "mn-terminal");
+    tree.updateStatus("mn-terminal", "completed", 0);
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-terminal",
+      output: "opaque terminal prose",
+    });
+    drain();
+
+    const fleet = packetOf(sendMessage).message.details.stillRunning;
+    expect(Object.fromEntries(fleet.map((child) => [child.childId, child.state]))).toEqual({
+      "mn-pending": "pending",
+      "mn-running": "running",
+      "mn-waiting": "waiting",
+      "mn-settling": "settling",
+    });
+    const waiting = fleet.find((child) => child.childId === "mn-waiting");
+    expect(waiting?.activity).toMatchObject({ phase: "waiting", summary: "waiting on parent" });
+    expect(waiting).not.toHaveProperty("lastActivity");
+    expect(waiting?.activity).not.toHaveProperty("narrativePreview");
+    expect(waiting?.activity).not.toHaveProperty("toolName");
+    expect(packetOf(sendMessage).message.content).toContain("opaque terminal prose");
+  });
+});
+
+describe("group idle transition", () => {
+  it("coalesces near-simultaneous final settlements into one packet and one adjudication indication", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    groups.acceptLiveWork("grp-1");
+    addOrchestrated(tree, "mn-a");
+    addOrchestrated(tree, "mn-b");
+    tree.updateStatus("mn-a", "completed", 0);
+    tree.updateStatus("mn-b", "completed", 0);
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-a" });
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-b" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const packet = packetOf(sendMessage).message;
+    expect(packet.details.groupIdleId).toBe("grp-1");
+    expect(packet.content.match(/Group idle: grp-1/g)).toHaveLength(1);
+    expect(packet.content).toContain("Inspect the evidence and decide the next action.");
+    const idleCopy = packet.content.slice(packet.content.indexOf("Group idle:"));
+    expect(idleCopy).not.toMatch(/success|completed|accepted|ticket closed|goal complete/i);
+  });
+
+  it("does not duplicate an idle epoch for repeated terminal delivery", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    groups.acceptLiveWork("grp-1");
+    addOrchestrated(tree, "mn-once");
+    tree.updateStatus("mn-once", "completed", 0);
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-once" });
+    drain();
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-once" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBeUndefined();
+    expect(packetOf(sendMessage, 1).message.content).not.toContain("Group idle:");
+  });
+
+  it("re-arms when the same open group accepts new work after idle", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    groups.acceptLiveWork("grp-1");
+    addOrchestrated(tree, "mn-epoch-1");
+    tree.updateStatus("mn-epoch-1", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-epoch-1" });
+    drain();
+
+    addOrchestrated(tree, "mn-epoch-2");
+    groups.acceptLiveWork("grp-1");
+    tree.updateStatus("mn-epoch-2", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-epoch-2" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("does not emit idle for a never-accepted group", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-never");
+    tree.updateStatus("mn-never", "completed", 0);
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-never" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(packetOf(sendMessage).message.details.groupIdleId).toBeUndefined();
+    expect(packetOf(sendMessage).message.content).not.toContain("Group idle:");
+  });
+
+  it("does not let spawn completion consume an armed group idle epoch", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    groups.acceptLiveWork("grp-1");
+    tree.add("mn-spawn", "spawn", "foreground task");
+    tree.updateStatus("mn-spawn", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-spawn" });
+    drain();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    addOrchestrated(tree, "mn-real");
+    tree.updateStatus("mn-real", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-real" });
+    drain();
+    expect(packetOf(sendMessage).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("keeps a waiting child active and emits idle only after its true terminal commit", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    groups.acceptLiveWork("grp-1");
+    addOrchestrated(tree, "mn-question", { waiting: true });
+
+    dispatcher.enqueue({
+      class: "parentMessage",
+      groupId: "grp-1",
+      childId: "mn-question",
+      output: "Which constraint wins?",
+    });
+    drain();
+
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBeUndefined();
+    expect(packetOf(sendMessage, 0).message.details.stillRunning[0]).toMatchObject({
+      childId: "mn-question",
+      state: "waiting",
+      activity: { phase: "waiting" },
+    });
+
+    tree.updateStatus("mn-question", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-question" });
+    drain();
+
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+});
+
 describe("integration: orchestrate lifecycle to followUp", () => {
   it("folds four orchestrate settlements into one followUp packet and ignores spawn completion", async () => {
     const cwd = tempDir("pi-minions-packets-int-");
@@ -505,6 +683,7 @@ describe("integration: orchestrate lifecycle to followUp", () => {
     const sendUserMessage = vi.fn();
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
+      getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     });
     eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
