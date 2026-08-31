@@ -156,21 +156,21 @@ function groupTree(): { tree: AgentTree; childId: string; peerId: string; groupI
   tree.add(childId, "alpha", "self prompt", {
     kind: "orchestrated",
     groupId,
-    role: "implementer",
+    agentName: "implementer",
     taskType: "implementation",
     description: "Self task",
   });
   tree.add(peerId, "bravo", "peer prompt", {
     kind: "orchestrated",
     groupId,
-    role: "reviewer",
+    agentName: "reviewer",
     taskType: "reviewImplementation",
     description: "Peer task",
   });
   tree.add("mn-done", "charlie", "done prompt", {
     kind: "orchestrated",
     groupId,
-    role: "fixer",
+    agentName: "fixer",
     taskType: "fix",
     description: "Already settled",
   });
@@ -316,7 +316,7 @@ describe("injectOrchestratedCommTools", () => {
       groupId: string;
       peers: Array<{
         id: string;
-        role?: string;
+        agent?: string;
         taskType?: string;
         description?: string;
         state: string;
@@ -332,11 +332,11 @@ describe("injectOrchestratedCommTools", () => {
       "mn-done",
     ]);
     expect(details.peers.find((peer) => peer.id === PARENT_RECIPIENT_ID)).toMatchObject({
-      role: "parent",
       state: "parent",
     });
+    expect(details.peers.find((peer) => peer.id === PARENT_RECIPIENT_ID)?.agent).toBeUndefined();
     expect(details.peers.find((peer) => peer.id === peerId)).toMatchObject({
-      role: "reviewer",
+      agent: "reviewer",
       taskType: "reviewImplementation",
       description: "Peer task",
       state: "running",

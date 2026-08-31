@@ -6,7 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
-import { discoverAgents } from "../agents.js";
+import { discoverAgents, requireAgent } from "../agents.js";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
@@ -29,7 +29,7 @@ export const SpawnToolParams = Type.Object({
   agent: Type.Optional(
     Type.String({
       description:
-        "Name of the agent to invoke. If omitted, spawns an ephemeral minion with default capabilities.",
+        "Discovered agent/template name. Call list_agents if unsure. If omitted, spawns an ephemeral minion.",
     }),
   ),
   model: Type.Optional(Type.String({ description: "Override the agent's model" })),
@@ -77,19 +77,7 @@ export interface SpawnToolDetails {
 }
 
 function resolveAgentConfig(agentName: string, cwd: string): AgentConfig {
-  const { agents } = discoverAgents(cwd, "both");
-  const found = agents.find((a) => a.name === agentName);
-
-  if (!found) {
-    const available = agents.map((a) => a.name).join(", ") || "none";
-    logger.warn("spawn:tool", "agent not found", {
-      requested: agentName,
-      available,
-    });
-    throw new Error(`Agent "${agentName}" not found. Available: ${available}`);
-  }
-
-  return found;
+  return requireAgent(agentName, cwd);
 }
 
 async function executeSpawn(

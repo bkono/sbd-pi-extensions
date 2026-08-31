@@ -12,7 +12,12 @@ export {
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-export type AgentSource = "user" | "project" | "ephemeral";
+export type AgentSource = "builtin" | "user" | "project" | "ephemeral";
+
+export function namedAgent(node: { agentName?: string }): string | undefined {
+  if (!node.agentName || node.agentName === "ephemeral") return undefined;
+  return node.agentName;
+}
 
 export interface AgentConfig {
   name: string;
@@ -26,7 +31,7 @@ export interface AgentConfig {
   systemPrompt: string;
   source: AgentSource;
   filePath: string;
-  /** Best-effort role fallback from frontmatter. Not a workflow contract. */
+  /** Best-effort agent fallback from frontmatter. Not a workflow contract. */
   completionNudge?: string;
 }
 
@@ -114,14 +119,12 @@ export interface AgentNode {
   /** Origin of this node. Existing add() call sites default to spawn. */
   kind?: AgentKind;
   groupId?: string;
-  /** Open agent role/template name. Not a closed enum. */
-  role?: string;
   taskType?: TaskType;
   /** Fleet-readable summary. Stored as provided; never inferred from task. */
   description?: string;
   /** Opaque domain metadata. Not parsed as ticket semantics. */
   domain?: OrchestrationDomain;
-  /** Role completion_nudge snapshot for parent packets when taskType is absent. */
+  /** Agent completion_nudge snapshot for parent packets when taskType is absent. */
   completionNudge?: string;
   /** Full child output. Canonical large text for show_minion, not packets. */
   output?: string;
@@ -141,9 +144,10 @@ export const OrchestratedTaskDescriptorSchema = Type.Object({
   description: Type.String({
     description: "Required short fleet-readable summary. Do not infer from task.",
   }),
-  role: Type.Optional(
+  agent: Type.Optional(
     Type.String({
-      description: "Open agent role/template name. Not a closed enum.",
+      description:
+        "Discovered agent/template name. Same loader as spawn. Call list_agents if unsure.",
     }),
   ),
   taskType: Type.Optional(TaskTypeSchema),

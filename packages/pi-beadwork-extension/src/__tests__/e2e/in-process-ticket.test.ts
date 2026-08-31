@@ -65,6 +65,7 @@ describe("in-process ticket from /bw run through child settlement", () => {
             {
               task: `Implement ${ticket.id} (${TICKET_TITLE}). Output unstructured prose only.`,
               description: "Implement in-process ticket",
+              agent: "worker",
               taskType: "implementation",
               domain: {
                 source: "beadwork",

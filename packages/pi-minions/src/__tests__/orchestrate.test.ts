@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { unknownAgentMessage } from "../agents.js";
 import registerMinions from "../index.js";
 import { logger } from "../logger.js";
 import {
@@ -397,7 +398,7 @@ describe("registration abort and startChild wiring", () => {
   });
 });
 
-function writeRole(
+function writeAgent(
   dir: string,
   folder: "agents" | "minions",
   name: string,
@@ -406,13 +407,13 @@ function writeRole(
   extraFrontmatter: Record<string, string> = {},
 ): void {
   mkdirSync(join(dir, ".git"), { recursive: true });
-  const roleDir = join(dir, ".pi", folder);
-  mkdirSync(roleDir, { recursive: true });
+  const agentDir = join(dir, ".pi", folder);
+  mkdirSync(agentDir, { recursive: true });
   const extras = Object.entries(extraFrontmatter)
     .map(([key, value]) => `${key}: ${value}`)
     .join("\n");
   writeFileSync(
-    join(roleDir, `${name}.md`),
+    join(agentDir, `${name}.md`),
     `---\nname: ${name}\ndescription: ${description}${extras ? `\n${extras}` : ""}\n---\n\n${body}\n`,
     "utf-8",
   );
@@ -491,9 +492,9 @@ describe("halt during detached start", () => {
     expect(tree.get(childId)?.status).toBe("aborted");
   });
 
-  it("enforces role step limits on orchestrated children", async () => {
+  it("enforces agent step limits on orchestrated children", async () => {
     const cwd = tempDir("pi-minions-orch-steps-");
-    writeRole(cwd, "agents", "step-limited", "Limited role", "Do the work", {
+    writeAgent(cwd, "agents", "step-limited", "Limited role", "Do the work", {
       steps: "1",
     });
 
@@ -526,7 +527,7 @@ describe("halt during detached start", () => {
     const result = detailsOf(
       await run(
         execute,
-        { tasks: [{ task: "do work", description: "Work", role: "step-limited" }] },
+        { tasks: [{ task: "do work", description: "Work", agent: "step-limited" }] },
         createCtx(cwd),
       ),
     );
@@ -558,10 +559,10 @@ describe("halt during detached start", () => {
     expect(tree.getTotalUsage().turns).toBe(3);
   });
 
-  it("honors role timeouts on orchestrated children", async () => {
+  it("honors agent timeouts on orchestrated children", async () => {
     vi.useFakeTimers();
     const cwd = tempDir("pi-minions-orch-timeout-");
-    writeRole(cwd, "agents", "timed-role", "Timed role", "Do the work", {
+    writeAgent(cwd, "agents", "timed-role", "Timed role", "Do the work", {
       timeout: "10",
     });
 
@@ -588,7 +589,7 @@ describe("halt during detached start", () => {
     const result = detailsOf(
       await run(
         execute,
-        { tasks: [{ task: "do work", description: "Work", role: "timed-role" }] },
+        { tasks: [{ task: "do work", description: "Work", agent: "timed-role" }] },
         createCtx(cwd),
       ),
     );
@@ -612,14 +613,14 @@ describe("halt during detached start", () => {
   });
 });
 
-describe("role resolution cwd", () => {
-  it("resolves roles from group cwd, not parent cwd", async () => {
+describe("agent resolution cwd", () => {
+  it("resolves agents from group cwd, not parent cwd", async () => {
     const parentCwd = tempDir("pi-minions-role-parent-");
     const groupCwd = tempDir("pi-minions-role-group-");
-    writeRole(parentCwd, "agents", "shared-role-xyz", "Parent shared role", "PARENT ONLY");
-    writeRole(parentCwd, "agents", "parent-only-role-xyz", "Parent only role", "PARENT ONLY ROLE");
-    writeRole(groupCwd, "minions", "shared-role-xyz", "Group shared role", "GROUP ROLE");
-    writeRole(groupCwd, "agents", "group-only-role-xyz", "Group only role", "GROUP ONLY ROLE");
+    writeAgent(parentCwd, "agents", "shared-role-xyz", "Parent shared role", "PARENT ONLY");
+    writeAgent(parentCwd, "agents", "parent-only-role-xyz", "Parent only role", "PARENT ONLY ROLE");
+    writeAgent(groupCwd, "minions", "shared-role-xyz", "Group shared role", "GROUP ROLE");
+    writeAgent(groupCwd, "agents", "group-only-role-xyz", "Group only role", "GROUP ONLY ROLE");
 
     const startChild = vi.fn(
       async (opts: { id: string; config: { name: string; systemPrompt: string }; cwd?: string }) =>
@@ -650,7 +651,7 @@ describe("role resolution cwd", () => {
             {
               task: "do group work",
               description: "Group work",
-              role: "group-only-role-xyz",
+              agent: "group-only-role-xyz",
             },
           ],
         },
@@ -673,7 +674,7 @@ describe("role resolution cwd", () => {
             {
               task: "do parent work",
               description: "Parent work",
-              role: "parent-only-role-xyz",
+              agent: "parent-only-role-xyz",
             },
           ],
         },
@@ -682,8 +683,12 @@ describe("role resolution cwd", () => {
     );
     expect(parentOnly.accepted).toEqual([]);
     expect(parentOnly.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.unknownRole },
+      { index: 0, reason: unknownAgentMessage("parent-only-role-xyz") },
     ]);
+    expect(parentOnly.rejected[0]?.reason).toContain("parent-only-role-xyz");
+    expect(parentOnly.rejected[0]?.reason).toContain("list_agents");
+    expect(parentOnly.rejected[0]?.reason).not.toContain("implementation");
+    expect(parentOnly.rejected[0]?.reason).not.toContain("taskType");
     expect(startChild.mock.calls.length).toBe(callsBeforeUnknown);
 
     const shared = detailsOf(
@@ -694,7 +699,7 @@ describe("role resolution cwd", () => {
             {
               task: "do shared work",
               description: "Shared work",
-              role: "shared-role-xyz",
+              agent: "shared-role-xyz",
             },
           ],
         },
@@ -796,14 +801,14 @@ describe("orchestration policy cwd", () => {
   });
 });
 
-describe("role system prompt and model defaults", () => {
+describe("agent system prompt and model defaults", () => {
   function fakeModel(provider: string, id: string) {
     return { provider, id, name: id };
   }
 
-  it("does not override a named role system prompt with the parent prompt", async () => {
+  it("does not override a named agent system prompt with the parent prompt", async () => {
     const cwd = tempDir("pi-minions-role-prompt-");
-    writeRole(cwd, "agents", "reviewer-role-xyz", "Reviewer role", "ROLE SYSTEM PROMPT");
+    writeAgent(cwd, "agents", "reviewer-role-xyz", "Reviewer role", "ROLE SYSTEM PROMPT");
     const { execute, startChild } = setup();
     const ctx = {
       ...createCtx(cwd),
@@ -818,7 +823,7 @@ describe("role system prompt and model defaults", () => {
             {
               task: "review the change",
               description: "Review",
-              role: "reviewer-role-xyz",
+              agent: "reviewer-role-xyz",
             },
           ],
         },
@@ -836,9 +841,9 @@ describe("role system prompt and model defaults", () => {
     expect(call.config?.systemPrompt).not.toContain("PARENT SYSTEM PROMPT");
   });
 
-  it("applies the role model when the task omits model, and a task model still wins", async () => {
+  it("applies the agent model when the task omits model, and a task model still wins", async () => {
     const cwd = tempDir("pi-minions-role-model-");
-    writeRole(cwd, "agents", "special-model-role-xyz", "Special model role", "ROLE BODY", {
+    writeAgent(cwd, "agents", "special-model-role-xyz", "Special model role", "ROLE BODY", {
       model: "openai/role-model",
     });
     const parent = fakeModel("openai", "parent-model");
@@ -878,7 +883,7 @@ describe("role system prompt and model defaults", () => {
             {
               task: "use role model",
               description: "Role model",
-              role: "special-model-role-xyz",
+              agent: "special-model-role-xyz",
             },
           ],
         },
@@ -897,7 +902,7 @@ describe("role system prompt and model defaults", () => {
             {
               task: "override model",
               description: "Override model",
-              role: "special-model-role-xyz",
+              agent: "special-model-role-xyz",
               model: "openai/override-model",
             },
           ],

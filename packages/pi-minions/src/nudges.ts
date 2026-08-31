@@ -64,14 +64,14 @@ const BY_TASK_TYPE: Record<TaskType, EventNudges> = {
   },
 };
 
-function roleNudge(child: NudgeChild): string | undefined {
+function agentNudge(child: NudgeChild): string | undefined {
   const text = child.completionNudge?.trim();
   return text ? child.completionNudge : undefined;
 }
 
 /**
  * Select parent instruction text for a child state change.
- * Task-type policy wins. Role completion_nudge applies only to settled/failed
+ * Task-type policy wins. Agent completion_nudge applies only to settled/failed
  * when taskType is absent. Never concatenates sources.
  */
 export function nudgeFor(child: NudgeChild, event: NudgeEvent): string {
@@ -80,8 +80,8 @@ export function nudgeFor(child: NudgeChild, event: NudgeEvent): string {
   }
 
   if (event === "settled" || event === "failed") {
-    const fromRole = roleNudge(child);
-    if (fromRole !== undefined) return fromRole;
+    const fromAgent = agentNudge(child);
+    if (fromAgent !== undefined) return fromAgent;
   }
 
   return GENERIC[event];

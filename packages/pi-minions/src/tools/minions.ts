@@ -6,14 +6,15 @@ import { formatDuration, formatUsage } from "../render.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import { getMinionHistory } from "../subsessions/observability.js";
 import type { AgentTree } from "../tree.js";
-import type {
-  AgentKind,
-  AgentNode,
-  AgentStatus,
-  MinionMessage,
-  OrchestrationDomain,
-  PathIntent,
-  TaskType,
+import {
+  type AgentKind,
+  type AgentNode,
+  type AgentStatus,
+  type MinionMessage,
+  namedAgent,
+  type OrchestrationDomain,
+  type PathIntent,
+  type TaskType,
 } from "../types.js";
 
 export const ListMinionsParams = Type.Object({
@@ -41,7 +42,7 @@ export interface MinionInfo {
   status: AgentStatus;
   description?: string;
   groupId?: string;
-  role?: string;
+  agent?: string;
   taskType?: TaskType;
   domain?: OrchestrationDomain;
   agentName?: string;
@@ -108,7 +109,7 @@ export function toInfo(node: AgentNode): MinionInfo {
     status: node.status,
     description: node.description,
     groupId: node.groupId,
-    role: node.role,
+    agent: namedAgent(node),
     taskType: node.taskType,
     domain: node.domain,
     agentName: node.agentName,
@@ -130,11 +131,11 @@ function formatListLine(m: MinionInfo): string {
   const model = m.model ? ` [${m.model}]` : "";
   const taskType = m.taskType ? ` ${m.taskType}` : "";
   const group = m.kind === "orchestrated" && m.groupId ? ` group=${m.groupId}` : "";
-  const role = m.role ? ` role=${m.role}` : "";
+  const agent = m.agent ? ` agent=${m.agent}` : "";
   const summary = m.description ?? m.task;
   const activity = m.lastSaid ? ` -- ${m.lastSaid}` : "";
   const peer = m.peerMessageFailed ? " [peer-failed]" : "";
-  return `  ${m.name} (${m.id}) ${m.kind} [${m.status}]${taskType}${group}${role}${model}: ${summary}${activity}${peer}`;
+  return `  ${m.name} (${m.id}) ${m.kind} [${m.status}]${taskType}${group}${agent}${model}: ${summary}${activity}${peer}`;
 }
 
 function logInspect(
@@ -221,7 +222,7 @@ export function buildShowMinion(
   lines.push(`  Status: ${node.status}`);
   if (info.kind === "orchestrated") {
     lines.push(`  Group: ${node.groupId ?? "(none)"}`);
-    lines.push(`  Role: ${node.role ?? "(none)"}`);
+    lines.push(`  Agent: ${info.agent ?? "(none)"}`);
     lines.push(`  Task type: ${node.taskType ?? "(none)"}`);
     lines.push(`  Description: ${node.description ?? "(none)"}`);
     lines.push(`  Domain: ${formatDomain(node.domain)}`);

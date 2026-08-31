@@ -5,7 +5,13 @@ import { nudgeFor } from "../nudges.js";
 import { formatDuration } from "../render.js";
 import { NUDGE_EVENTS, type NudgeEvent } from "../task-types.js";
 import type { AgentTree } from "../tree.js";
-import type { AgentNode, AgentStatus, OrchestrationDomain, TaskType } from "../types.js";
+import {
+  type AgentNode,
+  type AgentStatus,
+  namedAgent,
+  type OrchestrationDomain,
+  type TaskType,
+} from "../types.js";
 import type { OrchestrationLifecycleEvent } from "./events.js";
 
 export const LIFECYCLE_PACKET_CUSTOM_TYPE = "minion-lifecycle";
@@ -18,7 +24,7 @@ const SEND_OPTIONS = { triggerTurn: true, deliverAs: "followUp" } as const;
 export interface ChangedChildPacket {
   childId: string;
   displayName: string;
-  role?: string;
+  agent?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
@@ -30,7 +36,7 @@ export interface ChangedChildPacket {
 
 export interface StillRunningChildPacket {
   childId: string;
-  role?: string;
+  agent?: string;
   taskType?: TaskType;
   description?: string;
   state: AgentStatus;
@@ -99,7 +105,7 @@ function foldEvents(events: OrchestrationLifecycleEvent[]): OrchestrationLifecyc
 }
 
 function stillRunningLine(child: StillRunningChildPacket): string[] {
-  const bits = [child.role, child.taskType].filter(Boolean);
+  const bits = [child.agent, child.taskType].filter(Boolean);
   const bracket = bits.length > 0 ? ` [${bits.join(" / ")}]` : "";
   const description = child.description ? ` ${child.description}` : "";
   const lines = [`- ${child.childId}${bracket}${description}`, `  state: ${child.state}`];
@@ -126,7 +132,7 @@ function overlapLine(notice: PathOverlapNotice): string[] {
 
 function formatChanged(child: ChangedChildPacket): string[] {
   const lines = [`- ${child.childId} ${child.eventClass}`, `  name: ${child.displayName}`];
-  if (child.role) lines.push(`  role: ${child.role}`);
+  if (child.agent) lines.push(`  agent: ${child.agent}`);
   if (child.taskType) lines.push(`  taskType: ${child.taskType}`);
   if (child.description) lines.push(`  description: ${child.description}`);
   if (child.domain) lines.push(`  domain: ${JSON.stringify(child.domain)}`);
@@ -190,7 +196,7 @@ export function formatLifecyclePacket(
 function toStillRunning(node: AgentNode, now: number): StillRunningChildPacket {
   return {
     childId: node.id,
-    role: node.role,
+    agent: namedAgent(node),
     taskType: node.taskType,
     description: node.description,
     state: node.status,
@@ -287,7 +293,7 @@ export class LifecyclePacketDispatcher {
       changed.push({
         childId: node.id,
         displayName: node.name,
-        role: node.role,
+        agent: namedAgent(node),
         taskType: node.taskType,
         description: node.description,
         domain: node.domain,

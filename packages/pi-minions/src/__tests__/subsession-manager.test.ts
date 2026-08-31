@@ -262,7 +262,7 @@ describe("SubsessionManager start/wait lifecycle", () => {
     expect(session.disposed).toBe(false);
   });
 
-  it("applies role thinking metadata before the child prompt starts", async () => {
+  it("applies agent thinking metadata before the child prompt starts", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
     const session = new FakeChildSession();
     const manager = createManager(session, cwd);
@@ -377,11 +377,12 @@ describe("SubsessionManager start/wait lifecycle", () => {
       }),
     });
 
+    const options = startOptions("child-orch", groupCwd);
     await live.startChild({
-      ...startOptions("child-orch", groupCwd),
+      ...options,
+      config: { ...options.config, name: "reviewer" },
       kind: "orchestrated",
       groupId: "grp-1",
-      role: "reviewer",
       taskType: "reviewImplementation",
       description: "Review registry",
       domain: { source: "adapter-x", workItemId: "ABC-123" },
@@ -390,6 +391,7 @@ describe("SubsessionManager start/wait lifecycle", () => {
     const written = JSON.parse(readFileSync(`${sessionPath}.minion-meta.json`, "utf-8")) as {
       kind?: string;
       groupId?: string;
+      agent?: string;
       role?: string;
       taskType?: string;
       description?: string;
@@ -400,12 +402,13 @@ describe("SubsessionManager start/wait lifecycle", () => {
         sessionId: "child-orch",
         kind: "orchestrated",
         groupId: "grp-1",
-        role: "reviewer",
+        agent: "reviewer",
         taskType: "reviewImplementation",
         description: "Review registry",
         domain: { source: "adapter-x", workItemId: "ABC-123" },
       }),
     );
+    expect(written).not.toHaveProperty("role");
 
     const rehydrated = new SubsessionManager(parentCwd, parentSessionPath);
     expect(rehydrated.list()).toEqual(
@@ -414,7 +417,7 @@ describe("SubsessionManager start/wait lifecycle", () => {
           sessionId: "child-orch",
           kind: "orchestrated",
           groupId: "grp-1",
-          role: "reviewer",
+          agent: "reviewer",
           taskType: "reviewImplementation",
           description: "Review registry",
           domain: { source: "adapter-x", workItemId: "ABC-123" },

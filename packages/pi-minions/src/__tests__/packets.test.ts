@@ -76,7 +76,7 @@ function addOrchestrated(
   opts: {
     name?: string;
     groupId?: string;
-    role?: string;
+    agentName?: string;
     taskType?: TaskType;
     description?: string;
     completionNudge?: string;
@@ -86,7 +86,7 @@ function addOrchestrated(
   const node = tree.add(id, opts.name ?? id, `task for ${id}`, {
     kind: "orchestrated",
     groupId: opts.groupId ?? "grp-1",
-    role: opts.role,
+    agentName: opts.agentName,
     taskType: opts.taskType,
     description: opts.description ?? `desc ${id}`,
     domain: { source: "beadwork", workItemId: id },
@@ -240,8 +240,13 @@ describe("idle coalescing", () => {
 describe("per-child nudges", () => {
   it("uses that child's taskType nudge when mixed taskTypes settle together", () => {
     const { tree, sendMessage, dispatcher, drain } = harness();
-    addOrchestrated(tree, "mn-fix", { taskType: "fix", description: "Fix the race" });
+    addOrchestrated(tree, "mn-fix", {
+      agentName: "worker",
+      taskType: "fix",
+      description: "Fix the race",
+    });
     addOrchestrated(tree, "mn-review", {
+      agentName: "investigate",
       taskType: "reviewImplementation",
       description: "Review auth",
     });
@@ -265,6 +270,12 @@ describe("per-child nudges", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     const sent = packetOf(sendMessage);
     const [fix, review] = sent.message.details.changed;
+    expect(fix?.agent).toBe("worker");
+    expect(review?.agent).toBe("investigate");
+    expect(fix).not.toHaveProperty("role");
+    expect(review).not.toHaveProperty("role");
+    expect(sent.message.content).toContain("agent: worker");
+    expect(sent.message.content).not.toMatch(/^\s*role:/m);
     expect(fix?.nudge).toBe(nudgeFor({ taskType: "fix" }, "settled"));
     expect(review?.nudge).toBe(nudgeFor({ taskType: "reviewImplementation" }, "settled"));
     expect(fix?.nudge).not.toBe(review?.nudge);

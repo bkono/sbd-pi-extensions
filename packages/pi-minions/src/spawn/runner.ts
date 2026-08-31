@@ -1,6 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "../agents.js";
+import { requireAgent } from "../agents.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate } from "../minions.js";
 import { formatToolCall } from "../render.js";
@@ -12,19 +12,7 @@ import type { AgentConfig } from "../types.js";
 import type { BatchCoordinator } from "./batch.js";
 
 function resolveAgentConfig(agentName: string, cwd: string): AgentConfig {
-  const { agents } = discoverAgents(cwd, "both");
-  const found = agents.find((a) => a.name === agentName);
-
-  if (!found) {
-    const available = agents.map((a) => a.name).join(", ") || "none";
-    logger.warn("spawn:tool", "agent not found", {
-      requested: agentName,
-      available,
-    });
-    throw new Error(`Agent "${agentName}" not found. Available: ${available}`);
-  }
-
-  return found;
+  return requireAgent(agentName, cwd);
 }
 
 function formatModelReference(model: Model<Api>): string {

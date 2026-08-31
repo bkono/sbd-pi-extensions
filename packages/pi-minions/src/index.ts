@@ -122,6 +122,8 @@ export default function (pi: ExtensionAPI): void {
       "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
       "Use spawn when you intend to wait for the minion to finish before continuing.",
       "description is required on every task. Do not omit it or infer it from task.",
+      "agent is a discovered agent/template name, same loader as spawn. Built-in worker and investigate are always available. Call list_agents if unsure.",
+      "taskType is a closed workflow-policy enum. Never collapse agent and taskType.",
       "Omit groupId to create the open group if none exists, otherwise join it. A second groupId is rejected.",
       "cwd is group-create only, must already exist, and cannot change later.",
     ],
@@ -144,7 +146,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "list_agents",
     label: "List Agents",
-    description: "List available agents that can be used as minion roles.",
+    description: "List available agents for spawn and orchestrate.",
     promptSnippet: "List available agents for spawn and orchestrate",
     parameters: ListAgentsParams,
     execute: listAgents(),
@@ -185,7 +187,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "list_minion_types",
     label: "List Minion Types",
-    description: "List available agent types that can be used as minion roles.",
+    description: "List available agent types for spawn and orchestrate.",
     promptSnippet: "List available minion types",
     parameters: ListAgentsParams,
     execute: listAgents(),
@@ -195,7 +197,7 @@ export default function (pi: ExtensionAPI): void {
     name: "list_minions",
     label: "List Minions",
     description:
-      "List spawn and orchestrated minions in the current session, including role, taskType, group, and last activity.",
+      "List spawn and orchestrated minions in the current session, including agent, taskType, group, and last activity.",
     promptSnippet: "List current spawn and orchestrated minions",
     promptGuidelines: [
       "Use list_minions to see who is running, spawn vs orchestrated, taskType, last said, and whether a peer message failed.",

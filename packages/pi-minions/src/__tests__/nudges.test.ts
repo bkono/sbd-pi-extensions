@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nudgeFor } from "../nudges.js";
 import { NUDGE_EVENTS, type NudgeEvent, TASK_TYPES, type TaskType } from "../task-types.js";
 
-const ROLE_NUDGE =
+const AGENT_NUDGE =
   "Assess the feedback against the task and project intent; do not accept findings mechanically.";
 
 function claimsChildSettled(nudge: string): boolean {
@@ -121,56 +121,56 @@ describe("nudgeFor table", () => {
 });
 
 describe("nudgeFor precedence", () => {
-  it("uses task-type policy and ignores role completion_nudge", () => {
+  it("uses task-type policy and ignores agent completion_nudge", () => {
     for (const taskType of TASK_TYPES) {
       for (const event of NUDGE_EVENTS) {
-        const withoutRole = nudgeFor({ taskType }, event);
-        const withRole = nudgeFor({ taskType, completionNudge: ROLE_NUDGE }, event);
+        const withoutAgent = nudgeFor({ taskType }, event);
+        const withAgent = nudgeFor({ taskType, completionNudge: AGENT_NUDGE }, event);
 
-        expect(withRole, `${taskType}/${event} ignored role`).toBe(withoutRole);
-        expect(withRole).not.toContain(ROLE_NUDGE);
-        expect(withRole.includes(withoutRole) && withRole.includes(ROLE_NUDGE)).toBe(false);
+        expect(withAgent, `${taskType}/${event} ignored agent`).toBe(withoutAgent);
+        expect(withAgent).not.toContain(AGENT_NUDGE);
+        expect(withAgent.includes(withoutAgent) && withAgent.includes(AGENT_NUDGE)).toBe(false);
       }
     }
 
-    const fixSettled = nudgeFor({ taskType: "fix", completionNudge: ROLE_NUDGE }, "settled");
+    const fixSettled = nudgeFor({ taskType: "fix", completionNudge: AGENT_NUDGE }, "settled");
     const reviewSettled = nudgeFor(
-      { taskType: "reviewImplementation", completionNudge: ROLE_NUDGE },
+      { taskType: "reviewImplementation", completionNudge: AGENT_NUDGE },
       "settled",
     );
     expect(fixSettled).not.toBe(reviewSettled);
   });
 
-  it("uses role completion_nudge for settled and failed when taskType is absent", () => {
-    expect(nudgeFor({ completionNudge: ROLE_NUDGE }, "settled")).toBe(ROLE_NUDGE);
-    expect(nudgeFor({ completionNudge: ROLE_NUDGE }, "failed")).toBe(ROLE_NUDGE);
+  it("uses agent completion_nudge for settled and failed when taskType is absent", () => {
+    expect(nudgeFor({ completionNudge: AGENT_NUDGE }, "settled")).toBe(AGENT_NUDGE);
+    expect(nudgeFor({ completionNudge: AGENT_NUDGE }, "failed")).toBe(AGENT_NUDGE);
   });
 
-  it("ignores role completion_nudge on parentMessage and aborted", () => {
-    const parentMessage = nudgeFor({ completionNudge: ROLE_NUDGE }, "parentMessage");
-    const aborted = nudgeFor({ completionNudge: ROLE_NUDGE }, "aborted");
+  it("ignores agent completion_nudge on parentMessage and aborted", () => {
+    const parentMessage = nudgeFor({ completionNudge: AGENT_NUDGE }, "parentMessage");
+    const aborted = nudgeFor({ completionNudge: AGENT_NUDGE }, "aborted");
 
     expect(parentMessage).toBe(nudgeFor({}, "parentMessage"));
     expect(aborted).toBe(nudgeFor({}, "aborted"));
-    expect(parentMessage).not.toContain(ROLE_NUDGE);
-    expect(aborted).not.toContain(ROLE_NUDGE);
+    expect(parentMessage).not.toContain(AGENT_NUDGE);
+    expect(aborted).not.toContain(AGENT_NUDGE);
     expect(claimsChildSettled(parentMessage)).toBe(false);
     expect(aborted).not.toBe(nudgeFor({}, "failed"));
   });
 
-  it("does not concatenate role guidance onto task-type or generic text", () => {
-    const typed = nudgeFor({ taskType: "implementation", completionNudge: ROLE_NUDGE }, "settled");
+  it("does not concatenate agent guidance onto task-type or generic text", () => {
+    const typed = nudgeFor({ taskType: "implementation", completionNudge: AGENT_NUDGE }, "settled");
     const genericSettled = nudgeFor({}, "settled");
-    const roleSettled = nudgeFor({ completionNudge: ROLE_NUDGE }, "settled");
+    const agentSettled = nudgeFor({ completionNudge: AGENT_NUDGE }, "settled");
 
     expect(typed).toBe(nudgeFor({ taskType: "implementation" }, "settled"));
-    expect(typed.endsWith(ROLE_NUDGE)).toBe(false);
-    expect(roleSettled).toBe(ROLE_NUDGE);
-    expect(roleSettled.startsWith(genericSettled)).toBe(false);
-    expect(`${genericSettled} ${ROLE_NUDGE}`).not.toBe(roleSettled);
+    expect(typed.endsWith(AGENT_NUDGE)).toBe(false);
+    expect(agentSettled).toBe(AGENT_NUDGE);
+    expect(agentSettled.startsWith(genericSettled)).toBe(false);
+    expect(`${genericSettled} ${AGENT_NUDGE}`).not.toBe(agentSettled);
   });
 
-  it("treats blank role completion_nudge as absent", () => {
+  it("treats blank agent completion_nudge as absent", () => {
     expect(nudgeFor({ completionNudge: "" }, "settled")).toBe(nudgeFor({}, "settled"));
     expect(nudgeFor({ completionNudge: "   " }, "failed")).toBe(nudgeFor({}, "failed"));
   });

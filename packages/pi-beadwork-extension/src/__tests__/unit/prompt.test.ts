@@ -270,12 +270,14 @@ describe("buildBeadworkPromptAppendix task types", () => {
       return;
     }
 
-    expect(text).toContain("Role (open string): how the child works (prompt/template).");
-    expect(text).toContain("Same loader as spawn `agent`.");
+    expect(text).toContain(
+      "Agent (discovered name): how the child works (prompt/template). Same field on spawn and orchestrate.",
+    );
+    expect(text).toContain("Call `list_agents` if unsure.");
     expect(text).toContain(
       "Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.",
     );
-    expect(text).toContain("Never collapse role and task type into one field.");
+    expect(text).toContain("Never collapse agent and task type into one field.");
     expect(text).toContain("Omit `taskType` for untyped research or exploration.");
 
     for (const taskType of GOAL_TASK_TYPES) {

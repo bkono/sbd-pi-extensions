@@ -19,7 +19,6 @@ export interface MinionSessionMetadata {
   error?: string;
   kind?: AgentKind;
   groupId?: string;
-  role?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
@@ -111,7 +110,6 @@ export interface CreateMinionSessionOptions {
   cwd: string;
   kind?: AgentKind;
   groupId?: string;
-  role?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;

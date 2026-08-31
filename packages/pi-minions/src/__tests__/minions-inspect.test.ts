@@ -33,7 +33,7 @@ function seedTree(): AgentTree {
   tree.add("mn-orch-a", "bravo", "implement the registry", {
     kind: "orchestrated",
     groupId: "grp-1",
-    role: "hard_problem_coder",
+    agentName: "hard_problem_coder",
     taskType: "implementation",
     description: "Registry refactor",
     domain: { source: "adapter-x", workItemId: "ABC-123" },
@@ -41,7 +41,7 @@ function seedTree(): AgentTree {
   tree.add("mn-orch-b", "charlie", "review the registry", {
     kind: "orchestrated",
     groupId: "grp-1",
-    role: "reviewer",
+    agentName: "reviewer",
     taskType: "reviewImplementation",
     description: "Review registry",
   });
@@ -147,7 +147,7 @@ describe("show_minion fields", () => {
     expect(info.kind).toBe("orchestrated");
     expect(info.groupId).toBe("grp-1");
     expect(info.status).toBe("running");
-    expect(info.role).toBe("hard_problem_coder");
+    expect(info.agent).toBe("hard_problem_coder");
     expect(info.taskType).toBe("implementation");
     expect(info.description).toBe("Registry refactor");
     expect(info.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });

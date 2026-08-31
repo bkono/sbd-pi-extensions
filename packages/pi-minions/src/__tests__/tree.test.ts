@@ -38,7 +38,7 @@ describe("AgentTree spawn default", () => {
     expect(node.task).toBe("Implement the registry refactor");
     expect(node.description).toBeUndefined();
     expect(node.groupId).toBeUndefined();
-    expect(node.role).toBeUndefined();
+    expect(node.agentName).toBe("ephemeral");
     expect(node.taskType).toBeUndefined();
     expect(node.domain).toBeUndefined();
     expect(node.agentName).toBe("ephemeral");
@@ -127,7 +127,7 @@ describe("AgentTree orchestrated group snapshot", () => {
 });
 
 describe("AgentTree orchestration metadata", () => {
-  it("round-trips role, taskType, description, and opaque domain without ticket parsing", () => {
+  it("round-trips agent, taskType, description, and opaque domain without ticket parsing", () => {
     const tree = new AgentTree();
     const domain: OrchestrationDomain = {
       source: "adapter-x",
@@ -138,7 +138,7 @@ describe("AgentTree orchestration metadata", () => {
     const node = tree.add("mn-orch", "alpha", "Implement the registry refactor in full", {
       kind: "orchestrated",
       groupId: "grp-1",
-      role: "hard_problem_coder",
+      agentName: "hard_problem_coder",
       taskType: "implementation",
       description: "Registry refactor",
       domain,
@@ -149,7 +149,7 @@ describe("AgentTree orchestration metadata", () => {
 
     expect(node.kind).toBe("orchestrated");
     expect(node.groupId).toBe("grp-1");
-    expect(node.role).toBe("hard_problem_coder");
+    expect(node.agentName).toBe("hard_problem_coder");
     expect(node.taskType).toBe("implementation");
     expect(node.description).toBe("Registry refactor");
     expect(node.description).not.toBe(node.task);
@@ -257,7 +257,6 @@ describe("rehydratePersistedMinion", () => {
         exitCode: 0,
         kind: "orchestrated",
         groupId: "grp-1",
-        role: "reviewer",
         taskType: "reviewImplementation",
         description: "Review registry",
         domain: { source: "adapter-x", workItemId: "ABC-123" },
@@ -268,7 +267,7 @@ describe("rehydratePersistedMinion", () => {
     const node = tree.get("mn-orch");
     expect(node?.kind).toBe("orchestrated");
     expect(node?.groupId).toBe("grp-1");
-    expect(node?.role).toBe("reviewer");
+    expect(node?.agentName).toBe("reviewer");
     expect(node?.taskType).toBe("reviewImplementation");
     expect(node?.description).toBe("Review registry");
     expect(node?.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
@@ -286,11 +285,10 @@ describe("rehydratePersistedMinion", () => {
         sessionId: "mn-live-orch",
         name: "alpha",
         task: "old work",
-        agent: "ephemeral",
+        agent: "reviewer",
         status: "running",
         kind: "orchestrated",
         groupId: "grp-1",
-        role: "reviewer",
         taskType: "reviewImplementation",
         description: "Review registry",
         domain: { source: "adapter-x", workItemId: "ABC-123" },
@@ -303,7 +301,7 @@ describe("rehydratePersistedMinion", () => {
     expect(node?.error).toBe(PARENT_SESSION_RESTARTED);
     expect(node?.kind).toBe("orchestrated");
     expect(node?.groupId).toBe("grp-1");
-    expect(node?.role).toBe("reviewer");
+    expect(node?.agentName).toBe("reviewer");
     expect(node?.taskType).toBe("reviewImplementation");
     expect(node?.description).toBe("Review registry");
     expect(node?.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
@@ -325,7 +323,7 @@ describe("AgentTree add logging", () => {
     tree.add("mn-orch", "bravo", "child prompt", {
       kind: "orchestrated",
       groupId: "grp-1",
-      role: "reviewer",
+      agentName: "reviewer",
       taskType: "reviewImplementation",
       description: "Review registry",
     });

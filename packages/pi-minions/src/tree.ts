@@ -27,7 +27,6 @@ export interface RehydratableMinionMetadata {
   error?: string;
   kind?: AgentKind;
   groupId?: string;
-  role?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
@@ -48,7 +47,6 @@ export function rehydratePersistedMinion(
     agentName: metadata.agent,
     kind: metadata.kind,
     groupId: metadata.groupId,
-    role: metadata.role,
     taskType: metadata.taskType,
     description: metadata.description,
     domain: metadata.domain,
@@ -67,7 +65,6 @@ export interface AddAgentOptions {
   model?: string;
   kind?: AgentKind;
   groupId?: string;
-  role?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
@@ -125,7 +122,6 @@ export class AgentTree {
       startTime: Date.now(),
       kind,
       groupId: options.groupId,
-      role: options.role,
       taskType: options.taskType,
       description: options.description,
       domain: options.domain,

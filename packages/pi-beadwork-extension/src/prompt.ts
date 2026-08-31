@@ -124,13 +124,13 @@ function renderInterruptedRunGuidance(): string[] {
   ];
 }
 
-function renderRoleVsTaskType(): string {
+function renderAgentVsTaskType(): string {
   return [
-    "## Role vs task type",
+    "## Agent vs task type",
     "",
-    "Role (open string): how the child works (prompt/template). Same loader as spawn `agent`.",
+    "Agent (discovered name): how the child works (prompt/template). Same field on spawn and orchestrate. Call `list_agents` if unsure. Built-in `worker` and `investigate` are always available.",
     "Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.",
-    "Optional on untyped work. Never collapse role and task type into one field.",
+    "Optional on untyped work. Never collapse agent and task type into one field.",
   ].join("\n");
 }
 
@@ -254,7 +254,7 @@ export function buildBeadworkPromptAppendix(input: {
     "[BEADWORK SESSION ACTIVE]",
     renderModeGuidance(sessionState.mode).join("\n"),
     `Current scope: ${scopeLine}`,
-    renderRoleVsTaskType(),
+    renderAgentVsTaskType(),
     renderTaskTypePolicy(),
     renderReviewPolicy(reviewPolicy),
     renderChildTaskComposition(),

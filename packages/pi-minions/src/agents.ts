@@ -2,8 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { BUILTIN_AGENTS } from "./builtin-agents.js";
 import { logger } from "./logger.js";
 import type { AgentConfig, AgentSource, ThinkingLevel } from "./types.js";
+
+export { BUILTIN_AGENTS } from "./builtin-agents.js";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>([
   "off",
@@ -136,17 +139,58 @@ function findProjectDir(cwd: string, ...subpath: string[]): string | null {
   }
 }
 
+/** Later layers win. Discovery order is builtin < user < project. */
+export function mergeAgentLayers(...layers: AgentConfig[][]): AgentConfig[] {
+  const agentMap = new Map<string, AgentConfig>();
+  for (const layer of layers) {
+    for (const agent of layer) agentMap.set(agent.name, agent);
+  }
+  return Array.from(agentMap.values());
+}
+
+export interface DiscoverAgentsOptions {
+  agentDir?: string;
+  homeDir?: string;
+}
+
+export function unknownAgentMessage(name: string): string {
+  return `Unknown agent "${name}". Call list_agents to see discovered agent names.`;
+}
+
+export function findAgent(
+  name: string,
+  cwd: string,
+  options?: DiscoverAgentsOptions,
+): AgentConfig | undefined {
+  return discoverAgents(cwd, "both", options).agents.find((agent) => agent.name === name);
+}
+
+export function requireAgent(
+  name: string,
+  cwd: string,
+  options?: DiscoverAgentsOptions,
+): AgentConfig {
+  const found = findAgent(name, cwd, options);
+  if (!found) {
+    logger.warn("agents", "agent not found", { requested: name });
+    throw new Error(unknownAgentMessage(name));
+  }
+  return found;
+}
+
 export function discoverAgents(
   cwd: string,
   scope: "user" | "project" | "both",
+  options: DiscoverAgentsOptions = {},
 ): { agents: AgentConfig[]; projectAgentsDir: string | null } {
-  const agentDir = getAgentDir();
+  const agentDir = options.agentDir ?? getAgentDir();
+  const home = options.homeDir ?? homedir();
 
   // Global dirs: ~/.pi/agent/agents/, ~/.pi/agent/minions/, ~/.agents/agents/, ~/.agents/minions/
   const userDir = join(agentDir, "agents");
   const minionsDir = join(agentDir, "minions");
-  const dotAgentsUserDir = join(homedir(), ".agents", "agents");
-  const dotMinionsUserDir = join(homedir(), ".agents", "minions");
+  const dotAgentsUserDir = join(home, ".agents", "agents");
+  const dotMinionsUserDir = join(home, ".agents", "minions");
 
   // Project dirs: .pi/agents/, .agents/agents/ (walk up to git root)
   const piProjectDir = findProjectDir(cwd, ".pi", "agents");
@@ -175,12 +219,10 @@ export function discoverAgents(
       projectAgents.push(...loadAgentsFromDir(dotMinionsProjectDir, "project"));
   }
 
-  // Build map: project overrides user on same name
-  const agentMap = new Map<string, AgentConfig>();
-  for (const a of userAgents) agentMap.set(a.name, a);
-  for (const a of projectAgents) agentMap.set(a.name, a);
-
   const projectAgentsDir =
     piProjectDir ?? piMinionsProjectDir ?? dotAgentsProjectDir ?? dotMinionsProjectDir;
-  return { agents: Array.from(agentMap.values()), projectAgentsDir };
+  return {
+    agents: mergeAgentLayers([...BUILTIN_AGENTS], userAgents, projectAgents),
+    projectAgentsDir,
+  };
 }

@@ -25,7 +25,7 @@ on tui. Beadwork injects the goal prompt; this package owns live child sessions.
 | `spawn` | One foreground minion, or `tasks` for parallel foreground minions. **Blocks.** |
 | `orchestrate` | Register background work. Returns `{ groupId, accepted, rejected }`. `accepted[].state` is `"starting"` — registered, not liveness. |
 | `list_agents` / `list_minion_types` | Discover named agent/minion definitions. |
-| `list_minions` / `show_minion` | Inspect spawn and orchestrated state (role, taskType, group, output, messages, path intent). |
+| `list_minions` / `show_minion` | Inspect spawn and orchestrated state (agent, taskType, group, output, messages, path intent). |
 | `halt` | Abort one minion, an orchestration group, or all. Halt group forgets the open group. Also `/halt <id\|name\|group\|all>`. |
 | `learn_minions` | Concise usage guidance. |
 
@@ -42,9 +42,12 @@ Each orchestrated task needs:
 
 - `task` — complete child prompt. The caller supplies it; minions does not wrap it.
 - `description` — required short fleet-readable summary. Do not infer from `task`.
-- optional `role` — open agent/template name (same loader as spawn `agent`)
+- optional `agent` — discovered agent/template name (same loader as spawn). Built-in
+  `worker` and `investigate` are always available; user/project definitions override them.
+  Call `list_agents` if unsure. Not a closed enum.
 - optional `taskType` — closed: `implementation`, `fix`, `reviewImplementation`,
   `reviewScope`, `investigateBlocker`. Selects parent nudge text. Omit for untyped work.
+  Never collapse agent and taskType.
 - optional `model`
 - optional `domain` — opaque `{ source, scopeId, workItemId, title }`. Minions stores and
   echoes; it does not interpret tickets. Beadwork uses `source: "beadwork"`.

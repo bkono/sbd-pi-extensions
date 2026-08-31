@@ -68,6 +68,7 @@ async function startAndImplement(input: {
       {
         task: input.task,
         description: input.description,
+        agent: "worker",
         taskType: "implementation",
         domain: {
           source: "beadwork",
@@ -258,6 +259,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
             {
               task: scopeReviewTask,
               description: "Aggregate scope review",
+              agent: "worker",
               taskType: "reviewScope",
               domain: {
                 source: "beadwork",
@@ -314,6 +316,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
             {
               task: `Remediate the blocking finding on ${parentTicket.id} commit ${parentWork.commit}. Do not close tickets.`,
               description: "Fix scope-review finding",
+              agent: "worker",
               taskType: "fix",
               domain: {
                 source: "beadwork",
@@ -358,6 +361,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
             {
               task: reReviewTask,
               description: "Aggregate scope re-review",
+              agent: "worker",
               taskType: "reviewScope",
               domain: {
                 source: "beadwork",

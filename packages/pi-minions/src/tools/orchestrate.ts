@@ -4,7 +4,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "../agents.js";
+import { findAgent, unknownAgentMessage } from "../agents.js";
 import { getConfig, type ResolvedConfig } from "../config.js";
 import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
@@ -40,7 +40,7 @@ export const ORCHESTRATE_REJECT_REASONS = {
   missingTask: "missing task",
   unknownTaskType: "unknown taskType",
   duplicateWorkItemId: "duplicate workItemId",
-  unknownRole: "unknown role",
+  unknownAgent: "unknown agent",
   unknownModel: "unknown model",
   ephemeralDisabled: "ephemeral minions are disabled",
   registrationAborted: "registration aborted",
@@ -119,16 +119,15 @@ function resolveModelReference(
   throw new Error(ORCHESTRATE_REJECT_REASONS.unknownModel);
 }
 
-function resolveRoleConfig(
-  role: string | undefined,
+function resolveAgentConfig(
+  agent: string | undefined,
   name: string,
   model: string | undefined,
   cwd: string,
-): AgentConfig | { reject: OrchestrateRejectReason } {
-  if (!role) return defaultMinionTemplate(name, { model });
-  const { agents } = discoverAgents(cwd, "both");
-  const found = agents.find((a) => a.name === role);
-  if (!found) return { reject: ORCHESTRATE_REJECT_REASONS.unknownRole };
+): AgentConfig | { reject: string } {
+  if (!agent) return defaultMinionTemplate(name, { model });
+  const found = findAgent(agent, cwd);
+  if (!found) return { reject: unknownAgentMessage(agent) };
   return found;
 }
 
@@ -221,7 +220,6 @@ function startRegisteredChild(
       cwd: group.cwd,
       kind: "orchestrated",
       groupId: group.groupId,
-      role: task.role,
       taskType: task.taskType,
       description: task.description,
       domain: task.domain,
@@ -394,15 +392,15 @@ export function orchestrate(deps: OrchestrateDeps) {
         }
       }
 
-      const role = optionalString(spec.role);
-      if (!role && !piConfig.allowEphemeral) {
+      const agent = optionalString(spec.agent);
+      if (!agent && !piConfig.allowEphemeral) {
         rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.ephemeralDisabled });
         continue;
       }
 
       const id = generateId();
-      const name = pickMinionName(tree, id, ctx, role, assignedNames);
-      const config = resolveRoleConfig(role, name, optionalString(spec.model), resolved.cwd);
+      const name = pickMinionName(tree, id, ctx, agent, assignedNames);
+      const config = resolveAgentConfig(agent, name, optionalString(spec.model), resolved.cwd);
       if ("reject" in config) {
         rejected.push({ index, reason: config.reject });
         continue;
@@ -422,7 +420,7 @@ export function orchestrate(deps: OrchestrateDeps) {
       const descriptor: OrchestratedTaskDescriptor = {
         task,
         description,
-        role,
+        agent,
         taskType: spec.taskType,
         model: optionalString(spec.model),
         domain: spec.domain,
@@ -431,11 +429,10 @@ export function orchestrate(deps: OrchestrateDeps) {
       tree.add(id, name, task, {
         kind: "orchestrated",
         groupId: resolved.groupId,
-        role,
         taskType: descriptor.taskType,
         description,
         domain: spec.domain,
-        agentName: role ?? "ephemeral",
+        agentName: agent ?? "ephemeral",
         model: descriptor.model ?? (parentModel ? formatModelReference(parentModel) : undefined),
         completionNudge: config.completionNudge,
       });

@@ -2,7 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadAgentsFromDir } from "../agents.js";
+import {
+  BUILTIN_AGENTS,
+  discoverAgents,
+  findAgent,
+  loadAgentsFromDir,
+  mergeAgentLayers,
+  unknownAgentMessage,
+} from "../agents.js";
 import { logger } from "../logger.js";
 import type { AgentConfig } from "../types.js";
 
@@ -146,5 +153,117 @@ describe("agent frontmatter completion_nudge", () => {
       completionNudgePresent: true,
       completionNudgeLength: COMPLETION_NUDGE_MAX_LENGTH,
     });
+  });
+});
+
+describe("builtin agents", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function isolatedCwd(): string {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-builtin-"));
+    dirs.push(cwd);
+    return cwd;
+  }
+
+  it("exposes worker and investigate without filesystem setup", () => {
+    expect(BUILTIN_AGENTS.map((a) => a.name).sort()).toEqual(["investigate", "worker"]);
+    expect(BUILTIN_AGENTS.every((a) => a.source === "builtin")).toBe(true);
+    expect(BUILTIN_AGENTS.every((a) => a.filePath === "")).toBe(true);
+    expect(BUILTIN_AGENTS.every((a) => a.model === undefined)).toBe(true);
+
+    const emptyHome = isolatedCwd();
+    const emptyAgentDir = isolatedCwd();
+    const cwd = isolatedCwd();
+    const { agents } = discoverAgents(cwd, "both", {
+      agentDir: emptyAgentDir,
+      homeDir: emptyHome,
+    });
+    const worker = agents.find((a) => a.name === "worker");
+    const investigate = agents.find((a) => a.name === "investigate");
+    expect(worker?.source).toBe("builtin");
+    expect(worker?.thinking).toBe("medium");
+    expect(investigate?.source).toBe("builtin");
+    expect(investigate?.thinking).toBe("high");
+  });
+
+  it("uses project then user then builtin precedence", () => {
+    const builtinWorker = BUILTIN_AGENTS.find((a) => a.name === "worker");
+    if (!builtinWorker) throw new Error("missing builtin worker");
+    const userWorker: AgentConfig = {
+      ...builtinWorker,
+      description: "user worker",
+      source: "user",
+      filePath: "/user/worker.md",
+    };
+    const projectWorker: AgentConfig = {
+      ...builtinWorker,
+      description: "project worker",
+      source: "project",
+      filePath: "/project/worker.md",
+    };
+
+    expect(
+      mergeAgentLayers([...BUILTIN_AGENTS], [userWorker]).find((a) => a.name === "worker")?.source,
+    ).toBe("user");
+    expect(
+      mergeAgentLayers([...BUILTIN_AGENTS], [userWorker], [projectWorker]).find(
+        (a) => a.name === "worker",
+      )?.source,
+    ).toBe("project");
+
+    const emptyHome = isolatedCwd();
+    const emptyAgentDir = isolatedCwd();
+    const cwd = isolatedCwd();
+    mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".pi", "agents", "worker.md"),
+      [
+        "---",
+        "name: worker",
+        "description: project override",
+        "---",
+        "Project worker prompt.",
+      ].join("\n"),
+    );
+    const found = findAgent("worker", cwd, { agentDir: emptyAgentDir, homeDir: emptyHome });
+    expect(found?.source).toBe("project");
+    expect(found?.description).toBe("project override");
+    expect(found?.systemPrompt).toContain("Project worker prompt.");
+  });
+
+  it("keeps worker implementation-oriented and investigate mutation-gated", () => {
+    const worker = BUILTIN_AGENTS.find((a) => a.name === "worker");
+    const investigate = BUILTIN_AGENTS.find((a) => a.name === "investigate");
+    if (!worker || !investigate) throw new Error("missing builtins");
+
+    expect(worker.systemPrompt).toMatch(/implement the assigned task end to end/i);
+    expect(worker.systemPrompt).toMatch(/follow existing repository patterns/i);
+    expect(worker.systemPrompt).toMatch(/unrelated cleanup/i);
+    expect(worker.systemPrompt).toMatch(/## Validation/);
+    expect(worker.systemPrompt).toMatch(/## Risks/);
+    expect(worker.systemPrompt).not.toMatch(/do not modify project files/i);
+
+    expect(investigate.systemPrompt).toMatch(
+      /do not modify project files unless the complete task explicitly requests implementation/i,
+    );
+    expect(investigate.systemPrompt).toMatch(
+      /do not silently turn investigation into implementation/i,
+    );
+    expect(investigate.systemPrompt).toMatch(/## Evidence/);
+    expect(investigate.systemPrompt).toMatch(/## Uncertainty/);
+    expect(investigate.systemPrompt).not.toMatch(/implement the assigned task end to end/i);
+  });
+
+  it("names the unknown agent and points at list_agents, not taskType", () => {
+    const message = unknownAgentMessage("not-a-real-agent");
+    expect(message).toContain('"not-a-real-agent"');
+    expect(message).toContain("list_agents");
+    expect(message.toLowerCase()).not.toContain("tasktype");
+    expect(message).not.toContain("implementation");
+    expect(message).not.toContain("investigateBlocker");
   });
 });

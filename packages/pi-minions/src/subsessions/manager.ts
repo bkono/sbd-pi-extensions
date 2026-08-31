@@ -255,7 +255,6 @@ export class SubsessionManager {
       status: "running",
       kind: options.kind,
       groupId: options.groupId,
-      role: options.role,
       taskType: options.taskType,
       description: options.description,
       domain: options.domain,

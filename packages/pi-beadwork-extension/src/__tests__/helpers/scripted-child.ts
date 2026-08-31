@@ -28,6 +28,7 @@ export class ScriptedChildSession implements ChildSession {
   aborted = false;
   promptCalls = 0;
   lastPrompt: string | undefined;
+  thinkingLevel: string | undefined;
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
   followUps: string[] = [];
@@ -46,6 +47,10 @@ export class ScriptedChildSession implements ChildSession {
   }
 
   async bindExtensions(): Promise<void> {}
+
+  setThinkingLevel(level: string): void {
+    this.thinkingLevel = level;
+  }
 
   setActiveToolsByName(toolNames: string[]): void {
     this.active = new Set(toolNames.filter((name) => this.tools.has(name)));

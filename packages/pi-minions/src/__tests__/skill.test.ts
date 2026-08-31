@@ -10,7 +10,11 @@ describe("minions skill", () => {
     expect(skill).toContain("Use `orchestrate` for background work");
     expect(skill).toContain("Persistent hosts only");
     expect(skill).toContain("`description`");
+    expect(skill).toContain("`agent`");
     expect(skill).toContain("`taskType`");
+    expect(skill).toContain("`worker`");
+    expect(skill).toContain("`investigate`");
+    expect(skill).not.toContain("`role`");
     expect(skill).toContain("send_minion_message");
     expect(skill).toContain("Halt does not exit Beadwork goal mode");
     expect(skill).toContain("Live detach is not available");

@@ -11,7 +11,7 @@ import {
 import { logger } from "../logger.js";
 import { generateId } from "../minions.js";
 import type { AgentTree } from "../tree.js";
-import type { AgentKind, AgentStatus, MinionMessage } from "../types.js";
+import { type AgentKind, type AgentStatus, type MinionMessage, namedAgent } from "../types.js";
 import type { OrchestrationGroupState } from "./group-state.js";
 
 /** Bound child send target for the parent session. Not a child id. */
@@ -111,7 +111,7 @@ export type InspectMinionPathsParams = Static<typeof InspectMinionPathsParams>;
 
 export interface MinionPeerInfo {
   id: string;
-  role?: string;
+  agent?: string;
   taskType?: string;
   description?: string;
   state: AgentStatus | "parent";
@@ -489,7 +489,6 @@ export interface InjectedCommTools {
 function parentPeer(): MinionPeerInfo {
   return {
     id: PARENT_RECIPIENT_ID,
-    role: "parent",
     description: "Parent session",
     state: "parent",
   };
@@ -497,14 +496,14 @@ function parentPeer(): MinionPeerInfo {
 
 function peerFromNode(node: {
   id: string;
-  role?: string;
+  agentName?: string;
   taskType?: string;
   description?: string;
   status: AgentStatus;
 }): MinionPeerInfo {
   return {
     id: node.id,
-    role: node.role,
+    agent: namedAgent(node),
     taskType: node.taskType,
     description: node.description,
     state: node.status,
@@ -516,10 +515,10 @@ function formatPeerList(details: ListMinionPeersDetails): string {
     `Group ${details.groupId} (you are ${details.selfId}): ${details.peers.length} peer(s).`,
   ];
   for (const peer of details.peers) {
-    const role = peer.role ? ` role=${peer.role}` : "";
+    const agent = peer.agent ? ` agent=${peer.agent}` : "";
     const taskType = peer.taskType ? ` taskType=${peer.taskType}` : "";
     const description = peer.description ? `: ${peer.description}` : "";
-    lines.push(`- ${peer.id} [${peer.state}]${role}${taskType}${description}`);
+    lines.push(`- ${peer.id} [${peer.state}]${agent}${taskType}${description}`);
   }
   return lines.join("\n");
 }
@@ -530,7 +529,7 @@ function createListMinionPeersTool(input: CommInjectInput): ToolDefinition {
     name: LIST_MINION_PEERS_TOOL,
     label: "List Minion Peers",
     description:
-      "List members of this orchestration group (id, role, taskType, description, state), including the parent.",
+      "List members of this orchestration group (id, agent, taskType, description, state), including the parent.",
     promptSnippet: "List live and recent peers in this orchestration group",
     promptGuidelines: [
       "Use list_minion_peers to see who else is in the group before sending a message.",

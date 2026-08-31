@@ -11,7 +11,7 @@ export const TASK_TYPES = [
 
 export type TaskType = (typeof TASK_TYPES)[number];
 
-/** Provider-visible closed list. Role remains an open string elsewhere. */
+/** Provider-visible closed list. Agent selection is a separate discovered-name field. */
 export const TaskTypeSchema = Type.Enum(TASK_TYPES, {
   type: "string",
   description:
