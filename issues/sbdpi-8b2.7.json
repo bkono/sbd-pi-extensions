@@ -1,7 +1,8 @@
 {
   "assignee": "unknown",
   "blocked_by": [
-    "sbdpi-8b2.6"
+    "sbdpi-8b2.6",
+    "sbdpi-8b2.9"
   ],
   "blocks": [],
   "created": "2026-08-30T23:41:06Z",
@@ -36,5 +37,5 @@
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T18:31:34Z"
+  "updated_at": "2026-08-31T19:22:28Z"
 }
