@@ -22,11 +22,15 @@
     {
       "text": "Implementation landed as f29d5466c00483a88069a577c9208ce56b8ff3bd. Deleted supervisor run options/summaries/tracked workers, stale dashboard presentation, attribution implementation/export/tests, and superseded current-branch/tmux docs. Old persisted fields are dropped and not reserialized. Scoped lint/typecheck/build and 260 tests passed. Awaiting independent exact-commit review before closure.",
       "timestamp": "2026-08-31T19:43:52Z"
+    },
+    {
+      "text": "Independent re-review PASS after f29d5466 and surgical fix e79901d8. Confirmed no workerStatusStyle, supervisor types/state/serialization/TUI, attribution/current-branch/tmux surfaces, or positive zombie tests remain; negative migration rejection guards remain intentionally. Package lint/typecheck/build and isolated 249 tests pass. Cross-package E2E deferred to integration because concurrent pi-minions work was active.",
+      "timestamp": "2026-08-31T20:00:31Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Delete superseded Beadwork supervisor-era state and attribution surfaces",
   "type": "task",
-  "updated_at": "2026-08-31T19:43:52Z"
+  "updated_at": "2026-08-31T20:00:31Z"
 }
