@@ -153,6 +153,18 @@ export interface DiscoverAgentsOptions {
   homeDir?: string;
 }
 
+/** Test seam. Production leaves this unset so discovery uses getAgentDir()/homedir(). */
+let injectedDiscovery: DiscoverAgentsOptions | undefined;
+
+/** Pin discovery roots; returns a restorer. Nested installs restore the previous value. */
+export function installDiscoverAgentsOptions(options: DiscoverAgentsOptions): () => void {
+  const previous = injectedDiscovery;
+  injectedDiscovery = options;
+  return () => {
+    injectedDiscovery = previous;
+  };
+}
+
 export function unknownAgentMessage(name: string): string {
   return `Unknown agent "${name}". Call list_agents to see discovered agent names.`;
 }
@@ -183,8 +195,8 @@ export function discoverAgents(
   scope: "user" | "project" | "both",
   options: DiscoverAgentsOptions = {},
 ): { agents: AgentConfig[]; projectAgentsDir: string | null } {
-  const agentDir = options.agentDir ?? getAgentDir();
-  const home = options.homeDir ?? homedir();
+  const agentDir = options.agentDir ?? injectedDiscovery?.agentDir ?? getAgentDir();
+  const home = options.homeDir ?? injectedDiscovery?.homeDir ?? homedir();
 
   // Global dirs: ~/.pi/agent/agents/, ~/.pi/agent/minions/, ~/.agents/agents/, ~/.agents/minions/
   const userDir = join(agentDir, "agents");
