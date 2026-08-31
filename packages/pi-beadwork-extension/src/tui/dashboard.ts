@@ -200,7 +200,6 @@ class DashboardComponent implements Component {
         onEngageRepoWide: this.wrapSnapshotHook(deps.issueExplorer.onEngageRepoWide),
         onScopeSelection: this.wrapIssueSnapshotHook(deps.issueExplorer.onScopeSelection),
         onClearScope: this.wrapSnapshotHook(deps.issueExplorer.onClearScope),
-        onDelegateIntent: this.wrapIssueSnapshotHook(deps.issueExplorer.onDelegateIntent),
         onRunIntent: this.wrapIssueSnapshotHook(deps.issueExplorer.onRunIntent),
       });
       void this.issueExplorer.initialize();

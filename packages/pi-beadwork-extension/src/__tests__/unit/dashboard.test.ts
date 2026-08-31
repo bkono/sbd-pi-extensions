@@ -127,61 +127,7 @@ describe("dashboard", () => {
     expect(rendered).not.toMatch(/\bl land\b/);
     expect(rendered).not.toMatch(/\bu cleanup\b/);
     expect(rendered).not.toContain("workers 1");
-  });
-
-  it("applies issue follow-up snapshots without a fleet table", async () => {
-    const ticket = createIssue({
-      id: "BW-101",
-      title: "Delegable ticket",
-      parentId: "BW-100",
-    });
-    const ticketDetail = createDetail(ticket);
-    const dataSource: IssueExplorerDataSource = {
-      loadLevel: vi.fn().mockResolvedValue({ items: [ticket], currentDetail: undefined }),
-      loadDetail: vi.fn().mockResolvedValue(ticketDetail),
-    };
-    const onDelegateIntent = vi.fn().mockResolvedValue(
-      createSnapshot({
-        state: createState(),
-        counts: { ready: 0, blocked: 0, inProgress: 1, scopedReady: 0 },
-      }),
-    );
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: "/repo",
-      ui,
-      sessionId: "dashboard-delegate-refresh",
-    });
-
-    await openBeadworkDashboard(ctx, createModel({ defaultTab: "issues" }), {
-      issueExplorer: {
-        dataSource,
-        onDelegateIntent,
-      },
-    });
-    await flushAsyncWork();
-
-    const dashboard = ui.customCalls[0]?.component as {
-      handleInput: (data: string) => void;
-      render: (width: number) => string[];
-      selectedTabIndex?: number;
-      invalidate?: () => void;
-    };
-    dashboard.handleInput("d");
-    await flushAsyncWork();
-
-    const issuesRendered = renderComponent(dashboard);
-    expect(onDelegateIntent).toHaveBeenCalledWith(ticketDetail);
-    expect(issuesRendered).toContain("ready 0 · blocked 0 · in progress 1");
-    expect(issuesRendered).not.toContain("workers 1 · active 1");
-    expect(issuesRendered).not.toContain("○ Workers");
-
-    selectTab(dashboard, "run");
-    const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Goal mode: inactive");
-    expect(runRendered).not.toContain("Tracked workers:");
-    expect(runRendered).not.toContain("Delegable ticket");
-    expect(runRendered).not.toMatch(/\bl land\b/);
+    expect(rendered).not.toMatch(/\bd delegate\b/);
   });
 
   it("renders only current goal-mode policy with no minion rows", async () => {

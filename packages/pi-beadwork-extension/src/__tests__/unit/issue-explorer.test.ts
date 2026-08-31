@@ -135,7 +135,7 @@ describe("issue explorer", () => {
     expect(controller.currentBreadcrumb).toEqual([{ kind: "repo" }]);
   });
 
-  it("supports repo engage, scope retargeting, scope clearing, and launch intents", async () => {
+  it("supports repo engage, scope retargeting, scope clearing, and run intents", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Scoped epic" });
     const ticket = createIssue({ id: "BW-100.1", title: "Child ticket", parentId: "BW-100" });
     const epicDetail = createDetail({ ...epic, description: "Epic body" }, [ticket]);
@@ -157,7 +157,6 @@ describe("issue explorer", () => {
       state: createState({ mode: "interactive", scope: { kind: "none" } }),
     });
     const onRunIntent = vi.fn().mockResolvedValue(undefined);
-    const onDelegateIntent = vi.fn().mockResolvedValue(undefined);
 
     const controller = new IssueExplorerController({
       dataSource: {
@@ -178,20 +177,17 @@ describe("issue explorer", () => {
       onScopeSelection,
       onClearScope,
       onRunIntent,
-      onDelegateIntent,
     });
 
     await controller.initialize();
     await controller.engageRepoWide();
     await controller.requestRunIntent();
     await controller.drillIn();
-    await controller.requestDelegateIntent();
     await controller.scopeSelection();
     await controller.clearScope();
 
     expect(onEngageRepoWide).toHaveBeenCalledTimes(1);
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
-    expect(onDelegateIntent).toHaveBeenCalledWith(ticketDetail);
     expect(onScopeSelection).toHaveBeenCalledWith(ticketDetail);
     expect(onClearScope).toHaveBeenCalledTimes(1);
 
@@ -199,7 +195,7 @@ describe("issue explorer", () => {
     expect(rendered).toContain("interactive · repo-wide");
   });
 
-  it("does not advertise or consume d unless onDelegateIntent is wired", async () => {
+  it("does not advertise or consume the removed delegate shortcut", async () => {
     const ticket = createIssue({ id: "BW-101", title: "Ready task" });
     const controller = new IssueExplorerController({
       dataSource: {

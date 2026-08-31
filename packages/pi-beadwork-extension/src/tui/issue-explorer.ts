@@ -42,7 +42,6 @@ export type IssueExplorerHooks = {
   onEngageRepoWide?: () => Promise<DashboardStatusSnapshot | undefined>;
   onScopeSelection?: (issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>;
   onClearScope?: () => Promise<DashboardStatusSnapshot | undefined>;
-  onDelegateIntent?: (issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>;
   onRunIntent?: (issue: BeadworkIssueDetail) => Promise<DashboardStatusSnapshot | undefined>;
   onNotify?: (message: string, level?: "info" | "warning") => void;
 };
@@ -64,10 +63,6 @@ function describeScope(theme: Theme, state: SessionState): string {
 
 function isEpic(issue: BeadworkIssue | BeadworkIssueDetail | undefined): boolean {
   return issue?.type === "epic";
-}
-
-function isTicket(issue: BeadworkIssue | BeadworkIssueDetail | undefined): boolean {
-  return Boolean(issue && issue.type !== "epic");
 }
 
 function asBreadcrumb(issue: BeadworkIssue | BeadworkIssueDetail): IssueExplorerBreadcrumb {
@@ -103,18 +98,11 @@ function resolveVisibleWindow(
   };
 }
 
-function buildSelectionHint(
-  selected: BeadworkIssueDetail | undefined,
-  options: { canDelegate?: boolean } = {},
-): string {
+function buildSelectionHint(selected: BeadworkIssueDetail | undefined): string {
   if (!selected) {
     return "s scope • enter drill • h back • f filter";
   }
-  const action = isEpic(selected)
-    ? "r run epic"
-    : options.canDelegate
-      ? "d delegate ticket"
-      : undefined;
+  const action = isEpic(selected) ? "r run epic" : undefined;
   return ["enter drill", "h back", "f filter", "s scope", action, "x clear"]
     .filter((part): part is string => Boolean(part))
     .join(" • ");
@@ -142,7 +130,6 @@ export class IssueExplorerController {
       onEngageRepoWide: input.onEngageRepoWide,
       onScopeSelection: input.onScopeSelection,
       onClearScope: input.onClearScope,
-      onDelegateIntent: input.onDelegateIntent,
       onRunIntent: input.onRunIntent,
       onNotify: input.onNotify,
     };
@@ -221,11 +208,6 @@ export class IssueExplorerController {
       return true;
     }
 
-    if (this.hooks.onDelegateIntent && matchesKey(data, "d")) {
-      void this.requestDelegateIntent();
-      return true;
-    }
-
     if (matchesKey(data, "r")) {
       void this.requestRunIntent();
       return true;
@@ -299,24 +281,6 @@ export class IssueExplorerController {
 
   async clearScope(): Promise<void> {
     const snapshot = await this.hooks.onClearScope?.();
-    this.applySnapshot(snapshot);
-  }
-
-  async requestDelegateIntent(): Promise<void> {
-    const selected = this.selectedDetail ?? this.selectedIssue;
-    if (!selected) {
-      this.notify("Select a ticket before delegating.", "info");
-      return;
-    }
-
-    const detail = this.selectedDetail ?? (await this.dataSource.loadDetail(selected.id));
-    this.selectedDetail = detail;
-    if (!isTicket(detail)) {
-      this.notify("Delegate is available for tickets/tasks, not epics.", "info");
-      return;
-    }
-
-    const snapshot = await this.hooks.onDelegateIntent?.(detail);
     this.applySnapshot(snapshot);
   }
 
@@ -425,9 +389,7 @@ export class IssueExplorerController {
     );
   }
   renderFooterHint(): string {
-    return `↑/↓ move • ${buildSelectionHint(this.selectedDetail, {
-      canDelegate: Boolean(this.hooks.onDelegateIntent),
-    })}`;
+    return `↑/↓ move • ${buildSelectionHint(this.selectedDetail)}`;
   }
 
   private applySnapshot(snapshot: DashboardStatusSnapshot | undefined): void {
