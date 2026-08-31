@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { unknownAgentMessage } from "../agents.js";
 import registerMinions from "../index.js";
 import { logger } from "../logger.js";
 import {
@@ -13,6 +14,7 @@ import {
   PARENT_ONLY_MINION_TOOLS,
 } from "../orchestration/index.js";
 import { TIMEOUT_GRACE_MS, TIMEOUT_WRAP_UP_MESSAGE } from "../session-timeout.js";
+import { createStatusTracker, MINIONS_STATUS_KEY } from "../status.js";
 import { STEP_LIMIT_WRAP_UP_MESSAGE } from "../step-limit.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type {
@@ -22,6 +24,7 @@ import type {
   MinionSessionHandle,
 } from "../subsessions/types.js";
 import { runHalt } from "../tools/halt.js";
+import { listMinions } from "../tools/minions.js";
 import { isPersistentHost, ORCHESTRATE_REJECT_REASONS, orchestrate } from "../tools/orchestrate.js";
 import { AgentTree } from "../tree.js";
 import type { OrchestrateInput, OrchestrateResult } from "../types.js";
@@ -83,7 +86,11 @@ function hangingHandle(id: string, cwd: string): MinionSessionHandle {
   };
 }
 
-function setup(options?: { startChild?: ReturnType<typeof vi.fn>; extraTools?: string[] }) {
+function setup(options?: {
+  startChild?: ReturnType<typeof vi.fn>;
+  extraTools?: string[];
+  generateId?: () => string;
+}) {
   const cwd = tempDir("pi-minions-orchestrate-");
   const tree = new AgentTree();
   const groups = new OrchestrationGroupState();
@@ -102,6 +109,7 @@ function setup(options?: { startChild?: ReturnType<typeof vi.fn>; extraTools?: s
     >,
     groups,
     extraTools: options?.extraTools ?? [],
+    generateId: options?.generateId,
     onLifecycle: (event) => events.push(event),
   });
   const ctx = createCtx(cwd);
@@ -134,6 +142,27 @@ function logCall(
 ) {
   console.log(label, data);
 }
+
+describe("public id collision handling", () => {
+  it("retries an occupied spawn id before orchestrated registration", async () => {
+    const candidates = ["aaaaaaaa", "bbbbbbbb"];
+    const fixture = setup({ generateId: () => candidates.shift() ?? "bbbbbbbb" });
+    fixture.tree.add("aaaaaaaa", "foreground", "spawn work", { kind: "spawn" });
+    const result = detailsOf(await run(fixture.execute, { tasks: [baseTask] }, fixture.ctx));
+    expect(result.accepted[0]?.childId).toBe("bbbbbbbb");
+    expect(fixture.tree.get("aaaaaaaa")?.kind).toBe("spawn");
+    expect(fixture.tree.get("bbbbbbbb")?.kind).toBe("orchestrated");
+  });
+});
+
+it("rejects bounded collision exhaustion without overwriting the spawn node", async () => {
+  const fixture = setup({ generateId: () => "aaaaaaaa" });
+  const original = fixture.tree.add("aaaaaaaa", "foreground", "spawn work", { kind: "spawn" });
+  await expect(run(fixture.execute, { tasks: [baseTask] }, fixture.ctx)).rejects.toThrow(
+    ORCHESTRATE_REJECT_REASONS.idAllocationFailed,
+  );
+  expect(fixture.tree.get("aaaaaaaa")).toBe(original);
+});
 
 describe("host-mode gate", () => {
   it("rejects print and json with a closed reason; tui and rpc accept", async () => {
@@ -208,7 +237,7 @@ describe("task validation", () => {
     expect(result.accepted[0]?.description).toBe("Registry refactor");
     expect(result.rejected).toEqual([
       { index: 1, reason: ORCHESTRATE_REJECT_REASONS.missingDescription },
-      { index: 2, reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType },
+      { index: 2, reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType, value: "validation" },
     ]);
   });
 });
@@ -274,12 +303,16 @@ describe("accepted state and start failure", () => {
     });
 
     const failed = events.find((event) => event.class === "failed");
-    expect(failed).toEqual({
+    expect(failed).toMatchObject({
       class: "failed",
       groupId: result.groupId,
       childId: result.accepted[0]?.childId,
       error: "runtime failed",
     });
+    expect(failed?.lifecycleId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(failed?.epoch).toBe(1);
     expect(tree.get(result.accepted[0]!.childId)?.status).toBe("failed");
 
     logCall("start-failed-event", {
@@ -293,10 +326,10 @@ describe("accepted state and start failure", () => {
   });
 });
 
-describe("workItemId uniqueness", () => {
-  it("rejects a second live duplicate workItemId and allows reuse after terminal", async () => {
-    const { execute, ctx, tree } = setup();
-    const first = detailsOf(
+describe("opaque workItemId metadata", () => {
+  it("accepts multiple simultaneous live children with the same workItemId", async () => {
+    const { execute, ctx, tree, groups } = setup();
+    const result = detailsOf(
       await run(
         execute,
         {
@@ -304,7 +337,7 @@ describe("workItemId uniqueness", () => {
             { ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } },
             {
               ...baseTask,
-              description: "Dup",
+              description: "Independent review",
               domain: { source: "beadwork", workItemId: "BW-123" },
             },
           ],
@@ -313,65 +346,44 @@ describe("workItemId uniqueness", () => {
       ),
     );
 
-    expect(first.accepted).toHaveLength(1);
-    expect(first.rejected).toEqual([
-      { index: 1, reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId },
-    ]);
-
-    const liveAgain = detailsOf(
-      await run(
-        execute,
-        { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
-        ctx,
-      ),
-    );
-    expect(liveAgain.accepted).toEqual([]);
-    expect(liveAgain.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId },
-    ]);
-
-    tree.updateStatus(first.accepted[0]!.childId, "completed", 0);
-    const reused = detailsOf(
-      await run(
-        execute,
-        { tasks: [{ ...baseTask, domain: { source: "beadwork", workItemId: "BW-123" } }] },
-        ctx,
-      ),
-    );
-    expect(reused.accepted).toHaveLength(1);
-    expect(reused.rejected).toEqual([]);
+    expect(result.accepted).toHaveLength(2);
+    expect(result.rejected).toEqual([]);
+    expect(groups.getOpenGroup()?.groupId).toBe(result.groupId);
+    expect(
+      result.accepted.map((accepted) => tree.get(accepted.childId)?.domain?.workItemId),
+    ).toEqual(["BW-123", "BW-123"]);
+    expect(
+      result.accepted.every((accepted) => tree.get(accepted.childId)?.status === "running"),
+    ).toBe(true);
 
     logCall("workItemId", {
-      groupId: first.groupId,
-      childId: `${first.accepted[0]?.childId},${reused.accepted[0]?.childId}`,
+      groupId: result.groupId,
+      childId: result.accepted.map((accepted) => accepted.childId).join(","),
       hostMode: ctx.mode,
-      accepted: reused.accepted.length,
-      rejected: liveAgain.rejected.length,
-      reasons: liveAgain.rejected.map((item) => item.reason),
+      accepted: result.accepted.length,
+      rejected: 0,
+      reasons: [],
     });
   });
 });
 
 describe("registration abort and startChild wiring", () => {
   it("cancels remaining registration on AbortSignal and does not forward the signal to children", async () => {
-    const { execute, ctx, startChild } = setup();
+    const { execute, ctx, startChild, tree, groups } = setup();
     const controller = new AbortController();
     controller.abort();
 
-    const result = detailsOf(
-      await run(
+    await expect(
+      run(
         execute,
         { tasks: [baseTask, { ...baseTask, description: "Two" }] },
         ctx,
         controller.signal,
       ),
-    );
-    expect(result.accepted).toEqual([]);
-    expect(result.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.registrationAborted },
-      { index: 1, reason: ORCHESTRATE_REJECT_REASONS.registrationAborted },
-    ]);
+    ).rejects.toThrow(/0 starting, 2 rejected/);
     expect(startChild).not.toHaveBeenCalled();
+    expect(tree.getRoots()).toEqual([]);
+    expect(groups.getOpenGroup()).toBeUndefined();
 
     const started = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
     const call = startChild.mock.calls[0]?.[0] as {
@@ -397,7 +409,7 @@ describe("registration abort and startChild wiring", () => {
   });
 });
 
-function writeRole(
+function writeAgent(
   dir: string,
   folder: "agents" | "minions",
   name: string,
@@ -406,13 +418,13 @@ function writeRole(
   extraFrontmatter: Record<string, string> = {},
 ): void {
   mkdirSync(join(dir, ".git"), { recursive: true });
-  const roleDir = join(dir, ".pi", folder);
-  mkdirSync(roleDir, { recursive: true });
+  const agentDir = join(dir, ".pi", folder);
+  mkdirSync(agentDir, { recursive: true });
   const extras = Object.entries(extraFrontmatter)
     .map(([key, value]) => `${key}: ${value}`)
     .join("\n");
   writeFileSync(
-    join(roleDir, `${name}.md`),
+    join(agentDir, `${name}.md`),
     `---\nname: ${name}\ndescription: ${description}${extras ? `\n${extras}` : ""}\n---\n\n${body}\n`,
     "utf-8",
   );
@@ -423,7 +435,9 @@ describe("halt during detached start", () => {
     const { execute, ctx, tree, startChild } = setup();
     tree.onChange(() => {
       for (const node of tree.getRoots()) {
-        if (node.status === "running") tree.updateStatus(node.id, "aborted");
+        if (node.status === "pending" || node.status === "running") {
+          tree.updateStatus(node.id, "aborted");
+        }
       }
     });
 
@@ -466,7 +480,7 @@ describe("halt during detached start", () => {
 
     const result = detailsOf(await run(execute, { tasks: [baseTask] }, createCtx(cwd)));
     const childId = result.accepted[0]!.childId;
-    expect(tree.get(childId)?.status).toBe("running");
+    expect(tree.get(childId)?.status).toBe("pending");
     expect(startChild).toHaveBeenCalledTimes(1);
 
     const haltResult = await runHalt(
@@ -477,6 +491,7 @@ describe("halt during detached start", () => {
         abortSession,
       } as unknown as SubsessionManager,
       groups,
+      { discardGroup: (groupId) => groups.closeGroup(groupId) },
     );
     expect(haltResult.groupClosed).toBe(result.groupId);
     expect(abortSession).toHaveBeenCalledWith(childId);
@@ -491,9 +506,9 @@ describe("halt during detached start", () => {
     expect(tree.get(childId)?.status).toBe("aborted");
   });
 
-  it("enforces role step limits on orchestrated children", async () => {
+  it("enforces agent step limits on orchestrated children", async () => {
     const cwd = tempDir("pi-minions-orch-steps-");
-    writeRole(cwd, "agents", "step-limited", "Limited role", "Do the work", {
+    writeAgent(cwd, "agents", "step-limited", "Limited role", "Do the work", {
       steps: "1",
     });
 
@@ -526,7 +541,7 @@ describe("halt during detached start", () => {
     const result = detailsOf(
       await run(
         execute,
-        { tasks: [{ task: "do work", description: "Work", role: "step-limited" }] },
+        { tasks: [{ task: "do work", description: "Work", agent: "step-limited" }] },
         createCtx(cwd),
       ),
     );
@@ -542,7 +557,10 @@ describe("halt during detached start", () => {
     expect(steer).toHaveBeenCalledTimes(1);
     expect(steer).toHaveBeenCalledWith(STEP_LIMIT_WRAP_UP_MESSAGE);
     expect(abortSession).not.toHaveBeenCalled();
-    expect(tree.get(childId)?.activityHistory).toContain("turn 1");
+    expect(tree.get(childId)?.activity?.turn).toBe(1);
+    expect(
+      tree.get(childId)?.activityHistory?.some((item) => item.summary.includes("turn 1")),
+    ).toBe(false);
     expect(tree.get(childId)?.usage.turns).toBe(1);
     expect(tree.getTotalUsage().turns).toBe(1);
 
@@ -553,15 +571,18 @@ describe("halt during detached start", () => {
     expect(steer).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledWith(childId);
-    expect(tree.get(childId)?.activityHistory).toContain("turn 3");
+    expect(tree.get(childId)?.activity?.turn).toBe(3);
+    expect(tree.get(childId)?.activityHistory?.some((item) => /turn \d/.test(item.summary))).toBe(
+      false,
+    );
     expect(tree.get(childId)?.usage.turns).toBe(3);
     expect(tree.getTotalUsage().turns).toBe(3);
   });
 
-  it("honors role timeouts on orchestrated children", async () => {
+  it("honors agent timeouts on orchestrated children", async () => {
     vi.useFakeTimers();
     const cwd = tempDir("pi-minions-orch-timeout-");
-    writeRole(cwd, "agents", "timed-role", "Timed role", "Do the work", {
+    writeAgent(cwd, "agents", "timed-role", "Timed role", "Do the work", {
       timeout: "10",
     });
 
@@ -588,7 +609,7 @@ describe("halt during detached start", () => {
     const result = detailsOf(
       await run(
         execute,
-        { tasks: [{ task: "do work", description: "Work", role: "timed-role" }] },
+        { tasks: [{ task: "do work", description: "Work", agent: "timed-role" }] },
         createCtx(cwd),
       ),
     );
@@ -612,14 +633,14 @@ describe("halt during detached start", () => {
   });
 });
 
-describe("role resolution cwd", () => {
-  it("resolves roles from group cwd, not parent cwd", async () => {
+describe("agent resolution cwd", () => {
+  it("resolves agents from group cwd, not parent cwd", async () => {
     const parentCwd = tempDir("pi-minions-role-parent-");
     const groupCwd = tempDir("pi-minions-role-group-");
-    writeRole(parentCwd, "agents", "shared-role-xyz", "Parent shared role", "PARENT ONLY");
-    writeRole(parentCwd, "agents", "parent-only-role-xyz", "Parent only role", "PARENT ONLY ROLE");
-    writeRole(groupCwd, "minions", "shared-role-xyz", "Group shared role", "GROUP ROLE");
-    writeRole(groupCwd, "agents", "group-only-role-xyz", "Group only role", "GROUP ONLY ROLE");
+    writeAgent(parentCwd, "agents", "shared-role-xyz", "Parent shared role", "PARENT ONLY");
+    writeAgent(parentCwd, "agents", "parent-only-role-xyz", "Parent only role", "PARENT ONLY ROLE");
+    writeAgent(groupCwd, "minions", "shared-role-xyz", "Group shared role", "GROUP ROLE");
+    writeAgent(groupCwd, "agents", "group-only-role-xyz", "Group only role", "GROUP ONLY ROLE");
 
     const startChild = vi.fn(
       async (opts: { id: string; config: { name: string; systemPrompt: string }; cwd?: string }) =>
@@ -650,7 +671,7 @@ describe("role resolution cwd", () => {
             {
               task: "do group work",
               description: "Group work",
-              role: "group-only-role-xyz",
+              agent: "group-only-role-xyz",
             },
           ],
         },
@@ -665,26 +686,38 @@ describe("role resolution cwd", () => {
     expect(startChild.mock.calls[0]?.[0]?.cwd).toBe(realpathSync(groupCwd));
 
     const callsBeforeUnknown = startChild.mock.calls.length;
-    const parentOnly = detailsOf(
-      await run(
+    await expect(
+      run(
         execute,
         {
           tasks: [
             {
               task: "do parent work",
               description: "Parent work",
-              role: "parent-only-role-xyz",
+              agent: "parent-only-role-xyz",
             },
           ],
         },
         ctx,
       ),
-    );
-    expect(parentOnly.accepted).toEqual([]);
-    expect(parentOnly.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.unknownRole },
-    ]);
+    ).rejects.toThrow(unknownAgentMessage("parent-only-role-xyz"));
+    await expect(
+      run(
+        execute,
+        {
+          tasks: [
+            {
+              task: "do parent work",
+              description: "Parent work",
+              agent: "parent-only-role-xyz",
+            },
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/list_agents/);
     expect(startChild.mock.calls.length).toBe(callsBeforeUnknown);
+    expect(groups.getOpenGroup()?.groupId).toBe(groupOnly.groupId);
 
     const shared = detailsOf(
       await run(
@@ -694,7 +727,7 @@ describe("role resolution cwd", () => {
             {
               task: "do shared work",
               description: "Shared work",
-              role: "shared-role-xyz",
+              agent: "shared-role-xyz",
             },
           ],
         },
@@ -729,8 +762,10 @@ describe("orchestration policy cwd", () => {
     );
 
     const startChild = vi.fn(async (opts: { id: string }) => hangingHandle(opts.id, groupCwd));
+    const tree = new AgentTree();
+    const groups = new OrchestrationGroupState();
     const execute = orchestrate({
-      tree: new AgentTree(),
+      tree,
       pi: { getAllTools: () => [{ name: "read" }, { name: "bash" }] } as Pick<
         ExtensionAPI,
         "getAllTools"
@@ -739,17 +774,18 @@ describe("orchestration policy cwd", () => {
         SubsessionManager,
         "startChild" | "getSessionHandle" | "abortSession"
       >,
-      groups: new OrchestrationGroupState(),
+      groups,
     });
 
-    const result = detailsOf(
-      await run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
-    );
-    expect(result.accepted).toEqual([]);
-    expect(result.rejected).toEqual([
-      { index: 0, reason: ORCHESTRATE_REJECT_REASONS.ephemeralDisabled },
-    ]);
+    await expect(
+      run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
+    ).rejects.toThrow(/0 starting, 1 rejected/);
+    await expect(
+      run(execute, { cwd: groupCwd, tasks: [baseTask] }, createCtx(parentCwd)),
+    ).rejects.toThrow(ORCHESTRATE_REJECT_REASONS.ephemeralDisabled);
     expect(startChild).not.toHaveBeenCalled();
+    expect(groups.getOpenGroup()).toBeUndefined();
+    expect(tree.getRoots()).toEqual([]);
   });
 
   it("allows ephemeral when the group cwd enables it even if the parent disables it", async () => {
@@ -796,14 +832,14 @@ describe("orchestration policy cwd", () => {
   });
 });
 
-describe("role system prompt and model defaults", () => {
+describe("agent system prompt and model defaults", () => {
   function fakeModel(provider: string, id: string) {
     return { provider, id, name: id };
   }
 
-  it("does not override a named role system prompt with the parent prompt", async () => {
+  it("does not override a named agent system prompt with the parent prompt", async () => {
     const cwd = tempDir("pi-minions-role-prompt-");
-    writeRole(cwd, "agents", "reviewer-role-xyz", "Reviewer role", "ROLE SYSTEM PROMPT");
+    writeAgent(cwd, "agents", "reviewer-role-xyz", "Reviewer role", "ROLE SYSTEM PROMPT");
     const { execute, startChild } = setup();
     const ctx = {
       ...createCtx(cwd),
@@ -818,7 +854,7 @@ describe("role system prompt and model defaults", () => {
             {
               task: "review the change",
               description: "Review",
-              role: "reviewer-role-xyz",
+              agent: "reviewer-role-xyz",
             },
           ],
         },
@@ -836,9 +872,9 @@ describe("role system prompt and model defaults", () => {
     expect(call.config?.systemPrompt).not.toContain("PARENT SYSTEM PROMPT");
   });
 
-  it("applies the role model when the task omits model, and a task model still wins", async () => {
+  it("applies the agent model when the task omits model, and a task model still wins", async () => {
     const cwd = tempDir("pi-minions-role-model-");
-    writeRole(cwd, "agents", "special-model-role-xyz", "Special model role", "ROLE BODY", {
+    writeAgent(cwd, "agents", "special-model-role-xyz", "Special model role", "ROLE BODY", {
       model: "openai/role-model",
     });
     const parent = fakeModel("openai", "parent-model");
@@ -878,7 +914,7 @@ describe("role system prompt and model defaults", () => {
             {
               task: "use role model",
               description: "Role model",
-              role: "special-model-role-xyz",
+              agent: "special-model-role-xyz",
             },
           ],
         },
@@ -897,7 +933,7 @@ describe("role system prompt and model defaults", () => {
             {
               task: "override model",
               description: "Override model",
-              role: "special-model-role-xyz",
+              agent: "special-model-role-xyz",
               model: "openai/override-model",
             },
           ],
@@ -912,33 +948,107 @@ describe("role system prompt and model defaults", () => {
 });
 
 describe("extension registration", () => {
-  it("registers orchestrate on persistent hosts and keeps spawn blocking", () => {
-    const tools = new Map<string, { name: string; promptGuidelines?: string[] }>();
+  it("registers orchestrate once and never rebuilds it when fleet state becomes live", async () => {
+    const tools = new Map<
+      string,
+      {
+        name: string;
+        promptGuidelines?: string[];
+        renderCall?: unknown;
+        renderResult?: unknown;
+        execute?: (...args: unknown[]) => Promise<unknown>;
+      }
+    >();
+    const registrationCounts = new Map<string, number>();
+    const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => unknown>>();
+    const cwd = tempDir("pi-minions-register-");
+    vi.spyOn(SubsessionManager.prototype, "startChild").mockResolvedValue(
+      hangingHandle("mn-live", cwd),
+    );
     const pi = {
-      registerTool: (tool: { name: string; promptGuidelines?: string[] }) => {
+      registerTool: (tool: {
+        name: string;
+        promptGuidelines?: string[];
+        renderCall?: unknown;
+        renderResult?: unknown;
+        execute?: (...args: unknown[]) => Promise<unknown>;
+      }) => {
+        registrationCounts.set(tool.name, (registrationCounts.get(tool.name) ?? 0) + 1);
         tools.set(tool.name, tool);
       },
       registerCommand: () => {},
       registerMessageRenderer: () => {},
-      on: () => {},
+      on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+        const registered = handlers.get(event) ?? [];
+        registered.push(handler);
+        handlers.set(event, registered);
+      },
       getThinkingLevel: () => "off",
+      getAllTools: () => [...tools.values()],
+      sendMessage: vi.fn(),
     };
     registerMinions(pi as unknown as ExtensionAPI);
 
     expect(tools.has("spawn")).toBe(true);
     expect(tools.has("orchestrate")).toBe(true);
     expect(tools.has("send_minion_message")).toBe(true);
+    expect(registrationCounts.get("orchestrate")).toBe(1);
+    expect(handlers.get("before_agent_start")).toHaveLength(1);
+
+    const ctx = {
+      ...createCtx(cwd),
+      hasUI: false,
+      mode: "rpc",
+      ui: {
+        setStatus: vi.fn(),
+        setFooter: vi.fn(),
+        theme: { fg: (_color: string, text: string) => text },
+      },
+      sessionManager: {
+        getSessionFile: () => `${cwd}/parent.jsonl`,
+        getEntries: () => [],
+        getCwd: () => cwd,
+        getSessionName: () => undefined,
+      },
+    } as unknown as ExtensionContext;
+    for (const handler of handlers.get("session_start") ?? []) {
+      await handler({ type: "session_start", reason: "startup" }, ctx);
+    }
+    await tools
+      .get("orchestrate")
+      ?.execute?.("call-live", { tasks: [baseTask] }, undefined, undefined, ctx);
+    expect(registrationCounts.get("orchestrate")).toBe(1);
+    for (const handler of handlers.get("before_agent_start") ?? []) {
+      expect(
+        await handler({ systemPrompt: "cache-stable base", prompt: "continue" }, ctx),
+      ).toBeUndefined();
+    }
+
+    expect(typeof tools.get("spawn")?.renderCall).toBe("function");
+    expect(typeof tools.get("spawn")?.renderResult).toBe("function");
+    expect(typeof tools.get("orchestrate")?.renderCall).toBe("function");
+    expect(typeof tools.get("orchestrate")?.renderResult).toBe("function");
+    expect(tools.get("orchestrate")?.renderCall).not.toBe(tools.get("spawn")?.renderCall);
+    expect(tools.get("orchestrate")?.renderResult).not.toBe(tools.get("spawn")?.renderResult);
     expect(tools.get("spawn")?.promptGuidelines?.some((line) => /block/i.test(line))).toBe(true);
     expect(
       tools
         .get("spawn")
         ?.promptGuidelines?.some((line) => /orchestrate for background/i.test(line)),
     ).toBe(true);
+    const orchestrateGuidelines = tools.get("orchestrate")?.promptGuidelines ?? [];
     expect(
-      tools
-        .get("orchestrate")
-        ?.promptGuidelines?.some((line) => /spawn when you intend to wait/i.test(line)),
+      orchestrateGuidelines.some((line) => /spawn instead if you intend to wait/i.test(line)),
     ).toBe(true);
+    expect(orchestrateGuidelines.every((line) => /\borchestrate\b/i.test(line))).toBe(true);
+    expect(orchestrateGuidelines).toContain(
+      "After orchestrate registers background work, treat delegated work as live until terminal lifecycle evidence, explicit inspection, or halt proves otherwise.",
+    );
+    expect(orchestrateGuidelines.join("\n")).not.toMatch(/group [a-z0-9_-]+ is live/i);
+
+    for (const handler of handlers.get("session_shutdown") ?? []) {
+      await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+    }
   });
 });
 
@@ -982,6 +1092,7 @@ class FakeChildSession implements ChildSession {
   idleDeferred = createDeferred<void>();
   promptCalls = 0;
   disposed = false;
+  isStreaming = false;
   state = { messages: [] as unknown[] };
 
   async bindExtensions(): Promise<void> {}
@@ -1002,7 +1113,10 @@ class FakeChildSession implements ChildSession {
   }
   prompt(_text: string): Promise<void> {
     this.promptCalls++;
-    return this.promptDeferred.promise;
+    this.isStreaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.isStreaming = false;
+    });
   }
   abort(): void {
     this.promptDeferred.resolve();
@@ -1115,6 +1229,131 @@ describe("integration timing", () => {
         rejected: returned.rejected.length,
         reasons: ["boot failed"],
       });
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});
+
+describe("registration liveness", () => {
+  it("observes pending before the handle exists, running after started, then terminal", async () => {
+    const startGate = createDeferred<void>();
+    const waitGate = createDeferred<ChildTerminalEvent>();
+    const startChild = vi.fn(async (opts: CreateMinionSessionOptions) => {
+      await startGate.promise;
+      return {
+        id: opts.id,
+        path: join(opts.cwd, `${opts.id}.jsonl`),
+        steer: async () => {},
+        followUp: async () => {},
+        abort: () => {},
+        wait: async () => {
+          const terminal = await waitGate.promise;
+          opts.onComplete?.({
+            exitCode: terminal.exitCode ?? 0,
+            output: terminal.output ?? "",
+            status: terminal.class === "settled" ? "completed" : terminal.class,
+          });
+          return terminal;
+        },
+      };
+    });
+    const { execute, ctx, tree, events, groups } = setup({ startChild });
+    const result = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+    const childId = result.accepted[0]!.childId;
+    expect(result.accepted[0]?.state).toBe("starting");
+    expect(tree.get(childId)?.status).toBe("pending");
+    expect(tree.getRunning()).toEqual([]);
+    expect(events.some((event) => event.class === "started")).toBe(false);
+    expect(groups.getOpenGroup()?.groupId).toBe(result.groupId);
+
+    const listedPending = await listMinions(tree)("tool-1", {}, undefined, undefined, ctx);
+    expect(listedPending.details?.minions.map((m) => m.status)).toEqual(["pending"]);
+    const listedRunning = await listMinions(tree)(
+      "tool-1",
+      { status: "running" },
+      undefined,
+      undefined,
+      ctx,
+    );
+    expect(listedRunning.details?.minions).toEqual([]);
+
+    const setStatus = vi.fn();
+    const tracker = createStatusTracker(tree, {} as SubsessionManager, ctx);
+    tracker.setUi({
+      setStatus,
+      theme: { fg: (_color: string, text: string) => text },
+    } as never);
+    tracker.refresh();
+    expect(setStatus).toHaveBeenCalledWith(MINIONS_STATUS_KEY, undefined);
+
+    startGate.resolve();
+    await vi.waitFor(() => {
+      expect(tree.get(childId)?.status).toBe("running");
+    });
+    expect(events.some((event) => event.class === "started")).toBe(true);
+    expect(tree.getRunning().map((n) => n.id)).toEqual([childId]);
+
+    waitGate.resolve({ class: "settled", exitCode: 0, output: "done" });
+    await vi.waitFor(() => {
+      expect(tree.get(childId)?.status).toBe("completed");
+    });
+    expect(tree.getRunning()).toEqual([]);
+  });
+
+  it("leaves no newly open group on all-rejected registration", async () => {
+    const { execute, ctx, tree, groups, startChild } = setup();
+    await expect(
+      run(
+        execute,
+        {
+          tasks: [
+            { task: "a", description: " " },
+            { task: "b", description: " ", taskType: "validation" as never },
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/0 starting, 2 rejected/);
+    expect(startChild).not.toHaveBeenCalled();
+    expect(groups.getOpenGroup()).toBeUndefined();
+    expect(tree.getRoots()).toEqual([]);
+  });
+
+  it("preserves a pre-existing group when a later batch is all rejected", async () => {
+    const { execute, ctx, groups } = setup();
+    const first = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
+    await expect(
+      run(execute, { tasks: [{ task: "later", description: " " }] }, ctx),
+    ).rejects.toThrow(/0 starting, 1 rejected/);
+    expect(groups.getOpenGroup()?.groupId).toBe(first.groupId);
+  });
+
+  it("shows a later boot failure as failed after pending without unhandled rejection", async () => {
+    const startGate = createDeferred<void>();
+    const startChild = vi.fn(async () => {
+      await startGate.promise;
+      throw new Error("boot failed");
+    });
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const { execute, ctx, tree, events } = setup({ startChild });
+      const result = detailsOf(await run(execute, { tasks: [baseTask] }, ctx));
+      const childId = result.accepted[0]!.childId;
+      expect(tree.get(childId)?.status).toBe("pending");
+      startGate.resolve();
+      await vi.waitFor(() => {
+        expect(tree.get(childId)?.status).toBe("failed");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+      expect(events.some((event) => event.class === "failed")).toBe(true);
+      expect(events.some((event) => event.class === "started")).toBe(false);
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }

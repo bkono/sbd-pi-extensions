@@ -17,6 +17,25 @@ export interface OpenOrchestrationGroup {
   cwd: string;
 }
 
+export interface LifecycleRegistration {
+  lifecycleId: string;
+  childId: string;
+  groupId: string;
+  epoch: number;
+}
+
+export type LifecycleAuthority = Readonly<LifecycleRegistration>;
+
+export interface AcceptLifecycleInput {
+  lifecycleId: string;
+  childId: string;
+}
+
+export interface PreviewedOrchestrationGroup extends OpenOrchestrationGroup {
+  /** True when this preview would create a group that is not yet open. */
+  created: boolean;
+}
+
 export interface ResolveGroupInput {
   groupId?: string;
   cwd?: string;
@@ -24,9 +43,10 @@ export interface ResolveGroupInput {
 }
 
 export type ResolveGroupResult = OpenOrchestrationGroup | { reject: GroupRejectReason };
+export type PreviewGroupResult = PreviewedOrchestrationGroup | { reject: GroupRejectReason };
 
 export function isResolveGroupReject(
-  result: ResolveGroupResult,
+  result: ResolveGroupResult | PreviewGroupResult,
 ): result is { reject: GroupRejectReason } {
   return "reject" in result;
 }
@@ -63,11 +83,13 @@ function newGroupId(): string {
  */
 export class OrchestrationGroupState {
   private open: OpenOrchestrationGroup | undefined;
-
-  resolveGroup(input: ResolveGroupInput): ResolveGroupResult {
+  private epoch = 0;
+  private idleEpoch: number | undefined;
+  private readonly lifecycles = new Map<string, LifecycleRegistration>();
+  previewGroup(input: ResolveGroupInput): PreviewGroupResult {
     const groupId = optionalString(input.groupId);
     const cwdInput = optionalString(input.cwd);
-    const result = this.resolve(groupId, cwdInput, input.parentCwd);
+    const result = this.compute(groupId, cwdInput, input.parentCwd);
     if (isResolveGroupReject(result)) {
       logger.info("orchestration-group", "resolve", {
         groupId,
@@ -82,6 +104,110 @@ export class OrchestrationGroupState {
       });
     }
     return result;
+  }
+
+  commitGroup(group: OpenOrchestrationGroup): void {
+    if (this.open) return;
+    this.open = { groupId: group.groupId, cwd: group.cwd };
+    this.epoch = 0;
+    this.idleEpoch = undefined;
+    this.lifecycles.clear();
+    logger.info("orchestration-group", "commit", {
+      groupId: group.groupId,
+      cwd: group.cwd,
+      reject: undefined,
+    });
+  }
+
+  resolveGroup(input: ResolveGroupInput): ResolveGroupResult {
+    const result = this.previewGroup(input);
+    if (isResolveGroupReject(result)) return result;
+    this.commitGroup(result);
+    return { groupId: result.groupId, cwd: result.cwd };
+  }
+
+  /** Arm an epoch and capture immutable ownership when child runtimes are accepted. */
+  acceptLiveWork(groupId: string, children: readonly AcceptLifecycleInput[]): number | undefined {
+    if (this.open?.groupId !== groupId) return undefined;
+    if (this.idleEpoch === undefined) {
+      this.epoch++;
+      this.idleEpoch = this.epoch;
+    }
+    const epoch = this.idleEpoch;
+    for (const child of children) {
+      if (this.lifecycles.has(child.lifecycleId)) continue;
+      this.lifecycles.set(child.lifecycleId, {
+        lifecycleId: child.lifecycleId,
+        childId: child.childId,
+        groupId,
+        epoch,
+      });
+    }
+    return epoch;
+  }
+
+  /** Resolve only the exact lifecycle registration accepted by this open group. */
+  getLifecycleRegistration(
+    lifecycleId: string,
+    groupId?: string,
+    epoch?: number,
+  ): LifecycleRegistration | undefined {
+    const registration = this.lifecycles.get(lifecycleId);
+    if (
+      !registration ||
+      this.open?.groupId !== registration.groupId ||
+      (groupId !== undefined && registration.groupId !== groupId) ||
+      (epoch !== undefined && registration.epoch !== epoch)
+    ) {
+      return undefined;
+    }
+    return { ...registration };
+  }
+
+  /** Exact accepted registration ownership. Public child ids alone are never authority. */
+  ownsLifecycle(authority: LifecycleAuthority): boolean {
+    const current = this.getLifecycleRegistration(
+      authority.lifecycleId,
+      authority.groupId,
+      authority.epoch,
+    );
+    return current?.childId === authority.childId;
+  }
+
+  /** Revoke exactly one accepted runtime; replacement registrations are untouched. */
+  revokeLifecycle(authority: LifecycleAuthority): boolean {
+    if (!this.ownsLifecycle(authority)) return false;
+    return this.lifecycles.delete(authority.lifecycleId);
+  }
+
+  /** Revoke all mutable authority belonging to a canceled group. */
+  revokeGroup(groupId: string): number {
+    let removed = 0;
+    for (const [lifecycleId, registration] of this.lifecycles) {
+      if (registration.groupId !== groupId) continue;
+      this.lifecycles.delete(lifecycleId);
+      removed++;
+    }
+    return removed;
+  }
+
+  /** Reserve, but do not consume, an active→idle epoch owned by terminal evidence. */
+  peekIdleTransition(
+    groupId: string,
+    hasLiveWork: boolean,
+    terminalEpochs: ReadonlySet<number>,
+  ): number | undefined {
+    if (this.open?.groupId !== groupId || hasLiveWork || this.idleEpoch === undefined) {
+      return undefined;
+    }
+    return terminalEpochs.has(this.idleEpoch) ? this.idleEpoch : undefined;
+  }
+
+  /** Consume a reservation only after the corresponding packet submission is accepted. */
+  acknowledgeIdleTransition(groupId: string, epoch: number): boolean {
+    if (this.open?.groupId !== groupId || this.idleEpoch !== epoch) return false;
+    this.idleEpoch = undefined;
+    return true;
   }
 
   closeGroup(groupId?: string): void {
@@ -104,6 +230,9 @@ export class OrchestrationGroupState {
       return;
     }
     this.open = undefined;
+    this.epoch = 0;
+    this.idleEpoch = undefined;
+    this.lifecycles.clear();
     logger.info("orchestration-group", "close", {
       groupId: current.groupId,
       cwd: current.cwd,
@@ -115,11 +244,11 @@ export class OrchestrationGroupState {
     return this.open === undefined ? undefined : { ...this.open };
   }
 
-  private resolve(
+  private compute(
     groupId: string | undefined,
     cwdInput: string | undefined,
     parentCwd: string,
-  ): ResolveGroupResult {
+  ): PreviewGroupResult {
     const open = this.open;
     if (open) {
       if (groupId !== undefined && groupId !== open.groupId) {
@@ -134,7 +263,7 @@ export class OrchestrationGroupState {
           return { reject: GROUP_REJECT_REASONS.cwdMismatch };
         }
       }
-      return { groupId: open.groupId, cwd: open.cwd };
+      return { groupId: open.groupId, cwd: open.cwd, created: false };
     }
 
     if (groupId !== undefined) {
@@ -146,8 +275,6 @@ export class OrchestrationGroupState {
       return { reject: GROUP_REJECT_REASONS.cwdMissing };
     }
 
-    const created: OpenOrchestrationGroup = { groupId: newGroupId(), cwd };
-    this.open = created;
-    return created;
+    return { groupId: newGroupId(), cwd, created: true };
   }
 }

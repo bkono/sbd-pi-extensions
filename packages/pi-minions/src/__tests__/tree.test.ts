@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
+import { generateAvailableId, generateId, MAX_PUBLIC_ID_ATTEMPTS } from "../minions.js";
 import { AgentTree, PARENT_SESSION_RESTARTED, rehydratePersistedMinion } from "../tree.js";
 import type { OrchestrationDomain } from "../types.js";
 
@@ -35,14 +36,68 @@ describe("AgentTree spawn default", () => {
     logNode("spawn-default", node);
 
     expect(node.kind).toBe("spawn");
+    expect(node.status).toBe("running");
     expect(node.task).toBe("Implement the registry refactor");
     expect(node.description).toBeUndefined();
     expect(node.groupId).toBeUndefined();
-    expect(node.role).toBeUndefined();
+    expect(node.agentName).toBe("ephemeral");
     expect(node.taskType).toBeUndefined();
     expect(node.domain).toBeUndefined();
     expect(node.agentName).toBe("ephemeral");
     expect(node.model).toBe("gpt-test");
+  });
+
+  it("keeps the 8-hex public contract, retries occupied ids, and fails boundedly", () => {
+    const tree = new AgentTree();
+    expect(generateId()).toMatch(/^[0-9a-f]{8}$/);
+    tree.add("aaaaaaaa", "spawn", "spawn work", { kind: "spawn" });
+    const candidates = ["aaaaaaaa", "bbbbbbbb"];
+    expect(generateAvailableId(tree, new Set(), () => candidates.shift()!)).toBe("bbbbbbbb");
+    expect(() => generateAvailableId(tree, new Set(), () => "aaaaaaaa")).toThrow(
+      `after ${MAX_PUBLIC_ID_ATTEMPTS} attempts`,
+    );
+  });
+
+  it("rejects spawn/orchestrated duplicate registration atomically and permits reuse after retire", () => {
+    const tree = new AgentTree();
+    const original = tree.add("deadbeef", "spawn", "spawn work", { kind: "spawn" });
+    expect(() =>
+      tree.add("deadbeef", "orchestrated", "background work", {
+        kind: "orchestrated",
+        groupId: "grp-1",
+      }),
+    ).toThrow("agent id already registered: deadbeef");
+    expect(tree.get("deadbeef")).toBe(original);
+    tree.remove("deadbeef");
+    expect(
+      tree.add("deadbeef", "orchestrated", "replacement", {
+        kind: "orchestrated",
+        groupId: "grp-1",
+      }).task,
+    ).toBe("replacement");
+  });
+
+  it("admits exactly one concurrent-ish registration for one public id", async () => {
+    const tree = new AgentTree();
+    const attempts = await Promise.allSettled([
+      Promise.resolve().then(() => tree.add("cafebabe", "one", "one")),
+      Promise.resolve().then(() => tree.add("cafebabe", "two", "two")),
+    ]);
+    expect(attempts.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(tree.get("cafebabe")?.name).toBe("one");
+  });
+
+  it("registers orchestrated nodes as pending when requested", () => {
+    const tree = new AgentTree();
+    const node = tree.add("mn-pending", "bravo", "implement the registry", {
+      kind: "orchestrated",
+      groupId: "grp-1",
+      status: "pending",
+      description: "Registry",
+    });
+    expect(node.status).toBe("pending");
+    expect(tree.getRunning()).toEqual([]);
+    expect(tree.getLive().map((n) => n.id)).toEqual(["mn-pending"]);
   });
 });
 
@@ -117,6 +172,13 @@ describe("AgentTree orchestrated group snapshot", () => {
 
     expect(snapshot.map((n) => n.id).sort()).toEqual(["mn-pending", "mn-running"]);
     expect(snapshot.map((n) => n.status).sort()).toEqual(["pending", "running"]);
+    expect(tree.getRunning().map((n) => n.id)).toEqual(["mn-running"]);
+    expect(
+      tree
+        .getLive()
+        .map((n) => n.id)
+        .sort(),
+    ).toEqual(["mn-pending", "mn-running"]);
     expect(
       tree
         .listOrchestratedGroup("grp-1")
@@ -127,7 +189,7 @@ describe("AgentTree orchestrated group snapshot", () => {
 });
 
 describe("AgentTree orchestration metadata", () => {
-  it("round-trips role, taskType, description, and opaque domain without ticket parsing", () => {
+  it("round-trips agent, taskType, description, and opaque domain without ticket parsing", () => {
     const tree = new AgentTree();
     const domain: OrchestrationDomain = {
       source: "adapter-x",
@@ -138,7 +200,7 @@ describe("AgentTree orchestration metadata", () => {
     const node = tree.add("mn-orch", "alpha", "Implement the registry refactor in full", {
       kind: "orchestrated",
       groupId: "grp-1",
-      role: "hard_problem_coder",
+      agentName: "hard_problem_coder",
       taskType: "implementation",
       description: "Registry refactor",
       domain,
@@ -149,19 +211,15 @@ describe("AgentTree orchestration metadata", () => {
 
     expect(node.kind).toBe("orchestrated");
     expect(node.groupId).toBe("grp-1");
-    expect(node.role).toBe("hard_problem_coder");
+    expect(node.agentName).toBe("hard_problem_coder");
     expect(node.taskType).toBe("implementation");
     expect(node.description).toBe("Registry refactor");
     expect(node.description).not.toBe(node.task);
     expect(node.domain).toEqual(domain);
     expect(node.domain).toBe(domain);
     expect(tree.get("mn-orch")?.domain?.workItemId).toBe("ABC-123");
-    expect(tree.getLiveByWorkItemId("ABC-123").map((n) => n.id)).toEqual(["mn-orch"]);
-    expect(tree.getLiveByWorkItemId("abc-123")).toEqual([]);
-    expect(tree.getLiveByWorkItemId("ABC")).toEqual([]);
 
     tree.updateStatus("mn-orch", "completed", 0);
-    expect(tree.getLiveByWorkItemId("ABC-123")).toEqual([]);
     expect(tree.getOrchestratedGroup("grp-1")).toEqual([]);
   });
 });
@@ -257,7 +315,6 @@ describe("rehydratePersistedMinion", () => {
         exitCode: 0,
         kind: "orchestrated",
         groupId: "grp-1",
-        role: "reviewer",
         taskType: "reviewImplementation",
         description: "Review registry",
         domain: { source: "adapter-x", workItemId: "ABC-123" },
@@ -268,7 +325,7 @@ describe("rehydratePersistedMinion", () => {
     const node = tree.get("mn-orch");
     expect(node?.kind).toBe("orchestrated");
     expect(node?.groupId).toBe("grp-1");
-    expect(node?.role).toBe("reviewer");
+    expect(node?.agentName).toBe("reviewer");
     expect(node?.taskType).toBe("reviewImplementation");
     expect(node?.description).toBe("Review registry");
     expect(node?.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
@@ -286,11 +343,10 @@ describe("rehydratePersistedMinion", () => {
         sessionId: "mn-live-orch",
         name: "alpha",
         task: "old work",
-        agent: "ephemeral",
+        agent: "reviewer",
         status: "running",
         kind: "orchestrated",
         groupId: "grp-1",
-        role: "reviewer",
         taskType: "reviewImplementation",
         description: "Review registry",
         domain: { source: "adapter-x", workItemId: "ABC-123" },
@@ -303,7 +359,7 @@ describe("rehydratePersistedMinion", () => {
     expect(node?.error).toBe(PARENT_SESSION_RESTARTED);
     expect(node?.kind).toBe("orchestrated");
     expect(node?.groupId).toBe("grp-1");
-    expect(node?.role).toBe("reviewer");
+    expect(node?.agentName).toBe("reviewer");
     expect(node?.taskType).toBe("reviewImplementation");
     expect(node?.description).toBe("Review registry");
     expect(node?.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
@@ -325,7 +381,7 @@ describe("AgentTree add logging", () => {
     tree.add("mn-orch", "bravo", "child prompt", {
       kind: "orchestrated",
       groupId: "grp-1",
-      role: "reviewer",
+      agentName: "reviewer",
       taskType: "reviewImplementation",
       description: "Review registry",
     });

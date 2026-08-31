@@ -1,5 +1,13 @@
+import {
+  ACTIVITY_HISTORY_CAP,
+  type ActivityEvent,
+  capActivityHistory,
+  cloneActivitySnapshot,
+  reduceActivity,
+} from "./activity.js";
 import { logger } from "./logger.js";
 import type {
+  ActivitySnapshot,
   AgentKind,
   AgentNode,
   AgentStatus,
@@ -15,6 +23,10 @@ export function isTerminalStatus(status: AgentStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
+export function isLiveStatus(status: AgentStatus): boolean {
+  return status === "pending" || status === "running";
+}
+
 export const PARENT_SESSION_RESTARTED = "parent session restarted";
 
 export interface RehydratableMinionMetadata {
@@ -27,7 +39,6 @@ export interface RehydratableMinionMetadata {
   error?: string;
   kind?: AgentKind;
   groupId?: string;
-  role?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
@@ -48,7 +59,6 @@ export function rehydratePersistedMinion(
     agentName: metadata.agent,
     kind: metadata.kind,
     groupId: metadata.groupId,
-    role: metadata.role,
     taskType: metadata.taskType,
     description: metadata.description,
     domain: metadata.domain,
@@ -67,26 +77,101 @@ export interface AddAgentOptions {
   model?: string;
   kind?: AgentKind;
   groupId?: string;
-  role?: string;
   taskType?: TaskType;
   description?: string;
   domain?: OrchestrationDomain;
   completionNudge?: string;
+  /** Spawn defaults to running. Orchestrate registers accepted nodes as pending. */
+  status?: AgentStatus;
+  lifecycleId?: string;
+  lifecycleEpoch?: number;
+}
+
+interface TreeRegistration {
+  listener: () => void;
+}
+
+function safeListenerError(err: unknown): string {
+  try {
+    if (typeof err === "string") return err;
+  } catch {
+    return "error";
+  }
+  try {
+    if (err instanceof Error) {
+      const msg = err.message;
+      return typeof msg === "string" ? msg : "error";
+    }
+  } catch {
+    return "error";
+  }
+  return "error";
 }
 
 export class AgentTree {
   private nodes = new Map<string, AgentNode>();
-  private listeners = new Set<() => void>();
+  private listeners = new Set<TreeRegistration>();
+  private nodeListeners = new Map<string, Set<TreeRegistration>>();
 
   onChange(listener: () => void): () => void {
-    this.listeners.add(listener);
+    const registration: TreeRegistration = { listener };
+    this.listeners.add(registration);
     return () => {
-      this.listeners.delete(listener);
+      this.listeners.delete(registration);
     };
   }
 
-  private notify(): void {
-    for (const listener of this.listeners) listener();
+  onNodeChange(id: string, listener: () => void): () => void {
+    let set = this.nodeListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.nodeListeners.set(id, set);
+    }
+    const registration: TreeRegistration = { listener };
+    set.add(registration);
+    return () => {
+      set.delete(registration);
+      if (set.size === 0 && this.nodeListeners.get(id) === set) {
+        this.nodeListeners.delete(id);
+      }
+    };
+  }
+
+  listenerCount(): number {
+    let count = this.listeners.size;
+    for (const set of this.nodeListeners.values()) count += set.size;
+    return count;
+  }
+
+  private notify(id?: string): void {
+    const globals = [...this.listeners];
+    const scoped: TreeRegistration[] = [];
+    if (id !== undefined) {
+      const set = this.nodeListeners.get(id);
+      if (set) scoped.push(...set);
+    } else {
+      for (const set of [...this.nodeListeners.values()]) scoped.push(...set);
+    }
+    this.invokeListeners(globals);
+    this.invokeListeners(scoped);
+  }
+
+  private invokeListeners(registrations: TreeRegistration[]): void {
+    for (const registration of registrations) {
+      try {
+        registration.listener();
+      } catch (err) {
+        try {
+          logger.error("tree", "listener-error", { error: safeListenerError(err) });
+        } catch {
+          /* logging must not escape or skip later listeners */
+        }
+      }
+    }
+  }
+
+  has(id: string): boolean {
+    return this.nodes.has(id);
   }
 
   add(id: string, name: string, task: string, options?: AddAgentOptions): AgentNode;
@@ -111,27 +196,35 @@ export class AgentTree {
         ? parentIdOrOptions
         : { parentId: parentIdOrOptions, agentName, model };
 
+    if (this.nodes.has(id)) {
+      throw new Error(`agent id already registered: ${id}`);
+    }
+
     const kind = options.kind ?? "spawn";
     const node: AgentNode = {
       id,
+      lifecycleId: options.lifecycleId,
+      lifecycleEpoch: options.lifecycleEpoch,
       name,
       agentName: options.agentName,
       task,
       model: options.model,
-      status: "running",
+      status: options.status ?? "running",
       parentId: options.parentId,
       children: [],
       usage: emptyUsage(),
       startTime: Date.now(),
       kind,
       groupId: options.groupId,
-      role: options.role,
       taskType: options.taskType,
       description: options.description,
       domain: options.domain,
       completionNudge: options.completionNudge,
     };
     this.nodes.set(id, node);
+    if (isLiveStatus(node.status)) {
+      this.applyActivityToNode(node, { type: "starting" });
+    }
 
     if (options.parentId) {
       const parent = this.nodes.get(options.parentId);
@@ -146,12 +239,20 @@ export class AgentTree {
       description: options.description,
     });
 
-    this.notify();
+    this.notify(id);
     return node;
   }
 
   get(id: string): AgentNode | undefined {
     return this.nodes.get(id);
+  }
+
+  setLifecycleEpoch(id: string, lifecycleId: string, epoch: number): boolean {
+    const node = this.nodes.get(id);
+    if (!node || node.lifecycleId !== lifecycleId) return false;
+    node.lifecycleEpoch = epoch;
+    this.notify(id);
+    return true;
   }
 
   /** Find a node by ID or by minion name. ID takes priority. */
@@ -174,6 +275,11 @@ export class AgentTree {
     return Array.from(this.nodes.values()).filter((n) => n.status === "running");
   }
 
+  /** Non-terminal nodes. Pending is live work, not running. */
+  getLive(): AgentNode[] {
+    return Array.from(this.nodes.values()).filter((n) => isLiveStatus(n.status));
+  }
+
   /** Live orchestrated members of one group. Spawn and terminal nodes are excluded. */
   getOrchestratedGroup(groupId: string): AgentNode[] {
     return Array.from(this.nodes.values()).filter(
@@ -185,13 +291,6 @@ export class AgentTree {
   listOrchestratedGroup(groupId: string): AgentNode[] {
     return Array.from(this.nodes.values()).filter(
       (n) => n.kind === "orchestrated" && n.groupId === groupId,
-    );
-  }
-
-  /** Live nodes with this domain.workItemId. String equality only; not ticket ownership. */
-  getLiveByWorkItemId(workItemId: string): AgentNode[] {
-    return Array.from(this.nodes.values()).filter(
-      (n) => n.domain?.workItemId === workItemId && !isTerminalStatus(n.status),
     );
   }
 
@@ -225,8 +324,23 @@ export class AgentTree {
     if (exitCode !== undefined) node.exitCode = exitCode;
     if (error !== undefined) node.error = error;
     if (status !== "running" && status !== "pending") node.endTime = Date.now();
+    else if (status === "running") this.applyLiveHandleThinking(node);
 
-    this.notify();
+    this.notify(id);
+  }
+
+  /**
+   * Live handle acquired. Pending becomes running; starting becomes thinking.
+   * Does not clobber an already-started tool. Preserves pending until this call.
+   */
+  markLiveHandle(id: string): void {
+    const node = this.nodes.get(id);
+    if (!node || isTerminalStatus(node.status)) return;
+    if (node.status !== "running") {
+      this.updateStatus(id, "running");
+      return;
+    }
+    if (this.applyLiveHandleThinking(node)) this.notify(id);
   }
 
   updateUsage(id: string, partial: Partial<UsageStats>): void {
@@ -234,7 +348,7 @@ export class AgentTree {
     if (!node) return;
 
     Object.assign(node.usage, partial);
-    this.notify();
+    this.notify(id);
   }
 
   getTotalUsage(): UsageStats {
@@ -252,29 +366,46 @@ export class AgentTree {
     return total;
   }
 
-  updateActivity(id: string, activity: string): void {
-    const node = this.nodes.get(id);
-    if (node) {
-      node.lastActivity = activity;
-      this.notify();
-    }
+  applyActivityEvent(id: string, event: ActivityEvent, now = Date.now()): void {
+    this.applyActivityEvents(id, [event], now);
   }
 
-  logActivity(id: string, activity: string): void {
+  applyActivityEvents(id: string, events: ActivityEvent[], now = Date.now()): void {
     const node = this.nodes.get(id);
-    if (node) {
-      node.lastActivity = activity;
-      if (!node.activityHistory) node.activityHistory = [];
-      node.activityHistory.push(activity);
-      this.notify();
-    }
+    if (!node || events.length === 0) return;
+    for (const event of events) this.applyActivityToNode(node, event, now);
+    this.notify(id);
   }
 
-  setActivityHistory(id: string, history: string[]): void {
+  setActivityHistory(id: string, history: ActivitySnapshot[]): void {
     const node = this.nodes.get(id);
-    if (node) {
-      node.activityHistory = [...history];
-      this.notify();
+    if (!node) return;
+    const capped = capActivityHistory(history.map(cloneActivitySnapshot));
+    node.activityHistory = capped;
+    const last = capped.at(-1);
+    if (last) {
+      node.activity = cloneActivitySnapshot(last);
+      node.lastActivity = last.summary;
+    }
+    this.notify(id);
+  }
+
+  private applyLiveHandleThinking(node: AgentNode): boolean {
+    if (node.activity && node.activity.phase !== "starting") return false;
+    this.applyActivityToNode(node, { type: "thinking" });
+    return true;
+  }
+
+  private applyActivityToNode(node: AgentNode, event: ActivityEvent, now = Date.now()): void {
+    const result = reduceActivity(node.activity, event, now);
+    const snapshot = cloneActivitySnapshot(result.snapshot);
+    node.activity = snapshot;
+    node.lastActivity = snapshot.summary;
+    if (!result.recordHistory) return;
+    if (!node.activityHistory) node.activityHistory = [];
+    node.activityHistory.push(cloneActivitySnapshot(snapshot));
+    if (node.activityHistory.length > ACTIVITY_HISTORY_CAP) {
+      node.activityHistory.splice(0, node.activityHistory.length - ACTIVITY_HISTORY_CAP);
     }
   }
 
@@ -292,7 +423,7 @@ export class AgentTree {
     if (patch.pathIntent !== undefined) node.pathIntent = patch.pathIntent;
     if (patch.peerMessageFailed !== undefined) node.peerMessageFailed = patch.peerMessageFailed;
     if (patch.lastPeerError !== undefined) node.lastPeerError = patch.lastPeerError;
-    this.notify();
+    this.notify(id);
   }
 
   remove(id: string): void {

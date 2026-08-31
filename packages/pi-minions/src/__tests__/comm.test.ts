@@ -15,6 +15,7 @@ import {
   injectOrchestratedCommTools,
   LIST_MINION_PEERS_TOOL,
   ListMinionPeersParams,
+  MAX_MAILBOX_HISTORY,
   MAX_MAILBOX_QUEUE_DEPTH,
   MAX_MINION_MESSAGE_BYTES,
   MinionCommMailbox,
@@ -81,6 +82,7 @@ class FakeChildSession implements ChildSession {
   listeners = new Set<(event: ChildSessionEvent) => void>();
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
+  isStreaming = false;
   state = { messages: [] as unknown[] };
 
   constructor(customTools: Array<{ name: string }> = []) {
@@ -105,7 +107,10 @@ class FakeChildSession implements ChildSession {
     };
   }
   prompt(_text: string): Promise<void> {
-    return this.promptDeferred.promise;
+    this.isStreaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.isStreaming = false;
+    });
   }
   abort(): void {
     this.promptDeferred.resolve();
@@ -148,6 +153,44 @@ const agentConfig: AgentConfig = {
   filePath: "",
 };
 
+const mailboxGroups = new WeakMap<MinionCommMailbox, ReturnType<typeof testGroups>>();
+
+function testGroups(tree: AgentTree, groupId: string, open = true) {
+  return {
+    getOpenGroup: () => (open ? { groupId, cwd: "/tmp" } : undefined),
+    ownsLifecycle: (authority: {
+      childId: string;
+      groupId: string;
+      lifecycleId: string;
+      epoch: number;
+    }) => {
+      const node = tree.get(authority.childId);
+      return (
+        open &&
+        authority.groupId === groupId &&
+        node?.groupId === authority.groupId &&
+        node.lifecycleId === authority.lifecycleId &&
+        node.lifecycleEpoch === authority.epoch
+      );
+    },
+  };
+}
+
+function injectForTest(
+  input: Omit<
+    Parameters<typeof injectOrchestratedCommTools>[0],
+    "groups" | "lifecycleId" | "epoch"
+  >,
+) {
+  const node = input.tree.get(input.childId)!;
+  return injectOrchestratedCommTools({
+    ...input,
+    lifecycleId: node.lifecycleId!,
+    epoch: node.lifecycleEpoch!,
+    groups: mailboxGroups.get(input.mailbox) ?? testGroups(input.tree, input.groupId),
+  });
+}
+
 function groupTree(): { tree: AgentTree; childId: string; peerId: string; groupId: string } {
   const tree = new AgentTree();
   const groupId = "grp-1";
@@ -156,21 +199,27 @@ function groupTree(): { tree: AgentTree; childId: string; peerId: string; groupI
   tree.add(childId, "alpha", "self prompt", {
     kind: "orchestrated",
     groupId,
-    role: "implementer",
+    lifecycleId: "life-self",
+    lifecycleEpoch: 1,
+    agentName: "implementer",
     taskType: "implementation",
     description: "Self task",
   });
   tree.add(peerId, "bravo", "peer prompt", {
     kind: "orchestrated",
     groupId,
-    role: "reviewer",
+    lifecycleId: "life-peer",
+    lifecycleEpoch: 1,
+    agentName: "reviewer",
     taskType: "reviewImplementation",
     description: "Peer task",
   });
   tree.add("mn-done", "charlie", "done prompt", {
     kind: "orchestrated",
     groupId,
-    role: "fixer",
+    lifecycleId: "life-done",
+    lifecycleEpoch: 1,
+    agentName: "fixer",
     taskType: "fix",
     description: "Already settled",
   });
@@ -179,6 +228,8 @@ function groupTree(): { tree: AgentTree; childId: string; peerId: string; groupI
   tree.add("mn-other", "echo", "other group", {
     kind: "orchestrated",
     groupId: "grp-2",
+    lifecycleId: "life-other",
+    lifecycleEpoch: 1,
     description: "Other group",
   });
   return { tree, childId, peerId, groupId };
@@ -198,9 +249,7 @@ function liveMailbox(
 } {
   const followUps: Array<{ id: string; text: string }> = [];
   const parentDirected: Array<{ from: string; to: string; body: string }> = [];
-  const groups = {
-    getOpenGroup: () => (open ? { groupId, cwd: "/tmp" } : undefined),
-  };
+  const groups = testGroups(tree, groupId, open);
   const mailbox = new MinionCommMailbox({
     getTree: () => tree,
     getGroups: () => groups,
@@ -213,6 +262,7 @@ function liveMailbox(
       onParentDirected?.(message);
     },
   });
+  mailboxGroups.set(mailbox, groups);
   return { mailbox, followUps, parentDirected, groups };
 }
 
@@ -235,7 +285,7 @@ describe("injectOrchestratedCommTools", () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
-    const injected = injectOrchestratedCommTools({
+    const injected = injectForTest({
       childId,
       groupId,
       tree,
@@ -286,7 +336,12 @@ describe("injectOrchestratedCommTools", () => {
     ]);
     expect(mailbox.list()[0]?.from).toBe(childId);
     expect(mailbox.list()[0]?.from).not.toBe("forged-id");
-    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "hello peer") }]);
+    expect(followUps).toEqual([
+      {
+        id: peerId,
+        text: formatMinionMail(childId, "hello peer", mailbox.list()[0]?.id),
+      },
+    ]);
     expect(info).toHaveBeenCalledWith(
       "comm",
       "send",
@@ -303,7 +358,7 @@ describe("injectOrchestratedCommTools", () => {
 
   it("lists group peers including parent and terminal members, excluding spawn", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
-    const injected = injectOrchestratedCommTools({
+    const injected = injectForTest({
       childId,
       groupId,
       tree,
@@ -316,7 +371,7 @@ describe("injectOrchestratedCommTools", () => {
       groupId: string;
       peers: Array<{
         id: string;
-        role?: string;
+        agent?: string;
         taskType?: string;
         description?: string;
         state: string;
@@ -332,11 +387,11 @@ describe("injectOrchestratedCommTools", () => {
       "mn-done",
     ]);
     expect(details.peers.find((peer) => peer.id === PARENT_RECIPIENT_ID)).toMatchObject({
-      role: "parent",
       state: "parent",
     });
+    expect(details.peers.find((peer) => peer.id === PARENT_RECIPIENT_ID)?.agent).toBeUndefined();
     expect(details.peers.find((peer) => peer.id === peerId)).toMatchObject({
-      role: "reviewer",
+      agent: "reviewer",
       taskType: "reviewImplementation",
       description: "Peer task",
       state: "running",
@@ -349,7 +404,15 @@ describe("injectOrchestratedCommTools", () => {
   it("queues parent send and rejects terminal, spawn, and cross-group recipients", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
-    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const injected = injectForTest({
+      childId,
+      lifecycleId: tree.get(childId)!.lifecycleId!,
+      epoch: tree.get(childId)!.lifecycleEpoch!,
+      groupId,
+      tree,
+      groups: liveMailbox(tree, groupId, [childId]).groups,
+      mailbox,
+    });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
     const toParent = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "need a ruling" });
@@ -387,7 +450,7 @@ describe("injectOrchestratedCommTools", () => {
   it("does not inject when kind is spawn", () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const { tree, childId, groupId } = groupTree();
-    const injected = injectOrchestratedCommTools({
+    const injected = injectForTest({
       childId,
       groupId,
       tree,
@@ -438,6 +501,12 @@ describe("orchestrated vs spawn session tool names", () => {
     const cwd = tempDir("pi-minions-comm-session-");
     const { tree, groupId } = groupTree();
     const mailbox = new MinionCommMailbox();
+    tree.add("mn-orch-session", "alpha", "do work", {
+      kind: "orchestrated",
+      groupId,
+      lifecycleId: "life-session",
+      lifecycleEpoch: 1,
+    });
     let session!: FakeChildSession;
     const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
       createChildRuntime: async (input) => {
@@ -454,7 +523,7 @@ describe("orchestrated vs spawn session tool names", () => {
       },
     });
 
-    const injected = injectOrchestratedCommTools({
+    const injected = injectForTest({
       childId: "mn-orch-session",
       groupId,
       tree,
@@ -569,8 +638,16 @@ describe("orchestrated vs spawn session tool names", () => {
 describe("mailbox bounds and closed reasons", () => {
   it("rejects a body over the UTF-8 byte cap at the boundary", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
-    const { mailbox } = liveMailbox(tree, groupId, [peerId]);
-    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const { mailbox } = liveMailbox(tree, groupId, [childId, peerId]);
+    const injected = injectForTest({
+      childId,
+      lifecycleId: tree.get(childId)!.lifecycleId!,
+      epoch: tree.get(childId)!.lifecycleEpoch!,
+      groupId,
+      tree,
+      groups: liveMailbox(tree, groupId, [childId]).groups,
+      mailbox,
+    });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
     const atCap = "a".repeat(MAX_MINION_MESSAGE_BYTES);
@@ -593,7 +670,15 @@ describe("mailbox bounds and closed reasons", () => {
   it("does not treat delivered live mail as a lifetime quota", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
-    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const injected = injectForTest({
+      childId,
+      lifecycleId: tree.get(childId)!.lifecycleId!,
+      epoch: tree.get(childId)!.lifecycleEpoch!,
+      groupId,
+      tree,
+      groups: liveMailbox(tree, groupId, [childId]).groups,
+      mailbox,
+    });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
     for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH + 1; i++) {
@@ -608,7 +693,15 @@ describe("mailbox bounds and closed reasons", () => {
   it("rejects mailbox-full only when pending undelivered depth is at cap", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox, followUps } = liveMailbox(tree, groupId, [childId, peerId]);
-    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const injected = injectForTest({
+      childId,
+      lifecycleId: tree.get(childId)!.lifecycleId!,
+      epoch: tree.get(childId)!.lifecycleEpoch!,
+      groupId,
+      tree,
+      groups: liveMailbox(tree, groupId, [childId]).groups,
+      mailbox,
+    });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
     for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
@@ -629,16 +722,42 @@ describe("mailbox bounds and closed reasons", () => {
     const toPeer = await execTool(send, { to: peerId, body: "live still ok" });
     expect(toPeer.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
     expect(mailbox.depthFor(peerId)).toBe(0);
-    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "live still ok") }]);
+    expect(followUps).toEqual([
+      {
+        id: peerId,
+        text: formatMinionMail(childId, "live still ok", mailbox.list().at(-1)?.id),
+      },
+    ]);
   });
 
   it("takePending drains parent-directed pending without scanning list()", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox } = liveMailbox(tree, groupId, [childId, peerId]);
 
-    mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "q1" });
-    mailbox.send({ from: peerId, to: PARENT_RECIPIENT_ID, groupId, body: "q2" });
-    mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "q3" });
+    mailbox.send({
+      from: childId,
+      lifecycleId: tree.get(childId)?.lifecycleId,
+      lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
+      to: PARENT_RECIPIENT_ID,
+      groupId,
+      body: "q1",
+    });
+    mailbox.send({
+      from: peerId,
+      lifecycleId: tree.get(peerId)?.lifecycleId,
+      lifecycleEpoch: tree.get(peerId)?.lifecycleEpoch,
+      to: PARENT_RECIPIENT_ID,
+      groupId,
+      body: "q2",
+    });
+    mailbox.send({
+      from: childId,
+      lifecycleId: tree.get(childId)?.lifecycleId,
+      lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
+      to: PARENT_RECIPIENT_ID,
+      groupId,
+      body: "q3",
+    });
     const inspectionIds = mailbox.list().map((message) => message.id);
     expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(3);
 
@@ -659,19 +778,39 @@ describe("mailbox bounds and closed reasons", () => {
     const { mailbox } = liveMailbox(tree, groupId, [childId]);
     for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
       expect(
-        mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: `pending-${i}` })
-          .status,
+        mailbox.send({
+          from: childId,
+          lifecycleId: tree.get(childId)?.lifecycleId,
+          lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
+          to: PARENT_RECIPIENT_ID,
+          groupId,
+          body: `pending-${i}`,
+        }).status,
       ).toBe(COMM_SEND_STATUS.queued);
     }
     expect(
-      mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "overflow" }).status,
+      mailbox.send({
+        from: childId,
+        lifecycleId: tree.get(childId)?.lifecycleId,
+        lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
+        to: PARENT_RECIPIENT_ID,
+        groupId,
+        body: "overflow",
+      }).status,
     ).toBe(COMM_SEND_STATUS.mailboxFull);
 
     const taken = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
     expect(taken).toHaveLength(MAX_MAILBOX_QUEUE_DEPTH);
     expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
     expect(
-      mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "after-drain" }).status,
+      mailbox.send({
+        from: childId,
+        lifecycleId: tree.get(childId)?.lifecycleId,
+        lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
+        to: PARENT_RECIPIENT_ID,
+        groupId,
+        body: "after-drain",
+      }).status,
     ).toBe(COMM_SEND_STATUS.queued);
     expect(mailbox.list().map((message) => message.body)).toContain("after-drain");
   });
@@ -679,13 +818,19 @@ describe("mailbox bounds and closed reasons", () => {
   it("rejects group-not-open when the bound group is not the open group", async () => {
     const { tree, childId, peerId, groupId } = groupTree();
     const { mailbox } = liveMailbox(tree, groupId, [peerId], false);
-    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const injected = injectForTest({
+      childId,
+      lifecycleId: tree.get(childId)!.lifecycleId!,
+      epoch: tree.get(childId)!.lifecycleEpoch!,
+      groupId,
+      tree,
+      groups: liveMailbox(tree, groupId, [childId]).groups,
+      mailbox,
+    });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
     const result = await execTool(send, { to: peerId, body: "hello" });
     expect(result.details).toMatchObject({
-      status: COMM_SEND_STATUS.groupNotOpen,
-      from: childId,
-      parentTurnTriggered: false,
+      status: COMM_SEND_STATUS.senderNotLive,
     });
     expect(mailbox.list()).toEqual([]);
   });
@@ -727,6 +872,8 @@ describe("mailbox enqueue live-notify", () => {
     for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH; i++) {
       mailbox.send({
         from: childId,
+        lifecycleId: tree.get(childId)?.lifecycleId,
+        lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
         to: PARENT_RECIPIENT_ID,
         groupId,
         body: `pending-${i}`,
@@ -734,7 +881,14 @@ describe("mailbox enqueue live-notify", () => {
     }
     expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(MAX_MAILBOX_QUEUE_DEPTH);
     expect(
-      mailbox.send({ from: childId, to: PARENT_RECIPIENT_ID, groupId, body: "overflow" }).status,
+      mailbox.send({
+        from: childId,
+        lifecycleId: tree.get(childId)?.lifecycleId,
+        lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
+        to: PARENT_RECIPIENT_ID,
+        groupId,
+        body: "overflow",
+      }).status,
     ).toBe(COMM_SEND_STATUS.mailboxFull);
 
     for (let i = 0; i < MAX_MAILBOX_QUEUE_DEPTH + 1; i++) {
@@ -810,7 +964,15 @@ describe("parent-directed wake hook", () => {
       childId,
       peerId,
     ]);
-    const injected = injectOrchestratedCommTools({ childId, groupId, tree, mailbox });
+    const injected = injectForTest({
+      childId,
+      lifecycleId: tree.get(childId)!.lifecycleId!,
+      epoch: tree.get(childId)!.lifecycleEpoch!,
+      groupId,
+      tree,
+      groups: liveMailbox(tree, groupId, [childId]).groups,
+      mailbox,
+    });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
 
     const toParent = await execTool(send, { to: PARENT_RECIPIENT_ID, body: "need a ruling" });
@@ -827,7 +989,12 @@ describe("parent-directed wake hook", () => {
     const toPeer = await execTool(send, { to: peerId, body: "hello peer" });
     expect(toPeer.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
     expect(parentDirected).toHaveLength(1);
-    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "hello peer") }]);
+    expect(followUps).toEqual([
+      {
+        id: peerId,
+        text: formatMinionMail(childId, "hello peer", mailbox.list().at(-1)?.id),
+      },
+    ]);
 
     const parentTool = createSendMinionMessageTool({ mailbox, groups });
     const fromParent = await execTool(parentTool, { to: peerId, body: "steer this" });
@@ -847,6 +1014,8 @@ describe("parent-directed wake hook", () => {
     });
     const result = mailbox.send({
       from: childId,
+      lifecycleId: tree.get(childId)?.lifecycleId,
+      lifecycleEpoch: tree.get(childId)?.lifecycleEpoch,
       to: PARENT_RECIPIENT_ID,
       groupId,
       body: "still record me",
@@ -879,7 +1048,14 @@ describe("parent send_minion_message", () => {
     });
     expect(sent.details).not.toMatchObject({ from: "forged-id" });
     expect(followUps).toEqual([
-      { id: peerId, text: formatMinionMail(PARENT_RECIPIENT_ID, "from parent") },
+      {
+        id: peerId,
+        text: formatMinionMail(
+          PARENT_RECIPIENT_ID,
+          "from parent",
+          (sent.details as { messageId?: string }).messageId,
+        ),
+      },
     ]);
     expect(info).toHaveBeenCalledWith(
       "comm",
@@ -919,8 +1095,20 @@ describe("live vs disposed delivery", () => {
     const cwd = tempDir("pi-minions-comm-deliver-");
     const tree = new AgentTree();
     const groupId = "grp-live";
-    tree.add("mn-a", "alpha", "task a", { kind: "orchestrated", groupId, description: "A" });
-    tree.add("mn-b", "bravo", "task b", { kind: "orchestrated", groupId, description: "B" });
+    tree.add("mn-a", "alpha", "task a", {
+      kind: "orchestrated",
+      groupId,
+      description: "A",
+      lifecycleId: "life-a",
+      lifecycleEpoch: 1,
+    });
+    tree.add("mn-b", "bravo", "task b", {
+      kind: "orchestrated",
+      groupId,
+      description: "B",
+      lifecycleId: "life-b",
+      lifecycleEpoch: 1,
+    });
 
     const sessions = new Map<string, FakeChildSession>();
     const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
@@ -938,10 +1126,16 @@ describe("live vs disposed delivery", () => {
         };
       },
     });
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId, cwd });
+    groups.acceptLiveWork(groupId, [
+      { childId: "mn-a", lifecycleId: "life-a" },
+      { childId: "mn-b", lifecycleId: "life-b" },
+    ]);
 
     const mailbox = new MinionCommMailbox({
       getTree: () => tree,
-      getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd }) }),
+      getGroups: () => groups,
       isLive: (id) => manager.isLive(id),
       followUp: async (id, text) => {
         const handle = manager.getSessionHandle(id);
@@ -949,14 +1143,15 @@ describe("live vs disposed delivery", () => {
         await handle.followUp(text);
       },
     });
+    mailboxGroups.set(mailbox, groups);
 
-    const injectA = injectOrchestratedCommTools({
+    const injectA = injectForTest({
       childId: "mn-a",
       groupId,
       tree,
       mailbox,
     });
-    const injectB = injectOrchestratedCommTools({
+    const injectB = injectForTest({
       childId: "mn-b",
       groupId,
       tree,
@@ -989,7 +1184,9 @@ describe("live vs disposed delivery", () => {
       to: "mn-b",
       parentTurnTriggered: false,
     });
-    expect(sessions.get("mn-b")?.followUps).toEqual([formatMinionMail("mn-a", "hello from a")]);
+    expect(sessions.get("mn-b")?.followUps).toEqual([
+      formatMinionMail("mn-a", "hello from a", (peer.details as { messageId?: string }).messageId),
+    ]);
     expect(sessions.get("mn-b")?.steers).toEqual([]);
     expect(sessions.get("mn-a")?.followUps).toEqual([]);
 
@@ -1004,7 +1201,11 @@ describe("live vs disposed delivery", () => {
       parentTurnTriggered: false,
     });
     expect(sessions.get("mn-a")?.followUps).toEqual([
-      formatMinionMail(PARENT_RECIPIENT_ID, "steer this"),
+      formatMinionMail(
+        PARENT_RECIPIENT_ID,
+        "steer this",
+        (fromParent.details as { messageId?: string }).messageId,
+      ),
     ]);
     expect(sessions.get("mn-a")?.steers).toEqual([]);
 
@@ -1018,7 +1219,7 @@ describe("live vs disposed delivery", () => {
   });
 });
 
-describe("mailbox vs child terminal single winner", () => {
+describe("mailbox vs child terminal latch", () => {
   it("mail then settle delivers and emits one settled", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const cwd = tempDir("pi-minions-mail-settle-mb-");
@@ -1077,7 +1278,7 @@ describe("mailbox vs child terminal single winner", () => {
     expect(sent.status).toBe(COMM_SEND_STATUS.queued);
     await vi.waitFor(() => {
       expect(sessions.get("mn-b")?.followUps).toEqual([
-        formatMinionMail(PARENT_RECIPIENT_ID, "keep going"),
+        formatMinionMail(PARENT_RECIPIENT_ID, "keep going", sent.messageId),
       ]);
     });
     expect(manager.getTerminal("mn-b")).toBeUndefined();
@@ -1102,7 +1303,6 @@ describe("mailbox vs child terminal single winner", () => {
     expect(committed).toHaveLength(1);
     expect(committed[0]?.[2]).toMatchObject({
       eventClass: "settled",
-      winner: "mail-then-settle",
       terminalEventCount: 1,
     });
 
@@ -1115,7 +1315,7 @@ describe("mailbox vs child terminal single winner", () => {
     expect(late.status).toBe(COMM_SEND_STATUS.recipientTerminal);
   });
 
-  it("settle then mail is recipient-terminal with one settle winner", async () => {
+  it("settle then mail is recipient-terminal with one settled event", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
     const cwd = tempDir("pi-minions-settle-mail-mb-");
     const tree = new AgentTree();
@@ -1182,8 +1382,24 @@ describe("mailbox vs child terminal single winner", () => {
     expect(committed).toHaveLength(1);
     expect(committed[0]?.[2]).toMatchObject({
       eventClass: "settled",
-      winner: "settle",
       terminalEventCount: 1,
     });
+  });
+
+  it("caps accepted inspection history deterministically without evicting pending evidence", () => {
+    const { tree, peerId, groupId } = groupTree();
+    const { mailbox } = liveMailbox(tree, groupId, [peerId]);
+    for (let index = 0; index < MAX_MAILBOX_HISTORY + 44; index++) {
+      mailbox.send({
+        from: PARENT_RECIPIENT_ID,
+        to: peerId,
+        groupId,
+        body: `accepted-${index}`,
+      });
+      mailbox.ackPending(peerId, [mailbox.list().at(-1)!.id]);
+    }
+    expect(mailbox.list()).toHaveLength(MAX_MAILBOX_HISTORY);
+    expect(mailbox.list()[0]?.body).toBe("accepted-44");
+    expect(mailbox.inspectionCounts().pending).toBe(0);
   });
 });

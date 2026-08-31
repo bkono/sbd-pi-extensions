@@ -14,7 +14,6 @@ describe("statusline", () => {
         mode: "run",
         scope: { kind: "epic", id: "BW-100", title: "Scoped epic" },
         updatedAt: "now",
-        trackedWorkerIds: ["bw-101-worker"],
       },
       DEFAULT_CONFIG,
     );
@@ -28,7 +27,7 @@ describe("statusline", () => {
     expect(statusText).not.toContain("attention");
   });
 
-  it("does not surface worker summaries even when leftover tracking ids exist", () => {
+  it("does not surface worker summaries", () => {
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({ ui });
     const statusText = renderStatusText(

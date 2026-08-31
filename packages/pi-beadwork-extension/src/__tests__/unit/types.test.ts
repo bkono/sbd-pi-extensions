@@ -16,10 +16,22 @@ describe("goal record", () => {
     expect(isV1Goal({ ...goal, scopeIds: ["BW-100", "BW-200"] })).toBe(false);
   });
 
-  it("does not keep WorkerRuntime tmux types after runtime deletion", async () => {
+  it("does not expose deleted supervisor state types", async () => {
     const source = await readFile(new URL("../../types.ts", import.meta.url), "utf8");
-    expect(source).not.toContain("export type WorkerRuntime");
-    expect(source).not.toContain('backend: "tmux"');
-    expect(source).not.toContain("tmuxSession");
+    for (const symbol of [
+      "SessionRunOptions",
+      "WorkerSummary",
+      "RunOptions",
+      "RunCycleSummary",
+      "RunSummary",
+      "trackedWorkerIds",
+      "workerNotices",
+      "runOptions",
+      "lastRunOptions",
+      "recentRunSummary",
+      "lastCycleSummary",
+    ]) {
+      expect(source).not.toContain(symbol);
+    }
   });
 });

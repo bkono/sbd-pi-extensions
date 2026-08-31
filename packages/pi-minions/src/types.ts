@@ -12,7 +12,12 @@ export {
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-export type AgentSource = "user" | "project" | "ephemeral";
+export type AgentSource = "builtin" | "user" | "project" | "ephemeral";
+
+export function namedAgent(node: { agentName?: string }): string | undefined {
+  if (!node.agentName || node.agentName === "ephemeral") return undefined;
+  return node.agentName;
+}
 
 export interface AgentConfig {
   name: string;
@@ -26,13 +31,39 @@ export interface AgentConfig {
   systemPrompt: string;
   source: AgentSource;
   filePath: string;
-  /** Best-effort role fallback from frontmatter. Not a workflow contract. */
+  /** Best-effort agent fallback from frontmatter. Not a workflow contract. */
   completionNudge?: string;
 }
 
 export type AgentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
 export type AgentKind = "spawn" | "orchestrated";
+
+/** Runtime-derived work phase. Terminal status is separate and authoritative. */
+export type ActivityPhase = "starting" | "thinking" | "tool" | "settling";
+
+export interface ActivitySnapshot {
+  phase: ActivityPhase;
+  /** Concise trusted summary. Never arbitrary streamed prose. */
+  summary: string;
+  toolName?: string;
+  /** formatToolCall()-quality preview, sanitized and bounded. */
+  toolPreview?: string;
+  /** Turn count as metadata, not the primary summary. */
+  turn?: number;
+  updatedAt: number;
+  /** Optional sanitized drill-down. Not canonical phase/progress. */
+  narrativePreview?: string;
+}
+
+/** Bounded fleet-facing activity. Never narrativePreview or raw toolName/prose. */
+export interface TrustedActivityProjection {
+  phase: ActivityPhase;
+  summary: string;
+  toolPreview?: string;
+  turn?: number;
+  updatedAt: number;
+}
 
 export interface UsageStats {
   input: number;
@@ -94,6 +125,10 @@ export interface PathIntent {
 
 export interface AgentNode {
   id: string;
+  /** Immutable opaque identity for this runtime registration; not a display/tool id. */
+  lifecycleId?: string;
+  /** Group idle epoch captured when this runtime registration was accepted. */
+  lifecycleEpoch?: number;
   name: string;
   agentName?: string;
   task: string;
@@ -105,23 +140,23 @@ export interface AgentNode {
   endTime?: number;
   exitCode?: number;
   error?: string;
-  /** Live activity line, e.g. "→ $ grep -r TODO src/" */
+  /** Current runtime activity. Describes work only, not speech or terminal output. */
+  activity?: ActivitySnapshot;
+  /** lastActivity is activity.summary for compact consumers. */
   lastActivity?: string;
-  /** Persistent activity history for observability widget */
-  activityHistory?: string[];
+  /** Bounded recent-activity ring. Full transcript remains canonical. */
+  activityHistory?: ActivitySnapshot[];
   /** Model used by this minion */
   model?: string;
   /** Origin of this node. Existing add() call sites default to spawn. */
   kind?: AgentKind;
   groupId?: string;
-  /** Open agent role/template name. Not a closed enum. */
-  role?: string;
   taskType?: TaskType;
   /** Fleet-readable summary. Stored as provided; never inferred from task. */
   description?: string;
   /** Opaque domain metadata. Not parsed as ticket semantics. */
   domain?: OrchestrationDomain;
-  /** Role completion_nudge snapshot for parent packets when taskType is absent. */
+  /** Agent completion_nudge snapshot for parent packets when taskType is absent. */
   completionNudge?: string;
   /** Full child output. Canonical large text for show_minion, not packets. */
   output?: string;
@@ -141,9 +176,10 @@ export const OrchestratedTaskDescriptorSchema = Type.Object({
   description: Type.String({
     description: "Required short fleet-readable summary. Do not infer from task.",
   }),
-  role: Type.Optional(
+  agent: Type.Optional(
     Type.String({
-      description: "Open agent role/template name. Not a closed enum.",
+      description:
+        "Discovered agent/template name. Same loader as spawn. Call list_agents if unsure.",
     }),
   ),
   taskType: Type.Optional(TaskTypeSchema),
@@ -182,6 +218,7 @@ export type OrchestrateAccepted = Static<typeof OrchestrateAcceptedSchema>;
 export const OrchestrateRejectedSchema = Type.Object({
   index: Type.Number(),
   reason: Type.String(),
+  value: Type.Optional(Type.String()),
 });
 export type OrchestrateRejected = Static<typeof OrchestrateRejectedSchema>;
 

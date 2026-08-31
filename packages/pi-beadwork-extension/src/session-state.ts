@@ -6,12 +6,8 @@ import {
   isV1Goal,
   type PrimeCache,
   type ReviewPolicy,
-  type RunCycleSummary,
-  type RunSummary,
-  type SessionRunOptions,
   type SessionScope,
   type SessionState,
-  type WorkerSummary,
 } from "./types.js";
 
 function normalizeScope(scope: unknown): SessionScope {
@@ -46,116 +42,6 @@ function normalizePrimeCache(prime: unknown): PrimeCache | undefined {
     content: value.content,
     loadedAt: typeof value.loadedAt === "string" ? value.loadedAt : new Date().toISOString(),
     repoRoot: typeof value.repoRoot === "string" ? value.repoRoot : undefined,
-  };
-}
-
-function normalizeTrackedWorkerIds(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const ids = value.filter(
-    (entry): entry is string => typeof entry === "string" && entry.length > 0,
-  );
-  return ids.length > 0 ? [...new Set(ids)] : undefined;
-}
-
-function normalizeWorkerNotices(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const entries = Object.entries(value).filter(
-    (entry): entry is [string, string] =>
-      typeof entry[0] === "string" && entry[0].length > 0 && typeof entry[1] === "string",
-  );
-
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-}
-
-function normalizePositiveInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : undefined;
-}
-
-function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
-}
-
-function normalizeRunOptions(value: unknown): SessionRunOptions | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const parsed = value as Partial<SessionRunOptions>;
-  const workers = normalizePositiveInteger(parsed.workers);
-  const until = parsed.until === "empty" || parsed.until === "blocked" ? parsed.until : undefined;
-
-  if (!workers || !until) {
-    return undefined;
-  }
-
-  return {
-    workers,
-    until,
-    noSpawn: parsed.noSpawn === true,
-    dryRun: parsed.dryRun === true,
-    maxCycles: normalizePositiveInteger(parsed.maxCycles),
-  };
-}
-
-function normalizeWorkerSummary(value: unknown): WorkerSummary | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const parsed = value as Partial<WorkerSummary>;
-  return {
-    total: normalizePositiveInteger(parsed.total) ?? 0,
-    active: normalizePositiveInteger(parsed.active) ?? 0,
-    launching: normalizePositiveInteger(parsed.launching) ?? 0,
-    running: normalizePositiveInteger(parsed.running) ?? 0,
-    exited: normalizePositiveInteger(parsed.exited) ?? 0,
-    held: normalizePositiveInteger(parsed.held) ?? 0,
-    landed: normalizePositiveInteger(parsed.landed) ?? 0,
-    verified: normalizePositiveInteger(parsed.verified) ?? 0,
-    successfulTerminal:
-      normalizePositiveInteger(parsed.successfulTerminal) ??
-      (normalizePositiveInteger(parsed.landed) ?? 0) +
-        (normalizePositiveInteger(parsed.verified) ?? 0),
-    failed: normalizePositiveInteger(parsed.failed) ?? 0,
-    attention: normalizePositiveInteger(parsed.attention) ?? 0,
-    cleaned: normalizePositiveInteger(parsed.cleaned) ?? 0,
-  };
-}
-
-function normalizeRunCycleSummary(value: unknown): RunCycleSummary | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const parsed = value as Partial<RunCycleSummary>;
-  const cycle = normalizePositiveInteger(parsed.cycle);
-  if (!cycle) {
-    return undefined;
-  }
-
-  return {
-    cycle,
-    ready: normalizeStringArray(parsed.ready),
-    launched: normalizeStringArray(parsed.launched),
-    running: normalizeStringArray(parsed.running),
-    held: normalizeStringArray(parsed.held),
-    landed: normalizeStringArray(parsed.landed),
-    verified: normalizeStringArray(parsed.verified),
-    failed: normalizeStringArray(parsed.failed),
-    attention: normalizeStringArray(parsed.attention),
-    exited: normalizeStringArray(parsed.exited),
   };
 }
 
@@ -202,7 +88,7 @@ export function isInterruptedRun(state: SessionState): boolean {
   return state.mode === "run" && state.runInterrupted === true;
 }
 
-/** Drop run/goal. Interactive appendix may remain; the run standing appendix does not. */
+/** Drop goal mode while retaining interactive scope and cached prime guidance. */
 export function dropGoalMode(state: SessionState, now = new Date().toISOString()): SessionState {
   return {
     ...state,
@@ -210,44 +96,6 @@ export function dropGoalMode(state: SessionState, now = new Date().toISOString()
     updatedAt: now,
     goal: undefined,
     runInterrupted: undefined,
-    runOptions: undefined,
-    trackedWorkerIds: undefined,
-  };
-}
-
-function normalizeRunSummary(value: unknown): RunSummary | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const parsed = value as Partial<RunSummary>;
-  const workerSummary = normalizeWorkerSummary(parsed.workerSummary);
-  if (
-    typeof parsed.epicId !== "string" ||
-    parsed.epicId.length === 0 ||
-    !workerSummary ||
-    (parsed.stopReason !== "completed" &&
-      parsed.stopReason !== "blocked" &&
-      parsed.stopReason !== "empty" &&
-      parsed.stopReason !== "max-cycles" &&
-      parsed.stopReason !== "attention")
-  ) {
-    return undefined;
-  }
-
-  return {
-    epicId: parsed.epicId,
-    stopReason: parsed.stopReason,
-    cycles: normalizePositiveInteger(parsed.cycles) ?? 0,
-    launched: normalizeStringArray(parsed.launched),
-    activeWorkerIds: normalizeStringArray(parsed.activeWorkerIds),
-    workerSummary,
-    notes: normalizeStringArray(parsed.notes),
-    cycleSummaries: Array.isArray(parsed.cycleSummaries)
-      ? parsed.cycleSummaries
-          .map((entry) => normalizeRunCycleSummary(entry))
-          .filter((entry): entry is RunCycleSummary => entry !== undefined)
-      : [],
   };
 }
 
@@ -256,12 +104,12 @@ function normalizeState(state: unknown, origin: "memory" | "disk" = "memory"): S
     return { ...DEFAULT_SESSION_STATE, updatedAt: new Date().toISOString() };
   }
 
-  const value = state as Partial<SessionState>;
+  const value = state as Record<string, unknown>;
   const mode = value.mode === "interactive" || value.mode === "run" ? value.mode : "neutral";
   const updatedAt =
     typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString();
-  // Disk rehydration of mode=run is interrupted; keep that across in-memory writes
-  // until a later /bw run starts a fresh goal.
+  // A persisted goal requires an explicit resume. Runtime fleet state belongs to orchestration and is
+  // deliberately neither restored nor projected into this schema.
   const interruptedRun = mode === "run" && (origin === "disk" || value.runInterrupted === true);
 
   return {
@@ -272,22 +120,10 @@ function normalizeState(state: unknown, origin: "memory" | "disk" = "memory"): S
     prime: normalizePrimeCache(value.prime),
     goal: normalizeGoal(value.goal),
     runInterrupted: interruptedRun ? true : undefined,
-    trackedWorkerIds: interruptedRun
-      ? undefined
-      : normalizeTrackedWorkerIds(value.trackedWorkerIds),
-    workerNotices: normalizeWorkerNotices(value.workerNotices),
-    runOptions: interruptedRun ? undefined : normalizeRunOptions(value.runOptions),
-    lastRunOptions: normalizeRunOptions(value.lastRunOptions),
-    recentRunSummary: normalizeRunSummary(value.recentRunSummary),
   };
 }
 
 function toPersistedSessionState(state: SessionState): SessionState {
-  if (state.mode !== "run") {
-    const { runInterrupted: _runInterrupted, ...rest } = state;
-    return rest;
-  }
-
   return {
     mode: state.mode,
     scope: state.scope,
@@ -295,10 +131,7 @@ function toPersistedSessionState(state: SessionState): SessionState {
     engagedAt: state.engagedAt,
     prime: state.prime,
     goal: state.goal,
-    runInterrupted: state.runInterrupted === true ? true : undefined,
-    workerNotices: state.workerNotices,
-    lastRunOptions: state.lastRunOptions,
-    recentRunSummary: state.recentRunSummary,
+    runInterrupted: state.mode === "run" && state.runInterrupted === true ? true : undefined,
   };
 }
 

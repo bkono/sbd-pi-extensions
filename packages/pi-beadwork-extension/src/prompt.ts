@@ -21,6 +21,10 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = "ticket";
 export const SCOPE_POLICY_TRADEOFF =
   "Dependents may start before aggregate review finds a problem.";
 
+/** Shared command/tool identity. Present on both planning and active run surfaces. */
+const GOAL_LIFECYCLE_EQUIVALENCE =
+  "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.";
+
 const BEADWORK_PARENT_TOOLS = [
   "beadwork_status",
   "beadwork_prime",
@@ -41,6 +45,7 @@ const BEADWORK_PARENT_TOOLS = [
   "beadwork_defer_issue",
   "beadwork_undefer_issue",
   "beadwork_sync",
+  "beadwork_start_goal",
 ] as const;
 
 function truncate(value: string, maxChars: number): string {
@@ -99,6 +104,7 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
       "When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.",
       "Do not infer dependency graphs from ad hoc chat formatting.",
       "Do not autonomously launch children or act like a background orchestrator.",
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
       "This standing appendix is policy only. It does not start a turn. Wait for the user.",
     ];
   }
@@ -106,9 +112,14 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
   return [
     "You are in beadwork run mode.",
     "Goal mode: run the scoped epic to completion.",
+    "This is a manager-only loop.",
+    GOAL_LIFECYCLE_EQUIVALENCE,
     "Prefer durable beadwork state over conversational replanning.",
     "Use `orchestrate` plus beadwork tools. Do not poll.",
-    "Child settlement is evidence, not acceptance. Do not close a ticket solely because a child settled.",
+    "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
+    "The parent does not implement a delegated ticket concurrently with its live child.",
+    "Children do not start, close, or reopen tickets, and do not start goals.",
+    "Child settlement is evidence, not acceptance or ticket closure. Do not close a ticket solely because a child settled.",
     "Use beadwork tools for durable graph mutations instead of text parsing heuristics.",
     "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
     "This standing appendix is policy only. It does not start a turn.",
@@ -120,17 +131,17 @@ function renderInterruptedRunGuidance(): string[] {
     "Beadwork run was interrupted.",
     "Do not orchestrate.",
     "Wait for the user.",
-    "Resume only after explicit `/bw run <epic-id>`.",
+    "Resume only after explicit `/bw run <epic-id>` or `beadwork_start_goal`.",
   ];
 }
 
-function renderRoleVsTaskType(): string {
+function renderAgentVsTaskType(): string {
   return [
-    "## Role vs task type",
+    "## Agent vs task type",
     "",
-    "Role (open string): how the child works (prompt/template). Same loader as spawn `agent`.",
+    "Agent (discovered name): how the child works (prompt/template). Same field on spawn and orchestrate. Call `list_agents` if unsure. Built-in `worker` and `investigate` are always available.",
     "Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.",
-    "Optional on untyped work. Never collapse role and task type into one field.",
+    "Optional on untyped work. Never collapse agent and task type into one field.",
   ].join("\n");
 }
 
@@ -196,9 +207,22 @@ function renderChildTaskComposition(): string {
     "Start-before-work: call `beadwork_start_issue` (or `bw start`) on the ticket before the child begins work.",
     "Compose `task` yourself: the `orchestrate` `task` field is the complete child prompt. Beadwork does not wrap it.",
     'Attach domain metadata: source "beadwork", scopeId (epic id), workItemId (ticket id), title.',
-    "Tell implementation children not to close tickets. The parent closes after it judges evidence.",
-    "Reviewer children inspect named commits, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.",
+    "Tell implementation children to make one atomic ticket-scoped commit, return the commit SHA, stage only owned files, and not close tickets. The parent closes after it judges evidence.",
+    "Reviewer children start only after the implementer settles. They inspect named commits, the named SHA, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.",
     "Do not start review of ticket A while A's implementer is still live. That is an instruction, not a lock.",
+  ].join("\n");
+}
+
+function renderGoalStartGuidance(): string {
+  return [
+    "## Goal mode entry",
+    "",
+    GOAL_LIFECYCLE_EQUIVALENCE,
+    "Call `beadwork_start_goal({ epic_id })` only after you have intentionally chosen to execute a ready, already-decomposed open epic.",
+    "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation. It does not implement the epic or dispatch children.",
+    "Do not infer an epic. Do not auto-start because an epic exists, becomes ready, or was just created. Do not treat this as a synchronous run wrapper.",
+    "Planning/decomposition and executing the graph are distinct decisions.",
   ].join("\n");
 }
 
@@ -217,6 +241,7 @@ function renderDoNot(): string {
     "",
     "Do not use tmux, landing, `--workers`, or polling.",
     "Do not classify review findings with a keyword matcher.",
+    "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
   ].join("\n");
 }
 
@@ -253,8 +278,9 @@ export function buildBeadworkPromptAppendix(input: {
   const sections = [
     "[BEADWORK SESSION ACTIVE]",
     renderModeGuidance(sessionState.mode).join("\n"),
+    ...(sessionState.mode === "interactive" ? [renderGoalStartGuidance()] : []),
     `Current scope: ${scopeLine}`,
-    renderRoleVsTaskType(),
+    renderAgentVsTaskType(),
     renderTaskTypePolicy(),
     renderReviewPolicy(reviewPolicy),
     renderChildTaskComposition(),

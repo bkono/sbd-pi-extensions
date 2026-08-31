@@ -46,11 +46,7 @@ function createState(overrides: Partial<SessionState> = {}): SessionState {
     updatedAt: overrides.updatedAt ?? "2026-04-19T00:00:00.000Z",
     engagedAt: overrides.engagedAt,
     prime: overrides.prime,
-    trackedWorkerIds: overrides.trackedWorkerIds,
-    workerNotices: overrides.workerNotices,
-    runOptions: overrides.runOptions,
-    lastRunOptions: overrides.lastRunOptions,
-    recentRunSummary: overrides.recentRunSummary,
+    goal: overrides.goal,
     runInterrupted: overrides.runInterrupted,
   };
 }
@@ -133,7 +129,7 @@ describe("dashboard", () => {
     expect(rendered).not.toContain("workers 1");
   });
 
-  it("applies delegate follow-up snapshots to the dashboard header and run tab without a fleet table", async () => {
+  it("applies issue follow-up snapshots without a fleet table", async () => {
     const ticket = createIssue({
       id: "BW-101",
       title: "Delegable ticket",
@@ -146,7 +142,7 @@ describe("dashboard", () => {
     };
     const onDelegateIntent = vi.fn().mockResolvedValue(
       createSnapshot({
-        state: createState({ trackedWorkerIds: ["bw-101-worker"] }),
+        state: createState(),
         counts: { ready: 0, blocked: 0, inProgress: 1, scopedReady: 0 },
       }),
     );
@@ -182,13 +178,13 @@ describe("dashboard", () => {
 
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Goal state: idle");
+    expect(runRendered).toContain("Goal mode: inactive");
     expect(runRendered).not.toContain("Tracked workers:");
     expect(runRendered).not.toContain("Delegable ticket");
     expect(runRendered).not.toMatch(/\bl land\b/);
   });
 
-  it("renders the run tab as a goal summary with no minion rows", async () => {
+  it("renders only current goal-mode policy with no minion rows", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
     const epicDetail = createDetail(epic, [createIssue({ id: "BW-101", parentId: "BW-100" })]);
     const dataSource: IssueExplorerDataSource = {
@@ -200,41 +196,11 @@ describe("dashboard", () => {
         state: createState({
           mode: "run",
           scope: { kind: "epic", id: "BW-100", title: "Runnable epic" },
-          recentRunSummary: {
-            epicId: "BW-100",
-            stopReason: "max-cycles",
-            cycles: 1,
-            launched: ["BW-101"],
-            activeWorkerIds: ["bw-101-worker"],
-            workerSummary: {
-              total: 1,
-              active: 1,
-              launching: 0,
-              running: 1,
-              exited: 0,
-              held: 0,
-              landed: 0,
-              verified: 0,
-              successfulTerminal: 0,
-              failed: 0,
-              attention: 0,
-              cleaned: 0,
-            },
-            notes: ["cycle still active"],
-            cycleSummaries: [
-              {
-                cycle: 1,
-                ready: ["BW-101"],
-                launched: ["BW-101"],
-                running: ["bw-101-worker"],
-                held: [],
-                landed: [],
-                verified: [],
-                failed: [],
-                attention: [],
-                exited: [],
-              },
-            ],
+          goal: {
+            goalId: "goal-BW-100",
+            scopeIds: ["BW-100"],
+            reviewPolicy: "ticket",
+            startedAt: "2026-04-19T00:00:00.000Z",
           },
         }),
         counts: { ready: 1, blocked: 0, inProgress: 1, scopedReady: 1 },
@@ -275,7 +241,7 @@ describe("dashboard", () => {
     const runRendered = renderComponent(dashboard);
     expect(runRendered).toContain("Epic: BW-100 · Runnable epic");
     expect(runRendered).toContain("Review policy: ticket");
-    expect(runRendered).toContain("Goal state: active");
+    expect(runRendered).toContain("Goal mode: active");
     expect(runRendered).not.toContain("Tracked workers:");
     expect(runRendered).not.toContain("Runnable ticket");
     expect(runRendered).not.toContain("activeWorkers=");
@@ -298,28 +264,11 @@ describe("dashboard", () => {
           mode: "run",
           runInterrupted: true,
           scope: { kind: "epic", id: "BW-100", title: "Interrupted epic" },
-          recentRunSummary: {
-            epicId: "BW-100",
-            stopReason: "max-cycles",
-            cycles: 1,
-            launched: [],
-            activeWorkerIds: [],
-            workerSummary: {
-              total: 0,
-              active: 0,
-              launching: 0,
-              running: 0,
-              exited: 0,
-              held: 0,
-              landed: 0,
-              verified: 0,
-              successfulTerminal: 0,
-              failed: 0,
-              attention: 0,
-              cleaned: 0,
-            },
-            notes: [],
-            cycleSummaries: [],
+          goal: {
+            goalId: "goal-BW-100",
+            scopeIds: ["BW-100"],
+            reviewPolicy: "scope",
+            startedAt: "2026-04-19T00:00:00.000Z",
           },
         }),
       }),
@@ -330,7 +279,7 @@ describe("dashboard", () => {
     };
     const rendered = renderComponent(dashboard);
     expect(rendered).not.toContain("run armed");
-    expect(rendered).toContain("last run BW-100");
+    expect(rendered).toContain("run interrupted for BW-100");
     expect(rendered).toContain("interrupted");
   });
 
@@ -347,7 +296,6 @@ describe("dashboard", () => {
       createModel({
         state: createState({
           scope: { kind: "epic", id: "BW-100", title: "Scoped epic" },
-          trackedWorkerIds: ["bw-101-worker"],
         }),
         scopeDetail: createDetail({ id: "BW-100", type: "epic", title: "Scoped epic" }),
       }),

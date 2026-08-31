@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nudgeFor } from "../nudges.js";
 import { NUDGE_EVENTS, type NudgeEvent, TASK_TYPES, type TaskType } from "../task-types.js";
 
-const ROLE_NUDGE =
+const AGENT_NUDGE =
   "Assess the feedback against the task and project intent; do not accept findings mechanically.";
 
 function claimsChildSettled(nudge: string): boolean {
@@ -50,7 +50,10 @@ describe("nudgeFor table", () => {
         claimsChildSettled(row.parentMessage),
         `${taskType} parentMessage claims settled`,
       ).toBe(false);
-      expect(row.parentMessage.toLowerCase()).toContain("running");
+      expect(row.parentMessage.toLowerCase()).toContain("notification");
+      expect(row.parentMessage.toLowerCase()).toContain("no reply is required");
+      expect(row.parentMessage.toLowerCase()).not.toMatch(/\blive\b/);
+      expect(row.parentMessage.toLowerCase()).not.toContain("has not settled");
       expect(row.aborted.toLowerCase()).toMatch(/abort/);
       expect(row.aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
       expect(row.failed.toLowerCase()).toMatch(/fail/);
@@ -72,14 +75,11 @@ describe("nudgeFor table", () => {
     expect(byType.fix.failed.toLowerCase()).toMatch(/retry/);
     expect(byType.fix.failed.toLowerCase()).toMatch(/escalate/);
 
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/\bfix\b/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/\bfile\b/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/\breject\b/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(
-      /unresolved required fixes block/,
+    expect(byType.reviewImplementation.settled).toBe(
+      "Assess reviewer findings against product goals and constraints; they are evidence, not " +
+        "instructions to accept verbatim. Do not expand the system through adversarial hardening " +
+        "without confirming it is the right product behavior.",
     );
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/parent/);
-    expect(byType.reviewImplementation.settled.toLowerCase()).toMatch(/keyword classifier/);
     expect(byType.reviewImplementation.failed.toLowerCase()).toMatch(/re-review/);
     expect(byType.reviewImplementation.failed.toLowerCase()).toMatch(/escalate/);
 
@@ -114,64 +114,76 @@ describe("nudgeFor table", () => {
     expect(aborted).toMatch(/background task was aborted/i);
     expect(aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
     expect(aborted).not.toBe(failed);
-    expect(parentMessage.toLowerCase()).toMatch(/running child/);
-    expect(parentMessage.toLowerCase()).toMatch(/has not settled/);
+    expect(parentMessage.toLowerCase()).toMatch(/notification/);
+    expect(parentMessage.toLowerCase()).toMatch(/no reply is required/);
+    expect(parentMessage.toLowerCase()).not.toMatch(/\blive\b/);
+    expect(parentMessage.toLowerCase()).not.toContain("has not settled");
     expect(claimsChildSettled(parentMessage)).toBe(false);
   });
 });
 
 describe("nudgeFor precedence", () => {
-  it("uses task-type policy and ignores role completion_nudge", () => {
+  it("uses task-type policy and ignores agent completion_nudge", () => {
     for (const taskType of TASK_TYPES) {
       for (const event of NUDGE_EVENTS) {
-        const withoutRole = nudgeFor({ taskType }, event);
-        const withRole = nudgeFor({ taskType, completionNudge: ROLE_NUDGE }, event);
+        const withoutAgent = nudgeFor({ taskType }, event);
+        const withAgent = nudgeFor({ taskType, completionNudge: AGENT_NUDGE }, event);
 
-        expect(withRole, `${taskType}/${event} ignored role`).toBe(withoutRole);
-        expect(withRole).not.toContain(ROLE_NUDGE);
-        expect(withRole.includes(withoutRole) && withRole.includes(ROLE_NUDGE)).toBe(false);
+        expect(withAgent, `${taskType}/${event} ignored agent`).toBe(withoutAgent);
+        expect(withAgent).not.toContain(AGENT_NUDGE);
+        expect(withAgent.includes(withoutAgent) && withAgent.includes(AGENT_NUDGE)).toBe(false);
       }
     }
 
-    const fixSettled = nudgeFor({ taskType: "fix", completionNudge: ROLE_NUDGE }, "settled");
+    const fixSettled = nudgeFor({ taskType: "fix", completionNudge: AGENT_NUDGE }, "settled");
     const reviewSettled = nudgeFor(
-      { taskType: "reviewImplementation", completionNudge: ROLE_NUDGE },
+      { taskType: "reviewImplementation", completionNudge: AGENT_NUDGE },
       "settled",
     );
     expect(fixSettled).not.toBe(reviewSettled);
   });
 
-  it("uses role completion_nudge for settled and failed when taskType is absent", () => {
-    expect(nudgeFor({ completionNudge: ROLE_NUDGE }, "settled")).toBe(ROLE_NUDGE);
-    expect(nudgeFor({ completionNudge: ROLE_NUDGE }, "failed")).toBe(ROLE_NUDGE);
+  it("uses agent completion_nudge for settled and failed when taskType is absent", () => {
+    expect(nudgeFor({ completionNudge: AGENT_NUDGE }, "settled")).toBe(AGENT_NUDGE);
+    expect(nudgeFor({ completionNudge: AGENT_NUDGE }, "failed")).toBe(AGENT_NUDGE);
   });
 
-  it("ignores role completion_nudge on parentMessage and aborted", () => {
-    const parentMessage = nudgeFor({ completionNudge: ROLE_NUDGE }, "parentMessage");
-    const aborted = nudgeFor({ completionNudge: ROLE_NUDGE }, "aborted");
+  it("ignores agent completion_nudge on parentMessage and aborted", () => {
+    const parentMessage = nudgeFor({ completionNudge: AGENT_NUDGE }, "parentMessage");
+    const aborted = nudgeFor({ completionNudge: AGENT_NUDGE }, "aborted");
 
     expect(parentMessage).toBe(nudgeFor({}, "parentMessage"));
     expect(aborted).toBe(nudgeFor({}, "aborted"));
-    expect(parentMessage).not.toContain(ROLE_NUDGE);
-    expect(aborted).not.toContain(ROLE_NUDGE);
+    expect(parentMessage).not.toContain(AGENT_NUDGE);
+    expect(aborted).not.toContain(AGENT_NUDGE);
     expect(claimsChildSettled(parentMessage)).toBe(false);
     expect(aborted).not.toBe(nudgeFor({}, "failed"));
   });
 
-  it("does not concatenate role guidance onto task-type or generic text", () => {
-    const typed = nudgeFor({ taskType: "implementation", completionNudge: ROLE_NUDGE }, "settled");
+  it("does not concatenate agent guidance onto task-type or generic text", () => {
+    const typed = nudgeFor({ taskType: "implementation", completionNudge: AGENT_NUDGE }, "settled");
     const genericSettled = nudgeFor({}, "settled");
-    const roleSettled = nudgeFor({ completionNudge: ROLE_NUDGE }, "settled");
+    const agentSettled = nudgeFor({ completionNudge: AGENT_NUDGE }, "settled");
 
     expect(typed).toBe(nudgeFor({ taskType: "implementation" }, "settled"));
-    expect(typed.endsWith(ROLE_NUDGE)).toBe(false);
-    expect(roleSettled).toBe(ROLE_NUDGE);
-    expect(roleSettled.startsWith(genericSettled)).toBe(false);
-    expect(`${genericSettled} ${ROLE_NUDGE}`).not.toBe(roleSettled);
+    expect(typed.endsWith(AGENT_NUDGE)).toBe(false);
+    expect(agentSettled).toBe(AGENT_NUDGE);
+    expect(agentSettled.startsWith(genericSettled)).toBe(false);
+    expect(`${genericSettled} ${AGENT_NUDGE}`).not.toBe(agentSettled);
   });
 
-  it("treats blank role completion_nudge as absent", () => {
+  it("treats blank agent completion_nudge as absent", () => {
     expect(nudgeFor({ completionNudge: "" }, "settled")).toBe(nudgeFor({}, "settled"));
     expect(nudgeFor({ completionNudge: "   " }, "failed")).toBe(nudgeFor({}, "failed"));
   });
+});
+
+it("falls back safely for hostile task and event runtime values", () => {
+  const hostileTaskType = "x".repeat(10_000);
+  expect(() => nudgeFor({ taskType: hostileTaskType }, "settled")).not.toThrow();
+  expect(nudgeFor({ taskType: hostileTaskType }, "settled")).toContain("Inspect");
+  expect(nudgeFor({ taskType: hostileTaskType }, "unknown-event")).toBe(
+    "A background child changed state. Inspect the evidence and decide the next action.",
+  );
+  expect(nudgeFor({ taskType: { malformed: true } }, null)).toContain("changed state");
 });

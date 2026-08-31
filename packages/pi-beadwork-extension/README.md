@@ -17,8 +17,14 @@ Use this package for:
 
 Truths to keep in mind:
 
-- `/bw run` **injects a prompt** that asks the parent to refresh `bw` and `orchestrate`. It does
-  not start a polling supervisor or freeze a ready list.
+- `/bw run` and `beadwork_start_goal` are **equivalent entry surfaces** for the same lifecycle.
+  They **inject a prompt** that asks the parent to refresh `bw` and `orchestrate`. They do not
+  start a polling supervisor, freeze a ready list, dispatch children, or implement the epic.
+- Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.
+  Planning/decomposition and executing the graph are distinct decisions.
+- Goal mode is a **manager-only loop**. The parent owns ready/show, ticket start/close, task
+  composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping work in
+  flight. It does not implement a delegated ticket concurrently with its live child.
 - The standing beadwork appendix is **policy**. It does not start a turn.
 - Children are **process-local**. They die with the parent Pi process. A stuck child may require
   `/halt` or process exit. There is no daemon and no restart recovery.
@@ -111,7 +117,26 @@ What happens:
 2. it injects a prompt: identifiers, policy, “refresh `bw` and `orchestrate`”
 3. if the parent is idle, that prompt starts a turn; if busy, it is delivered as follow-up
 4. the standing appendix stays armed as policy for later turns
-5. the parent starts ready work, composes each child’s `task`, and calls minions `orchestrate`
+5. the parent starts ready work, composes each child’s `task`, and calls minions `orchestrate`.
+   This is a manager-only loop: the parent does not implement delegated ticket scope while the
+   child is live
+
+The parent-model entrypoint is:
+
+```text
+beadwork_start_goal({ epic_id: "sbdpi-vur.4" })
+```
+
+Call it only after the parent deliberately chooses to execute an existing, open, already-decomposed
+epic. It runs the same goal transition as `/bw run`: persisted epic scope and review policy, conflict
+checks, statusline state, and the same continuation. During an active parent turn the continuation is
+queued once as a follow-up. The result is truthful lifecycle vocabulary: `started` or `resumed`, plus
+`queued_follow_up` or `triggered_turn`. It does not select work, start a ticket, launch a child, or claim
+success. Repeating the same epic resumes/re-arms the existing goal; interrupted disk state never
+silently resumes itself.
+
+Planning does not imply execution. Creating or discovering an epic, decomposing it, or making work
+ready must not auto-call `beadwork_start_goal`.
 
 Do **not** pass `--workers`, `--until`, `--max-cycles`, `--dry-run`, or `--no-spawn`. Those flags
 error.
@@ -124,6 +149,13 @@ Stay in the tui session. Children live in this Pi process.
 - Parent uses `orchestrate` (returns handles immediately; `accepted` means **starting**, not live)
 - Inspect children with minions `list_minions` / `show_minion` (or `/minions`, `/halt`)
 - Child settlement is **evidence**, not acceptance. The parent closes tickets after it judges.
+
+The minions fleet widget appears above the editor while children are pending or running and clears at
+idle; `/minions` remains the drill-down. Registration (`starting`), confirmed liveness (`running`),
+trusted activity (`tool` / `waiting` / `settling`), and settlement are distinct. The final coalesced
+lifecycle packet may declare the group idle and ask the parent to adjudicate. Group idle is not review
+acceptance, ticket closure, or goal success; only the parent applies the configured review policy and
+mutates Beadwork.
 
 When the scoped epic is closed through beadwork tools, goal mode exits. `/bw abandon` exits goal
 mode and queues a group halt without closing the epic. `/bw off` returns the session to
@@ -176,7 +208,8 @@ See [docs/worker-conventions.md](./docs/worker-conventions.md).
 
 - children are in-process Pi sessions owned by minions
 - parent exit, `/new`, or process death disposes children
-- leftover disk `mode=run` is **interrupted**, not auto-resumed — run `/bw run <epic-id>` again
+- leftover disk `mode=run` is **interrupted**, not auto-resumed — run `/bw run <epic-id>` or
+  `beadwork_start_goal({ epic_id })` again
 - `/bw abandon` exits goal mode and queues `/halt group`; the epic stays open
 - a stuck child: `/halt <id|all>`. If that is not enough, exit the parent Pi process
 - one goal and one open orchestration group per parent session
@@ -241,9 +274,9 @@ Full reference: [docs/commands.md](./docs/commands.md).
 - [docs/README.md](./docs/README.md) — docs index
 - [docs/workflows.md](./docs/workflows.md) — dashboard-first operator flow, `/bw run`, review, checkout
 - [docs/configuration.md](./docs/configuration.md) — config keys and environment variables
-- [docs/migration.md](./docs/migration.md) — removed tmux workers, flags, tools, and leftover config
+- [docs/migration.md](./docs/migration.md) — deleted supervisor state, attribution APIs, flags, tools, and config
 - [docs/commands.md](./docs/commands.md) — slash commands, dashboard controls, tool surface
-- [docs/worker-conventions.md](./docs/worker-conventions.md) — shared-checkout attribution habits
+- [docs/worker-conventions.md](./docs/worker-conventions.md) — shared-checkout commit and handoff habits
 
 ## Tool surface
 
@@ -252,11 +285,17 @@ Parent beadwork tools (inspection **and** mutation):
 - status / prime / ready / blocked / list / show / history
 - create / update / dependency add-remove
 - start / close / reopen / comment / label / defer / undefer / sync
+- `beadwork_start_goal` — parent-only manager-only goal-mode transition for an explicit epic id
 
 Children spawned or orchestrated by minions get **inspection only**: `beadwork_show`,
 `beadwork_list_issues`, `beadwork_issue_history`, `beadwork_ready`, `beadwork_blocked`,
-`beadwork_status`, `beadwork_prime`. They do not get start/close/create/comment. The parent
-mutates tickets after it judges evidence.
+`beadwork_status`, `beadwork_prime`. They do not get start/close/create/comment/start_goal. The
+parent mutates tickets after it judges evidence.
+
+Call `beadwork_start_goal({ epic_id })` only after deliberately choosing to execute an already-decomposed
+open epic. Human `/bw run` and this tool share the same lifecycle. It queues the same continuation
+`/bw run` injects. It does not implement the epic, dispatch children, or infer which epic to run.
+Do not auto-start because an epic exists, becomes ready, or was just created.
 
 Deleted for everyone: `beadwork_delegate`, `beadwork_worker_done`, `beadwork_land_worker`,
 `beadwork_worker_check`.

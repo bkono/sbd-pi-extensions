@@ -68,6 +68,7 @@ async function startAndImplement(input: {
       {
         task: input.task,
         description: input.description,
+        agent: "worker",
         taskType: "implementation",
         domain: {
           source: "beadwork",
@@ -145,7 +146,22 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         const initialBlocked = await fixture.adapter.blocked(fixture.cwd);
         expect(issueIds(initialBlocked)).toContain(dependentTicket.id);
 
-        await harness.bwRun(epicId);
+        const started = (await harness.invokeBeadworkTool("beadwork_start_goal", {
+          epic_id: epicId,
+        })) as {
+          details: {
+            epic_id: string;
+            epic_title: string;
+            review_policy: string;
+            state: string;
+            continuation: string;
+          };
+        };
+        expect(started.details.state).toBe("started");
+        expect(started.details.continuation).toBe("triggered_turn");
+        expect(started.details.epic_id).toBe(epicId);
+        expect(started.details.epic_title).toBe("Scope-policy epic");
+        expect(started.details.review_policy).toBe("scope");
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
@@ -163,6 +179,9 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           harness.ctx,
         );
         const standing = appendix?.systemPrompt ?? "";
+        expect(standing).toContain("Base prompt");
+        expect(standing).toContain("You are in beadwork run mode.");
+        expect(standing).toContain(`Current scope: epic:${epicId}`);
         expect(standing).toContain("Review policy branch: scope");
         expect(standing).toContain(
           "You may close individual tickets from evidence without an independent per-ticket review child.",
@@ -171,7 +190,20 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           "Launch a `reviewScope` child before declaring the epic complete.",
         );
         expect(standing).toContain("Dependents may start before aggregate review finds a problem.");
-        await harness.logStep("bw-run-injected", { ticketId: parentTicket.id });
+        expect(standing).toContain("This is a manager-only loop.");
+        expect(standing).toContain(
+          "The parent does not implement a delegated ticket concurrently with its live child.",
+        );
+        expect(standing).toContain(
+          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+        );
+        expect(standing).toContain(
+          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+        );
+        expect(standing).not.toContain(
+          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+        );
+        await harness.logStep("bw-start-goal-injected", { ticketId: parentTicket.id });
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");
@@ -258,6 +290,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
             {
               task: scopeReviewTask,
               description: "Aggregate scope review",
+              agent: "worker",
               taskType: "reviewScope",
               domain: {
                 source: "beadwork",
@@ -314,6 +347,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
             {
               task: `Remediate the blocking finding on ${parentTicket.id} commit ${parentWork.commit}. Do not close tickets.`,
               description: "Fix scope-review finding",
+              agent: "worker",
               taskType: "fix",
               domain: {
                 source: "beadwork",
@@ -358,6 +392,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
             {
               task: reReviewTask,
               description: "Aggregate scope re-review",
+              agent: "worker",
               taskType: "reviewScope",
               domain: {
                 source: "beadwork",

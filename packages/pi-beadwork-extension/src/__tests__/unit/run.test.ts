@@ -7,11 +7,14 @@ import {
   collectRejectedRunFlags,
   conflictingGoalEpicId,
   executeRunAction,
+  GoalStartError,
   handleRunAction,
   injectGoalRunPrompt,
   isPersistentHost,
   type RunActionDeps,
   runActionLog,
+  startGoal,
+  toGoalStartToolResult,
   validateOpenEpicWithDescendants,
 } from "../../actions/run.js";
 import { parseArgv } from "../../argv.js";
@@ -214,6 +217,9 @@ describe("run flag and host validation", () => {
       });
 
       expect(ui.notifications.at(-1)?.level).toBe("error");
+      expect(ui.notifications.at(-1)?.message).toContain(
+        "/bw run requires a persistent Pi host (tui or rpc)",
+      );
       expect(ui.notifications.at(-1)?.message).toMatch(/print and json/);
       expect(logSpy).toHaveBeenCalledWith("reject-host", expect.objectContaining({ hostMode }));
       expect(deps.pi.sendMessage).not.toHaveBeenCalled();
@@ -223,13 +229,19 @@ describe("run flag and host validation", () => {
 
 describe("epic validation", () => {
   it("rejects non-epics, closed epics, and epics without descendants", () => {
-    expect(validateOpenEpicWithDescendants(epic({ type: "task", children: [issue()] }))).toMatch(
-      /is a task/,
-    );
-    expect(validateOpenEpicWithDescendants(epic({ status: "closed" }))).toMatch(/is closed/);
-    expect(validateOpenEpicWithDescendants(epic({ children: [] }))).toMatch(
-      /traversable descendants/,
-    );
+    const task = validateOpenEpicWithDescendants(epic({ type: "task", children: [issue()] }));
+    const closed = validateOpenEpicWithDescendants(epic({ status: "closed" }));
+    const empty = validateOpenEpicWithDescendants(epic({ children: [] }));
+
+    expect(task).toMatch(/Goal mode requires an epic id/);
+    expect(task).toMatch(/is a task/);
+    expect(closed).toMatch(/Goal mode requires an open epic/);
+    expect(closed).toMatch(/is closed/);
+    expect(empty).toMatch(/Goal mode requires an open epic with traversable descendants/);
+    expect(empty).toMatch(/has none/);
+    for (const message of [task, closed, empty]) {
+      expect(message).not.toMatch(/\/bw run requires/);
+    }
     expect(validateOpenEpicWithDescendants(epic())).toBeUndefined();
   });
 
@@ -245,7 +257,9 @@ describe("epic validation", () => {
     await executeRunAction({ ctx, deps, epicId: "BW-101" });
 
     expect(ui.notifications.at(-1)?.level).toBe("warning");
+    expect(ui.notifications.at(-1)?.message).toContain("Goal mode requires an epic id");
     expect(ui.notifications.at(-1)?.message).toContain("BW-101 is a task");
+    expect(ui.notifications.at(-1)?.message).not.toContain("/bw run requires");
     expect(deps.pi.sendMessage).not.toHaveBeenCalled();
   });
 });
@@ -462,8 +476,6 @@ describe("injected goal prompt", () => {
       reviewPolicy: "ticket",
       startedAt: "2026-08-27T00:00:00.000Z",
     });
-    expect(persisted.runOptions).toBeUndefined();
-    expect(persisted.trackedWorkerIds).toBeUndefined();
     expect(deps.pi.sendMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -482,11 +494,249 @@ describe("injected goal prompt", () => {
   });
 });
 
+describe("startGoal domain operation", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns started/triggered_turn without completion vocabulary", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-start-goal-"));
+    const ctx = createFakeExtensionContext({ cwd: tempDir });
+    const { deps } = createDeps({ cwd: tempDir });
+
+    const result = await startGoal({
+      ctx,
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    });
+    const details = toGoalStartToolResult(result);
+    const encoded = JSON.stringify(details).toLowerCase();
+
+    expect(result.state).toBe("started");
+    expect(result.continuation).toBe("triggered_turn");
+    expect(result.epicId).toBe("BW-100");
+    expect(result.epicTitle).toBe("Ship goal adapter");
+    expect(result.goal.reviewPolicy).toBe("ticket");
+    expect(details).toEqual({
+      epic_id: "BW-100",
+      epic_title: "Ship goal adapter",
+      goal_id: result.goal.goalId,
+      review_policy: "ticket",
+      state: "started",
+      continuation: "triggered_turn",
+    });
+    expect(encoded).not.toMatch(/complet|succeed|finished|orchestrated/);
+    expect(deps.pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(deps.pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("queues follow-up exactly once when the parent is busy", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-start-goal-busy-"));
+    const ctx = createFakeExtensionContext({ cwd: tempDir, isIdle: () => false });
+    const { deps } = createDeps({ cwd: tempDir });
+
+    const result = await startGoal({
+      ctx,
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    });
+
+    expect(result.state).toBe("started");
+    expect(result.continuation).toBe("queued_follow_up");
+    expect(deps.pi.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(deps.pi.sendUserMessage).toHaveBeenCalledWith(result.prompt, {
+      deliverAs: "followUp",
+    });
+    expect(deps.pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("same-epic retry preserves identity and re-arms continuation", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-start-goal-retry-"));
+    const ctx = createFakeExtensionContext({ cwd: tempDir });
+    const { deps } = createDeps({ cwd: tempDir });
+    const first = await startGoal({
+      ctx,
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    });
+    const persisted = await loadSessionState(
+      resolveSessionStateDir(tempDir, DEFAULT_CONFIG.storage.sessionStateDir),
+      "test-session-123",
+    );
+
+    const second = await startGoal({
+      ctx,
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: persisted },
+    });
+
+    expect(second.state).toBe("resumed");
+    expect(second.goal).toEqual(first.goal);
+    expect(second.continuation).toBe("triggered_turn");
+    expect(deps.pi.sendMessage).toHaveBeenCalledTimes(2);
+    expect(second.prompt).toBe(first.prompt);
+  });
+
+  it("rejects host, task, closed, empty, inactive, and conflict without partial mutation", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-start-goal-reject-"));
+    const { deps, adapter } = createDeps({ cwd: tempDir });
+    const writeSpy = vi.spyOn(deps, "writeSessionState");
+    const sessionDir = resolveSessionStateDir(tempDir, DEFAULT_CONFIG.storage.sessionStateDir);
+
+    const expectUnchanged = async (error: unknown, code: string, pattern: RegExp) => {
+      expect(error).toBeInstanceOf(GoalStartError);
+      expect((error as GoalStartError).code).toBe(code);
+      expect((error as GoalStartError).message).toMatch(pattern);
+      expect((error as GoalStartError).message).not.toContain("/bw run requires");
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(deps.pi.sendMessage).not.toHaveBeenCalled();
+      expect(deps.pi.sendUserMessage).not.toHaveBeenCalled();
+      const persisted = await loadSessionState(sessionDir, "test-session-123");
+      expect(persisted.mode).not.toBe("run");
+      expect(persisted.goal).toBeUndefined();
+    };
+
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir, mode: "print" }),
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    }).then(
+      () => {
+        throw new Error("expected host rejection");
+      },
+      async (error) => expectUnchanged(error, "host", /Goal mode requires a persistent Pi host/),
+    );
+
+    adapter.show.mockResolvedValueOnce(epic({ type: "task", children: [] }));
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "BW-101",
+      session: { activation: activation(tempDir), state: session() },
+    }).then(
+      () => {
+        throw new Error("expected task rejection");
+      },
+      async (error) => expectUnchanged(error, "epic", /is a task/),
+    );
+
+    adapter.show.mockResolvedValueOnce(epic({ status: "closed" }));
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    }).then(
+      () => {
+        throw new Error("expected closed rejection");
+      },
+      async (error) => expectUnchanged(error, "epic", /is closed/),
+    );
+
+    adapter.show.mockResolvedValueOnce(epic({ children: [] }));
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    }).then(
+      () => {
+        throw new Error("expected empty rejection");
+      },
+      async (error) => expectUnchanged(error, "epic", /has none/),
+    );
+
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "BW-100",
+      session: { activation: { kind: "inactive", reason: "no-bw" }, state: session() },
+    }).then(
+      () => {
+        throw new Error("expected inactive rejection");
+      },
+      async (error) => expectUnchanged(error, "inactive", /not active/),
+    );
+
+    adapter.show.mockResolvedValueOnce(epic({ id: "BW-200", title: "Other epic" }));
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "BW-200",
+      session: {
+        activation: activation(tempDir),
+        state: session({
+          mode: "run",
+          goal: {
+            goalId: "goal-BW-100",
+            scopeIds: ["BW-100"],
+            reviewPolicy: "ticket",
+            startedAt: "2026-08-27T00:00:00.000Z",
+          },
+        }),
+      },
+    }).then(
+      () => {
+        throw new Error("expected conflict rejection");
+      },
+      async (error) => expectUnchanged(error, "conflict", /already running for BW-100/),
+    );
+
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "   ",
+      session: { activation: activation(tempDir), state: session() },
+    }).then(
+      () => {
+        throw new Error("expected empty id rejection");
+      },
+      async (error) => expectUnchanged(error, "epic", /explicit epic id/),
+    );
+
+    await writeProjectConfig(tempDir, { tmux: { sessionName: "bw" } });
+    await startGoal({
+      ctx: createFakeExtensionContext({ cwd: tempDir }),
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    }).then(
+      () => {
+        throw new Error("expected supervisor rejection");
+      },
+      async (error) => expectUnchanged(error, "supervisor", /supervisor config leftovers/),
+    );
+  });
+
+  it("does not synthesize slash-command text", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-bw-start-goal-cmd-"));
+    const ctx = createFakeExtensionContext({ cwd: tempDir });
+    const { deps } = createDeps({ cwd: tempDir });
+
+    const result = await startGoal({
+      ctx,
+      deps,
+      epicId: "BW-100",
+      session: { activation: activation(tempDir), state: session() },
+    });
+
+    expect(result.prompt).not.toContain("/bw run");
+    expect(JSON.stringify(deps.pi.sendMessage.mock.calls)).not.toContain("/bw run");
+  });
+});
+
 describe("run.ts cutover source", () => {
   it("no longer launches tmux workers from this path", async () => {
     const source = await readFile(new URL("../../actions/run.ts", import.meta.url), "utf8");
     expect(source).not.toContain("runBoundedEpicLoop");
     expect(source).not.toContain("buildRunOptions");
     expect(source).not.toContain('from "../orchestrator.js"');
+    expect(source).toContain("export async function startGoal");
+    expect(source).toContain("await startGoal(");
   });
 });

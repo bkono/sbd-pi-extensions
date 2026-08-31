@@ -11,6 +11,7 @@ import {
   isComplexDelegationTask,
   shouldInjectDelegationHint,
 } from "./delegation.js";
+import { createFleetWidgetController, type FleetWidgetController } from "./fleet-widget.js";
 import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
 import {
@@ -18,6 +19,7 @@ import {
   MinionCommMailbox,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
+  OrchestrationLifecycleCoordinator,
   type OrchestrationLifecycleEvent,
   PARENT_RECIPIENT_ID,
   SEND_MINION_MESSAGE_TOOL,
@@ -26,7 +28,8 @@ import {
 } from "./orchestration/index.js";
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
-import { getMinionsSkill } from "./skill.js";
+import { renderOrchestrateCall, renderOrchestrateResult } from "./renderers/orchestrate.js";
+import { getMinionsSkill, ORCHESTRATE_SIDECAR_GUIDELINES } from "./skill.js";
 import { createStatusTracker } from "./status.js";
 import { EventBus } from "./subsessions/event-bus.js";
 import { SubsessionManager } from "./subsessions/manager.js";
@@ -50,23 +53,62 @@ export default function (pi: ExtensionAPI): void {
   let groups = new OrchestrationGroupState();
   let mailbox = new MinionCommMailbox();
   let overlaps = new PathOverlapLog();
+  let lifecycleCoordinator: OrchestrationLifecycleCoordinator;
   let subsessionManager: SubsessionManager | undefined;
   let statusTracker: ReturnType<typeof createStatusTracker> | undefined;
   let cachedUi: ExtensionContext["ui"] | null = null;
   let cachedCtx: ExtensionContext | null = null;
   // biome-ignore lint/suspicious/noExplicitAny: external API type
   let cachedModel: Model<any> | undefined;
+  let fleetWidget: FleetWidgetController | undefined;
+  let sessionGeneration = 0;
+
+  const clearSessionUi = (): void => {
+    fleetWidget?.destroy();
+    fleetWidget = undefined;
+    statusTracker?.destroy();
+    statusTracker?.setUi(null);
+    statusTracker = undefined;
+    cachedUi = null;
+    cachedCtx = null;
+    cachedModel = undefined;
+  };
 
   const eventBus = new EventBus();
   const packets = createLifecyclePacketDispatcher({
     getTree: () => tree,
     sendMessage: (message, options) => pi.sendMessage(message, options),
-    consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
-    drainParentMail: (childId) => {
-      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
-      if (messages.length === 0) return undefined;
-      return messages.map((message) => message.body).join("\n\n");
+    getGroups: () => groups,
+    peekOverlaps: (groupIds) => overlaps.peek(groupIds),
+    ackOverlaps: (ids) => {
+      overlaps.ack(ids);
     },
+    peekParentMail: (authority) => {
+      const messages = mailbox
+        .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+        .filter(
+          (message) =>
+            message.groupId === authority.groupId &&
+            message.lifecycleId === authority.lifecycleId &&
+            message.lifecycleEpoch === authority.epoch,
+        );
+      if (messages.length === 0) return undefined;
+      return {
+        ids: messages.map((message) => message.id),
+        text: messages.map((message) => message.body).join("\n\n"),
+      };
+    },
+    ackParentMail: (snapshot) => {
+      mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
+    },
+    onAcceptedTerminal: (authority) => lifecycleCoordinator.cleanupAcceptedLifecycle(authority),
+  });
+  lifecycleCoordinator = new OrchestrationLifecycleCoordinator({
+    tree,
+    groups,
+    mailbox,
+    overlaps,
+    packets,
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
     packets.enqueue(event);
@@ -110,7 +152,17 @@ export default function (pi: ExtensionAPI): void {
     renderResult,
   });
 
-  pi.registerTool({
+  const orchestratePromptGuidelines = [
+    "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
+    "When using orchestrate, use spawn instead if you intend to wait for the minion before continuing.",
+    "For orchestrate, description is required on every task; do not omit it or infer it from task.",
+    "For orchestrate, agent is a discovered agent/template name from the same loader as spawn; built-in worker and investigate are always available, and list_agents resolves uncertainty.",
+    "For orchestrate, taskType is a closed workflow-policy enum; never collapse agent and taskType.",
+    "For orchestrate, omit groupId to create the open group if none exists or to join it; a second groupId is rejected.",
+    "For orchestrate, cwd is group-create only, must already exist, and cannot change later.",
+    ...ORCHESTRATE_SIDECAR_GUIDELINES,
+  ];
+  const orchestrateTool = {
     name: "orchestrate",
     label: "Orchestrate Minions",
     description:
@@ -118,18 +170,12 @@ export default function (pi: ExtensionAPI): void {
       "Children start in the session's one open group and report later; this tool does not wait. " +
       "Each task requires a short description. Persistent hosts only (tui/rpc).",
     promptSnippet: "Orchestrate background minions without waiting",
-    promptGuidelines: [
-      "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
-      "Use spawn when you intend to wait for the minion to finish before continuing.",
-      "description is required on every task. Do not omit it or infer it from task.",
-      "Omit groupId to create the open group if none exists, otherwise join it. A second groupId is rejected.",
-      "cwd is group-create only, must already exist, and cannot change later.",
-    ],
+    promptGuidelines: [...orchestratePromptGuidelines],
     parameters: OrchestrateToolParams,
-    execute: (...args) => {
+    execute: async (...args: Parameters<ReturnType<typeof orchestrate>>) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
       usedMinionsThisSession = true;
-      return orchestrate({
+      const result = await orchestrate({
         tree,
         pi,
         subsessionManager,
@@ -138,13 +184,17 @@ export default function (pi: ExtensionAPI): void {
         overlaps,
         onLifecycle: (event) => eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, event),
       })(...args);
+      return result;
     },
-  });
+    renderCall: renderOrchestrateCall,
+    renderResult: renderOrchestrateResult,
+  };
+  pi.registerTool(orchestrateTool);
 
   pi.registerTool({
     name: "list_agents",
     label: "List Agents",
-    description: "List available agents that can be used as minion roles.",
+    description: "List available agents for spawn and orchestrate.",
     promptSnippet: "List available agents for spawn and orchestrate",
     parameters: ListAgentsParams,
     execute: listAgents(),
@@ -176,16 +226,17 @@ export default function (pi: ExtensionAPI): void {
       "Use id='all' to halt everyone. Use id='group' or a groupId to halt orchestrated members and forget the open group. " +
       "Halt does not exit Beadwork goal mode.",
     parameters: HaltToolParams,
-    execute: (...args) => {
+    execute: async (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      return halt(tree, subsessionManager, groups)(...args);
+      const result = await halt(tree, subsessionManager, groups, lifecycleCoordinator)(...args);
+      return result;
     },
   });
 
   pi.registerTool({
     name: "list_minion_types",
     label: "List Minion Types",
-    description: "List available agent types that can be used as minion roles.",
+    description: "List available agent types for spawn and orchestrate.",
     promptSnippet: "List available minion types",
     parameters: ListAgentsParams,
     execute: listAgents(),
@@ -195,7 +246,7 @@ export default function (pi: ExtensionAPI): void {
     name: "list_minions",
     label: "List Minions",
     description:
-      "List spawn and orchestrated minions in the current session, including role, taskType, group, and last activity.",
+      "List spawn and orchestrated minions in the current session, including agent, taskType, group, and last activity.",
     promptSnippet: "List current spawn and orchestrated minions",
     promptGuidelines: [
       "Use list_minions to see who is running, spawn vs orchestrated, taskType, last said, and whether a peer message failed.",
@@ -245,9 +296,9 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("halt", {
     description: "Halt minion(s): /halt <id | name | group | all>",
-    handler: (args, ctx) => {
+    handler: async (args, ctx) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      return createHaltHandler(tree, subsessionManager, groups)(args, ctx);
+      await createHaltHandler(tree, subsessionManager, groups, lifecycleCoordinator)(args, ctx);
     },
   });
 
@@ -300,21 +351,31 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async () => {
+    sessionGeneration++;
+    clearSessionUi();
+    lifecycleCoordinator.discardOpenGroup();
     packets.close();
-    await subsessionManager?.disposeAll();
+    const manager = subsessionManager;
     subsessionManager = undefined;
+    await manager?.disposeAll();
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    const generation = ++sessionGeneration;
+    clearSessionUi();
+    lifecycleCoordinator.discardOpenGroup();
     packets.close();
-    await subsessionManager?.disposeAll();
+    const priorManager = subsessionManager;
+    subsessionManager = undefined;
+    await priorManager?.disposeAll();
+    if (generation !== sessionGeneration) return;
+
     cachedCtx = ctx;
     cachedModel = ctx.model;
     cachedUi = ctx.ui;
     usedMinionsThisSession = false;
     toolCallCount = 0;
     lastHintTime = 0;
-    statusTracker?.destroy();
 
     const parentSessionPath = ctx.sessionManager?.getSessionFile() ?? getTempSessionPath(ctx.cwd);
     const manager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
@@ -334,15 +395,25 @@ export default function (pi: ExtensionAPI): void {
         await handle.followUp(text);
       },
       onParentDirected: (message) => {
+        if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
         eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, {
           class: "parentMessage",
           groupId: message.groupId,
           childId: message.from,
           output: message.body,
+          lifecycleId: message.lifecycleId,
+          epoch: message.lifecycleEpoch,
         });
       },
     });
     overlaps = new PathOverlapLog();
+    lifecycleCoordinator = new OrchestrationLifecycleCoordinator({
+      tree,
+      groups,
+      mailbox,
+      overlaps,
+      packets,
+    });
     packets.open();
 
     for (const metadata of manager.list()) {
@@ -364,6 +435,9 @@ export default function (pi: ExtensionAPI): void {
     statusTracker = createStatusTracker(tree, subsessionManager, ctx);
     tree.onChange(() => statusTracker?.refresh());
     statusTracker.setUi(cachedUi);
+    if (ctx.mode === "tui") {
+      fleetWidget = createFleetWidgetController(tree, groups, cachedUi);
+    }
 
     cachedUi.setStatus("minions-bg", undefined);
     cachedUi.setStatus("minions-fg", undefined);

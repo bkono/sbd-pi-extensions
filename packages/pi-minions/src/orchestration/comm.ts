@@ -11,8 +11,8 @@ import {
 import { logger } from "../logger.js";
 import { generateId } from "../minions.js";
 import type { AgentTree } from "../tree.js";
-import type { AgentKind, AgentStatus, MinionMessage } from "../types.js";
-import type { OrchestrationGroupState } from "./group-state.js";
+import { type AgentKind, type AgentStatus, type MinionMessage, namedAgent } from "../types.js";
+import type { LifecycleAuthority, OrchestrationGroupState } from "./group-state.js";
 
 /** Bound child send target for the parent session. Not a child id. */
 export const PARENT_RECIPIENT_ID = "parent";
@@ -47,6 +47,9 @@ export const MAX_MINION_MESSAGE_BYTES = 4096;
 /** Per-recipient in-memory pending (undelivered) depth. mailbox-full at this cap. */
 export const MAX_MAILBOX_QUEUE_DEPTH = 16;
 
+/** Bounded accepted-message inspection history; pending evidence is never evicted. */
+export const MAX_MAILBOX_HISTORY = 256;
+
 const TERMINAL_STATUSES = new Set<AgentStatus>(["completed", "failed", "aborted"]);
 
 export const COMM_SEND_STATUS = {
@@ -56,6 +59,7 @@ export const COMM_SEND_STATUS = {
   groupNotOpen: "group-not-open",
   mailboxFull: "mailbox-full",
   bodyTooLarge: "body-too-large",
+  senderNotLive: "sender-not-live",
 } as const;
 
 export type CommSendStatus = (typeof COMM_SEND_STATUS)[keyof typeof COMM_SEND_STATUS];
@@ -111,7 +115,7 @@ export type InspectMinionPathsParams = Static<typeof InspectMinionPathsParams>;
 
 export interface MinionPeerInfo {
   id: string;
-  role?: string;
+  agent?: string;
   taskType?: string;
   description?: string;
   state: AgentStatus | "parent";
@@ -131,6 +135,9 @@ export interface QueuedMinionMessage {
   body: string;
   bytes: number;
   createdAt: number;
+  /** Immutable sender runtime registration identity for orchestrated child mail. */
+  lifecycleId?: string;
+  lifecycleEpoch?: number;
 }
 
 export interface CommSendDetails {
@@ -148,12 +155,14 @@ export interface SendMinionMessageInput {
   to: string;
   groupId: string;
   body: string;
+  lifecycleId?: string;
+  lifecycleEpoch?: number;
 }
 
 /** Live child delivery. followUp is the Pi child-safe send; do not invent another. */
 export interface CommMailboxBind {
   getTree: () => AgentTree;
-  getGroups: () => Pick<OrchestrationGroupState, "getOpenGroup">;
+  getGroups: () => Pick<OrchestrationGroupState, "getOpenGroup" | "ownsLifecycle">;
   isLive: (id: string) => boolean;
   followUp: (id: string, text: string) => Promise<void>;
   /**
@@ -230,11 +239,11 @@ function errorMessage(err: unknown): string {
  *
  * `send` is addressed user mail (ACL, size, pending-depth cap).
  * `enqueue` is a non-throwing live-notify for runtime notices (3.5 overlap); not user mail.
- * `list()` is append-only inspection. Pending depth and packet output use takePending.
+ * `list()` is append-only inspection. Pending depth and packet delivery use identity snapshots.
  */
 export class MinionCommMailbox {
-  /** Inspection log. Append-only; ids stay after delivery. Does not drive the cap. */
-  private readonly items: QueuedMinionMessage[] = [];
+  /** Bounded inspection history. Pending evidence is retained even if it temporarily exceeds the cap. */
+  private items: QueuedMinionMessage[] = [];
   /** Undelivered user mail per recipient. mailbox-full counts this, not `items`. */
   private readonly pendingByRecipient = new Map<string, QueuedMinionMessage[]>();
   private bindState?: CommMailboxBind;
@@ -251,9 +260,73 @@ export class MinionCommMailbox {
     return this.items;
   }
 
+  private trimHistory(): void {
+    if (this.items.length <= MAX_MAILBOX_HISTORY) return;
+    const pendingIds = new Set(
+      [...this.pendingByRecipient.values()].flatMap((queue) => queue.map((message) => message.id)),
+    );
+    while (this.items.length > MAX_MAILBOX_HISTORY) {
+      const index = this.items.findIndex((message) => !pendingIds.has(message.id));
+      if (index < 0) break;
+      this.items.splice(index, 1);
+    }
+  }
+
+  discardLifecycle(authority: LifecycleAuthority): number {
+    return this.discardWhere(
+      (message) =>
+        message.groupId === authority.groupId &&
+        message.from === authority.childId &&
+        message.lifecycleId === authority.lifecycleId &&
+        message.lifecycleEpoch === authority.epoch,
+    );
+  }
+
+  discardGroup(groupId: string): number {
+    return this.discardWhere((message) => message.groupId === groupId);
+  }
+
+  private discardWhere(matches: (message: QueuedMinionMessage) => boolean): number {
+    const before = this.items.length;
+    this.items = this.items.filter((message) => !matches(message));
+    for (const [recipient, queue] of this.pendingByRecipient) {
+      const rest = queue.filter((message) => !matches(message));
+      if (rest.length === 0) this.pendingByRecipient.delete(recipient);
+      else this.pendingByRecipient.set(recipient, rest);
+    }
+    return before - this.items.length;
+  }
+
+  inspectionCounts(): { history: number; pending: number } {
+    return {
+      history: this.items.length,
+      pending: [...this.pendingByRecipient.values()].reduce((sum, queue) => sum + queue.length, 0),
+    };
+  }
+
   /** Undelivered pending depth for a recipient. Delivered inspection ids are not counted. */
   depthFor(to: string): number {
     return this.pendingByRecipient.get(to)?.length ?? 0;
+  }
+
+  /** Identity-bearing non-destructive snapshot. Ack removes only these exact messages. */
+  peekPending(to: string, from?: string): QueuedMinionMessage[] {
+    const queue = this.pendingByRecipient.get(to) ?? [];
+    return queue
+      .filter((message) => from === undefined || message.from === from)
+      .map((message) => ({ ...message }));
+  }
+
+  ackPending(to: string, messageIds: readonly string[]): number {
+    if (messageIds.length === 0) return 0;
+    const wanted = new Set(messageIds);
+    const queue = this.pendingByRecipient.get(to) ?? [];
+    const rest = queue.filter((message) => !wanted.has(message.id));
+    const removed = queue.length - rest.length;
+    if (rest.length === 0) this.pendingByRecipient.delete(to);
+    else this.pendingByRecipient.set(to, rest);
+    this.trimHistory();
+    return removed;
   }
 
   /**
@@ -265,6 +338,7 @@ export class MinionCommMailbox {
     if (!queue || queue.length === 0) return [];
     if (from === undefined) {
       this.pendingByRecipient.delete(to);
+      this.trimHistory();
       return queue;
     }
     const taken: QueuedMinionMessage[] = [];
@@ -275,6 +349,7 @@ export class MinionCommMailbox {
     }
     if (rest.length === 0) this.pendingByRecipient.delete(to);
     else this.pendingByRecipient.set(to, rest);
+    this.trimHistory();
     return taken;
   }
 
@@ -284,17 +359,27 @@ export class MinionCommMailbox {
    * Never throws. Never applies ACL, body-size, or the pending-depth cap.
    * 3.5 overlap uses this so a notice cannot look like a write/mail reject.
    */
-  enqueue(input: { from: string; to: string; groupId: string; body: string }): QueuedMinionMessage {
+  enqueue(input: {
+    from: string;
+    to: string;
+    groupId: string;
+    body: string;
+    lifecycleId?: string;
+    lifecycleEpoch?: number;
+  }): QueuedMinionMessage {
     const message: QueuedMinionMessage = {
       id: generateId(),
       from: input.from,
       to: input.to,
       groupId: input.groupId,
+      lifecycleId: input.lifecycleId,
+      lifecycleEpoch: input.lifecycleEpoch,
       body: input.body,
       bytes: bodyBytes(input.body),
       createdAt: Date.now(),
     };
     this.items.push(message);
+    this.trimHistory();
     logger.info("comm", "enqueue", {
       messageId: message.id,
       from: message.from,
@@ -332,7 +417,34 @@ export class MinionCommMailbox {
     const body = input.body;
     const groupId = input.groupId;
     const bytes = bodyBytes(body);
-    const attempted = { from, to, groupId, body };
+    const attempted = {
+      from,
+      to,
+      groupId,
+      body,
+      lifecycleId: input.lifecycleId,
+      lifecycleEpoch: input.lifecycleEpoch,
+    };
+
+    const tree = this.bindState?.getTree();
+    if (from !== PARENT_RECIPIENT_ID) {
+      const lifecycleId = input.lifecycleId;
+      const epoch = input.lifecycleEpoch;
+      const authority =
+        lifecycleId !== undefined && epoch !== undefined
+          ? { childId: from, groupId, lifecycleId, epoch }
+          : undefined;
+      const sender = tree?.get(from);
+      const current =
+        authority !== undefined &&
+        this.bindState?.getGroups().ownsLifecycle(authority) === true &&
+        sender?.kind === "orchestrated" &&
+        sender.groupId === groupId &&
+        sender.lifecycleId === lifecycleId &&
+        sender.lifecycleEpoch === epoch &&
+        !isTerminalStatus(sender.status);
+      if (!current) return closedDetails(attempted, COMM_SEND_STATUS.senderNotLive, bytes);
+    }
 
     if (bytes > MAX_MINION_MESSAGE_BYTES) {
       const details = closedDetails(attempted, COMM_SEND_STATUS.bodyTooLarge, bytes);
@@ -360,7 +472,6 @@ export class MinionCommMailbox {
       return details;
     }
 
-    const tree = this.bindState?.getTree();
     const node = tree?.get(to);
     if (node?.kind !== "orchestrated" || node.groupId !== groupId) {
       const details = closedDetails(attempted, COMM_SEND_STATUS.invalidRecipient, bytes);
@@ -407,11 +518,14 @@ export class MinionCommMailbox {
       from: input.from,
       to: input.to,
       groupId: input.groupId,
+      lifecycleId: input.lifecycleId,
+      lifecycleEpoch: input.lifecycleEpoch,
       body: input.body,
       bytes,
       createdAt: Date.now(),
     };
     this.items.push(message);
+    this.trimHistory();
 
     const tree = this.bindState?.getTree();
     const recorded: MinionMessage = {
@@ -469,8 +583,11 @@ export class MinionCommMailbox {
 
 export interface CommInjectInput {
   childId: string;
+  lifecycleId: string;
+  epoch: number;
   groupId: string;
   tree: AgentTree;
+  groups: Pick<OrchestrationGroupState, "getOpenGroup" | "ownsLifecycle">;
   mailbox: MinionCommMailbox;
   /** Group cwd for lexical path identity. Default: empty (relative paths only). */
   cwd?: string;
@@ -489,7 +606,6 @@ export interface InjectedCommTools {
 function parentPeer(): MinionPeerInfo {
   return {
     id: PARENT_RECIPIENT_ID,
-    role: "parent",
     description: "Parent session",
     state: "parent",
   };
@@ -497,17 +613,47 @@ function parentPeer(): MinionPeerInfo {
 
 function peerFromNode(node: {
   id: string;
-  role?: string;
+  agentName?: string;
   taskType?: string;
   description?: string;
   status: AgentStatus;
 }): MinionPeerInfo {
   return {
     id: node.id,
-    role: node.role,
+    agent: namedAgent(node),
     taskType: node.taskType,
     description: node.description,
     state: node.status,
+  };
+}
+
+function hasLiveChildAuthority(input: CommInjectInput): boolean {
+  const authority: LifecycleAuthority = {
+    groupId: input.groupId,
+    childId: input.childId,
+    lifecycleId: input.lifecycleId,
+    epoch: input.epoch,
+  };
+  const node = input.tree.get(input.childId);
+  return (
+    input.groups.getOpenGroup()?.groupId === input.groupId &&
+    input.groups.ownsLifecycle(authority) &&
+    node?.kind === "orchestrated" &&
+    node.groupId === input.groupId &&
+    node.lifecycleId === input.lifecycleId &&
+    node.lifecycleEpoch === input.epoch &&
+    !isTerminalStatus(node.status)
+  );
+}
+
+function staleAuthorityResult<T>(input: CommInjectInput): AgentToolResult<T> {
+  return {
+    content: [{ type: "text", text: "Rejected: this child lifecycle is no longer live." }],
+    details: {
+      status: COMM_SEND_STATUS.senderNotLive,
+      childId: input.childId,
+      groupId: input.groupId,
+    } as T,
   };
 }
 
@@ -516,10 +662,10 @@ function formatPeerList(details: ListMinionPeersDetails): string {
     `Group ${details.groupId} (you are ${details.selfId}): ${details.peers.length} peer(s).`,
   ];
   for (const peer of details.peers) {
-    const role = peer.role ? ` role=${peer.role}` : "";
+    const agent = peer.agent ? ` agent=${peer.agent}` : "";
     const taskType = peer.taskType ? ` taskType=${peer.taskType}` : "";
     const description = peer.description ? `: ${peer.description}` : "";
-    lines.push(`- ${peer.id} [${peer.state}]${role}${taskType}${description}`);
+    lines.push(`- ${peer.id} [${peer.state}]${agent}${taskType}${description}`);
   }
   return lines.join("\n");
 }
@@ -530,7 +676,7 @@ function createListMinionPeersTool(input: CommInjectInput): ToolDefinition {
     name: LIST_MINION_PEERS_TOOL,
     label: "List Minion Peers",
     description:
-      "List members of this orchestration group (id, role, taskType, description, state), including the parent.",
+      "List members of this orchestration group (id, agent, taskType, description, state), including the parent.",
     promptSnippet: "List live and recent peers in this orchestration group",
     promptGuidelines: [
       "Use list_minion_peers to see who else is in the group before sending a message.",
@@ -541,6 +687,7 @@ function createListMinionPeersTool(input: CommInjectInput): ToolDefinition {
       _toolCallId: string,
       _params: ListMinionPeersParams,
     ): Promise<AgentToolResult<ListMinionPeersDetails>> {
+      if (!hasLiveChildAuthority(input)) return staleAuthorityResult(input);
       const peers = [parentPeer(), ...tree.listOrchestratedGroup(groupId).map(peerFromNode)];
       const details: ListMinionPeersDetails = { selfId: childId, groupId, peers };
       return {
@@ -560,7 +707,7 @@ function formatSendResult(details: CommSendDetails): AgentToolResult<CommSendDet
 }
 
 function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
-  const { childId, groupId, mailbox } = input;
+  const { childId, lifecycleId, epoch, groupId, mailbox } = input;
   return {
     name: SEND_MINION_PEER_TOOL,
     label: "Send Minion Peer",
@@ -570,7 +717,7 @@ function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
     promptSnippet: "Message a live peer or the parent without waiting for a reply",
     promptGuidelines: [
       "Messages succeed only while the recipient is live. Do not wait for a reply.",
-      `Use to="${PARENT_RECIPIENT_ID}" for the parent. That wakes the parent as a parentMessage packet; you stay running.`,
+      `Use to="${PARENT_RECIPIENT_ID}" for the parent. That may wake the parent as a parentMessage packet; no reply is required.`,
       "Peer messages do not start a parent turn.",
     ],
     parameters: SendMinionPeerParams,
@@ -580,9 +727,12 @@ function createSendMinionPeerTool(input: CommInjectInput): ToolDefinition {
     ): Promise<AgentToolResult<CommSendDetails>> {
       // Identity is closed over. Ignore any forged `from` the model may pass.
       void params.from;
+      if (!hasLiveChildAuthority(input)) return staleAuthorityResult(input);
       const to = typeof params.to === "string" ? params.to.trim() : "";
       const body = typeof params.body === "string" ? params.body : "";
-      return formatSendResult(mailbox.send({ from: childId, to, groupId, body }));
+      return formatSendResult(
+        mailbox.send({ from: childId, to, groupId, body, lifecycleId, lifecycleEpoch: epoch }),
+      );
     },
   };
 }
@@ -649,7 +799,7 @@ export function createSendMinionMessageTool(deps: {
 }
 
 function createAnnounceMinionPathsTool(input: CommInjectInput): ToolDefinition {
-  const { childId, groupId, tree, mailbox, overlaps } = input;
+  const { childId, lifecycleId, epoch, groupId, tree, mailbox, overlaps } = input;
   const cwd = input.cwd ?? "";
   const now = input.now ?? Date.now;
   return {
@@ -669,13 +819,17 @@ function createAnnounceMinionPathsTool(input: CommInjectInput): ToolDefinition {
       _toolCallId: string,
       params: AnnounceMinionPathsParams,
     ): Promise<AgentToolResult<ReturnType<typeof announcePathIntent>>> {
+      if (!hasLiveChildAuthority(input)) return staleAuthorityResult(input);
       const paths = Array.isArray(params.paths) ? params.paths : [];
       const ttlMs = typeof params.ttlMs === "number" && params.ttlMs >= 1 ? params.ttlMs : 1;
       const note = typeof params.note === "string" ? params.note : undefined;
       const details = announcePathIntent({
         tree,
+        groups: input.groups,
         childId,
         groupId,
+        lifecycleId,
+        epoch,
         cwd,
         paths,
         ttlMs,
@@ -711,6 +865,7 @@ function createInspectMinionPathsTool(input: CommInjectInput): ToolDefinition {
       _toolCallId: string,
       _params: InspectMinionPathsParams,
     ): Promise<AgentToolResult<ReturnType<typeof inspectPathIntent>>> {
+      if (!hasLiveChildAuthority(input)) return staleAuthorityResult(input);
       const details = inspectPathIntent({ tree, groupId, now: now() });
       return {
         content: [{ type: "text", text: formatInspectResult(details) }],

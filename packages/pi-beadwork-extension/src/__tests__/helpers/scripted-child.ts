@@ -28,10 +28,13 @@ export class ScriptedChildSession implements ChildSession {
   aborted = false;
   promptCalls = 0;
   lastPrompt: string | undefined;
+  thinkingLevel: string | undefined;
   promptDeferred = createDeferred<void>();
   idleDeferred = createDeferred<void>();
   followUps: string[] = [];
   steers: string[] = [];
+  followUpCalls = 0;
+  private streaming = false;
   state: { messages: unknown[] } = { messages: [] };
 
   constructor(toolNames: readonly string[], customTools: ToolDefinition[] = []) {
@@ -45,7 +48,15 @@ export class ScriptedChildSession implements ChildSession {
     this.active = new Set(this.tools.keys());
   }
 
+  get isStreaming(): boolean {
+    return this.streaming;
+  }
+
   async bindExtensions(): Promise<void> {}
+
+  setThinkingLevel(level: string): void {
+    this.thinkingLevel = level;
+  }
 
   setActiveToolsByName(toolNames: string[]): void {
     this.active = new Set(toolNames.filter((name) => this.tools.has(name)));
@@ -80,10 +91,14 @@ export class ScriptedChildSession implements ChildSession {
   prompt(text: string): Promise<void> {
     this.promptCalls += 1;
     this.lastPrompt = text;
-    return this.promptDeferred.promise;
+    this.streaming = true;
+    return this.promptDeferred.promise.finally(() => {
+      this.streaming = false;
+    });
   }
 
   abort(): void {
+    this.streaming = false;
     this.aborted = true;
     this.idleDeferred.resolve();
     this.promptDeferred.resolve();
@@ -99,7 +114,9 @@ export class ScriptedChildSession implements ChildSession {
     if (this.disposed) {
       throw new Error("Child is terminal; further mail is rejected");
     }
+    this.followUpCalls += 1;
     this.followUps.push(text);
+    this.emit({ type: "message_start", message: { role: "user", content: text } });
   }
 
   async executeTool(name: string, params: unknown): Promise<unknown> {
@@ -121,6 +138,7 @@ export class ScriptedChildSession implements ChildSession {
   }
 
   dispose(): void {
+    this.streaming = false;
     this.disposed = true;
   }
 
@@ -128,18 +146,27 @@ export class ScriptedChildSession implements ChildSession {
     return { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 };
   }
 
-  /**
-   * Settle with unstructured prose. Does not close tickets; that is the parent's job.
-   */
-  finishWithProse(prose: string): void {
+  beginSettling(prose: string): void {
+    this.streaming = false;
     this.state.messages.push({ role: "assistant", content: prose });
     this.emit({
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: prose },
     });
     this.emit({ type: "agent_end", willRetry: false });
+  }
+
+  completeSettlement(): void {
     this.emit({ type: "agent_settled" });
     this.idleDeferred.resolve();
     this.promptDeferred.resolve();
+  }
+
+  /**
+   * Settle with unstructured prose. Does not close tickets; that is the parent's job.
+   */
+  finishWithProse(prose: string): void {
+    this.beginSettling(prose);
+    this.completeSettlement();
   }
 }

@@ -13,7 +13,7 @@ import {
   maybeExitGoalOnClosedScopeDetail,
 } from "./actions/goal-exit.js";
 import { handleIssuesAction } from "./actions/issues.js";
-import { handleRunAction, parentIsBusy } from "./actions/run.js";
+import { handleRunAction, parentIsBusy, startGoal, toGoalStartToolResult } from "./actions/run.js";
 import { handleScopeAction } from "./actions/scope.js";
 import { handleStatusAction } from "./actions/status.js";
 import { detectActivation } from "./activation.js";
@@ -47,13 +47,10 @@ import type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
-  SessionRunOptions,
   SessionScope,
   SessionState,
 } from "./types.js";
 
-export type { AttributionCommitEvidence, AttributionEvidencePack } from "./attribution.js";
-export { buildAttributionEvidencePack } from "./attribution.js";
 export { loadConfig } from "./config.js";
 export type {
   ActivationState,
@@ -71,10 +68,7 @@ export type {
   BeadworkIssueDetail,
   BeadworkListFilters,
   BeadworkUpdateIssueInput,
-  RunOptions,
-  RunSummary,
   SessionMode,
-  SessionRunOptions,
   SessionScope,
   SessionState,
 } from "./types.js";
@@ -390,7 +384,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
     state: SessionState,
     mode: SessionState["mode"],
     scope?: SessionScope,
-    runOptions?: SessionRunOptions,
   ): Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }> {
     const stateWithPrime = await ensurePrime(ctx, activation, config, state, false);
     const nextState = await writeSessionState(ctx, activation, config, {
@@ -398,7 +391,6 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       mode,
       engagedAt: new Date().toISOString(),
       scope: scope ?? state.scope,
-      runOptions: mode === "run" ? (runOptions ?? state.runOptions) : undefined,
     });
     const scopeDetail = await resolveScopeDetail(ctx, activation, nextState);
     updateStatusline(ctx, activation, nextState, config);
@@ -1180,6 +1172,42 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ ok: true }, null, 2) }],
         details: { ok: true },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "beadwork_start_goal",
+    label: "Beadwork Start Goal",
+    description:
+      "Start Beadwork's manager-only goal mode for an existing open epic and queue the parent continuation that refreshes ready work and orchestrates it. Call this only after deliberately choosing to execute an already-decomposed epic. It does not implement the epic synchronously, dispatch children, or discover an epic for you.",
+    parameters: Type.Object({
+      epic_id: Type.String({
+        description:
+          "Open epic id to enter manager-only goal mode for. Required; never inferred from conversation, ready work, or current scope.",
+      }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const config = loadConfig(ctx.cwd);
+      const activation = await detectActivation(ctx.cwd);
+      const state = await readSessionState(ctx, activation, config);
+      const result = await startGoal({
+        ctx: ctx as ExtensionCommandContext,
+        deps: {
+          pi,
+          adapter,
+          requireActive,
+          ensurePrime,
+          setSessionMode,
+          writeSessionState,
+        },
+        epicId: params.epic_id,
+        session: { activation, state },
+      });
+      const details = toGoalStartToolResult(result);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(details, null, 2) }],
+        details,
       };
     },
   });

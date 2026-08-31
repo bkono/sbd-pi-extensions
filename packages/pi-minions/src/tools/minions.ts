@@ -1,19 +1,21 @@
 import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import { cloneActivitySnapshot } from "../activity.js";
 import { logger } from "../logger.js";
 import { formatDuration, formatUsage } from "../render.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
-import { getMinionHistory } from "../subsessions/observability.js";
 import type { AgentTree } from "../tree.js";
-import type {
-  AgentKind,
-  AgentNode,
-  AgentStatus,
-  MinionMessage,
-  OrchestrationDomain,
-  PathIntent,
-  TaskType,
+import {
+  type ActivitySnapshot,
+  type AgentKind,
+  type AgentNode,
+  type AgentStatus,
+  type MinionMessage,
+  namedAgent,
+  type OrchestrationDomain,
+  type PathIntent,
+  type TaskType,
 } from "../types.js";
 
 export const ListMinionsParams = Type.Object({
@@ -41,13 +43,14 @@ export interface MinionInfo {
   status: AgentStatus;
   description?: string;
   groupId?: string;
-  role?: string;
+  agent?: string;
   taskType?: TaskType;
   domain?: OrchestrationDomain;
   agentName?: string;
   model?: string;
   lastActivity?: string;
-  lastSaid?: string;
+  activity?: ActivitySnapshot;
+  lastMessage?: string;
   peerMessageFailed: boolean;
   lastPeerError?: string;
 }
@@ -56,7 +59,7 @@ export interface ShowMinionInfo extends MinionInfo {
   output: string;
   messages: MinionMessage[];
   pathIntent: PathIntent[];
-  activityHistory: string[];
+  activityHistory: ActivitySnapshot[];
 }
 
 function nodeKind(node: AgentNode): AgentKind {
@@ -67,12 +70,8 @@ function peerFailed(node: AgentNode): boolean {
   return node.peerMessageFailed === true || (node.messages?.some((msg) => msg.failed) ?? false);
 }
 
-function lastSaid(node: AgentNode): string | undefined {
-  if (node.lastActivity) return node.lastActivity;
-  const lastMessage = node.messages?.at(-1)?.text;
-  if (lastMessage) return lastMessage;
-  if (!node.output) return undefined;
-  return node.output.split("\n").filter(Boolean).at(-1);
+function lastMessageOf(node: AgentNode): string | undefined {
+  return node.messages?.at(-1)?.text;
 }
 
 export function collectMinions(tree: AgentTree): AgentNode[] {
@@ -108,13 +107,14 @@ export function toInfo(node: AgentNode): MinionInfo {
     status: node.status,
     description: node.description,
     groupId: node.groupId,
-    role: node.role,
+    agent: namedAgent(node),
     taskType: node.taskType,
     domain: node.domain,
     agentName: node.agentName,
     model: node.model,
     lastActivity: node.lastActivity,
-    lastSaid: lastSaid(node),
+    activity: node.activity ? cloneActivitySnapshot(node.activity) : undefined,
+    lastMessage: lastMessageOf(node),
     peerMessageFailed: peerFailed(node),
     lastPeerError: node.lastPeerError,
   };
@@ -130,11 +130,11 @@ function formatListLine(m: MinionInfo): string {
   const model = m.model ? ` [${m.model}]` : "";
   const taskType = m.taskType ? ` ${m.taskType}` : "";
   const group = m.kind === "orchestrated" && m.groupId ? ` group=${m.groupId}` : "";
-  const role = m.role ? ` role=${m.role}` : "";
+  const agent = m.agent ? ` agent=${m.agent}` : "";
   const summary = m.description ?? m.task;
-  const activity = m.lastSaid ? ` -- ${m.lastSaid}` : "";
+  const activity = m.lastActivity ? ` -- ${m.lastActivity}` : "";
   const peer = m.peerMessageFailed ? " [peer-failed]" : "";
-  return `  ${m.name} (${m.id}) ${m.kind} [${m.status}]${taskType}${group}${role}${model}: ${summary}${activity}${peer}`;
+  return `  ${m.name} (${m.id}) ${m.kind} [${m.status}]${taskType}${group}${agent}${model}: ${summary}${activity}${peer}`;
 }
 
 function logInspect(
@@ -206,7 +206,7 @@ export function buildShowMinion(
     node.output ?? terminal?.output ?? subsessionManager?.parseSessionOutput?.(node.id) ?? "";
   const messages = node.messages ?? [];
   const pathIntent = node.pathIntent ?? [];
-  const history = node.activityHistory ?? getMinionHistory(node.id);
+  const history = (node.activityHistory ?? []).map(cloneActivitySnapshot);
   const info: ShowMinionInfo = {
     ...infoBase,
     output,
@@ -221,19 +221,27 @@ export function buildShowMinion(
   lines.push(`  Status: ${node.status}`);
   if (info.kind === "orchestrated") {
     lines.push(`  Group: ${node.groupId ?? "(none)"}`);
-    lines.push(`  Role: ${node.role ?? "(none)"}`);
+    lines.push(`  Agent: ${info.agent ?? "(none)"}`);
     lines.push(`  Task type: ${node.taskType ?? "(none)"}`);
     lines.push(`  Description: ${node.description ?? "(none)"}`);
     lines.push(`  Domain: ${formatDomain(node.domain)}`);
   }
   lines.push(`  Task: ${node.task}`);
   if (node.model) lines.push(`  Model: ${node.model}`);
-  lines.push(`  Last said: ${info.lastSaid ?? "(none)"}`);
+  if (info.activity) {
+    lines.push(`  Activity: ${info.activity.phase} — ${info.activity.summary}`);
+    if (info.activity.turn !== undefined) lines.push(`  Turn: ${info.activity.turn}`);
+    if (info.activity.narrativePreview) {
+      lines.push(`  Narrative preview: ${info.activity.narrativePreview}`);
+    }
+  } else {
+    lines.push("  Activity: (none)");
+  }
+  lines.push(`  Last message: ${info.lastMessage ?? "(none)"}`);
   lines.push(`  Peer message: ${formatPeer(info)}`);
 
   if (node.status === "running") {
     lines.push(`  Running for: ${formatDuration(Date.now() - node.startTime)}`);
-    if (node.lastActivity) lines.push(`  Activity: ${node.lastActivity}`);
   }
 
   if (node.endTime) lines.push(`  Duration: ${formatDuration(node.endTime - node.startTime)}`);
@@ -270,7 +278,7 @@ export function buildShowMinion(
 
   if (history.length > 0) {
     lines.push("  Recent activity:");
-    for (const msg of history) lines.push(`    ${msg}`);
+    for (const item of history) lines.push(`    ${item.phase} ${item.summary}`);
   }
 
   if (node.status === "running") {

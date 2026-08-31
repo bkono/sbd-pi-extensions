@@ -41,7 +41,6 @@ export type StatusActionDeps = {
     state: SessionState,
     mode: SessionState["mode"],
     scope?: SessionState["scope"],
-    runOptions?: SessionState["runOptions"],
   ) => Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }>;
   writeSessionState: (
     ctx: ExtensionCommandContext,

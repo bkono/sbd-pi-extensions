@@ -43,9 +43,8 @@ function createState(overrides: Partial<SessionState> = {}): SessionState {
     updatedAt: overrides.updatedAt ?? "2026-04-19T00:00:00.000Z",
     engagedAt: overrides.engagedAt,
     prime: overrides.prime,
-    trackedWorkerIds: overrides.trackedWorkerIds,
-    workerNotices: overrides.workerNotices,
-    runOptions: overrides.runOptions,
+    goal: overrides.goal,
+    runInterrupted: overrides.runInterrupted,
   };
 }
 

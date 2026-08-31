@@ -24,6 +24,15 @@ type ToolRegistration = {
   [key: string]: unknown;
 };
 
+type FakeWidgetComponent = {
+  render(width: number): string[];
+  dispose?: () => void;
+};
+
+type FakeWidgetFactory = (
+  tui: { requestRender(): void },
+  theme: FakeUi["theme"],
+) => FakeWidgetComponent;
 export interface ExtensionTestHarness {
   handlers: Map<string, AnyHandler[]>;
   commands: Map<string, CommandRegistration>;
@@ -125,6 +134,14 @@ export type FakeUi = {
   };
   notify: (message: string, level?: string) => void;
   setStatus: (id: string, text: string | undefined) => void;
+  widgets: Map<string, FakeWidgetComponent>;
+  widgetOptions: Map<string, unknown>;
+  widgetRenderRequests: { count: number };
+  setWidget: (
+    id: string,
+    content: FakeWidgetFactory | string[] | undefined,
+    options?: unknown,
+  ) => void;
   customCalls: Array<{
     options?: unknown;
     factory?: unknown;
@@ -137,6 +154,14 @@ export type FakeUi = {
 export function createFakeUi(): FakeUi {
   const notifications: Array<{ message: string; level?: string }> = [];
   const statuses = new Map<string, string | undefined>();
+  const widgets = new Map<string, FakeWidgetComponent>();
+  const widgetOptions = new Map<string, unknown>();
+  const widgetRenderRequests = { count: 0 };
+  const theme: FakeUi["theme"] = {
+    fg: (_color, text) => text,
+    bg: (_color, text) => text,
+    bold: (text) => text,
+  };
   const customCalls: Array<{
     options?: unknown;
     factory?: unknown;
@@ -147,16 +172,33 @@ export function createFakeUi(): FakeUi {
   return {
     notifications,
     statuses,
-    theme: {
-      fg: (_color, text) => text,
-      bg: (_color, text) => text,
-      bold: (text) => text,
-    },
+    theme,
     notify: (message, level) => {
       notifications.push({ message, level });
     },
     setStatus: (id, text) => {
       statuses.set(id, text);
+    },
+    widgets,
+    widgetOptions,
+    widgetRenderRequests,
+    setWidget: (id, content, options) => {
+      widgets.get(id)?.dispose?.();
+      widgets.delete(id);
+      widgetOptions.delete(id);
+      if (content === undefined) return;
+      const tui = {
+        requestRender() {
+          widgetRenderRequests.count += 1;
+        },
+      };
+      const component =
+        typeof content === "function"
+          ? content(tui, theme)
+          : ({ render: () => [...content] } satisfies FakeWidgetComponent);
+      widgets.set(id, component);
+      widgetOptions.set(id, options);
+      widgetRenderRequests.count += 1;
     },
     customCalls,
     custom: async <T>(factory: unknown, options?: unknown) => {
@@ -168,16 +210,7 @@ export function createFakeUi(): FakeUi {
       };
       const component =
         typeof factory === "function"
-          ? factory(
-              tui as unknown,
-              {
-                fg: (_color: string, text: string) => text,
-                bg: (_color: string, text: string) => text,
-                bold: (text: string) => text,
-              },
-              {},
-              () => undefined,
-            )
+          ? factory(tui as unknown, theme, {}, () => undefined)
           : undefined;
       customCalls.push({
         options,

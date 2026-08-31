@@ -6,10 +6,15 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import { Type } from "typebox";
-import { discoverAgents } from "../agents.js";
+import { discoverAgents, requireAgent } from "../agents.js";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
-import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
+import {
+  defaultMinionTemplate,
+  generateAvailableId,
+  generateId,
+  pickMinionName,
+} from "../minions.js";
 import { BatchCoordinator, runSingleMinion } from "../spawn/index.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { AgentTree } from "../tree.js";
@@ -29,7 +34,7 @@ export const SpawnToolParams = Type.Object({
   agent: Type.Optional(
     Type.String({
       description:
-        "Name of the agent to invoke. If omitted, spawns an ephemeral minion with default capabilities.",
+        "Discovered agent/template name. Call list_agents if unsure. If omitted, spawns an ephemeral minion.",
     }),
   ),
   model: Type.Optional(Type.String({ description: "Override the agent's model" })),
@@ -77,19 +82,7 @@ export interface SpawnToolDetails {
 }
 
 function resolveAgentConfig(agentName: string, cwd: string): AgentConfig {
-  const { agents } = discoverAgents(cwd, "both");
-  const found = agents.find((a) => a.name === agentName);
-
-  if (!found) {
-    const available = agents.map((a) => a.name).join(", ") || "none";
-    logger.warn("spawn:tool", "agent not found", {
-      requested: agentName,
-      available,
-    });
-    throw new Error(`Agent "${agentName}" not found. Available: ${available}`);
-  }
-
-  return found;
+  return requireAgent(agentName, cwd);
 }
 
 async function executeSpawn(
@@ -136,9 +129,11 @@ async function executeSpawn(
 
   const parentToolNames = pi.getAllTools().map((t) => t.name);
   const assignedNames = new Set<string>();
+  const reservedIds = new Set<string>();
 
   const minions: BatchMinionItem[] = specs.map((spec) => {
-    const id = generateId();
+    const id = generateAvailableId(tree, reservedIds);
+    reservedIds.add(id);
     const agentConfig = spec.agent ? resolveAgentConfig(spec.agent, ctx.cwd) : undefined;
     const name = pickMinionName(tree, id, ctx, agentConfig?.displayName, assignedNames);
     assignedNames.add(name);
@@ -155,7 +150,6 @@ async function executeSpawn(
       usage: emptyUsage(),
       model: resolvedModel,
       finalOutput: "",
-      activity: "starting...",
       spinnerFrame: 0,
     };
   });
@@ -167,6 +161,7 @@ async function executeSpawn(
       agentName: m.agentName,
       model: m.model,
     });
+    m.activity = node.lastActivity;
     logger.info("spawn:tool", "child", {
       id: node.id,
       kind: node.kind,

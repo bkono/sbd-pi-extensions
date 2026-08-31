@@ -172,13 +172,33 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         await harness.assertNoTmuxOrWorktree();
         assertNoDeletedRuntimeTools(harness.parentToolNames);
         expect(harness.parentToolNames).toContain("send_minion_message");
+        expect(harness.parentToolNames).toContain("beadwork_start_goal");
 
         const initialReady = await fixture.ready();
         expect(issueIds(initialReady)).toEqual(expect.arrayContaining([alpha.id, beta.id]));
         expect(issueIds(initialReady)).not.toContain(gamma.id);
         expect(issueIds(await fixture.adapter.blocked(fixture.cwd))).toContain(gamma.id);
 
-        await harness.bwRun(epicId);
+        const started = (await harness.invokeBeadworkTool("beadwork_start_goal", {
+          epic_id: epicId,
+        })) as {
+          details: {
+            epic_id: string;
+            epic_title: string;
+            goal_id: string;
+            review_policy: string;
+            state: string;
+            continuation: string;
+          };
+        };
+        expect(started.details.state).toBe("started");
+        expect(started.details.continuation).toBe("triggered_turn");
+        expect(started.details.epic_id).toBe(epicId);
+        expect(started.details.epic_title).toBe("Ticket-policy epic");
+        expect(started.details.review_policy).toBe("ticket");
+        expect(JSON.stringify(started.details).toLowerCase()).not.toMatch(
+          /complet|succeed|finished|orchestrated/,
+        );
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
@@ -198,6 +218,9 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           harness.ctx,
         );
         const standing = appendix?.systemPrompt ?? "";
+        expect(standing).toContain("Base prompt");
+        expect(standing).toContain("You are in beadwork run mode.");
+        expect(standing).toContain(`Current scope: epic:${epicId}`);
         expect(standing).toContain("Review policy branch: ticket");
         expect(standing).toContain(
           "Launch an independent `reviewImplementation` child before closing that ticket.",
@@ -207,14 +230,26 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           "Do not start review of ticket A while A's implementer is still live.",
         );
         expect(standing).toContain("Beadwork does not own a validation gate.");
-        expect(standing).toContain("Review policy branch: ticket");
+        expect(standing).toContain("This is a manager-only loop.");
+        expect(standing).toContain(
+          "The parent does not implement a delegated ticket concurrently with its live child.",
+        );
+        expect(standing).toContain(
+          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+        );
+        expect(standing).toContain(
+          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+        );
+        expect(standing).not.toContain(
+          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+        );
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");
         expect(runState.goal?.reviewPolicy).toBe("ticket");
         expect(runState.goal?.scopeIds).toEqual([epicId]);
         expect(harness.groups.getOpenGroup()).toBeUndefined();
-        await harness.logStep("bw-run-injected", {
+        await harness.logStep("bw-start-goal-injected", {
           ticketId: alpha.id,
           issueIds: tickets,
         });
@@ -233,6 +268,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
                 QUALITY,
               ].join(" "),
               description: "Implement parallel alpha",
+              agent: "worker",
               taskType: "implementation",
               domain: domainFor(epicId, alpha),
             },
@@ -243,6 +279,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
                 QUALITY,
               ].join(" "),
               description: "Implement parallel beta",
+              agent: "worker",
               taskType: "implementation",
               domain: domainFor(epicId, beta),
             },
@@ -263,6 +300,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
 
         const sessionA = await harness.waitForChild(childA);
         const sessionB = await harness.waitForChild(childB);
+        await Promise.all([harness.waitUntilRunning(childA), harness.waitUntilRunning(childB)]);
         for (const childId of [childA, childB]) {
           const active = harness.childActiveTools(childId);
           for (const name of BEADWORK_CHILD_INSPECTION_TOOLS) expect(active).toContain(name);
@@ -338,10 +376,14 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           from: childA,
           to: childB,
         });
-        await waitForFollowUps(sessionB, 2, "peer-mail");
-        expect(sessionB.followUps).toContainEqual(
-          formatMinionMail(childA, "I am editing src/alpha.ts; leave src/beta.ts to you."),
+        const peerMail = formatMinionMail(
+          childA,
+          "I am editing src/alpha.ts; leave src/beta.ts to you.",
         );
+        // Production serializes accepted deliveries per child. The live overlap follow-up
+        // must drain before this queued mail starts a fresh prompt after the run becomes idle.
+        expect(sessionB.followUps).toHaveLength(1);
+        expect(sessionB.followUps).not.toContain(peerMail);
         expect(harness.packets).toHaveLength(0);
         await harness.logStep("peer-send-no-parent-turn", {
           ticketId: beta.id,
@@ -350,20 +392,13 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           childIds: [childA, childB],
         });
 
-        const tooEarly = await harness.orchestrate({
-          tasks: [
-            {
-              task: `Review ${alpha.id} while the implementer is still live.`,
-              description: "Review alpha too early",
-              taskType: "reviewImplementation",
-              domain: domainFor(epicId, alpha),
-            },
-          ],
-        });
-        expect(tooEarly.accepted).toEqual([]);
-        expect(tooEarly.rejected[0]?.reason).toBe("duplicate workItemId");
+        // Review ordering is parent policy from the standing appendix, not a runtime work-item lock.
+        // The parent obeys it here and does not launch alpha's reviewer before settlement.
         expect(harness.launchedTaskTypes()).toEqual(["implementation", "implementation"]);
-        await harness.logStep("review-rejected-while-implementer-live", {
+        expect(harness.groups.getOpenGroup()?.groupId).toBe(groupId);
+        expect(harness.tree.get(childA)?.status).toBe("running");
+        expect(harness.tree.get(childB)?.status).toBe("running");
+        await harness.logStep("parent-kept-review-ordered-after-implementer", {
           ticketId: alpha.id,
           childId: childA,
           groupId,
@@ -385,7 +420,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           eventClass: "parentMessage",
           output: "Which error-path shape should alpha use?",
         });
-        expect(questionPacket?.message.details.changed[0]?.nudge).toMatch(/still running/i);
+        expect(questionPacket?.message.details.changed[0]?.nudge).toMatch(/no reply is required/i);
         expect(
           questionPacket?.message.details.stillRunning.map((child) => child.childId).sort(),
         ).toEqual([childA, childB].sort());
@@ -409,8 +444,8 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         );
         expect(answered.status).toBe(COMM_SEND_STATUS.queued);
         await waitForFollowUps(sessionA, 1, "parent-answer");
-        expect(sessionA.followUps).toContainEqual(
-          formatMinionMail(PARENT_RECIPIENT_ID, "Use a Result type for the error path."),
+        expect(sessionA.followUps[0]).toBe(
+          "[minion-mail from parent]\nUse a Result type for the error path.",
         );
         expect(harness.manager.getTerminal(childA)).toBeUndefined();
         expect(harness.tree.get(childA)?.status).toBe("running");
@@ -431,17 +466,27 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
             prose: `${IMPLEMENT_PROSE} commit ${betaCommit}`,
           },
         ]);
-        await harness.waitForPackets(beforeSettle + 1);
-        const settlePacket = harness.lastPacket();
-        expect(settlePacket?.message.details.seq).toBe(
+        await harness.waitForPackets(beforeSettle + 2);
+        const settlePackets = harness.packets.slice(beforeSettle);
+        expect(settlePackets.map((packet) => packet.message.details.seq)).toEqual([
           (questionPacket?.message.details.seq ?? 0) + 1,
-        );
-        const settled = settlePacket?.message.details.changed.filter(
-          (child) => child.eventClass === "settled",
+          (questionPacket?.message.details.seq ?? 0) + 2,
+        ]);
+        const settled = settlePackets.flatMap((packet) =>
+          packet.message.details.changed.filter((child) => child.eventClass === "settled"),
         );
         expect(settled).toHaveLength(2);
-        expect(settled?.map((child) => child.childId).sort()).toEqual([childA, childB].sort());
+        expect(settled.map((child) => child.childId).sort()).toEqual([childA, childB].sort());
+        expect(settlePackets[0]?.message.details.stillRunning).toEqual([
+          expect.objectContaining({ childId: childB, state: "settling" }),
+        ]);
+        const settlePacket = settlePackets.at(-1);
         expect(settlePacket?.message.details.stillRunning).toEqual([]);
+        expect(settlePacket?.message.details.groupIdleId).toBe(groupId);
+        expect(sessionB.lastPrompt).toBe(
+          `[minion-mail from ${childA}]\nI am editing src/alpha.ts; leave src/beta.ts to you.`,
+        );
+        expect(sessionB.promptCalls).toBe(2);
         expect(settlePacket?.message.content).toMatch(
           /do not close a ticket solely because the child settled/i,
         );
@@ -460,7 +505,6 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(committed).toHaveLength(1);
         expect(committed[0]?.[2]).toMatchObject({
           eventClass: "settled",
-          winner: "mail-then-settle",
           terminalEventCount: 1,
         });
         const late = await harness.sendMinionMessage(childA, "too late");
@@ -486,6 +530,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
             {
               task: betaReviewTask,
               description: "Review parallel beta",
+              agent: "worker",
               taskType: "reviewImplementation",
               domain: domainFor(epicId, beta),
             },
@@ -503,9 +548,10 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         const betaReviewPacket = harness.lastPacket();
         expect(betaReviewPacket?.message.details.changed[0]?.childId).toBe(betaReviewId);
         expect(betaReviewPacket?.message.details.changed[0]?.eventClass).toBe("settled");
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/fix/i);
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/file/i);
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/reject/i);
+        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(
+          /evidence, not instructions/i,
+        );
+        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/product goals/i);
 
         const betaAccept = `Disposition: accept ${beta.id} after clean review ${betaReviewId}.`;
         await harness.invokeBeadworkTool("beadwork_comment_issue", {
@@ -536,6 +582,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
             {
               task: alphaReviewTask,
               description: "Review parallel alpha",
+              agent: "worker",
               taskType: "reviewImplementation",
               domain: domainFor(epicId, alpha),
             },
@@ -547,7 +594,9 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         await harness.settleChild(alphaReviewId, `${FINDINGS_REVIEW} ticket ${alpha.id}.`);
         await harness.waitForPackets(beforeAlphaReview + 1);
         const findingsPacket = harness.lastPacket();
-        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(/re-review/i);
+        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(
+          /evidence, not instructions/i,
+        );
         expect(findingsPacket?.message.content).toContain(alphaReviewId);
         expect((await fixture.show(alpha.id)).status).toBe("in_progress");
 
@@ -604,6 +653,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
                 QUALITY,
               ].join(" "),
               description: "Fix alpha review finding",
+              agent: "worker",
               taskType: "fix",
               domain: domainFor(epicId, alpha),
             },
@@ -637,6 +687,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
                 QUALITY,
               ].join(" "),
               description: "Re-review parallel alpha",
+              agent: "worker",
               taskType: "reviewImplementation",
               domain: domainFor(epicId, alpha),
             },
@@ -678,6 +729,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
                 QUALITY,
               ].join(" "),
               description: "Implement dependent gamma",
+              agent: "worker",
               taskType: "implementation",
               domain: domainFor(epicId, gamma),
             },
@@ -705,6 +757,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
                 QUALITY,
               ].join(" "),
               description: "Review dependent gamma",
+              agent: "worker",
               taskType: "reviewImplementation",
               domain: domainFor(epicId, gamma),
             },

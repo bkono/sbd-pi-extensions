@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { logger } from "../logger.js";
 import type { OrchestrationGroupState } from "../orchestration/index.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
-import type { AgentTree } from "../tree.js";
+import { type AgentTree, isTerminalStatus } from "../tree.js";
 import type { AgentKind, AgentStatus } from "../types.js";
 
 export const HaltToolParams = Type.Object({
@@ -32,6 +32,7 @@ export interface HaltResult {
 }
 
 type HaltManager = Pick<SubsessionManager, "getSessionHandle" | "abortSession">;
+type GroupCancellation = { discardGroup(groupId: string): void };
 
 function nodeKind(node: { kind?: AgentKind } | undefined): AgentKind {
   return node?.kind ?? "spawn";
@@ -73,9 +74,10 @@ async function haltGroup(
   groupId: string,
   tree: AgentTree,
   subsessionManager: HaltManager,
-  groups: OrchestrationGroupState,
+  cancellation: GroupCancellation,
 ): Promise<HaltResult> {
   const members = tree.getOrchestratedGroup(groupId);
+  cancellation.discardGroup(groupId);
   const { halted } =
     members.length > 0
       ? await abortAgents(
@@ -85,9 +87,7 @@ async function haltGroup(
         )
       : { halted: [] as HaltedMinion[] };
 
-  const open = groups.getOpenGroup();
-  const groupClosed = open?.groupId === groupId ? groupId : undefined;
-  if (groupClosed) groups.closeGroup(groupId);
+  const groupClosed = groupId;
 
   const count = halted.length;
   const forgot = groupClosed ? `. Forgot group ${groupId}.` : ".";
@@ -103,21 +103,22 @@ export async function runHalt(
   tree: AgentTree,
   subsessionManager: HaltManager,
   groups: OrchestrationGroupState,
+  cancellation: GroupCancellation,
 ): Promise<HaltResult> {
   const trimmed = id.trim();
 
   if (trimmed === "all") {
-    const running = tree.getRunning();
+    const live = tree.getLive();
+    const open = groups.getOpenGroup();
+    if (open) cancellation.discardGroup(open.groupId);
     const { halted } =
-      running.length > 0
+      live.length > 0
         ? await abortAgents(
-            running.map((n) => n.id),
+            live.map((n) => n.id),
             tree,
             subsessionManager,
           )
         : { halted: [] as HaltedMinion[] };
-    const open = groups.getOpenGroup();
-    if (open) groups.closeGroup(open.groupId);
     const groupClosed = open?.groupId;
     const count = halted.length;
     const forgot = groupClosed ? `. Forgot group ${groupClosed}.` : ".";
@@ -142,12 +143,12 @@ export async function runHalt(
     if (!open) {
       return { text: "No open orchestration group.", error: true, halted: [] };
     }
-    return haltGroup(open.groupId, tree, subsessionManager, groups);
+    return haltGroup(open.groupId, tree, subsessionManager, cancellation);
   }
 
   const node = tree.resolve(trimmed);
   if (node) {
-    if (node.status !== "running") {
+    if (isTerminalStatus(node.status)) {
       return {
         text: `Minion ${node.name} (${node.id}) is not running (status: ${node.status}).`,
         halted: [],
@@ -163,7 +164,7 @@ export async function runHalt(
   const open = groups.getOpenGroup();
   const live = tree.getOrchestratedGroup(trimmed);
   if (open?.groupId === trimmed || live.length > 0) {
-    return haltGroup(trimmed, tree, subsessionManager, groups);
+    return haltGroup(trimmed, tree, subsessionManager, cancellation);
   }
 
   return { text: `Minion not found: ${trimmed}`, error: true, missing: true, halted: [] };
@@ -173,6 +174,7 @@ export function halt(
   tree: AgentTree,
   subsessionManager: SubsessionManager,
   groups: OrchestrationGroupState,
+  cancellation: GroupCancellation,
 ) {
   return async function execute(
     _toolCallId: string,
@@ -181,7 +183,7 @@ export function halt(
     _onUpdate: unknown,
     _ctx: ExtensionContext,
   ): Promise<AgentToolResult<{ halted: HaltedMinion[]; groupClosed?: string }>> {
-    const result = await runHalt(params.id, tree, subsessionManager, groups);
+    const result = await runHalt(params.id, tree, subsessionManager, groups, cancellation);
     if (result.missing) {
       throw new Error(result.text);
     }

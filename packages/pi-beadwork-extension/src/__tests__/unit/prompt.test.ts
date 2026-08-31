@@ -202,6 +202,24 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("Do not autonomously launch children");
     expect(text).toContain("`orchestrate`");
     expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
+    expect(text).not.toContain("This is a manager-only loop.");
+    expect(text).not.toContain(
+      "The parent does not implement a delegated ticket concurrently with its live child.",
+    );
+    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
+    expect(text).toContain(
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+    );
+    expect(text).toContain(
+      "Planning/decomposition and executing the graph are distinct decisions.",
+    );
+    expect(text).toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).toContain(
+      "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation.",
+    );
+    expect(text).toContain("It does not implement the epic or dispatch children.");
   });
 
   it("builds a run-mode appendix with orchestrate policy and settlement≠close", () => {
@@ -211,12 +229,24 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("You are in beadwork run mode.");
     expect(text).toContain("Goal mode: run the scoped epic to completion.");
     expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
-    expect(text).toContain("Child settlement is evidence, not acceptance.");
+    expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain(
+      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    );
+    expect(text).toContain(
+      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+    );
+    expect(text).toContain("Child settlement is evidence, not acceptance");
     expect(text).toContain("Do not close a ticket solely because a child settled.");
     expect(text).toContain("Start-before-work:");
     expect(text).toContain("This standing appendix is policy only. It does not start a turn.");
     expect(text).not.toContain("Stay human-led.");
     expect(text).not.toContain("Wait for the user.");
+    expect(text).not.toContain("## Goal mode entry");
+    expect(text).not.toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).not.toContain("It does not implement the epic or dispatch children.");
   });
 
   it("does not inject run-loop guidance for an interrupted run", () => {
@@ -245,7 +275,9 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("## Scoped issue");
     expect(text).toContain("Do not orchestrate");
     expect(text).toContain("Wait for the user.");
-    expect(text).toContain("Resume only after explicit `/bw run <epic-id>`");
+    expect(text).toContain(
+      "Resume only after explicit `/bw run <epic-id>` or `beadwork_start_goal`.",
+    );
     expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
     expect(text).not.toContain(
       "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
@@ -270,12 +302,14 @@ describe("buildBeadworkPromptAppendix task types", () => {
       return;
     }
 
-    expect(text).toContain("Role (open string): how the child works (prompt/template).");
-    expect(text).toContain("Same loader as spawn `agent`.");
+    expect(text).toContain(
+      "Agent (discovered name): how the child works (prompt/template). Same field on spawn and orchestrate.",
+    );
+    expect(text).toContain("Call `list_agents` if unsure.");
     expect(text).toContain(
       "Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.",
     );
-    expect(text).toContain("Never collapse role and task type into one field.");
+    expect(text).toContain("Never collapse agent and task type into one field.");
     expect(text).toContain("Omit `taskType` for untyped research or exploration.");
 
     for (const taskType of GOAL_TASK_TYPES) {
@@ -408,6 +442,20 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(text).toContain("Beadwork does not own a validation gate.");
     expect(text).toContain("Do not classify review findings with a keyword matcher.");
     expect(text).toContain("Do not use tmux, landing, `--workers`, or polling.");
+    expect(text).toContain(
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+    );
+    expect(text).toContain(
+      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+    );
+    expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain(
+      "The parent does not implement a delegated ticket concurrently with its live child.",
+    );
+    expect(text).toContain("atomic ticket-scoped commit");
+    expect(text).toContain("return the commit SHA");
+    expect(text).toContain("stage only owned files");
+    expect(text).toContain("Reviewer children start only after the implementer settles.");
   });
 
   it("does not advertise deleted worker tools on the available-tools line", () => {
@@ -425,6 +473,7 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(tools).toContain("beadwork_start_issue");
     expect(tools).toContain("beadwork_close_issue");
     expect(tools).toContain("beadwork_sync");
+    expect(tools).toContain("beadwork_start_goal");
   });
 
   it("keeps scoped issue summary and truncated prime", () => {
@@ -472,5 +521,130 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(text).toContain("## Cached bw prime");
     expect(text).toContain("[prime truncated]");
     expect(text).not.toContain(" leftover");
+  });
+});
+
+describe("orchestration boundary guidance", () => {
+  it("treats human /bw run and beadwork_start_goal as equivalent explicit entry", () => {
+    const runText = appendix();
+    const interactiveText = appendix({
+      sessionState: { mode: "interactive", goal: undefined },
+    });
+
+    expect(runText).toBeDefined();
+    expect(interactiveText).toBeDefined();
+    if (!runText || !interactiveText) {
+      return;
+    }
+
+    const equivalent =
+      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.";
+    expect(runText).toContain(equivalent);
+    expect(interactiveText).toContain(equivalent);
+    expect(interactiveText).toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(interactiveText).toContain(
+      "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation.",
+    );
+    expect(interactiveText).toContain("It does not implement the epic or dispatch children.");
+  });
+
+  it("keeps entry-only start prohibitions on the interactive surface", () => {
+    const text = appendix({
+      sessionState: { mode: "interactive", goal: undefined },
+    });
+
+    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
+    expect(text).toContain("already-decomposed open epic");
+    expect(text).toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).toContain(
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+    );
+    expect(text).toContain(
+      "Planning/decomposition and executing the graph are distinct decisions.",
+    );
+    expect(text).toContain("It does not implement the epic or dispatch children.");
+    expect(text).not.toContain("This is a manager-only loop.");
+  });
+
+  it("omits entry-only start prohibitions from active run appendices", () => {
+    const text = appendix();
+
+    expect(text).not.toContain("## Goal mode entry");
+    expect(text).not.toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).not.toContain("It does not implement the epic or dispatch children.");
+    expect(text).not.toContain(
+      "Planning/decomposition and executing the graph are distinct decisions.",
+    );
+    expect(text).toContain(
+      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    );
+    expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
+    expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain(
+      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+    );
+  });
+
+  it("does not auto-start goal mode from existence, readiness, or creation", () => {
+    const runText = appendix();
+    const interactiveText = appendix({
+      sessionState: { mode: "interactive", goal: undefined },
+    });
+
+    expect(runText).toContain(
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+    );
+    expect(interactiveText).toContain(
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+    );
+    expect(interactiveText).toContain(
+      "Planning/decomposition and executing the graph are distinct decisions.",
+    );
+  });
+
+  it("establishes identical manager-only policy for run mode regardless of entry surface", () => {
+    const text = appendix();
+    expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain(
+      "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
+    );
+    expect(text).toContain(
+      "The parent does not implement a delegated ticket concurrently with its live child.",
+    );
+    expect(text).toContain(
+      "Children do not start, close, or reopen tickets, and do not start goals.",
+    );
+    expect(text).toContain("Child settlement is evidence, not acceptance or ticket closure.");
+    expect(text).toContain("atomic ticket-scoped commit");
+    expect(text).toContain("return the commit SHA");
+    expect(text).toContain("stage only owned files");
+    expect(text).toContain("Reviewer children start only after the implementer settles.");
+    expect(text).toContain("named commits");
+    expect(text).toContain("`git show`");
+    expect(text).toContain("That is an instruction, not a lock.");
+  });
+
+  it("locks closed doors without requiring incidental prose", () => {
+    for (const text of [
+      appendix(),
+      appendix({ sessionState: { mode: "interactive", goal: undefined } }),
+    ]) {
+      expect(text).toBeDefined();
+      if (!text) {
+        continue;
+      }
+      expect(text).not.toMatch(/\boperatingMode\b/);
+      expect(text).not.toContain("beadwork_run_epic");
+      expect(text).not.toContain("beadwork_implement_epic");
+      expect(text).not.toContain("`role`");
+      expect(text).not.toContain("AgentTree");
+      expect(text).not.toMatch(/implicit(?:ly)? select(?:ing)? a goal/i);
+    }
   });
 });

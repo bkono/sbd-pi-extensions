@@ -45,7 +45,26 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(harness.injectedPrompt()).toBeUndefined();
         await harness.logStep("print-json-rejected", { ticketId: ticket.id });
 
-        await harness.bwRun(epicId);
+        const started = (await harness.invokeBeadworkTool("beadwork_start_goal", {
+          epic_id: epicId,
+        })) as {
+          details: {
+            epic_id: string;
+            epic_title: string;
+            goal_id: string;
+            review_policy: string;
+            state: string;
+            continuation: string;
+          };
+        };
+        expect(started.details.state).toBe("started");
+        expect(started.details.continuation).toBe("triggered_turn");
+        expect(started.details.epic_id).toBe(epicId);
+        expect(started.details.epic_title).toBe("In-process epic");
+        expect(started.details.review_policy).toBe("ticket");
+        expect(JSON.stringify(started.details).toLowerCase()).not.toMatch(
+          /complet|succeed|finished|orchestrated/,
+        );
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
@@ -57,7 +76,40 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(prompt).toContain("Do not treat this prompt as a frozen ready list.");
         expect(prompt).not.toContain(TICKET_TITLE);
         expect(prompt).not.toContain(ticket.id);
-        await harness.logStep("bw-run-injected", { ticketId: ticket.id });
+        expect((await fixture.show(ticket.id)).status).toBe("open");
+        expect(harness.launchedChildren()).toEqual([]);
+
+        const appendix = await harness.beadwork.dispatch<{ systemPrompt?: string }>(
+          "before_agent_start",
+          { systemPrompt: "Base prompt" },
+          harness.ctx,
+        );
+        const standing = appendix?.systemPrompt ?? "";
+        expect(standing).toContain("Base prompt");
+        expect(standing).toContain("You are in beadwork run mode.");
+        expect(standing).toContain("Review policy branch: ticket");
+        expect(standing).toContain(`Current scope: epic:${epicId}`);
+        expect(standing).toContain(
+          "Launch an independent `reviewImplementation` child before closing that ticket.",
+        );
+        expect(standing).toContain(
+          "This standing appendix is policy only. It does not start a turn.",
+        );
+        expect(standing).toContain("This is a manager-only loop.");
+        expect(standing).toContain(
+          "The parent does not implement a delegated ticket concurrently with its live child.",
+        );
+        expect(standing).toContain(
+          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+        );
+        expect(standing).toContain(
+          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+        );
+        expect(standing).not.toContain(
+          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+        );
+        expect(harness.launchedChildren()).toEqual([]);
+        await harness.logStep("bw-start-goal-injected", { ticketId: ticket.id });
 
         const orchestrateStarted = Date.now();
         const result = await harness.orchestrate({
@@ -65,6 +117,7 @@ describe("in-process ticket from /bw run through child settlement", () => {
             {
               task: `Implement ${ticket.id} (${TICKET_TITLE}). Output unstructured prose only.`,
               description: "Implement in-process ticket",
+              agent: "worker",
               taskType: "implementation",
               domain: {
                 source: "beadwork",
@@ -96,6 +149,10 @@ describe("in-process ticket from /bw run through child settlement", () => {
         const session = await harness.waitForChild(childId);
         expect(session.promptCalls).toBe(1);
 
+        await harness.waitUntilRunning(childId);
+        expect(harness.tree.get(childId)?.status).toBe("running");
+        expect(harness.tree.getRunning().map((node) => node.id)).toEqual([childId]);
+
         const parentContinued = await harness.listMinions();
         expect(parentContinued.minions).toHaveLength(1);
         const listed = parentContinued.minions[0];
@@ -110,6 +167,7 @@ describe("in-process ticket from /bw run through child settlement", () => {
           title: ticket.title,
         });
         expect(listed?.status).toBe("running");
+        expect(listed?.status).not.toBe("pending");
         expect(parentContinued.text).toContain("orchestrated");
         expect(parentContinued.text).toContain("implementation");
 

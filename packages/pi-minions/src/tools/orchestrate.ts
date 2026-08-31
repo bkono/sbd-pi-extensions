@@ -4,12 +4,19 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "../agents.js";
+import { bindTreeActivity } from "../activity.js";
+import { findAgent, unknownAgentMessage } from "../agents.js";
 import { getConfig, type ResolvedConfig } from "../config.js";
 import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
-import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
 import {
+  defaultMinionTemplate,
+  generateAvailableId,
+  generateId,
+  pickMinionName,
+} from "../minions.js";
+import {
+  createLifecycleId,
   type InjectedCommTools,
   injectOrchestratedCommTools,
   isResolveGroupReject,
@@ -17,6 +24,7 @@ import {
   type OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
 } from "../orchestration/index.js";
+import { formatOrchestrateText } from "../renderers/orchestrate.js";
 import { installSessionTimeout, resolveEffectiveTimeout } from "../session-timeout.js";
 import { applyStepLimit } from "../step-limit.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
@@ -39,11 +47,11 @@ export const ORCHESTRATE_REJECT_REASONS = {
   missingDescription: "missing description",
   missingTask: "missing task",
   unknownTaskType: "unknown taskType",
-  duplicateWorkItemId: "duplicate workItemId",
-  unknownRole: "unknown role",
+  unknownAgent: "unknown agent",
   unknownModel: "unknown model",
   ephemeralDisabled: "ephemeral minions are disabled",
   registrationAborted: "registration aborted",
+  idAllocationFailed: "unable to allocate unique minion id",
 } as const;
 
 export type OrchestrateRejectReason =
@@ -68,8 +76,15 @@ export interface OrchestrateDeps {
   /** Pending overlap notices for the next real parent packet. */
   overlaps?: PathOverlapLog;
   now?: () => number;
+  /** Deterministic collision fault injection; production uses generateId. */
+  generateId?: () => string;
   /** Override bound-tool injection. Default binds list/send/announce/inspect with childId closed over. */
-  injectCommTools?: (input: { childId: string; groupId: string }) => InjectedCommTools;
+  injectCommTools?: (input: {
+    childId: string;
+    lifecycleId: string;
+    epoch: number;
+    groupId: string;
+  }) => InjectedCommTools;
   /** Event path 1.8 consumes. Do not deliver parent packets here. */
   onLifecycle?: (event: OrchestrationLifecycleEvent) => void;
 }
@@ -119,36 +134,26 @@ function resolveModelReference(
   throw new Error(ORCHESTRATE_REJECT_REASONS.unknownModel);
 }
 
-function resolveRoleConfig(
-  role: string | undefined,
+function resolveAgentConfig(
+  agent: string | undefined,
   name: string,
   model: string | undefined,
   cwd: string,
-): AgentConfig | { reject: OrchestrateRejectReason } {
-  if (!role) return defaultMinionTemplate(name, { model });
-  const { agents } = discoverAgents(cwd, "both");
-  const found = agents.find((a) => a.name === role);
-  if (!found) return { reject: ORCHESTRATE_REJECT_REASONS.unknownRole };
+): AgentConfig | { reject: string } {
+  if (!agent) return defaultMinionTemplate(name, { model });
+  const found = findAgent(agent, cwd);
+  if (!found) return { reject: unknownAgentMessage(agent) };
   return found;
 }
 
-function formatResult(result: OrchestrateResult): string {
-  const lines = [
-    `Orchestrated group ${result.groupId}: ${result.accepted.length} starting, ${result.rejected.length} rejected.`,
-  ];
-  if (result.accepted.length > 0) {
-    lines.push("Accepted:");
-    for (const item of result.accepted) {
-      lines.push(`- ${item.childId} starting: ${item.description}`);
-    }
-  }
-  if (result.rejected.length > 0) {
-    lines.push("Rejected:");
-    for (const item of result.rejected) {
-      lines.push(`- [${item.index}] ${item.reason}`);
-    }
-  }
-  return lines.join("\n");
+function allRejectedError(rejected: OrchestrateResult["rejected"]): Error {
+  return new Error(
+    formatOrchestrateText({
+      groupId: "",
+      accepted: [],
+      rejected,
+    }),
+  );
 }
 
 function logOrchestrate(
@@ -167,6 +172,8 @@ function logOrchestrate(
 
 interface RegisteredChild {
   id: string;
+  lifecycleId: string;
+  epoch?: number;
   name: string;
   task: OrchestratedTaskDescriptor;
   config: AgentConfig;
@@ -178,11 +185,17 @@ function injectBoundCommTools(
   mailbox: MinionCommMailbox,
   group: { groupId: string; cwd: string },
   childId: string,
+  lifecycleId: string,
+  epoch: number,
 ): InjectedCommTools {
-  if (deps.injectCommTools) return deps.injectCommTools({ childId, groupId: group.groupId });
+  if (deps.injectCommTools)
+    return deps.injectCommTools({ childId, lifecycleId, epoch, groupId: group.groupId });
   return injectOrchestratedCommTools({
     childId,
     groupId: group.groupId,
+    lifecycleId,
+    epoch,
+    groups: deps.groups,
     cwd: group.cwd,
     tree: deps.tree,
     mailbox,
@@ -203,13 +216,27 @@ function startRegisteredChild(
   piConfig: ResolvedConfig,
 ): Promise<void> {
   const { tree, subsessionManager } = deps;
-  const { id, name, task, config, parentModel } = child;
+  const { id, lifecycleId, epoch, name, task, config, parentModel } = child;
+  if (epoch === undefined) return Promise.reject(new Error("registration epoch missing"));
   const stepLimit = { reached: false };
   const node = tree.get(id);
-  if (node && isTerminalStatus(node.status)) {
+  if (node?.lifecycleId !== lifecycleId || isTerminalStatus(node.status)) {
     return Promise.resolve();
   }
-  const injected = injectBoundCommTools(deps, mailbox, group, id);
+  const injected = injectBoundCommTools(deps, mailbox, group, id, lifecycleId, epoch);
+  const authority = { groupId: group.groupId, childId: id, lifecycleId, epoch };
+  const ownsLiveAuthority = (): boolean => {
+    const current = tree.get(id);
+    return (
+      deps.groups.ownsLifecycle(authority) &&
+      current?.kind === "orchestrated" &&
+      current.groupId === group.groupId &&
+      current.lifecycleId === lifecycleId &&
+      current.lifecycleEpoch === epoch &&
+      !isTerminalStatus(current.status)
+    );
+  };
+  const bound = bindTreeActivity(tree, id, lifecycleId, ownsLiveAuthority);
 
   return subsessionManager
     .startChild({
@@ -221,7 +248,6 @@ function startRegisteredChild(
       cwd: group.cwd,
       kind: "orchestrated",
       groupId: group.groupId,
-      role: task.role,
       taskType: task.taskType,
       description: task.description,
       domain: task.domain,
@@ -232,18 +258,13 @@ function startRegisteredChild(
       extraTools: [...injected.names, ...(deps.extraTools ?? [])],
       toolSyncEnabled: piConfig.toolSync.enabled,
       toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
-      onToolActivity: (activity) => {
-        if (activity.type === "start") {
-          tree.logActivity(id, `→ ${activity.toolName}`);
-        }
-      },
-      onTextDelta: (_delta, fullText) => {
-        const preview = fullText.split("\n").filter(Boolean).at(-1) ?? "";
-        if (preview) tree.updateActivity(id, preview);
-      },
+      onToolActivity: bound.onToolActivity,
+      onToolOutput: bound.onToolOutput,
+      onTextDelta: bound.onTextDelta,
+      onAgentEnd: bound.onAgentEnd,
       onTurnEnd: (turnCount) => {
-        tree.logActivity(id, `turn ${turnCount}`);
-        tree.updateUsage(id, { turns: turnCount });
+        if (!ownsLiveAuthority()) return;
+        bound.onTurnEnd(turnCount);
         applyStepLimit({
           count: turnCount,
           steps: config.steps,
@@ -255,9 +276,10 @@ function startRegisteredChild(
         });
       },
       onUsageUpdate: (usage) => {
-        tree.updateUsage(id, usage);
+        if (ownsLiveAuthority()) tree.updateUsage(id, usage);
       },
       onComplete: (result) => {
+        if (!ownsLiveAuthority()) return;
         const status = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
         tree.updateStatus(id, status, result.exitCode, result.error);
       },
@@ -272,23 +294,40 @@ function startRegisteredChild(
       });
       try {
         const current = tree.get(id);
-        if (current && isTerminalStatus(current.status)) {
+        if (
+          current?.lifecycleId !== lifecycleId ||
+          current.lifecycleEpoch !== epoch ||
+          !deps.groups.ownsLifecycle(authority)
+        )
+          return;
+        if (isTerminalStatus(current.status)) {
           const terminal = await handle.wait();
           deps.onLifecycle?.({
             class: terminal.class,
             groupId: group.groupId,
             childId: id,
+            lifecycleId,
+            epoch,
             error: terminal.error,
             output: terminal.output || undefined,
           });
           return;
         }
-        deps.onLifecycle?.({ class: "started", groupId: group.groupId, childId: id });
+        tree.markLiveHandle(id);
+        deps.onLifecycle?.({
+          class: "started",
+          groupId: group.groupId,
+          childId: id,
+          lifecycleId,
+          epoch,
+        });
         const terminal = await handle.wait();
         deps.onLifecycle?.({
           class: terminal.class,
           groupId: group.groupId,
           childId: id,
+          lifecycleId,
+          epoch,
           error: terminal.error,
           output: terminal.output || undefined,
         });
@@ -298,11 +337,13 @@ function startRegisteredChild(
     })
     .catch((err: unknown) => {
       const error = err instanceof Error ? err.message : String(err);
-      tree.updateStatus(id, "failed", 1, error);
+      if (ownsLiveAuthority()) tree.updateStatus(id, "failed", 1, error);
       deps.onLifecycle?.({
         class: "failed",
         groupId: group.groupId,
         childId: id,
+        lifecycleId,
+        epoch,
         error,
       });
       logger.info("orchestrate", "start-failed", {
@@ -339,28 +380,27 @@ export function orchestrate(deps: OrchestrateDeps) {
       throw new Error("Must specify at least one task.");
     }
 
-    const resolved = deps.groups.resolveGroup({
+    const previewed = deps.groups.previewGroup({
       groupId: optionalString(params.groupId),
       cwd: optionalString(params.cwd),
       parentCwd: ctx.cwd,
     });
-    if (isResolveGroupReject(resolved)) {
+    if (isResolveGroupReject(previewed)) {
       logOrchestrate("group-rejected", {
         groupId: optionalString(params.groupId),
         hostMode,
         accepted: 0,
         rejected: 0,
-        reasons: [resolved.reject],
+        reasons: [previewed.reject],
       });
-      throw new Error(resolved.reject);
+      throw new Error(previewed.reject);
     }
 
     const { tree } = deps;
-    const piConfig = getConfig({ ...ctx, cwd: resolved.cwd });
+    const piConfig = getConfig({ ...ctx, cwd: previewed.cwd });
     const accepted: OrchestrateResult["accepted"] = [];
     const rejected: OrchestrateResult["rejected"] = [];
     const registered: RegisteredChild[] = [];
-    const claimedWorkItemIds = new Set<string>();
     const assignedNames = new Set<string>();
 
     for (let index = 0; index < tasks.length; index++) {
@@ -381,30 +421,32 @@ export function orchestrate(deps: OrchestrateDeps) {
         continue;
       }
       if (spec.taskType !== undefined && !isTaskType(spec.taskType)) {
-        rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType });
+        rejected.push({
+          index,
+          reason: ORCHESTRATE_REJECT_REASONS.unknownTaskType,
+          value: String(spec.taskType),
+        });
         continue;
       }
 
-      const workItemId = optionalString(spec.domain?.workItemId);
-      if (workItemId) {
-        const live = tree.getLiveByWorkItemId(workItemId);
-        if (live.length > 0 || claimedWorkItemIds.has(workItemId)) {
-          rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.duplicateWorkItemId });
-          continue;
-        }
-      }
-
-      const role = optionalString(spec.role);
-      if (!role && !piConfig.allowEphemeral) {
+      const agent = optionalString(spec.agent);
+      if (!agent && !piConfig.allowEphemeral) {
         rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.ephemeralDisabled });
         continue;
       }
 
-      const id = generateId();
-      const name = pickMinionName(tree, id, ctx, role, assignedNames);
-      const config = resolveRoleConfig(role, name, optionalString(spec.model), resolved.cwd);
+      let id: string;
+      try {
+        id = generateAvailableId(tree, new Set(), deps.generateId ?? generateId);
+      } catch {
+        rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.idAllocationFailed });
+        continue;
+      }
+      const lifecycleId = createLifecycleId();
+      const name = pickMinionName(tree, id, ctx, agent, assignedNames);
+      const config = resolveAgentConfig(agent, name, optionalString(spec.model), previewed.cwd);
       if ("reject" in config) {
-        rejected.push({ index, reason: config.reject });
+        rejected.push({ index, reason: config.reject, value: agent });
         continue;
       }
 
@@ -412,17 +454,20 @@ export function orchestrate(deps: OrchestrateDeps) {
       try {
         parentModel = resolveModelReference(optionalString(spec.model) ?? config.model, ctx);
       } catch {
-        rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.unknownModel });
+        rejected.push({
+          index,
+          reason: ORCHESTRATE_REJECT_REASONS.unknownModel,
+          value: optionalString(spec.model) ?? config.model,
+        });
         continue;
       }
 
       assignedNames.add(name);
-      if (workItemId) claimedWorkItemIds.add(workItemId);
 
       const descriptor: OrchestratedTaskDescriptor = {
         task,
         description,
-        role,
+        agent,
         taskType: spec.taskType,
         model: optionalString(spec.model),
         domain: spec.domain,
@@ -430,18 +475,43 @@ export function orchestrate(deps: OrchestrateDeps) {
 
       tree.add(id, name, task, {
         kind: "orchestrated",
-        groupId: resolved.groupId,
-        role,
+        groupId: previewed.groupId,
         taskType: descriptor.taskType,
         description,
         domain: spec.domain,
-        agentName: role ?? "ephemeral",
+        agentName: agent ?? "ephemeral",
         model: descriptor.model ?? (parentModel ? formatModelReference(parentModel) : undefined),
         completionNudge: config.completionNudge,
+        status: "pending",
+        lifecycleId,
       });
 
       accepted.push({ childId: id, description, state: "starting" });
-      registered.push({ id, name, task: descriptor, config, parentModel });
+      registered.push({ id, lifecycleId, name, task: descriptor, config, parentModel });
+    }
+
+    if (accepted.length === 0) {
+      logOrchestrate("result", {
+        groupId: previewed.created ? undefined : previewed.groupId,
+        hostMode,
+        accepted: 0,
+        rejected: rejected.length,
+        reasons: rejected.map((item) => item.reason),
+      });
+      throw allRejectedError(rejected);
+    }
+
+    if (previewed.created) {
+      deps.groups.commitGroup(previewed);
+    }
+    const epoch = deps.groups.acceptLiveWork(
+      previewed.groupId,
+      registered.map((child) => ({ childId: child.id, lifecycleId: child.lifecycleId })),
+    );
+    if (epoch === undefined) throw new Error(ORCHESTRATE_REJECT_REASONS.registrationAborted);
+    for (const child of registered) {
+      child.epoch = epoch;
+      tree.setLifecycleEpoch(child.id, child.lifecycleId, epoch);
     }
 
     const parentToolNames = deps.pi.getAllTools().map((tool) => tool.name);
@@ -451,7 +521,7 @@ export function orchestrate(deps: OrchestrateDeps) {
         deps,
         mailbox,
         ctx,
-        resolved,
+        previewed,
         toolCallId,
         parentToolNames,
         child,
@@ -459,7 +529,7 @@ export function orchestrate(deps: OrchestrateDeps) {
       ).catch((err: unknown) => {
         const error = err instanceof Error ? err.message : String(err);
         logger.error("orchestrate", "detached-start", {
-          groupId: resolved.groupId,
+          groupId: previewed.groupId,
           childId: child.id,
           hostMode,
           error,
@@ -468,7 +538,7 @@ export function orchestrate(deps: OrchestrateDeps) {
     }
 
     const result: OrchestrateResult = {
-      groupId: resolved.groupId,
+      groupId: previewed.groupId,
       accepted,
       rejected,
     };
@@ -483,7 +553,7 @@ export function orchestrate(deps: OrchestrateDeps) {
     });
 
     return {
-      content: [{ type: "text", text: formatResult(result) }],
+      content: [{ type: "text", text: formatOrchestrateText(result) }],
       details: result,
     };
   };

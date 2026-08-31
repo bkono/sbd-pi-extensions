@@ -255,6 +255,98 @@ describe("OrchestrationGroupState close/forget", () => {
     groups.closeGroup("grp-other");
     expect(groups.getOpenGroup()).toEqual(created);
   });
+
+  it("uses reload-safe full UUID lifecycle identities", async () => {
+    const firstModule = await import("../orchestration/events.js");
+    const first = firstModule.createLifecycleId();
+    vi.resetModules();
+    const reloadedModule = await import("../orchestration/events.js");
+    const second = reloadedModule.createLifecycleId();
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(first).toMatch(uuid);
+    expect(second).toMatch(uuid);
+    expect(second).not.toBe(first);
+  });
+});
+
+describe("OrchestrationGroupState idle epochs", () => {
+  it("arms only after accepted live work and consumes one active-to-idle transition", () => {
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-idle", cwd: "/tmp" });
+
+    expect(groups.peekIdleTransition("grp-idle", false, new Set())).toBeUndefined();
+    expect(
+      groups.acceptLiveWork("grp-other", [{ childId: "mn-other", lifecycleId: "old" }]),
+    ).toBeUndefined();
+    expect(
+      groups.acceptLiveWork("grp-idle", [{ childId: "mn-idle", lifecycleId: "life-idle" }]),
+    ).toBe(1);
+    expect(groups.getLifecycleRegistration("life-idle")).toEqual({
+      lifecycleId: "life-idle",
+      childId: "mn-idle",
+      groupId: "grp-idle",
+      epoch: 1,
+    });
+    expect(groups.peekIdleTransition("grp-idle", true, new Set())).toBeUndefined();
+    expect(groups.peekIdleTransition("grp-idle", false, new Set([1]))).toBe(1);
+    expect(groups.acknowledgeIdleTransition("grp-idle", 1)).toBe(true);
+    expect(groups.peekIdleTransition("grp-idle", false, new Set([1]))).toBeUndefined();
+  });
+
+  it("re-arms a later epoch in the same open group and clears state on close", () => {
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-reuse", cwd: "/tmp" });
+    groups.acceptLiveWork("grp-reuse", [{ childId: "mn-1", lifecycleId: "life-1" }]);
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([1]))).toBe(1);
+    expect(groups.acknowledgeIdleTransition("grp-reuse", 1)).toBe(true);
+
+    groups.acceptLiveWork("grp-reuse", [{ childId: "mn-2", lifecycleId: "life-2" }]);
+    expect(groups.getLifecycleRegistration("life-1")?.epoch).toBe(1);
+    expect(groups.getLifecycleRegistration("life-2")?.epoch).toBe(2);
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([1]))).toBeUndefined();
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([2]))).toBe(2);
+    expect(groups.acknowledgeIdleTransition("grp-reuse", 2)).toBe(true);
+
+    groups.acceptLiveWork("grp-reuse", [{ childId: "mn-3", lifecycleId: "life-3" }]);
+    groups.closeGroup("grp-reuse");
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([3]))).toBeUndefined();
+    expect(groups.getLifecycleRegistration("life-3")).toBeUndefined();
+  });
+});
+
+describe("OrchestrationGroupState preview and commit", () => {
+  it("does not open a group until commitGroup", () => {
+    const parentCwd = tempDir("pi-minions-group-preview-");
+    const groups = new OrchestrationGroupState();
+
+    const previewed = groups.previewGroup({ parentCwd });
+    expect(isResolveGroupReject(previewed)).toBe(false);
+    if (isResolveGroupReject(previewed)) return;
+    expect(previewed.created).toBe(true);
+    expect(groups.getOpenGroup()).toBeUndefined();
+
+    groups.commitGroup(previewed);
+    expect(groups.getOpenGroup()).toEqual({
+      groupId: previewed.groupId,
+      cwd: previewed.cwd,
+    });
+  });
+
+  it("joining an existing group does not require commit", () => {
+    const parentCwd = tempDir("pi-minions-group-preview-join-");
+    const groups = new OrchestrationGroupState();
+    const created = groups.resolveGroup({ parentCwd });
+    expect(isResolveGroupReject(created)).toBe(false);
+    if (isResolveGroupReject(created)) return;
+
+    const previewed = groups.previewGroup({ parentCwd });
+    expect(previewed).toEqual({
+      groupId: created.groupId,
+      cwd: created.cwd,
+      created: false,
+    });
+    expect(groups.getOpenGroup()).toEqual(created);
+  });
 });
 
 describe("OrchestrationGroupState logging", () => {

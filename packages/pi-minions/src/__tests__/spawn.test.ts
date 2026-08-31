@@ -244,6 +244,110 @@ describe("foreground spawn tool", () => {
     await pending;
     expect(settled.value).toBe(true);
   });
+
+  it("foreground spawn activity follows shared thinking/tool/settling, not starting...", async () => {
+    const activities: string[] = [];
+    const h = harness();
+    const pending = h.execute(
+      "tool-1",
+      { task: "review the auth flow" },
+      undefined,
+      (update) => {
+        const details = update.details as {
+          activity?: string;
+          minions?: Array<{ activity?: string }>;
+        };
+        const activity = details.minions?.[0]?.activity ?? details.activity;
+        if (activity) activities.push(activity);
+      },
+      h.ctx,
+    );
+    pendingExecutes.push(pending);
+    await vi.waitFor(() => {
+      expect(h.started).toHaveLength(1);
+    });
+
+    await vi.waitFor(() => {
+      expect(h.tree.get(h.started[0]!.id)?.activity?.phase).toBe("thinking");
+    });
+    expect(activities.at(-1)).toBe("thinking");
+    expect(activities).not.toContain("starting...");
+
+    h.started[0]?.onTextDelta?.("drafting");
+    await vi.waitFor(() => {
+      expect(activities.at(-1)).toBe("thinking");
+    });
+
+    h.started[0]?.onToolActivity?.({
+      type: "start",
+      toolName: "read",
+      args: { path: "src/auth.ts" },
+    });
+    await vi.waitFor(() => {
+      expect(activities.at(-1)).toBe("→ read src/auth.ts");
+    });
+
+    h.started[0]?.onAgentEnd?.({ willRetry: false });
+    await vi.waitFor(() => {
+      expect(activities.at(-1)).toBe("settling");
+    });
+
+    h.waiters[0]?.resolve({ class: "settled", exitCode: 0, output: "done" });
+    await pending;
+  });
+
+  it("one child text event updates foreground once and leaves zero listeners", async () => {
+    const h = harness();
+    const signatures: string[] = [];
+    const pending = h.execute(
+      "tool-1",
+      { tasks: [{ task: "task a" }, { task: "task b" }, { task: "task c" }] },
+      undefined,
+      (update) => {
+        const details = update.details as {
+          minions?: Array<{ id?: string; activity?: string }>;
+        };
+        signatures.push(
+          (details.minions ?? []).map((m) => `${m.id}:${m.activity ?? ""}`).join("|"),
+        );
+      },
+      h.ctx,
+    );
+    pendingExecutes.push(pending);
+    await vi.waitFor(() => {
+      expect(h.started).toHaveLength(3);
+    });
+    expect(h.tree.listenerCount()).toBe(3);
+
+    const before = signatures.length;
+    h.started[0]?.onTextDelta?.("hello");
+    expect(signatures.length - before).toBe(1);
+
+    for (const waiter of h.waiters) {
+      waiter.resolve({ class: "settled", exitCode: 0, output: "done" });
+    }
+    await pending;
+    expect(h.tree.listenerCount()).toBe(0);
+  });
+
+  it("throw during first synchronization yields startChildCalls=0 and zero listeners", async () => {
+    const h = harness();
+    let updates = 0;
+    const pending = h.execute(
+      "tool-1",
+      { task: "review the auth flow" },
+      undefined,
+      () => {
+        updates++;
+        if (updates === 1) throw new Error("sync boom");
+      },
+      h.ctx,
+    );
+    pendingExecutes.push(pending.catch(() => undefined));
+    await expect(pending).rejects.toThrow(/failed: sync boom/);
+    expect(h.started).toHaveLength(0);
+    expect(h.tree.listenerCount()).toBe(0);
+  });
 });
 
 describe("runMinionSession usage accumulator", () => {

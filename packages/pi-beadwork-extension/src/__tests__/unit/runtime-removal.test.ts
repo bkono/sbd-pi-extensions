@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { handleRunAction, type RunActionDeps } from "../../actions/run.js";
 import { parseArgv } from "../../argv.js";
-import { buildAttributionEvidencePack } from "../../attribution.js";
 import { collectRejectedSupervisorKeys, REJECTED_SUPERVISOR_ENV_VARS } from "../../config.js";
 import beadworkExtension from "../../index.js";
 import {
@@ -46,15 +45,6 @@ describe("worker runtime removal", () => {
 
     const failed = failedRemovalProbes(results);
     expect(failed, JSON.stringify(failed, null, 2)).toEqual([]);
-  });
-
-  it("still exports attribution helpers", () => {
-    expect(typeof buildAttributionEvidencePack).toBe("function");
-    console.info("[removal-probe]", {
-      name: "retain:buildAttributionEvidencePack",
-      ok: true,
-      detail: "exported",
-    });
   });
 
   it("rejects /bw run --workers before starting goal mode", async () => {

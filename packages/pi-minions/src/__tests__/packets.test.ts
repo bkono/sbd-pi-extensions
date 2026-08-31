@@ -7,19 +7,25 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PathOverlapLog } from "../coordination/intent.js";
 import { logger } from "../logger.js";
 import { nudgeFor } from "../nudges.js";
 import {
   CHILD_OUTPUT_CHAR_CAP,
   COMM_SEND_STATUS,
   createLifecyclePacketDispatcher,
+  formatLifecyclePacket,
   injectOrchestratedCommTools,
   LIFECYCLE_PACKET_CUSTOM_TYPE,
   type LifecyclePacketDetails,
+  MAX_CHANGED_CHILDREN,
+  MAX_PACKET_OVERLAPS,
+  MAX_STILL_RUNNING_CHILDREN,
   MinionCommMailbox,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
+  PACKET_FIELD_CHAR_CAP,
   PARENT_RECIPIENT_ID,
   SEND_MINION_PEER_TOOL,
 } from "../orchestration/index.js";
@@ -70,48 +76,99 @@ function packetOf(sendMessage: ReturnType<typeof vi.fn>, index = 0) {
   };
 }
 
+let testLifecycle = 0;
+
+function installAutoAcceptance(tree: AgentTree, groups: OrchestrationGroupState): void {
+  const add = tree.add.bind(tree);
+  tree.add = ((...args: Parameters<AgentTree["add"]>) => {
+    const node = add(...args);
+    if (node.kind === "orchestrated" && node.groupId && node.lifecycleId) {
+      const epoch = groups.acceptLiveWork(node.groupId, [
+        { childId: node.id, lifecycleId: node.lifecycleId },
+      ]);
+      if (epoch !== undefined) tree.setLifecycleEpoch(node.id, node.lifecycleId, epoch);
+    }
+    return node;
+  }) as AgentTree["add"];
+}
+
+function withIdentity(
+  dispatcher: ReturnType<typeof createLifecyclePacketDispatcher>,
+  tree: AgentTree,
+) {
+  return {
+    enqueue(
+      event: Omit<OrchestrationLifecycleEvent, "lifecycleId" | "epoch"> &
+        Partial<Pick<OrchestrationLifecycleEvent, "lifecycleId" | "epoch">>,
+    ) {
+      const node = tree.get(event.childId);
+      const lifecycleId = event.lifecycleId ?? node?.lifecycleId;
+      const epoch = event.epoch ?? node?.lifecycleEpoch;
+      if (!lifecycleId || epoch === undefined) return;
+      dispatcher.enqueue({ ...event, lifecycleId, epoch });
+    },
+    reset: () => dispatcher.reset(),
+    close: () => dispatcher.close(),
+    open: () => dispatcher.open(),
+    inspectionCounts: () => dispatcher.inspectionCounts(),
+  };
+}
+
 function addOrchestrated(
   tree: AgentTree,
   id: string,
   opts: {
     name?: string;
     groupId?: string;
-    role?: string;
+    agentName?: string;
     taskType?: TaskType;
     description?: string;
     completionNudge?: string;
-    lastActivity?: string;
+    tool?: { toolName: string; args?: Record<string, unknown> };
+    lifecycleId?: string;
   } = {},
 ) {
   const node = tree.add(id, opts.name ?? id, `task for ${id}`, {
     kind: "orchestrated",
     groupId: opts.groupId ?? "grp-1",
-    role: opts.role,
+    agentName: opts.agentName,
     taskType: opts.taskType,
     description: opts.description ?? `desc ${id}`,
     domain: { source: "beadwork", workItemId: id },
     completionNudge: opts.completionNudge,
+    lifecycleId: opts.lifecycleId ?? `test-lifecycle-${++testLifecycle}`,
   });
-  if (opts.lastActivity) tree.updateActivity(id, opts.lastActivity);
+  if (opts.tool) {
+    tree.applyActivityEvent(id, {
+      type: "tool_start",
+      toolName: opts.tool.toolName,
+      args: opts.tool.args,
+    });
+  }
   return node;
 }
 
-function harness() {
+function harness(options: { autoAccept?: boolean } = {}) {
   const pending: Array<() => void> = [];
   const tree = new AgentTree();
+  const groups = new OrchestrationGroupState();
+  groups.commitGroup({ groupId: "grp-1", cwd: "/tmp" });
+  if (options.autoAccept !== false) installAutoAcceptance(tree, groups);
   const sendMessage = vi.fn();
-  const dispatcher = createLifecyclePacketDispatcher({
+  const rawDispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
+    getGroups: () => groups,
     sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     now: () => 10_000,
     schedule: (run) => pending.push(run),
   });
+  const dispatcher = withIdentity(rawDispatcher, tree);
 
   function drain() {
     while (pending.length > 0) pending.shift()?.();
   }
 
-  return { tree, sendMessage, dispatcher, drain, pending };
+  return { tree, groups, sendMessage, dispatcher, drain, pending };
 }
 
 async function execTool(tool: ToolDefinition, params: unknown) {
@@ -128,15 +185,17 @@ async function execTool(tool: ToolDefinition, params: unknown) {
 function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string }) {
   const pending: Array<() => void> = [];
   const tree = new AgentTree();
+  const groups = new OrchestrationGroupState();
   const sendMessage = vi.fn();
   const groupId = opts?.groupId ?? "grp-1";
+  groups.commitGroup({ groupId, cwd: "/tmp" });
   const askId = opts?.askId ?? "mn-ask";
   const otherId = opts?.otherId ?? "mn-other";
+  installAutoAcceptance(tree, groups);
   addOrchestrated(tree, askId, {
     groupId,
     taskType: "implementation",
-    description: "Need a ruling",
-    lastActivity: "waiting on parent",
+    description: "Send a notification",
   });
   addOrchestrated(tree, otherId, {
     groupId,
@@ -145,27 +204,45 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
   });
 
   let mailbox!: MinionCommMailbox;
-  const dispatcher = createLifecyclePacketDispatcher({
+  const rawDispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
+    getGroups: () => groups,
     sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     now: () => 10_000,
     schedule: (run) => pending.push(run),
-    drainParentMail: (childId) => {
-      const messages = mailbox.takePending(PARENT_RECIPIENT_ID, childId);
+    peekParentMail: (authority) => {
+      const messages = mailbox
+        .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+        .filter(
+          (message) =>
+            message.groupId === authority.groupId &&
+            message.lifecycleId === authority.lifecycleId &&
+            message.lifecycleEpoch === authority.epoch,
+        );
       if (messages.length === 0) return undefined;
-      return messages.map((message) => message.body).join("\n\n");
+      return {
+        ids: messages.map((message) => message.id),
+        text: messages.map((message) => message.body).join("\n\n"),
+      };
+    },
+    ackParentMail: (snapshot) => {
+      mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
     },
   });
+  const dispatcher = withIdentity(rawDispatcher, tree);
   mailbox = new MinionCommMailbox({
     getTree: () => tree,
-    getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd: "/tmp" }) }),
+    getGroups: () => groups,
     isLive: (id) => tree.get(id)?.status === "running",
     followUp: async () => {},
     onParentDirected: (message) => {
+      if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
       dispatcher.enqueue({
         class: "parentMessage",
         groupId: message.groupId,
         childId: message.from,
+        lifecycleId: message.lifecycleId,
+        epoch: message.lifecycleEpoch,
         output: message.body,
       });
     },
@@ -175,7 +252,18 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
     while (pending.length > 0) pending.shift()?.();
   }
 
-  return { tree, sendMessage, dispatcher, mailbox, drain, pending, groupId, askId, otherId };
+  return {
+    tree,
+    groups,
+    sendMessage,
+    dispatcher,
+    mailbox,
+    drain,
+    pending,
+    groupId,
+    askId,
+    otherId,
+  };
 }
 
 function logPacket(
@@ -199,7 +287,10 @@ describe("idle coalescing", () => {
       addOrchestrated(tree, id);
       tree.updateStatus(id, "completed", 0);
     }
-    addOrchestrated(tree, "mn-live", { description: "still going", lastActivity: "turn 2" });
+    addOrchestrated(tree, "mn-live", {
+      description: "still going",
+      tool: { toolName: "read", args: { path: "src/auth.ts" } },
+    });
 
     for (const id of ["mn-1", "mn-2", "mn-3", "mn-4"]) {
       dispatcher.enqueue({
@@ -230,7 +321,9 @@ describe("idle coalescing", () => {
       true,
     );
     expect(sent.message.details.stillRunning.map((child) => child.childId)).toEqual(["mn-live"]);
-    expect(sent.message.details.stillRunning[0]?.lastActivity).toBe("turn 2");
+    expect(sent.message.details.stillRunning[0]).not.toHaveProperty("lastActivity");
+    expect(sent.message.details.stillRunning[0]?.activity?.phase).toBe("tool");
+    expect(sent.message.details.stillRunning[0]?.activity?.summary).not.toMatch(/turn \d/);
     expect(sent.message.content).toContain("Orchestration update");
     expect(sent.message.content).toContain("mn-live");
     expect(sent.message.content).not.toContain("triggerTurn");
@@ -240,8 +333,13 @@ describe("idle coalescing", () => {
 describe("per-child nudges", () => {
   it("uses that child's taskType nudge when mixed taskTypes settle together", () => {
     const { tree, sendMessage, dispatcher, drain } = harness();
-    addOrchestrated(tree, "mn-fix", { taskType: "fix", description: "Fix the race" });
+    addOrchestrated(tree, "mn-fix", {
+      agentName: "worker",
+      taskType: "fix",
+      description: "Fix the race",
+    });
     addOrchestrated(tree, "mn-review", {
+      agentName: "investigate",
       taskType: "reviewImplementation",
       description: "Review auth",
     });
@@ -265,6 +363,12 @@ describe("per-child nudges", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     const sent = packetOf(sendMessage);
     const [fix, review] = sent.message.details.changed;
+    expect(fix?.agent).toBe("worker");
+    expect(review?.agent).toBe("investigate");
+    expect(fix).not.toHaveProperty("role");
+    expect(review).not.toHaveProperty("role");
+    expect(sent.message.content).toContain("agent: worker");
+    expect(sent.message.content).not.toMatch(/^\s*role:/m);
     expect(fix?.nudge).toBe(nudgeFor({ taskType: "fix" }, "settled"));
     expect(review?.nudge).toBe(nudgeFor({ taskType: "reviewImplementation" }, "settled"));
     expect(fix?.nudge).not.toBe(review?.nudge);
@@ -293,6 +397,25 @@ describe("spawn exclusion", () => {
 
     expect(sendMessage).not.toHaveBeenCalled();
   });
+
+  it("does not wake the parent for a started lifecycle event", () => {
+    const { tree, sendMessage, dispatcher, drain } = harness();
+    addOrchestrated(tree, "mn-orch");
+    tree.updateStatus("mn-orch", "pending");
+
+    dispatcher.enqueue({ class: "started", groupId: "grp-1", childId: "mn-orch" });
+    tree.applyActivityEvent("mn-orch", {
+      type: "tool_start",
+      toolName: "read",
+      args: { path: "src/live.ts" },
+    });
+    drain();
+    tree.applyActivityEvent("mn-orch", { type: "tool_end" });
+    drain();
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls.some((call) => call[1]?.triggerTurn)).toBe(false);
+  });
 });
 
 describe("event classes", () => {
@@ -301,7 +424,7 @@ describe("event classes", () => {
     addOrchestrated(tree, "mn-settled", { taskType: "implementation" });
     addOrchestrated(tree, "mn-failed", { taskType: "implementation" });
     addOrchestrated(tree, "mn-aborted", { taskType: "implementation" });
-    addOrchestrated(tree, "mn-ask", { taskType: "implementation", lastActivity: "waiting" });
+    addOrchestrated(tree, "mn-ask", { taskType: "implementation" });
     tree.updateStatus("mn-settled", "completed", 0);
     tree.updateStatus("mn-failed", "failed", 1, "boom");
     tree.updateStatus("mn-aborted", "aborted");
@@ -346,8 +469,8 @@ describe("event classes", () => {
   });
 });
 
-describe("consume-once", () => {
-  it("submits a drained batch once and does not retry after sendMessage throws", () => {
+describe("bounded submission recovery", () => {
+  it("recovers a lone failed final packet on one event-driven retry", () => {
     const { tree, sendMessage, dispatcher, drain } = harness();
     addOrchestrated(tree, "mn-1");
     tree.updateStatus("mn-1", "completed", 0);
@@ -355,17 +478,171 @@ describe("consume-once", () => {
       throw new Error("delivery failed");
     });
 
-    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-1", output: "done" });
+    const terminal = {
+      class: "settled" as const,
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "done",
+    };
+    dispatcher.enqueue(terminal);
     drain();
-    expect(sendMessage).toHaveBeenCalledTimes(1);
 
-    drain();
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 0).message.details.seq).toBe(1);
+    expect(packetOf(sendMessage, 1).message.details.seq).toBe(1);
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+    expect(dispatcher.inspectionCounts().queued).toBe(0);
 
-    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-1", output: "done" });
+    dispatcher.enqueue(terminal);
     drain();
     expect(sendMessage).toHaveBeenCalledTimes(2);
-    expect(packetOf(sendMessage, 1).message.details.seq).toBe(2);
+  });
+
+  it("bounds automatic recovery to one attempt and retains evidence after two failures", () => {
+    const { tree, sendMessage, dispatcher, drain } = harness();
+    addOrchestrated(tree, "mn-1");
+    tree.updateStatus("mn-1", "completed", 0);
+    sendMessage.mockImplementation(() => {
+      throw new Error("host unavailable");
+    });
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-1" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(dispatcher.inspectionCounts().queued).toBe(1);
+  });
+
+  it("caps automatic recovery across reentrant enqueue and recovers later without loss", () => {
+    const { tree, sendMessage, dispatcher, pending } = harness();
+    addOrchestrated(tree, "mn-1");
+    addOrchestrated(tree, "mn-2");
+    tree.updateStatus("mn-1", "completed", 0);
+    tree.updateStatus("mn-2", "completed", 0);
+
+    let attempts = 0;
+    sendMessage.mockImplementation(() => {
+      attempts++;
+      if (attempts <= 2) {
+        dispatcher.enqueue({
+          class: "settled",
+          groupId: "grp-1",
+          childId: "mn-2",
+          output: "second",
+        });
+        throw new Error("host unavailable");
+      }
+    });
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "first",
+    });
+    expect(pending).toHaveLength(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pending).toHaveLength(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(pending).toHaveLength(0);
+    expect(dispatcher.inspectionCounts().queued).toBeGreaterThan(0);
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "first-later",
+    });
+    expect(pending).toHaveLength(1);
+    pending.shift()?.();
+
+    expect(attempts).toBe(3);
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(pending).toHaveLength(0);
+    expect(dispatcher.inspectionCounts().queued).toBe(0);
+
+    const recovered = packetOf(sendMessage, 2);
+    expect(recovered.message.details.seq).toBe(1);
+    expect(recovered.message.details.changed.map((child) => child.childId)).toEqual([
+      "mn-1",
+      "mn-2",
+    ]);
+    expect(recovered.message.details.changed.map((child) => child.output)).toEqual([
+      "first-later",
+      "second",
+    ]);
+    expect(recovered.message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("drains reentrant evidence after a successful automatic recovery submit", () => {
+    const { tree, groups, sendMessage, dispatcher, pending } = harness();
+    addOrchestrated(tree, "mn-1");
+    addOrchestrated(tree, "mn-2");
+    tree.updateStatus("mn-1", "completed", 0);
+
+    let attempts = 0;
+    sendMessage.mockImplementation(() => {
+      attempts++;
+      if (attempts === 1) throw new Error("host unavailable");
+      if (attempts === 2) {
+        tree.updateStatus("mn-2", "completed", 0);
+        dispatcher.enqueue({
+          class: "settled",
+          groupId: "grp-1",
+          childId: "mn-2",
+          output: "second",
+        });
+      }
+    });
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "first",
+    });
+    expect(pending).toHaveLength(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pending).toHaveLength(1);
+    expect(dispatcher.inspectionCounts().queued).toBe(1);
+
+    pending.shift()?.();
+    expect(attempts).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(pending).toHaveLength(1);
+    expect(dispatcher.inspectionCounts()).toEqual({ queued: 1, deliveredHistory: 1 });
+
+    const recovered = packetOf(sendMessage, 1);
+    expect(recovered.message.details.seq).toBe(1);
+    expect(recovered.message.details.changed.map((child) => child.childId)).toEqual(["mn-1"]);
+    expect(recovered.message.details.changed.map((child) => child.output)).toEqual(["first"]);
+    expect(recovered.message.details.stillRunning.map((child) => child.childId)).toEqual(["mn-2"]);
+    expect(recovered.message.details.groupIdleId).toBeUndefined();
+
+    pending.shift()?.();
+    expect(attempts).toBe(3);
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(pending).toHaveLength(0);
+    expect(dispatcher.inspectionCounts()).toEqual({ queued: 0, deliveredHistory: 2 });
+
+    const followOn = packetOf(sendMessage, 2);
+    expect(followOn.message.details.seq).toBe(2);
+    expect(followOn.message.details.changed.map((child) => child.childId)).toEqual(["mn-2"]);
+    expect(followOn.message.details.changed.map((child) => child.output)).toEqual(["second"]);
+    expect(followOn.message.details.stillRunning).toEqual([]);
+    expect(followOn.message.details.groupIdleId).toBe("grp-1");
+    expect(
+      groups.peekIdleTransition("grp-1", false, new Set([tree.get("mn-2")!.lifecycleEpoch!])),
+    ).toBeUndefined();
   });
 });
 
@@ -409,7 +686,9 @@ describe("delimiter", () => {
     drain();
 
     const sent = packetOf(sendMessage);
-    expect(sent.message.details.changed[0]?.output).toHaveLength(CHILD_OUTPUT_CHAR_CAP);
+    expect(
+      Buffer.byteLength(sent.message.details.changed[0]?.output ?? "", "utf8"),
+    ).toBeLessThanOrEqual(CHILD_OUTPUT_CHAR_CAP);
     expect(sent.message.content).toContain("truncated; full text via show_minion");
   });
 });
@@ -433,6 +712,8 @@ describe("logging", () => {
       eventClasses: ["settled"],
       fleetIds: ["mn-live"],
       byteSize,
+      detailsByteSize: Buffer.byteLength(JSON.stringify(sent.message.details), "utf8"),
+      groupIdleId: undefined,
     });
 
     for (const call of info.mock.calls) {
@@ -458,6 +739,306 @@ describe("delivery options", () => {
   });
 });
 
+describe("trusted fleet state", () => {
+  it("distinguishes pending, running, and settling with bounded trusted activity", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+
+    addOrchestrated(tree, "mn-pending");
+    tree.updateStatus("mn-pending", "pending");
+    addOrchestrated(tree, "mn-running");
+    addOrchestrated(tree, "mn-settling");
+    tree.applyActivityEvent("mn-settling", { type: "settling" });
+    addOrchestrated(tree, "mn-terminal");
+    tree.updateStatus("mn-terminal", "completed", 0);
+
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-terminal",
+      output: "opaque terminal prose",
+    });
+    drain();
+
+    const fleet = packetOf(sendMessage).message.details.stillRunning;
+    expect(Object.fromEntries(fleet.map((child) => [child.childId, child.state]))).toEqual({
+      "mn-pending": "pending",
+      "mn-running": "running",
+      "mn-settling": "settling",
+    });
+    const running = fleet.find((child) => child.childId === "mn-running");
+    expect(running).not.toHaveProperty("lastActivity");
+    expect(running?.activity).not.toHaveProperty("narrativePreview");
+    expect(running?.activity).not.toHaveProperty("toolName");
+    expect(packetOf(sendMessage).message.content).toContain("opaque terminal prose");
+  });
+});
+
+it("bounds hostile fleet, overlap, and child counts with honest omission summaries", () => {
+  const pending: Array<() => void> = [];
+  const tree = new AgentTree();
+  const groups = new OrchestrationGroupState();
+  const sendMessage = vi.fn();
+  groups.commitGroup({ groupId: "grp-hostile", cwd: "/tmp" });
+  installAutoAcceptance(tree, groups);
+  const hostile = `\u001b[31m${"🧪".repeat(10_000)}\u001b[0m\u001b]0;unsafe\u0007\u0000\u0001\u009b31m\npath/tool`;
+  const terminalIds: string[] = [];
+  const liveIds: string[] = [];
+
+  for (let index = 0; index < 20; index++) {
+    const id = `mn-terminal-${index}`;
+    terminalIds.push(id);
+    addOrchestrated(tree, id, { groupId: "grp-hostile", description: hostile });
+    tree.updateStatus(id, "completed", 0);
+  }
+  const mailId = "mn-mail-hostile";
+  const mailNode = addOrchestrated(tree, mailId, {
+    groupId: "grp-hostile",
+    agentName: hostile,
+    description: hostile,
+  });
+  mailNode.name = hostile;
+  mailNode.completionNudge = hostile;
+  mailNode.taskType = "x".repeat(10_000) as never;
+  mailNode.domain = { source: hostile, scopeId: hostile, workItemId: hostile, title: hostile };
+  for (let index = 0; index < 100; index++) {
+    const id = `mn-live-${index}`;
+    liveIds.push(id);
+    const node = addOrchestrated(tree, id, {
+      groupId: "grp-hostile",
+      agentName: hostile,
+      description: hostile,
+    });
+    node.activity = {
+      phase: hostile,
+      summary: hostile,
+      toolPreview: hostile,
+      updatedAt: 1,
+    } as never;
+  }
+
+  const overlaps = Array.from({ length: 40 }, (_, index) => ({
+    groupId: "grp-hostile",
+    childId: `mn-live-${index}`,
+    childDescription: hostile,
+    lifecycleId: `life-live-${index}`,
+    epoch: 1,
+    path: hostile,
+    otherId: `mn-live-${index + 1}`,
+    otherDescription: hostile,
+    otherPath: hostile,
+    editAllowed: true as const,
+  }));
+  const rawDispatcher = createLifecyclePacketDispatcher({
+    getTree: () => tree,
+    getGroups: () => groups,
+    sendMessage: sendMessage as ExtensionAPI["sendMessage"],
+    peekOverlaps: () => ({
+      ids: overlaps.map((_, index) => `overlap-${index}`),
+      notices: overlaps,
+    }),
+    peekParentMail: (authority) =>
+      authority.childId === mailId ? { ids: ["hostile-mail"], text: hostile } : undefined,
+    ackParentMail: () => {},
+    schedule: (run) => pending.push(run),
+  });
+  const dispatcher = withIdentity(rawDispatcher, tree);
+  dispatcher.enqueue({ class: "parentMessage", groupId: "grp-hostile", childId: mailId });
+  for (const childId of terminalIds) {
+    dispatcher.enqueue({ class: "settled", groupId: "grp-hostile", childId });
+  }
+  while (pending.length > 0) pending.shift()?.();
+
+  const packet = packetOf(sendMessage).message;
+  expect(packet.details.changed).toHaveLength(MAX_CHANGED_CHILDREN);
+  expect(packet.details.changedCount).toBe(terminalIds.length + 1);
+  expect(packet.details.stillRunning.length).toBeLessThanOrEqual(MAX_STILL_RUNNING_CHILDREN);
+  expect(packet.details.stillRunningCount).toBe(liveIds.length + 1);
+  expect(packet.details.overlaps.length).toBeLessThanOrEqual(MAX_PACKET_OVERLAPS);
+  expect(packet.details.omittedOverlapCount).toBe(overlaps.length - packet.details.overlaps.length);
+  expect(packet.content).toContain(
+    `+${packet.details.changedCount - packet.details.changed.length} more changed`,
+  );
+  expect(packet.content).toContain(
+    `+${liveIds.length + 1 - packet.details.stillRunning.length} more active`,
+  );
+  expect(packet.content).not.toContain("\u001b");
+  expect(Buffer.byteLength(packet.content, "utf8")).toBeLessThan(10_000);
+  expect(Buffer.byteLength(JSON.stringify(packet.details), "utf8")).toBeLessThan(10_000);
+  const allProjectedStrings: string[] = [];
+  const collectStrings = (value: unknown): void => {
+    if (typeof value === "string") allProjectedStrings.push(value);
+    else if (Array.isArray(value)) value.forEach(collectStrings);
+    else if (value && typeof value === "object") Object.values(value).forEach(collectStrings);
+  };
+  collectStrings(packet.details);
+  expect(allProjectedStrings.join("")).not.toMatch(
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: assert hostile projected text contains no unsafe C0/C1 controls
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u,
+  );
+  expect(packet.details.changed.every((child) => child.taskType === undefined)).toBe(true);
+  expect(formatLifecyclePacket(packet.details)).toBe(packet.content);
+  for (const child of packet.details.stillRunning) {
+    expect(child.description?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(child.agent?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(child.activity?.summary.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(child.activity?.toolPreview?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+  }
+  for (const overlap of packet.details.overlaps) {
+    expect(overlap.path.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(overlap.otherPath.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(overlap.childDescription?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+  }
+});
+
+describe("group idle transition", () => {
+  it("coalesces near-simultaneous final settlements into one packet and one adjudication indication", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-a");
+    addOrchestrated(tree, "mn-b");
+    tree.updateStatus("mn-a", "completed", 0);
+    tree.updateStatus("mn-b", "completed", 0);
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-a" });
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-b" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const packet = packetOf(sendMessage).message;
+    expect(packet.details.groupIdleId).toBe("grp-1");
+    expect(packet.content.match(/Group idle: grp-1/g)).toHaveLength(1);
+    expect(packet.content).toContain("Inspect the evidence and decide the next action.");
+    const idleCopy = packet.content.slice(packet.content.indexOf("Group idle:"));
+    expect(idleCopy).not.toMatch(/success|completed|accepted|ticket closed|goal complete/i);
+  });
+
+  it("does not duplicate an idle epoch for repeated terminal delivery", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-once");
+    tree.updateStatus("mn-once", "completed", 0);
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-once" });
+    drain();
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-once" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("re-arms when the same open group accepts new work after idle", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-epoch-1");
+    tree.updateStatus("mn-epoch-1", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-epoch-1" });
+    drain();
+
+    addOrchestrated(tree, "mn-epoch-2");
+    tree.updateStatus("mn-epoch-2", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-epoch-2" });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("does not let a stale prior-epoch terminal consume re-armed idle", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-old");
+    tree.updateStatus("mn-old", "completed", 0);
+    const stale = { class: "settled" as const, groupId: "grp-1", childId: "mn-old" };
+    dispatcher.enqueue(stale);
+    drain();
+
+    addOrchestrated(tree, "mn-new");
+    dispatcher.enqueue(stale);
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    tree.updateStatus("mn-new", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-new" });
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("does not emit idle for a never-accepted group", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness({ autoAccept: false });
+    addOrchestrated(tree, "mn-never");
+    tree.updateStatus("mn-never", "completed", 0);
+
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-never" });
+    drain();
+
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("clears terminal dedupe and epoch ownership on session reset", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-reused");
+    tree.updateStatus("mn-reused", "completed", 0);
+    const terminal = { class: "settled" as const, groupId: "grp-1", childId: "mn-reused" };
+    dispatcher.enqueue(terminal);
+    drain();
+
+    dispatcher.reset();
+    groups.closeGroup("grp-1");
+    tree.remove("mn-reused");
+    groups.commitGroup({ groupId: "grp-1", cwd: "/tmp" });
+    addOrchestrated(tree, "mn-reused");
+    tree.updateStatus("mn-reused", "completed", 0);
+    dispatcher.enqueue(terminal);
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 1).message.details.seq).toBe(1);
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("does not let spawn completion consume an armed group idle epoch", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    tree.add("mn-spawn", "spawn", "foreground task");
+    tree.updateStatus("mn-spawn", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-spawn" });
+    drain();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    addOrchestrated(tree, "mn-real");
+    tree.updateStatus("mn-real", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-real" });
+    drain();
+    expect(packetOf(sendMessage).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("does not treat a parent notification as terminal or a parked fleet state", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-notify");
+
+    dispatcher.enqueue({
+      class: "parentMessage",
+      groupId: "grp-1",
+      childId: "mn-notify",
+      output: "Status update",
+    });
+    drain();
+
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBeUndefined();
+    expect(packetOf(sendMessage, 0).message.details.stillRunning[0]).toMatchObject({
+      childId: "mn-notify",
+      state: "running",
+    });
+    expect(packetOf(sendMessage, 0).message.details.stillRunning[0]?.activity?.phase).not.toBe(
+      "waiting",
+    );
+
+    tree.updateStatus("mn-notify", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-notify" });
+    drain();
+
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+});
+
 describe("integration: orchestrate lifecycle to followUp", () => {
   it("folds four orchestrate settlements into one followUp packet and ignores spawn completion", async () => {
     const cwd = tempDir("pi-minions-packets-int-");
@@ -468,6 +1049,7 @@ describe("integration: orchestrate lifecycle to followUp", () => {
     const sendUserMessage = vi.fn();
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
+      getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     });
     eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
@@ -585,10 +1167,13 @@ describe("integration: orchestrate lifecycle to followUp", () => {
 describe("live child parentMessage wake", () => {
   it("send-to-parent yields one parentMessage packet and the child stays running", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const { tree, sendMessage, mailbox, drain, groupId, askId, otherId } = wakeHarness();
+    const { tree, groups, sendMessage, mailbox, drain, groupId, askId, otherId } = wakeHarness();
     const injected = injectOrchestratedCommTools({
       childId: askId,
+      lifecycleId: tree.get(askId)!.lifecycleId!,
+      epoch: tree.get(askId)!.lifecycleEpoch!,
       groupId,
+      groups,
       tree,
       mailbox,
     });
@@ -634,19 +1219,20 @@ describe("live child parentMessage wake", () => {
       stillRunning: packet.message.details.stillRunning.some((child) => child.childId === askId),
       nudgeExcerpt: liveQuestion.slice(0, 80),
     });
-    expect(info).toHaveBeenCalledWith(
-      "packets",
-      "parent-message",
+    const parentLog = info.mock.calls.find(
+      (call) => call[0] === "packets" && call[1] === "parent-message",
+    );
+    expect(parentLog?.[2]).toEqual(
       expect.objectContaining({
         eventClass: "parentMessage",
         childId: askId,
-        stillRunning: true,
         nudgeExcerpt: liveQuestion.slice(0, 80),
       }),
     );
+    expect(parentLog?.[2]).not.toHaveProperty("stillRunning");
   });
 
-  it("uses the live-question nudge, not the settled generic", () => {
+  it("uses the notification nudge, not the settled generic", () => {
     const { tree, sendMessage, dispatcher, drain } = harness();
     addOrchestrated(tree, "mn-ask", { taskType: "implementation" });
     dispatcher.enqueue({
@@ -663,19 +1249,23 @@ describe("live child parentMessage wake", () => {
     expect(changed?.nudge).toBe(liveQuestion);
     expect(changed?.nudge).not.toBe(nudgeFor({}, "settled"));
     expect(changed?.nudge).not.toBe(nudgeFor({ taskType: "implementation" }, "settled"));
-    expect(changed?.nudge.toLowerCase()).toMatch(/still running|has not settled|not settlement/);
+    expect(changed?.nudge.toLowerCase()).toMatch(/notification/);
+    expect(changed?.nudge.toLowerCase()).toMatch(/no reply is required/);
     expect(
       packetOf(sendMessage).message.details.stillRunning.map((child) => child.childId),
     ).toEqual(["mn-ask"]);
   });
 
-  it("coalesces a parent question with another child's settlement into one packet", async () => {
+  it("coalesces a parent notification with another child's settlement into one packet", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const { tree, sendMessage, mailbox, dispatcher, drain, groupId, askId, otherId } =
+    const { tree, groups, sendMessage, mailbox, dispatcher, drain, groupId, askId, otherId } =
       wakeHarness();
     const injected = injectOrchestratedCommTools({
       childId: askId,
+      lifecycleId: tree.get(askId)!.lifecycleId!,
+      epoch: tree.get(askId)!.lifecycleEpoch!,
       groupId,
+      groups,
       tree,
       mailbox,
     });
@@ -717,38 +1307,329 @@ describe("live child parentMessage wake", () => {
       stillRunning: packet.message.details.stillRunning.some((child) => child.childId === askId),
       nudgeExcerpt: liveQuestion.slice(0, 80),
     });
-    expect(info).toHaveBeenCalledWith(
-      "packets",
-      "parent-message",
+    const parentLog = info.mock.calls.find(
+      (call) => call[0] === "packets" && call[1] === "parent-message",
+    );
+    expect(parentLog?.[2]).toEqual(
       expect.objectContaining({
         eventClass: "parentMessage",
         childId: askId,
-        stillRunning: true,
         nudgeExcerpt: liveQuestion.slice(0, 80),
       }),
     );
+    expect(parentLog?.[2]).not.toHaveProperty("stillRunning");
   });
 
-  it("folds multiple questions from the same live child into one packet with drained bodies", async () => {
-    const { tree, sendMessage, mailbox, drain, groupId, askId } = wakeHarness();
+  it("keeps same-lifecycle notification, terminal, and group-idle coalesced and truthful", () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const { tree, sendMessage, dispatcher, drain } = harness();
+    addOrchestrated(tree, "mn-ask", { taskType: "implementation" });
+    dispatcher.enqueue({
+      class: "parentMessage",
+      groupId: "grp-1",
+      childId: "mn-ask",
+      output: "Need a decision",
+    });
+    tree.updateStatus("mn-ask", "completed", 0);
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-1",
+      childId: "mn-ask",
+      output: "done",
+    });
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const packet = packetOf(sendMessage);
+    const changed = packet.message.details.changed;
+    expect(changed.map((child) => child.eventClass)).toEqual(["parentMessage", "settled"]);
+    expect(changed.map((child) => child.childId)).toEqual(["mn-ask", "mn-ask"]);
+    expect(packet.message.details.stillRunning).toEqual([]);
+    expect(packet.message.details.stillRunningCount).toBe(0);
+    expect(packet.message.details.groupIdleId).toBe("grp-1");
+
+    const parentNudge = changed[0]?.nudge ?? "";
+    expect(parentNudge).toBe(nudgeFor({ taskType: "implementation" }, "parentMessage"));
+    expect(parentNudge.toLowerCase()).toContain("no reply is required");
+    expect(parentNudge.toLowerCase()).not.toMatch(/\blive\b/);
+    expect(parentNudge.toLowerCase()).not.toContain("has not settled");
+    expect(changed[1]?.nudge).toBe(nudgeFor({ taskType: "implementation" }, "settled"));
+    expect(packet.message.content).toContain(parentNudge);
+    expect(packet.message.content).toMatch(/group idle:/i);
+    expect(packet.message.content).not.toMatch(/state: running/i);
+
+    const parentLog = info.mock.calls.find(
+      (call) => call[0] === "packets" && call[1] === "parent-message",
+    );
+    expect(parentLog?.[2]).toEqual(
+      expect.objectContaining({
+        eventClass: "parentMessage",
+        childId: "mn-ask",
+        nudgeExcerpt: parentNudge.slice(0, 80),
+      }),
+    );
+    expect(parentLog?.[2]).not.toHaveProperty("stillRunning");
+  });
+
+  it("folds multiple notifications from the same live child into one packet with drained bodies", async () => {
+    const { tree, groups, sendMessage, mailbox, drain, groupId, askId } = wakeHarness();
     const injected = injectOrchestratedCommTools({
       childId: askId,
+      lifecycleId: tree.get(askId)!.lifecycleId!,
+      epoch: tree.get(askId)!.lifecycleEpoch!,
       groupId,
+      groups,
       tree,
       mailbox,
     });
     const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
-    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "First question" });
-    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "Second question" });
+    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "First update" });
+    await execTool(send, { to: PARENT_RECIPIENT_ID, body: "Second update" });
     drain();
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
     const packet = packetOf(sendMessage);
     expect(packet.message.details.changed).toHaveLength(1);
     expect(packet.message.details.changed[0]?.eventClass).toBe("parentMessage");
-    expect(packet.message.details.changed[0]?.output).toBe("First question\n\nSecond question");
+    expect(packet.message.details.changed[0]?.output).toBe("First update\n\nSecond update");
     expect(packet.message.details.stillRunning.map((child) => child.childId)).toContain(askId);
     expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
     expect(mailbox.list()).toHaveLength(2);
+  });
+});
+
+describe("lifecycle registration identity", () => {
+  it("ignores a stale callback after same-id reuse without consuming replacement terminal or idle", () => {
+    const { tree, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "same-id", "grp-1");
+    const old = tree.get("same-id")!;
+    const stale = {
+      class: "settled" as const,
+      groupId: "grp-1",
+      childId: "same-id",
+      lifecycleId: old.lifecycleId!,
+      epoch: old.lifecycleEpoch!,
+      output: "old terminal",
+    };
+    tree.updateStatus("same-id", "completed", 0);
+    tree.remove("same-id");
+
+    addOrchestrated(tree, "same-id", "grp-1");
+    const replacement = tree.get("same-id")!;
+    expect(replacement.lifecycleId).not.toBe(stale.lifecycleId);
+    dispatcher.enqueue(stale);
+    drain();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(tree.get("same-id")?.status).toBe("running");
+
+    tree.updateStatus("same-id", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "same-id" });
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(packetOf(sendMessage).message.details.changed[0]?.output).not.toBe("old terminal");
+    expect(packetOf(sendMessage).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("ignores a late old-session callback after reset and permits the replacement terminal", () => {
+    let tree = new AgentTree();
+    let groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-reset", cwd: "/tmp" });
+    const pending: Array<() => void> = [];
+    const sendMessage = vi.fn();
+    const dispatcher = createLifecyclePacketDispatcher({
+      getTree: () => tree,
+      getGroups: () => groups,
+      sendMessage: sendMessage as ExtensionAPI["sendMessage"],
+      schedule: (run) => pending.push(run),
+    });
+    const register = (lifecycleId: string) => {
+      tree.add("same-id", "same", "task", {
+        kind: "orchestrated",
+        groupId: "grp-reset",
+        lifecycleId,
+      });
+      const epoch = groups.acceptLiveWork("grp-reset", [{ childId: "same-id", lifecycleId }])!;
+      tree.setLifecycleEpoch("same-id", lifecycleId, epoch);
+      return epoch;
+    };
+    const oldEpoch = register("old-session-lifecycle");
+
+    dispatcher.reset();
+    tree = new AgentTree();
+    groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-reset", cwd: "/tmp" });
+    const newEpoch = register("new-session-lifecycle");
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-reset",
+      childId: "same-id",
+      lifecycleId: "old-session-lifecycle",
+      epoch: oldEpoch,
+      output: "late old session",
+    });
+    expect(pending).toHaveLength(0);
+
+    tree.updateStatus("same-id", "completed", 0);
+    dispatcher.enqueue({
+      class: "settled",
+      groupId: "grp-reset",
+      childId: "same-id",
+      lifecycleId: "new-session-lifecycle",
+      epoch: newEpoch,
+      output: "new session terminal",
+    });
+    expect(groups.getLifecycleRegistration("new-session-lifecycle")).toBeDefined();
+    expect(pending).toHaveLength(1);
+    pending.shift()?.();
+    const packet = packetOf(sendMessage);
+    expect(packet.message.details.seq).toBe(1);
+    expect(packet.message.details.changed[0]?.output).toBe("new session terminal");
+    expect(packet.message.content).not.toContain("late old session");
+  });
+});
+
+describe("transactional packet evidence", () => {
+  it("retries two mails and overlap after failure while preserving reentrant arrivals exactly once", () => {
+    const tree = new AgentTree();
+    const groups = new OrchestrationGroupState();
+    const overlaps = new PathOverlapLog();
+    groups.commitGroup({ groupId: "grp-tx", cwd: "/tmp" });
+    const lifecycleId = "tx-lifecycle";
+    tree.add("mn-tx", "worker", "task", {
+      kind: "orchestrated",
+      groupId: "grp-tx",
+      lifecycleId,
+    });
+    const epoch = groups.acceptLiveWork("grp-tx", [{ childId: "mn-tx", lifecycleId }])!;
+    tree.setLifecycleEpoch("mn-tx", lifecycleId, epoch);
+    const pending: Array<() => void> = [];
+    let dispatcher: ReturnType<typeof createLifecyclePacketDispatcher>;
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => groups,
+      isLive: () => true,
+      followUp: async () => {},
+      onParentDirected: (message) => {
+        dispatcher.enqueue({
+          class: "parentMessage",
+          groupId: "grp-tx",
+          childId: "mn-tx",
+          lifecycleId: message.lifecycleId!,
+          epoch,
+        });
+      },
+    });
+    let submitCount = 0;
+    const accepted: PacketCall[] = [];
+    const sendMessage = vi.fn((message: PacketCall["message"], options: PacketCall["options"]) => {
+      submitCount++;
+      if (submitCount === 1) {
+        mailbox.send({
+          from: "mn-tx",
+          to: PARENT_RECIPIENT_ID,
+          groupId: "grp-tx",
+          lifecycleId,
+          lifecycleEpoch: epoch,
+          body: "Third reentrant question",
+        });
+        overlaps.record({
+          groupId: "grp-tx",
+          childId: "mn-tx",
+          lifecycleId,
+          epoch,
+          path: "third/path",
+          otherId: "mn-other",
+          otherPath: "other/path",
+          editAllowed: true,
+        });
+        throw new Error("sync submit failure");
+      }
+      accepted.push({ message, options });
+    });
+    dispatcher = createLifecyclePacketDispatcher({
+      getTree: () => tree,
+      getGroups: () => groups,
+      sendMessage: sendMessage as ExtensionAPI["sendMessage"],
+      schedule: (run) => pending.push(run),
+      peekParentMail: (authority) => {
+        const messages = mailbox
+          .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+          .filter(
+            (message) =>
+              message.groupId === authority.groupId &&
+              message.lifecycleId === authority.lifecycleId &&
+              message.lifecycleEpoch === authority.epoch,
+          );
+        return messages.length === 0
+          ? undefined
+          : {
+              ids: messages.map((message) => message.id),
+              text: messages.map((message) => message.body).join("\n\n"),
+            };
+      },
+      ackParentMail: (snapshot) => {
+        mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
+      },
+      peekOverlaps: (groupIds) => overlaps.peek(groupIds),
+      ackOverlaps: (ids) => {
+        overlaps.ack(ids);
+      },
+    });
+
+    for (const body of ["First question", "Second question"]) {
+      const sent = mailbox.send({
+        from: "mn-tx",
+        to: PARENT_RECIPIENT_ID,
+        groupId: "grp-tx",
+        lifecycleId,
+        lifecycleEpoch: epoch,
+        body,
+      });
+      expect(sent.status).toBe("queued");
+    }
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(2);
+    overlaps.record({
+      groupId: "grp-tx",
+      childId: "mn-tx",
+      lifecycleId,
+      epoch,
+      path: "first/path",
+      otherId: "mn-other",
+      otherPath: "other/path",
+      editAllowed: true,
+    });
+
+    pending.shift()?.();
+    expect(mailbox.peekPending(PARENT_RECIPIENT_ID).map((message) => message.body)).toEqual([
+      "First question",
+      "Second question",
+      "Third reentrant question",
+    ]);
+    expect(overlaps.list()).toHaveLength(2);
+    expect(accepted).toHaveLength(0);
+
+    pending.shift()?.();
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.message.details.seq).toBe(1);
+    expect(accepted[0]?.message.details.changed[0]?.output).toBe(
+      "First question\n\nSecond question\n\nThird reentrant question",
+    );
+    expect(accepted[0]?.message.details.overlaps.map((notice) => notice.path)).toEqual([
+      "first/path",
+      "third/path",
+    ]);
+    expect(mailbox.depthFor(PARENT_RECIPIENT_ID)).toBe(0);
+    expect(overlaps.list()).toHaveLength(0);
+
+    dispatcher.enqueue({
+      class: "parentMessage",
+      groupId: "grp-tx",
+      childId: "mn-tx",
+      lifecycleId,
+      epoch,
+    });
+    expect(pending).toHaveLength(1);
+    pending.shift()?.();
+    expect(accepted).toHaveLength(1);
   });
 });

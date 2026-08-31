@@ -1,6 +1,6 @@
-# Cutover TUI smoke + quality gate
+# Operator TUI smoke + quality gate
 
-Manual checklist for the published tmux-free cutover. Operator README:
+Manual checklist for the tmux-free, agent-friendly orchestration surface. Operator README:
 [../README.md](../README.md). This file does not replace it.
 
 Do **not** reintroduce tmux workers, shims, or supervisor flags to make this pass.
@@ -22,23 +22,33 @@ repo root.
 Use a persistent `pi` tui host with **both** beadwork and minions registered. Do not use
 `--print` / json.
 
-### 1. Parent stays interactive
+### 1. Enter goal mode from the parent model
 
-1. `/bw run <epic-id>` on an open epic with descendants.
-2. Let the parent `orchestrate` at least one implementation child.
-3. While the child is running, keep typing in the parent tui (a short question or `/minions`).
+1. Use an open, already-decomposed epic with at least two ready children.
+2. During an active parent-model turn, have the parent call
+   `beadwork_start_goal({ epic_id: "<epic-id>" })`.
+3. Confirm the tool reports `started` or `resumed` and `queued_follow_up`, then the queued continuation
+   presents the same manager-only run guidance as `/bw run <epic-id>`.
+4. Confirm no ticket or child starts in the goal-entry tool call itself.
 
-Pass: the parent prompt remains usable. Fail: parent blocked until the child finishes, or a
-tmux pane appears.
+Pass: one queued continuation, persisted goal/scope/review policy, and no implicit dispatch. Fail:
+synchronous epic execution, an inferred epic, ticket mutation, or automatic planning-to-run entry.
 
-### 2. One packet after several idle settlements
+### 2. Persistent fleet surface and idle boundary
 
-1. Orchestrate two or more children.
-2. Leave the parent **idle** (no in-flight turn).
-3. Let several children settle close together.
+1. Orchestrate at least two children, including canonical `agent: "worker"`.
+2. Without first opening `/minions`, confirm the fleet widget appears above the editor and the parent
+   input remains focused.
+3. Exercise meaningful activity (for example a tool call and a child question). Confirm the widget
+   shows useful tool/waiting/settling state rather than `turn N`.
+4. Open `/minions`; confirm drill-down still works while the ambient widget remains usable.
+5. Resize to a narrow terminal and confirm every line remains bounded and retains useful identity.
+6. Let the final children settle close together while the parent is idle.
 
-Pass: **one** parent turn / lifecycle packet covering the idle settlements (coalesced), not
-one turn per child. Fail: a parent turn per settlement, or no packet at all.
+Pass: the widget updates without transcript spam or focus capture, clears after the final active child,
+and one final coalesced packet says `Group idle` and tells the parent to inspect/decide. It must not say
+the goal completed or mutate Beadwork. Fail: one wake per final child, spawn children in group packets,
+or idle presented as success.
 
 ### 3. `/bw run` does not spawn tmux
 
@@ -50,7 +60,17 @@ Pass: no new tmux session/window/pane from beadwork. Children are in-process min
 Pi process. Fail: `tmux.workerCommand`, a worker pane, or a worktree checkout created by
 beadwork.
 
-### 4. `/bw run --workers` rejects
+### 4. Theme and lifecycle invalidation
+
+1. With an active widget, switch between visibly different themes or otherwise invalidate rendering.
+2. Confirm colors update without stale ANSI, overflow, or terminal-control payloads.
+3. Start another active child, then exercise `/reload` (and, when relevant, `/new` or resume/fork).
+
+Pass: the old widget clears, stale sessions do not update it, and the replacement session owns any new
+widget. Record terminal width, theme transition, lifecycle action, and observed result in the issue
+handoff.
+
+### 5. `/bw run --workers` rejects
 
 ```text
 /bw run <epic-id> --workers 2
@@ -62,6 +82,8 @@ Pass: error, no inject, no children. Same for `--until`, `--max-cycles` / `--max
 ## Related automated coverage
 
 - Grep/import tripwire: `src/__tests__/unit/runtime-removal.test.ts`
-- In-process e2e (scripted parent, no paid LLM): `src/__tests__/e2e/`
-- On e2e failure the 4.2 harness dumps packets, fleet, `bw ready` / `bw show`, child tools,
-  and removed-symbol probes. That dump is harness-only, not production telemetry.
+- Integrated agent-friendly acceptance (scripted parent and fake child sessions, no paid model):
+  `src/__tests__/e2e/in-process-agent-friendly.test.ts`
+- On e2e failure the shared in-process harness dumps persisted goal/scope state, prompt appendix, packets,
+  last fleet snapshot, `bw ready` / `bw show`, child tools, and removed-symbol probes. Diagnostics remain
+  harness-only, not production telemetry.

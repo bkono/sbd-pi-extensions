@@ -18,6 +18,7 @@ export const REPO_QUALITY_GATE =
   "npm run lint && npm run test && npm run typecheck && npm run build";
 
 export const FORBIDDEN_PRODUCTION_FILES = [
+  "attribution.ts",
   "orchestrator.ts",
   "tmux.ts",
   "worktree.ts",
@@ -30,6 +31,7 @@ export const FORBIDDEN_PRODUCTION_FILES = [
 ] as const;
 
 export const FORBIDDEN_IMPORT_MODULES = [
+  "attribution.js",
   "tmux.js",
   "orchestrator.js",
   "worktree.js",
@@ -46,6 +48,8 @@ export const FORBIDDEN_TOOLS = [
   "beadwork_worker_done",
   "beadwork_land_worker",
   "beadwork_worker_check",
+  "bw_run_epic",
+  "beadwork_run_epic",
 ] as const;
 
 export const FORBIDDEN_ORCHESTRATION_SYMBOLS = [
@@ -71,8 +75,6 @@ export const FORBIDDEN_MINIONS_RUNTIME_SYMBOLS = [
   "editAllowed: false",
 ] as const;
 
-export const RETAINED_PRODUCTION_FILES = ["attribution.ts", "index.ts"] as const;
-
 export const RETAINED_PARENT_TOOLS = [
   "beadwork_sync",
   "beadwork_show",
@@ -82,6 +84,7 @@ export const RETAINED_PARENT_TOOLS = [
   "beadwork_blocked",
   "beadwork_status",
   "beadwork_prime",
+  "beadwork_start_goal",
 ] as const;
 
 export type ProductionSource = {
@@ -156,11 +159,6 @@ export async function probeRemovedSymbols(
     results.push(
       probe(`file:${relative}`, !present, present ? "present (must stay deleted)" : "absent"),
     );
-  }
-
-  for (const relative of RETAINED_PRODUCTION_FILES) {
-    const present = productionFiles.has(relative);
-    results.push(probe(`retain-file:${relative}`, present, present ? "present" : "missing"));
   }
 
   for (const moduleFile of FORBIDDEN_IMPORT_MODULES) {

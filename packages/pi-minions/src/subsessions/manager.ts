@@ -7,9 +7,15 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import {
+  ACTIVITY_HISTORY_CAP,
+  parseJsonlRecords,
+  replayActivity,
+  sessionRecordsToActivityEvents,
+} from "../activity.js";
 import { logger } from "../logger.js";
 import { PARENT_ONLY_MINION_TOOLS } from "../orchestration/comm.js";
-import { formatToolCall } from "../render.js";
+import type { ActivitySnapshot } from "../types.js";
 import type { EventBus } from "./event-bus.js";
 import { MINION_COMPLETE_CHANNEL, MINION_PROGRESS_CHANNEL } from "./event-bus.js";
 import { getMinionsDir } from "./paths.js";
@@ -53,6 +59,31 @@ const BEADWORK_CHILD_INSPECTION_TOOL_SET: ReadonlySet<string> = new Set(
 /** True for any beadwork_* name outside the child inspection allowlist. */
 export function isDeniedChildBeadworkTool(name: string): boolean {
   return name.startsWith("beadwork_") && !BEADWORK_CHILD_INSPECTION_TOOL_SET.has(name);
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+function safeObserverError(err: unknown): string {
+  try {
+    if (typeof err === "string") return err;
+  } catch {
+    return "error";
+  }
+  try {
+    if (err instanceof Error) {
+      const msg = err.message;
+      return typeof msg === "string" ? msg : "error";
+    }
+  } catch {
+    return "error";
+  }
+  return "error";
 }
 
 export interface ChildToolAllowlistInput {
@@ -165,9 +196,6 @@ async function defaultCreateChildRuntime(
   };
 }
 
-/** First terminal commit wins. Logged; not a wait-state machine. */
-export type TerminalWinner = "settle" | "fail" | "abort" | "shutdown" | "mail-then-settle";
-
 interface ChildRecord {
   id: string;
   runtime: ChildRuntime;
@@ -185,8 +213,8 @@ interface ChildRecord {
   sessionPath?: string;
   /** Accepted followUp continuations that have not gone idle yet. */
   pendingMail: number;
-  /** True once any inbound mail was accepted on this run. */
-  mailAccepted: boolean;
+  /** Serializes accepted deliveries so only one job admits prompt/followUp. */
+  deliveryTail: Promise<void>;
 }
 
 export class SubsessionManager {
@@ -194,7 +222,6 @@ export class SubsessionManager {
   private activeHandles = new Map<string, MinionSessionHandle>();
   private children = new Map<string, ChildRecord>();
   private terminals = new Map<string, ChildTerminalEvent>();
-  private terminalWinners = new Map<string, TerminalWinner>();
   private metadataCache = new Map<string, MinionSessionMetadata>();
   private unsubscribers = new Map<string, () => void>();
   private shutdown = false;
@@ -255,7 +282,6 @@ export class SubsessionManager {
       status: "running",
       kind: options.kind,
       groupId: options.groupId,
-      role: options.role,
       taskType: options.taskType,
       description: options.description,
       domain: options.domain,
@@ -293,7 +319,7 @@ export class SubsessionManager {
       turnCount: 0,
       unsubscribe: () => {},
       pendingMail: 0,
-      mailAccepted: false,
+      deliveryTail: Promise.resolve(),
       sessionPath,
     };
     this.children.set(id, child);
@@ -420,8 +446,8 @@ export class SubsessionManager {
   }
 
   /**
-   * Single-flight terminal latch. First caller wins so later mail/settle
-   * share one winner. Returns true if this caller committed.
+   * Single-flight terminal latch. The first terminal event commits and later
+   * events are ignored. Returns true if this caller committed.
    */
   commitTerminal(id: string, event: ChildTerminalEvent): boolean {
     if (this.terminals.has(id)) {
@@ -429,28 +455,36 @@ export class SubsessionManager {
         childId: id,
         eventClass: event.class,
         terminalLatchFired: false,
-        winner: this.terminalWinners.get(id),
         terminalEventCount: 1,
       });
       return false;
     }
 
     const child = this.children.get(id);
-    const winner = this.inferWinner(child, event);
     this.terminals.set(id, event);
-    this.terminalWinners.set(id, winner);
     if (child) child.terminal = event;
 
     const metadataStatus: MinionSessionMetadata["status"] =
       event.class === "settled" ? "completed" : event.class;
     this.updateStatus(id, metadataStatus, event.exitCode, event.error);
 
-    child?.options.onComplete?.({
-      exitCode: event.exitCode,
-      output: event.output,
-      status: metadataStatus,
-      error: event.error,
-    });
+    let observerError: unknown;
+    try {
+      const observed = child?.options.onComplete?.({
+        exitCode: event.exitCode,
+        output: event.output,
+        status: metadataStatus,
+        error: event.error,
+      });
+      if (isThenable(observed)) {
+        void Promise.resolve(observed).then(undefined, (err: unknown) => {
+          this.logObserverError(id, err);
+        });
+      }
+    } catch (err) {
+      observerError = err;
+    }
+
     this.eventBus?.emit(MINION_COMPLETE_CHANNEL, {
       id,
       exitCode: event.exitCode,
@@ -466,11 +500,11 @@ export class SubsessionManager {
       childId: id,
       eventClass: event.class,
       terminalLatchFired: true,
-      winner,
       terminalEventCount: 1,
     });
 
     void this.disposeChild(id);
+    if (observerError !== undefined) this.logObserverError(id, observerError);
     return true;
   }
 
@@ -531,7 +565,6 @@ export class SubsessionManager {
   private commitSyntheticAbort(id: string): void {
     if (this.terminals.has(id)) return;
     this.terminals.set(id, { class: "aborted", exitCode: 1, output: "" });
-    this.terminalWinners.set(id, "abort");
   }
 
   private async finishAbortedStart(
@@ -602,7 +635,6 @@ export class SubsessionManager {
     const child = this.children.get(id);
     if (child) {
       child.pendingMail += 1;
-      child.mailAccepted = true;
     }
     return session;
   }
@@ -614,6 +646,27 @@ export class SubsessionManager {
     if (child.pendingMail === 0) this.tryCommitIdle(id);
   }
 
+  private enqueueDelivery(id: string, work: () => Promise<void>): Promise<void> {
+    const child = this.children.get(id);
+    if (!child) {
+      return Promise.reject(new Error(`Child ${id} is terminal; further mail is rejected`));
+    }
+    const job = child.deliveryTail.then(work);
+    child.deliveryTail = job.catch(() => {});
+    return job;
+  }
+
+  private logObserverError(id: string, err: unknown): void {
+    try {
+      logger.error("subsession", "on-complete-error", {
+        childId: id,
+        error: safeObserverError(err),
+      });
+    } catch {
+      /* logging must not convert settled terminal semantics */
+    }
+  }
+
   /**
    * Happy-path settle only. Abort/fail/shutdown commit immediately through
    * the same latch. Pending accepted mail postpones settle until idle.
@@ -621,15 +674,6 @@ export class SubsessionManager {
   private tryCommitIdle(id: string): void {
     const record = this.children.get(id);
     if (!record || record.terminal || this.terminals.has(id)) return;
-    if (record.pendingMail > 0) {
-      logger.info("subsession", "lifecycle", {
-        childId: id,
-        eventClass: "mail-then-settle",
-        terminalLatchFired: false,
-        winner: "mail-then-settle",
-      });
-      return;
-    }
     if (record.abortRequested) {
       this.commitTerminal(id, this.makeTerminal(record, "aborted"));
       return;
@@ -638,15 +682,8 @@ export class SubsessionManager {
       this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
       return;
     }
+    if (record.pendingMail > 0) return;
     this.commitTerminal(id, this.makeTerminal(record, "settled"));
-  }
-
-  private inferWinner(child: ChildRecord | undefined, event: ChildTerminalEvent): TerminalWinner {
-    if (this.shutdown) return "shutdown";
-    if (event.class === "aborted") return "abort";
-    if (event.class === "failed") return "fail";
-    if (child?.mailAccepted) return "mail-then-settle";
-    return "settle";
   }
 
   private buildHandle(id: string, path: string): MinionSessionHandle {
@@ -657,15 +694,23 @@ export class SubsessionManager {
         await this.requireLiveSession(id).steer(text);
       },
       followUp: async (text: string) => {
-        const session = this.acceptMail(id);
-        try {
-          await session.followUp(text);
+        this.acceptMail(id);
+        const job = this.enqueueDelivery(id, async () => {
+          const session = this.requireLiveSession(id);
+          if (session.isStreaming) {
+            await session.followUp(text);
+          } else {
+            await session.prompt(text);
+          }
           try {
             await session.waitForIdle();
           } catch {
             // waitForIdle is best-effort; agent_settled is the primary idle signal.
           }
           await this.drainTrailingSessionEvents(id, session);
+        });
+        try {
+          await job;
         } finally {
           this.releaseMail(id);
         }
@@ -779,7 +824,7 @@ export class SubsessionManager {
     if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
       const delta = event.assistantMessageEvent.delta ?? "";
       child.currentFullText += delta;
-      child.options.onTextDelta?.(delta, child.currentFullText);
+      child.options.onTextDelta?.(delta);
     }
     if (event.type === "turn_end") {
       child.turnCount++;
@@ -815,6 +860,7 @@ export class SubsessionManager {
     if (event.type === "agent_end") {
       // First agent_end is too early: retries, compaction, and queued continuations
       // may still run. Wait for agent_settled / waitForIdle.
+      child.options.onAgentEnd?.({ willRetry: event.willRetry === true });
       logger.info("subsession", "lifecycle", {
         childId: id,
         eventClass: "agent_end",
@@ -1107,44 +1153,32 @@ export class SubsessionManager {
     }
   }
 
-  parseSessionHistory(id: string): string[] {
-    const path = this.getSessionPath(id);
-    if (!path) return [];
-    const history: string[] = [];
-    let turnCount = 0;
-    try {
-      for (const raw of readFileSync(path, "utf-8").split("\n")) {
-        if (!raw.trim()) continue;
-        const event = JSON.parse(raw) as Record<string, unknown>;
-        if (event.type === "tool_execution_start") {
-          const args = (event.args ?? {}) as Record<string, unknown>;
-          history.push(`→ ${formatToolCall(String(event.toolName), args)}`);
-        } else if (event.type === "turn_end") {
-          turnCount++;
-          history.push(`turn ${turnCount}`);
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return history;
+  parseSessionHistory(id: string): ActivitySnapshot[] {
+    const records = this.readSessionRecords(id);
+    const events = sessionRecordsToActivityEvents(records);
+    const replayed = replayActivity(events);
+    if (!replayed.current) return [];
+    if (replayed.history.at(-1) === replayed.current) return replayed.history;
+    return [...replayed.history, replayed.current].slice(-ACTIVITY_HISTORY_CAP);
   }
 
   parseSessionOutput(id: string): string {
-    const path = this.getSessionPath(id);
-    if (!path) return "";
     const messages: unknown[] = [];
-    try {
-      for (const raw of readFileSync(path, "utf-8").split("\n")) {
-        if (!raw.trim()) continue;
-        const event = JSON.parse(raw) as Record<string, unknown>;
-        const message = sessionEventMessage(event);
-        if (message !== undefined) messages.push(message);
-      }
-    } catch {
-      /* ignore */
+    for (const event of this.readSessionRecords(id)) {
+      const message = sessionEventMessage(event);
+      if (message !== undefined) messages.push(message);
     }
     return extractLastAssistantText(messages);
+  }
+
+  private readSessionRecords(id: string): Record<string, unknown>[] {
+    const path = this.getSessionPath(id);
+    if (!path) return [];
+    try {
+      return parseJsonlRecords(readFileSync(path, "utf-8"));
+    } catch {
+      return [];
+    }
   }
 
   private rememberSessionPath(id: string, sessionPath: string): void {

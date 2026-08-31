@@ -7,6 +7,21 @@ export function generateId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 }
 
+export const MAX_PUBLIC_ID_ATTEMPTS = 32;
+
+/** Allocate an 8-hex public id without ever overwriting an existing tree node. */
+export function generateAvailableId(
+  tree: Pick<AgentTree, "has">,
+  reserved: ReadonlySet<string> = new Set(),
+  candidate: () => string = generateId,
+): string {
+  for (let attempt = 0; attempt < MAX_PUBLIC_ID_ATTEMPTS; attempt++) {
+    const id = candidate();
+    if (!tree.has(id) && !reserved.has(id)) return id;
+  }
+  throw new Error(`unable to allocate unique minion id after ${MAX_PUBLIC_ID_ATTEMPTS} attempts`);
+}
+
 export function pickMinionName(
   tree: AgentTree,
   fallbackId: string,
@@ -15,7 +30,7 @@ export function pickMinionName(
   reservedNames?: Set<string>,
 ): string {
   const inUse = new Set([
-    ...tree.getRunning().map((n) => n.name),
+    ...tree.getLive().map((n) => n.name),
     ...(reservedNames ? Array.from(reservedNames) : []),
   ]);
 

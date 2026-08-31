@@ -1,30 +1,23 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "../agents.js";
+import {
+  appendLiveNarrativeTail,
+  bindTreeActivity,
+  NARRATIVE_PREVIEW_MAX,
+  sanitizeActivityText,
+} from "../activity.js";
+import { requireAgent } from "../agents.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate } from "../minions.js";
-import { formatToolCall } from "../render.js";
 import { runMinionSession } from "../spawn.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { BatchMinionItem } from "../tools/spawn.js";
 import type { AgentTree } from "../tree.js";
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, SpawnResult } from "../types.js";
 import type { BatchCoordinator } from "./batch.js";
 
 function resolveAgentConfig(agentName: string, cwd: string): AgentConfig {
-  const { agents } = discoverAgents(cwd, "both");
-  const found = agents.find((a) => a.name === agentName);
-
-  if (!found) {
-    const available = agents.map((a) => a.name).join(", ") || "none";
-    logger.warn("spawn:tool", "agent not found", {
-      requested: agentName,
-      available,
-    });
-    throw new Error(`Agent "${agentName}" not found. Available: ${available}`);
-  }
-
-  return found;
+  return requireAgent(agentName, cwd);
 }
 
 function formatModelReference(model: Model<Api>): string {
@@ -88,7 +81,7 @@ export async function runSingleMinion(opts: {
   coordinator: BatchCoordinator;
 }): Promise<{
   success: boolean;
-  result?: import("../types.js").SpawnResult;
+  result?: SpawnResult;
   error?: string;
 }> {
   const {
@@ -116,61 +109,57 @@ export async function runSingleMinion(opts: {
       m.model = formatModelReference(selectedModel);
     }
 
-    coordinator.emit(true);
-
-    const result = await runMinionSession(config, spec.task, {
-      id: m.id,
-      name: m.name,
-      signal: controller.signal,
-      modelRegistry: ctx.modelRegistry,
-      parentModel: selectedModel,
-      cwd: ctx.cwd,
-      subsessionManager,
-      spawnedBy: toolCallId,
-      parentSessionPath: ctx.sessionManager?.getSessionFile() ?? undefined,
-      parentToolNames,
-      toolSyncEnabled: piConfig.toolSync.enabled,
-      toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
-      tree,
-      onToolActivity: (activity) => {
-        if (activity.type === "start") {
-          const desc = formatToolCall(activity.toolName, activity.args ?? {});
-          m.activity = `→ ${desc}`;
-          tree.logActivity(m.id, `→ ${desc}`);
-          coordinator.emit(true);
-        }
-      },
-      onToolOutput: (toolName, delta) => {
-        const line = delta.trimEnd().split("\n").filter(Boolean).at(-1) ?? "";
-        if (line) {
-          m.activity = `${toolName}: ${line}`;
-          tree.updateActivity(m.id, `${toolName}: ${line}`);
-          coordinator.emit(true);
-        }
-      },
-      onTextDelta: (_delta, fullText) => {
-        const preview = fullText.split("\n").filter(Boolean).at(-1) ?? "";
-        m.activity = preview;
-        m.finalOutput = preview;
-        tree.updateActivity(m.id, preview);
-        coordinator.emit(true);
-      },
-      onTurnEnd: (turnCount) => {
-        tree.logActivity(m.id, `turn ${turnCount}`);
-      },
-      onUsageUpdate: (usage) => {
-        tree.updateUsage(m.id, usage);
-        m.usage = {
-          ...m.usage,
-          input: usage.input,
-          output: usage.output,
-          cacheRead: usage.cacheRead,
-          cacheWrite: usage.cacheWrite,
-          cost: usage.cost,
-        };
-        coordinator.emit(true);
-      },
-    });
+    const bound = bindTreeActivity(tree, m.id);
+    let narrativeTail = "";
+    const pushForeground = () => {
+      m.activity = tree.get(m.id)?.lastActivity;
+      coordinator.emit(true);
+    };
+    const unsubActivity = tree.onNodeChange(m.id, pushForeground);
+    let result: SpawnResult;
+    try {
+      pushForeground();
+      result = await runMinionSession(config, spec.task, {
+        id: m.id,
+        name: m.name,
+        signal: controller.signal,
+        modelRegistry: ctx.modelRegistry,
+        parentModel: selectedModel,
+        cwd: ctx.cwd,
+        subsessionManager,
+        spawnedBy: toolCallId,
+        parentSessionPath: ctx.sessionManager?.getSessionFile() ?? undefined,
+        parentToolNames,
+        toolSyncEnabled: piConfig.toolSync.enabled,
+        toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
+        tree,
+        onToolActivity: bound.onToolActivity,
+        onToolOutput: bound.onToolOutput,
+        onTextDelta: (delta) => {
+          narrativeTail = appendLiveNarrativeTail(narrativeTail, delta);
+          m.finalOutput = sanitizeActivityText(narrativeTail, NARRATIVE_PREVIEW_MAX);
+          bound.onTextDelta(delta);
+        },
+        onTurnEnd: (turnCount) => {
+          narrativeTail = "";
+          bound.onTurnEnd(turnCount);
+        },
+        onAgentEnd: bound.onAgentEnd,
+        onUsageUpdate: (usage) => {
+          tree.updateUsage(m.id, usage);
+          m.usage = {
+            ...m.usage,
+            input: usage.input,
+            output: usage.output,
+            cacheRead: usage.cacheRead,
+            cacheWrite: usage.cacheWrite,
+            cost: usage.cost,
+          };
+        },
+      });
+    } finally {
+      unsubActivity();
+    }
 
     const resultStatus = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
     m.status = resultStatus;

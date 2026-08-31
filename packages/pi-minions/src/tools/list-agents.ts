@@ -6,8 +6,7 @@ import { getConfig } from "../config.js";
 export const ListAgentsParams = Type.Object(
   {},
   {
-    description:
-      "List all available agents that can be used as minion roles. No parameters required.",
+    description: "List all available agents for spawn and orchestrate. No parameters required.",
   },
 );
 
@@ -16,6 +15,7 @@ export interface AgentInfo {
   description: string;
   source: string;
   model?: string;
+  thinking?: string;
 }
 
 export function listAgents() {
@@ -46,12 +46,14 @@ export function listAgents() {
 
     for (const a of agents) {
       const model = a.model ? ` [model: ${a.model}]` : "";
-      lines.push(`- ${a.name} (${a.source}): ${a.description}${model}`);
+      const thinking = a.thinking ? ` [thinking: ${a.thinking}]` : "";
+      lines.push(`- ${a.name} (${a.source}): ${a.description}${model}${thinking}`);
       details.push({
         name: a.name,
         description: a.description,
         source: a.source,
         model: a.model,
+        thinking: a.thinking,
       });
     }
 

@@ -14,12 +14,15 @@ import {
 import { logger } from "../logger.js";
 import {
   ANNOUNCE_MINION_PATHS_TOOL,
+  COMM_SEND_STATUS,
   createLifecyclePacketDispatcher,
   INSPECT_MINION_PATHS_TOOL,
   injectOrchestratedCommTools,
   type LifecyclePacketDetails,
   MinionCommMailbox,
   ORCHESTRATED_COMM_TOOL_NAMES,
+  OrchestrationGroupState,
+  SEND_MINION_PEER_TOOL,
 } from "../orchestration/index.js";
 import { AgentTree } from "../tree.js";
 
@@ -37,16 +40,22 @@ function groupTree() {
   tree.add(childId, "alpha", "self prompt", {
     kind: "orchestrated",
     groupId,
+    lifecycleId: "life-self",
+    lifecycleEpoch: 1,
     description: "Self task",
   });
   tree.add(peerId, "bravo", "peer prompt", {
     kind: "orchestrated",
     groupId,
+    lifecycleId: "life-peer",
+    lifecycleEpoch: 1,
     description: "Peer task",
   });
   tree.add("mn-done", "charlie", "done prompt", {
     kind: "orchestrated",
     groupId,
+    lifecycleId: "life-done",
+    lifecycleEpoch: 1,
     description: "Already settled",
   });
   tree.updateStatus("mn-done", "completed", 0);
@@ -54,9 +63,18 @@ function groupTree() {
   tree.add("mn-other", "echo", "other group", {
     kind: "orchestrated",
     groupId: "grp-2",
+    lifecycleId: "life-other",
+    lifecycleEpoch: 1,
     description: "Other group",
   });
-  return { tree, childId, peerId, groupId };
+  const groups = new OrchestrationGroupState();
+  groups.commitGroup({ groupId, cwd: CWD });
+  groups.acceptLiveWork(groupId, [
+    { childId, lifecycleId: "life-self" },
+    { childId: peerId, lifecycleId: "life-peer" },
+    { childId: "mn-done", lifecycleId: "life-done" },
+  ]);
+  return { tree, groups, childId, peerId, groupId };
 }
 
 async function execTool(tool: ToolDefinition, params: unknown) {
@@ -114,14 +132,17 @@ describe("path matcher", () => {
 describe("announce and inspect tools", () => {
   it("announces TTL intent, overlaps a/b.ts with a/, and never rejects the edit", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const { tree, childId, peerId, groupId } = groupTree();
+    const { tree, groups, childId, peerId, groupId } = groupTree();
     const mailbox = new MinionCommMailbox();
     const overlaps = new PathOverlapLog();
     const now = 1_000;
 
     const peerInjected = injectOrchestratedCommTools({
       childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       tree,
       mailbox,
@@ -140,7 +161,10 @@ describe("announce and inspect tools", () => {
 
     const injected = injectOrchestratedCommTools({
       childId,
+      lifecycleId: "life-self",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       tree,
       mailbox,
@@ -239,14 +263,61 @@ describe("announce and inspect tools", () => {
     });
   });
 
+  it("coalesces multiple overlap pairs into one live notification per peer", () => {
+    const { tree, groups, childId, peerId, groupId } = groupTree();
+    const followUp = vi.fn(async () => {});
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => groups,
+      isLive: () => true,
+      followUp,
+    });
+    const now = 1_000;
+
+    announcePathIntent({
+      tree,
+      childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
+      groupId,
+      groups,
+      cwd: CWD,
+      paths: ["a", "b"],
+      ttlMs: 30_000,
+      now,
+    });
+    const announced = announcePathIntent({
+      tree,
+      childId,
+      lifecycleId: "life-self",
+      epoch: 1,
+      groupId,
+      groups,
+      cwd: CWD,
+      paths: ["a/x.ts", "b/y.ts"],
+      ttlMs: 30_000,
+      now,
+      mailbox,
+    });
+
+    expect(announced.overlaps).toHaveLength(2);
+    expect(mailbox.list()).toHaveLength(1);
+    expect(mailbox.list()[0]).toMatchObject({ from: childId, to: peerId });
+    expect(mailbox.list()[0]?.body).toContain("1 additional overlap(s)");
+    expect(followUp).toHaveBeenCalledTimes(1);
+  });
+
   it("does not overlap a/b.ts with c/ and still allows the edit", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const { tree, childId, peerId, groupId } = groupTree();
+    const { tree, groups, childId, peerId, groupId } = groupTree();
     const mailbox = new MinionCommMailbox();
     const now = 1_000;
     injectOrchestratedCommTools({
       childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       tree,
       mailbox,
@@ -255,7 +326,10 @@ describe("announce and inspect tools", () => {
     announcePathIntent({
       tree,
       childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       paths: ["c/"],
       ttlMs: 30_000,
@@ -264,7 +338,10 @@ describe("announce and inspect tools", () => {
 
     const injected = injectOrchestratedCommTools({
       childId,
+      lifecycleId: "life-self",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       tree,
       mailbox,
@@ -300,12 +377,15 @@ describe("announce and inspect tools", () => {
   });
 
   it("expires intent by TTL without implying the agent stopped", async () => {
-    const { tree, childId, groupId } = groupTree();
+    const { tree, groups, childId, groupId } = groupTree();
     const mailbox = new MinionCommMailbox();
     let now = 1_000;
     const injected = injectOrchestratedCommTools({
       childId,
+      lifecycleId: "life-self",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       tree,
       mailbox,
@@ -335,7 +415,7 @@ describe("announce and inspect tools", () => {
   });
 
   it("does not announce for spawn children", () => {
-    const { tree, groupId } = groupTree();
+    const { tree, groups, groupId } = groupTree();
     const injected = injectOrchestratedCommTools({
       childId: "mn-spawn",
       groupId,
@@ -349,6 +429,9 @@ describe("announce and inspect tools", () => {
 
     const result = announcePathIntent({
       tree,
+      groups,
+      lifecycleId: "",
+      epoch: 0,
       childId: "mn-spawn",
       groupId,
       cwd: CWD,
@@ -362,9 +445,12 @@ describe("announce and inspect tools", () => {
   });
 
   it("ignores terminal and cross-group intent when detecting overlap", () => {
-    const { tree, childId, groupId } = groupTree();
+    const { tree, groups, childId, groupId } = groupTree();
     announcePathIntent({
       tree,
+      groups,
+      lifecycleId: "life-done",
+      epoch: 1,
       childId: "mn-done",
       groupId,
       cwd: CWD,
@@ -376,6 +462,9 @@ describe("announce and inspect tools", () => {
       tree,
       childId: "mn-other",
       groupId: "grp-2",
+      groups,
+      lifecycleId: "life-other",
+      epoch: 1,
       cwd: CWD,
       paths: ["a/b.ts"],
       ttlMs: 30_000,
@@ -384,7 +473,10 @@ describe("announce and inspect tools", () => {
     const result = announcePathIntent({
       tree,
       childId,
+      lifecycleId: "life-self",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       paths: ["a/b.ts"],
       ttlMs: 30_000,
@@ -393,26 +485,81 @@ describe("announce and inspect tools", () => {
     expect(result.overlap).toBe(false);
     expect(result.editAllowed).toBe(true);
   });
+
+  it("rejects stale terminal and same-public-id replacement tools without mutation", async () => {
+    const { tree, groups, childId, groupId } = groupTree();
+    const mailbox = new MinionCommMailbox({
+      getTree: () => tree,
+      getGroups: () => groups,
+      isLive: () => true,
+      followUp: () => {},
+    });
+    const overlaps = new PathOverlapLog();
+    const injected = injectOrchestratedCommTools({
+      childId,
+      lifecycleId: "life-self",
+      epoch: 1,
+      groupId,
+      groups,
+      cwd: CWD,
+      tree,
+      mailbox,
+      overlaps,
+    });
+    const announce = injected.tools.find((tool) => tool.name === ANNOUNCE_MINION_PATHS_TOOL)!;
+    const send = injected.tools.find((tool) => tool.name === SEND_MINION_PEER_TOOL)!;
+
+    tree.updateStatus(childId, "completed", 0);
+    expect((await execTool(announce, { paths: ["stale/"] })).details).toMatchObject({
+      status: COMM_SEND_STATUS.senderNotLive,
+    });
+    expect((await execTool(send, { to: "mn-peer", body: "stale" })).details).toMatchObject({
+      status: COMM_SEND_STATUS.senderNotLive,
+    });
+
+    tree.remove(childId);
+    groups.acceptLiveWork(groupId, [{ childId, lifecycleId: "life-replacement" }]);
+    tree.add(childId, "replacement", "new work", {
+      kind: "orchestrated",
+      groupId,
+      lifecycleId: "life-replacement",
+      lifecycleEpoch: 1,
+    });
+    await execTool(announce, { paths: ["replacement/"] });
+    await execTool(send, { to: "mn-peer", body: "replacement" });
+    expect(tree.get(childId)?.pathIntent).toBeUndefined();
+    expect(mailbox.list()).toEqual([]);
+    expect(overlaps.list()).toEqual([]);
+  });
 });
 
 describe("overlap on next real parent packet", () => {
   it("does not wake the parent on overlap; surfaces metadata on the next real packet", () => {
-    const { tree, childId, peerId, groupId } = groupTree();
+    const { tree, groups, childId, peerId, groupId } = groupTree();
     const overlaps = new PathOverlapLog();
     const pending: Array<() => void> = [];
     const sendMessage = vi.fn();
+    const lifecycleId = tree.get(childId)!.lifecycleId!;
+    const epoch = tree.get(childId)!.lifecycleEpoch!;
     const dispatcher = createLifecyclePacketDispatcher({
       getTree: () => tree,
+      getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
       now: () => 10_000,
       schedule: (run) => pending.push(run),
-      consumeOverlaps: (groupIds) => overlaps.consume(groupIds),
+      peekOverlaps: (groupIds) => overlaps.peek(groupIds),
+      ackOverlaps: (ids) => {
+        overlaps.ack(ids);
+      },
     });
 
     announcePathIntent({
       tree,
       childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       paths: ["a/"],
       ttlMs: 30_000,
@@ -422,7 +569,10 @@ describe("overlap on next real parent packet", () => {
     announcePathIntent({
       tree,
       childId,
+      lifecycleId: "life-self",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       paths: ["a/b.ts"],
       ttlMs: 30_000,
@@ -435,7 +585,14 @@ describe("overlap on next real parent packet", () => {
     expect(overlaps.list()).toHaveLength(1);
 
     tree.updateStatus(childId, "completed", 0);
-    dispatcher.enqueue({ class: "settled", groupId, childId, output: "done" });
+    dispatcher.enqueue({
+      class: "settled",
+      groupId,
+      childId,
+      lifecycleId,
+      epoch: epoch ?? -1,
+      output: "done",
+    });
     while (pending.length > 0) pending.shift()?.();
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
@@ -471,11 +628,14 @@ describe("overlap on next real parent packet", () => {
 
 describe("inspectPathIntent helper", () => {
   it("marks overlapping live intents and skips expired ones", () => {
-    const { tree, childId, peerId, groupId } = groupTree();
+    const { tree, groups, childId, peerId, groupId } = groupTree();
     announcePathIntent({
       tree,
       childId: peerId,
+      lifecycleId: "life-peer",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       paths: ["a/"],
       ttlMs: 50,
@@ -484,7 +644,10 @@ describe("inspectPathIntent helper", () => {
     announcePathIntent({
       tree,
       childId,
+      lifecycleId: "life-self",
+      epoch: 1,
       groupId,
+      groups,
       cwd: CWD,
       paths: ["a/b.ts", "z.ts"],
       ttlMs: 50,

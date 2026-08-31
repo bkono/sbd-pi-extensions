@@ -14,8 +14,9 @@ The **parent** starts the ticket before the child begins:
 bw start sbdpi-vur.4.4
 ```
 
-Children get inspection tools only. They must not close tickets. The parent closes after it
-judges evidence.
+Children get inspection tools only. They must not start, close, or reopen tickets, and must not
+start goals. The parent closes after it judges evidence. Implementation children make one atomic
+ticket-scoped commit, return the commit SHA, and stage only owned files.
 
 If the ticket is too large, unclear, or blocked, comment (parent) or send a parent-directed
 message (live child) instead of quietly expanding scope.
@@ -50,7 +51,9 @@ in review or a repo checkpoint when useful. Beadwork does not run `landing.valid
 Leave a natural-language `bw comment` (parent, after judging) with status, commit SHAs when
 known, quality-command results, blockers, and follow-up. Not a rigid schema.
 
-Do not close a ticket solely because a child settled.
+Reviewer children start only after the implementer settles. They inspect the named SHA with
+`git show`, not the whole dirty checkout. Settlement is evidence, not acceptance or ticket
+closure. Do not close a ticket solely because a child settled.
 
 ## Fix forward
 

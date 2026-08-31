@@ -47,8 +47,9 @@ export interface MinionCallbacks {
     args?: Record<string, unknown>;
   }) => void;
   onToolOutput?: (toolName: string, delta: string) => void;
-  onTextDelta?: (delta: string, fullText: string) => void;
+  onTextDelta?: (delta: string) => void;
   onTurnEnd?: (turnCount: number) => void;
+  onAgentEnd?: (info: { willRetry?: boolean }) => void;
   onUsageUpdate?: (usage: {
     input: number;
     output: number;
@@ -156,9 +157,8 @@ export async function runMinionSession(
         opts.onToolOutput?.(toolName, delta);
       },
 
-      onTextDelta: (delta, fullText) => {
-        finalOutput = fullText;
-        opts.onTextDelta?.(delta, fullText);
+      onTextDelta: (delta) => {
+        opts.onTextDelta?.(delta);
       },
 
       onUsageUpdate: (partial) => {
@@ -199,7 +199,13 @@ export async function runMinionSession(
 
         opts.onTurnEnd?.(count);
       },
+
+      onAgentEnd: (info) => {
+        opts.onAgentEnd?.(info);
+      },
     });
+
+    tree?.markLiveHandle(id);
 
     sessionTimeout = installSessionTimeout({
       timeoutMs: effectiveTimeout,

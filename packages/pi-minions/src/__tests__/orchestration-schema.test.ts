@@ -80,7 +80,7 @@ describe("OrchestratedTaskDescriptor schema", () => {
         {
           task: "Implement the registry refactor",
           description: "Registry refactor",
-          role: "coder",
+          agent: "worker",
         },
       ],
       (value) => Check(OrchestratedTaskDescriptorSchema, value),
@@ -88,7 +88,11 @@ describe("OrchestratedTaskDescriptor schema", () => {
 
     expect(accepted).toEqual([
       baseTask,
-      { task: "Implement the registry refactor", description: "Registry refactor", role: "coder" },
+      {
+        task: "Implement the registry refactor",
+        description: "Registry refactor",
+        agent: "worker",
+      },
     ]);
     expect(rejected).toEqual([
       { task: "Implement the registry refactor" },
@@ -96,33 +100,33 @@ describe("OrchestratedTaskDescriptor schema", () => {
     ]);
   });
 
-  it("keeps role as an open string", () => {
-    const roleSchema = OrchestratedTaskDescriptorSchema.properties.role;
-    expect(roleSchema).not.toHaveProperty("enum");
+  it("keeps agent as a discovered-name string, not a closed enum", () => {
+    const agentSchema = OrchestratedTaskDescriptorSchema.properties.agent;
+    expect(agentSchema).not.toHaveProperty("enum");
 
     const { accepted, rejected } = pairResults(
-      "role",
+      "agent",
       [
-        { ...baseTask, role: "reviewer" },
-        { ...baseTask, role: "hard_problem_coder" },
-        { ...baseTask, role: "project-specific-role-unknown-at-build" },
-        { ...baseTask, role: 42 },
+        { ...baseTask, agent: "worker" },
+        { ...baseTask, agent: "investigate" },
+        { ...baseTask, agent: "project-specific-agent-unknown-at-build" },
+        { ...baseTask, agent: 42 },
       ],
       (value) => Check(OrchestratedTaskDescriptorSchema, value),
     );
 
     expect(accepted).toEqual([
-      { ...baseTask, role: "reviewer" },
-      { ...baseTask, role: "hard_problem_coder" },
-      { ...baseTask, role: "project-specific-role-unknown-at-build" },
+      { ...baseTask, agent: "worker" },
+      { ...baseTask, agent: "investigate" },
+      { ...baseTask, agent: "project-specific-agent-unknown-at-build" },
     ]);
-    expect(rejected).toEqual([{ ...baseTask, role: 42 }]);
+    expect(rejected).toEqual([{ ...baseTask, agent: 42 }]);
   });
 
-  it("does not expose spawn agent, assignmentPermit, or protocol fields", () => {
+  it("exposes agent and does not expose role, assignmentPermit, or protocol fields", () => {
     const keys = Object.keys(OrchestratedTaskDescriptorSchema.properties);
-    expect(keys).toEqual(["task", "description", "role", "taskType", "model", "domain"]);
-    expect(keys).not.toContain("agent");
+    expect(keys).toEqual(["task", "description", "agent", "taskType", "model", "domain"]);
+    expect(keys).not.toContain("role");
     expect(keys).not.toContain("assignmentPermit");
     expect(keys).not.toContain("operationId");
     expect(keys).not.toContain("protocolStatus");
@@ -157,7 +161,7 @@ describe("OrchestrateInput schema", () => {
         { groupId: "grp-1", tasks: [baseTask] },
         {
           cwd: "/repo",
-          tasks: [{ ...baseTask, role: "coder", taskType: "implementation" as const }],
+          tasks: [{ ...baseTask, agent: "worker", taskType: "implementation" as const }],
         },
         { tasks: [] },
         { groupId: "grp-1" },
@@ -176,7 +180,7 @@ describe("OrchestrateResult schema", () => {
     const starting = {
       groupId: "grp-1",
       accepted: [{ childId: "mn-1", description: "Registry refactor", state: "starting" as const }],
-      rejected: [{ index: 1, reason: "duplicate workItemId" }],
+      rejected: [{ index: 1, reason: "unknown agent" }],
     };
     const completed = {
       groupId: "grp-1",

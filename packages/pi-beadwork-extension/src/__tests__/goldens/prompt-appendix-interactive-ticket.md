@@ -8,15 +8,25 @@ Prefer beadwork tickets over keeping long plans only in conversation.
 When converting a written plan into tickets, ask for an explicit plan source and then use beadwork tools.
 Do not infer dependency graphs from ad hoc chat formatting.
 Do not autonomously launch children or act like a background orchestrator.
+Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.
 This standing appendix is policy only. It does not start a turn. Wait for the user.
+
+## Goal mode entry
+
+Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.
+Call `beadwork_start_goal({ epic_id })` only after you have intentionally chosen to execute a ready, already-decomposed open epic.
+Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.
+Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation. It does not implement the epic or dispatch children.
+Do not infer an epic. Do not auto-start because an epic exists, becomes ready, or was just created. Do not treat this as a synchronous run wrapper.
+Planning/decomposition and executing the graph are distinct decisions.
 
 Current scope: epic:BW-100
 
-## Role vs task type
+## Agent vs task type
 
-Role (open string): how the child works (prompt/template). Same loader as spawn `agent`.
+Agent (discovered name): how the child works (prompt/template). Same field on spawn and orchestrate. Call `list_agents` if unsure. Built-in `worker` and `investigate` are always available.
 Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.
-Optional on untyped work. Never collapse role and task type into one field.
+Optional on untyped work. Never collapse agent and task type into one field.
 
 ## Task types on orchestrate
 
@@ -42,8 +52,8 @@ Do not close from implementer settlement alone.
 Start-before-work: call `beadwork_start_issue` (or `bw start`) on the ticket before the child begins work.
 Compose `task` yourself: the `orchestrate` `task` field is the complete child prompt. Beadwork does not wrap it.
 Attach domain metadata: source "beadwork", scopeId (epic id), workItemId (ticket id), title.
-Tell implementation children not to close tickets. The parent closes after it judges evidence.
-Reviewer children inspect named commits, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.
+Tell implementation children to make one atomic ticket-scoped commit, return the commit SHA, stage only owned files, and not close tickets. The parent closes after it judges evidence.
+Reviewer children start only after the implementer settles. They inspect named commits, the named SHA, the ticket id, and `git show`. Do not tell them to read the whole dirty workspace.
 Do not start review of ticket A while A's implementer is still live. That is an instruction, not a lock.
 
 ## Quality commands
@@ -55,5 +65,6 @@ Beadwork does not own a validation gate.
 
 Do not use tmux, landing, `--workers`, or polling.
 Do not classify review findings with a keyword matcher.
+Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.
 
-Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_blocked, beadwork_list_issues, beadwork_issue_history, beadwork_show, beadwork_create_issue, beadwork_update_issue, beadwork_add_dependency, beadwork_remove_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue, beadwork_comment_issue, beadwork_label_issue, beadwork_defer_issue, beadwork_undefer_issue, beadwork_sync.
+Available beadwork tools: beadwork_status, beadwork_prime, beadwork_ready, beadwork_blocked, beadwork_list_issues, beadwork_issue_history, beadwork_show, beadwork_create_issue, beadwork_update_issue, beadwork_add_dependency, beadwork_remove_dependency, beadwork_start_issue, beadwork_close_issue, beadwork_reopen_issue, beadwork_comment_issue, beadwork_label_issue, beadwork_defer_issue, beadwork_undefer_issue, beadwork_sync, beadwork_start_goal.

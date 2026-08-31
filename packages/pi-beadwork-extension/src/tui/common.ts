@@ -110,26 +110,6 @@ export function statusStyle(theme: Theme, status: string): string {
   }
 }
 
-/** Map worker status to appropriate styled string */
-export function workerStatusStyle(theme: Theme, status: string): string {
-  switch (status) {
-    case "running":
-    case "launching":
-      return theme.fg("accent", status);
-    case "held":
-    case "attention":
-      return theme.fg("warning", status);
-    case "failed":
-      return theme.fg("error", status);
-    case "landed":
-    case "verified":
-    case "exited":
-      return theme.fg("success", status);
-    default:
-      return theme.fg("muted", status);
-  }
-}
-
 /** Priority badge with urgency-based coloring: P0 (error) → P4 (dim) */
 export function priorityBadge(theme: Theme, priority: number): string {
   const label = `P${priority}`;

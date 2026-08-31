@@ -20,7 +20,6 @@ import {
   styledValue,
   styledWarning,
   typeBadge,
-  workerStatusStyle,
   wrapAnsiToWidth,
 } from "../../tui/common.js";
 
@@ -92,18 +91,6 @@ describe("theme-aware content helpers", () => {
     expect(statusStyle(theme, "blocked")).toBe("blocked");
     expect(statusStyle(theme, "deferred")).toBe("deferred");
     expect(statusStyle(theme, "unknown")).toBe("unknown");
-  });
-
-  it("workerStatusStyle maps worker statuses", () => {
-    expect(workerStatusStyle(theme, "running")).toBe("running");
-    expect(workerStatusStyle(theme, "launching")).toBe("launching");
-    expect(workerStatusStyle(theme, "held")).toBe("held");
-    expect(workerStatusStyle(theme, "attention")).toBe("attention");
-    expect(workerStatusStyle(theme, "failed")).toBe("failed");
-    expect(workerStatusStyle(theme, "landed")).toBe("landed");
-    expect(workerStatusStyle(theme, "verified")).toBe("verified");
-    expect(workerStatusStyle(theme, "exited")).toBe("exited");
-    expect(workerStatusStyle(theme, "other")).toBe("other");
   });
 
   it("priorityBadge returns P-label", () => {
