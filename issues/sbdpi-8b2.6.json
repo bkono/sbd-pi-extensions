@@ -37,11 +37,16 @@
       "text": "Independent closure re-review of 0f82b94: PASS for every extension-local blocker from fb38351. A1 reload-safe lifecycle UUID identity; A2 exact stale-authority rejection across terminal/close/reload/replacement; A3 captured lifecycle+epoch mail/overlap ownership and exact accepted-submit cleanup; A4 add-if-absent tree registration with bounded 32-attempt collision handling. B hostile aggregate remains total, sanitized, deterministic, and below 9.8KB (probe: content 8,471 bytes; details 9,782). C all production close paths use the cancellation coordinator; failed-submit cancellation discards exact group evidence/authority without ack, history is bounded while pending evidence survives, and duplicate terminals remain suppressed. Validation: minions 344 tests; Beadwork 267 tests plus focused 5; root lint/typecheck and 2,375 tests; archive build; diff check; clean exact HEAD. No extension-local fixes remain. Separate unresolved blocker: Pi 0.84.3 freezes the system prompt for queued follow-up turns, so the original every-parent-turn dynamic live-group invariant cannot be met extension-only. Ticket remains open pending explicit acceptance decision: upstream Pi support or relaxed static/agent-run-boundary semantics.",
       "author": "pi",
       "timestamp": "2026-08-31T11:11:33Z"
+    },
+    {
+      "text": "Decision lock (user-approved): runtime orchestration state remains event-driven. Lifecycle registration/results, terminal/state-change packets, explicit inspection, and halt are authoritative. Replace the dynamic live-group system-prompt projection with a cache-stable static conditional invariant. Do not dynamically add/remove prompt text, include group identity in the prompt, rewrite provider payloads, or retain best-effort dynamic state. Rationale: state-driven prompt mutations can invalidate provider prompt caches and Pi queued follow-ups reuse a frozen systemPromptOverride, so dynamic text can be stale or contradictory. Issue description and acceptance are updated; this supersedes the original every-parent-turn live-state injection requirement.",
+      "author": "pi",
+      "timestamp": "2026-08-31T17:07:45Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T17:07:29Z"
+  "updated_at": "2026-08-31T17:07:45Z"
 }
