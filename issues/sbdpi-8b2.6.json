@@ -42,11 +42,16 @@
       "text": "Decision lock (user-approved): runtime orchestration state remains event-driven. Lifecycle registration/results, terminal/state-change packets, explicit inspection, and halt are authoritative. Replace the dynamic live-group system-prompt projection with a cache-stable static conditional invariant. Do not dynamically add/remove prompt text, include group identity in the prompt, rewrite provider payloads, or retain best-effort dynamic state. Rationale: state-driven prompt mutations can invalidate provider prompt caches and Pi queued follow-ups reuse a frozen systemPromptOverride, so dynamic text can be stale or contradictory. Issue description and acceptance are updated; this supersedes the original every-parent-turn live-state injection requirement.",
       "author": "pi",
       "timestamp": "2026-08-31T17:07:45Z"
+    },
+    {
+      "text": "Independent review of 057c242: NEEDS_FIXES with exactly one accepted blocking finding. `docs/proposals/agent-friendly-improvements-reco.md:77` still unqualifiedly recommends dynamically injecting current live-group state into active parent turns. Although the document is historical, this is a zombie implementation path that contradicts the locked static/cache-stable policy and event-authoritative lifecycle contract. Disposition: FIX now, narrowly preserve historical context while explicitly marking the dynamic recommendation superseded and naming static conditional guidance plus lifecycle evidence as replacement. Code/tests otherwise PASS with no integration gap or upstream Pi change needed; minions 340, Beadwork 267 + focused 5, root 2,371, all lint/typecheck/build green. `.6` remains open pending docs fix and re-review.",
+      "author": "pi",
+      "timestamp": "2026-08-31T17:35:26Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T17:07:45Z"
+  "updated_at": "2026-08-31T17:35:26Z"
 }
