@@ -24,11 +24,15 @@
     {
       "text": "Independent review of 9618819: NEEDS_FIXES. Blocking: (1) before_agent_start is bypassed by Pi 0.84.3 followUp/_runAgentPrompt lifecycle turns, so a packet-triggered turn can lack the live-group invariant; need source-verified system-prompt path for every real parent turn without synthetic user/progress wake. (2) dispatcher dedupe is batch-local; repeated/stale terminal events cause extra wakes and can consume a re-armed idle epoch. Must durably identify terminal delivery/epoch membership and suppress duplicates. (3) still-active fleet fields/count are unbounded (e.g. 10k description yields 10k packet). Bound descriptions/snapshots deterministically. (4) idle is consumed before packet submission; failed submission can lose the adjudication indication. Preserve existing delivery semantics while ensuring idle acknowledgment/consumption occurs only once delivery is accepted or is safely retryable. Reviewer evidence: scoped gates green but adversarial probes failed. Ticket remains open; fix + re-review required.",
       "timestamp": "2026-08-31T07:33:07Z"
+    },
+    {
+      "text": "Closure re-review of 6ab1c5e remains NEEDS_FIXES. New blockers: (1) Pi 0.84.3 freezes `_systemPromptOverride` for an active run/queued continuation, so dynamic tool-guideline refresh cannot make live→idle or idle→live follow-up provider turns current. Reviewer found no supported extension-only per-followup system-prompt hook; fully correct behavior requires upstream Pi dynamic prompt-provider support, or explicit acceptance relaxation to a static conditional invariant / agent-run-boundary semantics. Do not add timing hacks. (2) mutable childId→epoch identity fails on child-ID reuse; add immutable lifecycle/registration identity carried by node/event/group ownership. (3) aggregate packet content/details can exceed 80KB; enforce deterministic aggregate UTF-8 budgets (\u003c10KB target), ANSI/control sanitization, honest omission counts. (4) failed submission transactionally preserves terminal+idle but destructively loses drained parent mail/overlap evidence; use peek+ack at accepted-submit boundary. Root/scoped gates are green but adversarial runtime probes fail these contracts. Ticket remains open.",
+      "timestamp": "2026-08-31T08:37:00Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T07:33:07Z"
+  "updated_at": "2026-08-31T08:37:00Z"
 }
