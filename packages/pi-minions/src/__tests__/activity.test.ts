@@ -253,6 +253,19 @@ describe("AgentTree activity", () => {
     expect(tree.get("mn-orch")?.lastActivity).toBe("→ read src/auth.ts");
   });
 
+  it("notifies once for a batched thinking and narrative text event", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    const phases: string[] = [];
+    tree.onChange(() => {
+      phases.push(tree.get("mn-1")?.activity?.phase ?? "");
+    });
+    tree.applyActivityEvents("mn-1", [{ type: "thinking" }, { type: "narrative", text: "hello" }]);
+    expect(phases).toEqual(["thinking"]);
+    expect(tree.get("mn-1")?.activity?.narrativePreview).toBe("hello");
+    expect(tree.listenerCount()).toBe(1);
+  });
+
   it("does not alias current activity with history tail", () => {
     const tree = new AgentTree();
     tree.add("mn-1", "alpha", "work");
@@ -330,64 +343,165 @@ describe("AgentTree activity", () => {
   });
 });
 
-describe("transcript rehydration", () => {
-  it("reconstructs equivalent activity from session events", () => {
-    const events = [
-      { type: "tool_execution_start", toolName: "read", args: { path: "src/auth.ts" } },
-      { type: "tool_execution_end" },
-      { type: "turn_end" },
-      { type: "tool_execution_start", toolName: "send_minion_peer", args: { to: "parent" } },
-      {
-        type: "tool_execution_end",
-        toolName: "send_minion_peer",
-        result: { details: { to: "parent", status: "queued" } },
+const SESSION_TS = "2024-12-03T14:00:01.000Z";
+
+function toolCall(id: string, name: string, args: Record<string, unknown>) {
+  return { type: "toolCall", id, name, arguments: args };
+}
+
+function assistantRecord(
+  id: string,
+  parentId: string | null,
+  content: unknown[],
+  stopReason: "stop" | "toolUse" = "toolUse",
+): Record<string, unknown> {
+  return {
+    type: "message",
+    id,
+    parentId,
+    timestamp: SESSION_TS,
+    message: {
+      role: "assistant",
+      content,
+      api: "anthropic",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
+      stopReason,
+      timestamp: NOW,
+    },
+  };
+}
+
+function toolResultRecord(
+  id: string,
+  parentId: string,
+  toolCallId: string,
+  toolName: string,
+  opts: { isError?: boolean; details?: unknown; text?: string } = {},
+): Record<string, unknown> {
+  return {
+    type: "message",
+    id,
+    parentId,
+    timestamp: SESSION_TS,
+    message: {
+      role: "toolResult",
+      toolCallId,
+      toolName,
+      content: [{ type: "text", text: opts.text ?? "ok" }],
+      isError: opts.isError ?? false,
+      timestamp: NOW,
+      details: opts.details,
+    },
+  };
+}
+
+describe("transcript rehydration", () => {
+  it("reconstructs equivalent activity from persisted SessionManager records", () => {
+    const events = [
+      assistantRecord("a1", null, [toolCall("call_read", "read", { path: "src/auth.ts" })]),
+      toolResultRecord("r1", "a1", "call_read", "read", {
+        text: "export function auth() {}",
+      }),
+      assistantRecord("a2", "r1", [
+        toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r2", "a2", "call_send", "send_minion_peer", {
+        details: {
+          status: "queued",
+          to: "parent",
+          from: "child-1",
+          parentTurnTriggered: false,
+        },
+      }),
     ];
     const flattened = sessionRecordsToActivityEvents(events);
     const replayed = replayActivity(flattened, NOW);
     expect(replayed.current?.phase).toBe("waiting");
     expect(replayed.current?.summary).toBe("waiting on parent");
-    expect(replayed.current?.turn).toBe(1);
+    expect(replayed.current?.turn).toBe(2);
     expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
     expect(summaries(replayed.history).some((line) => /turn \d/.test(line))).toBe(false);
   });
 
   it("does not treat a mere parent-bound tool start as waiting", () => {
     const startOnly = sessionRecordsToActivityEvents([
-      { type: "tool_execution_start", toolName: "send_minion_peer", args: { to: "parent" } },
+      assistantRecord("a1", null, [
+        toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
     ]);
     expect(startOnly.some((event) => event.type === "waiting")).toBe(false);
     expect(replayActivity(startOnly, NOW).current?.phase).toBe("tool");
     expect(
-      activityEventsFromSessionRecord({
-        type: "tool_execution_start",
-        toolName: "send_minion_peer",
-        args: { to: "parent" },
-      }).some((event) => event.type === "waiting"),
+      activityEventsFromSessionRecord(
+        assistantRecord("a1", null, [toolCall("call_send", "send_minion_peer", { to: "parent" })]),
+      ).some((event) => event.type === "waiting"),
     ).toBe(false);
 
     const failed = sessionRecordsToActivityEvents([
-      { type: "tool_execution_start", toolName: "send_minion_peer", args: { to: "parent" } },
-      {
-        type: "tool_execution_end",
-        toolName: "send_minion_peer",
-        result: { details: { to: "parent", status: "mailbox-full" } },
-      },
+      assistantRecord("a1", null, [
+        toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r1", "a1", "call_send", "send_minion_peer", {
+        details: { status: "mailbox-full", to: "parent" },
+      }),
     ]);
     expect(failed.some((event) => event.type === "waiting")).toBe(false);
     expect(replayActivity(failed, NOW).current?.phase).toBe("thinking");
   });
 
+  it("does not wait on unmatched or malformed calls and never cross-pairs", () => {
+    const unmatched = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r1", "a1", "call_other", "send_minion_peer", {
+        details: { status: "queued", to: "parent" },
+      }),
+    ]);
+    expect(unmatched.some((event) => event.type === "waiting")).toBe(false);
+    expect(replayActivity(unmatched, NOW).current?.phase).toBe("tool");
+
+    const malformedCall = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        { type: "toolCall", name: "send_minion_peer", arguments: { to: "parent" } },
+      ]),
+      toolResultRecord("r1", "a1", "call_send", "send_minion_peer", {
+        details: { status: "queued", to: "parent" },
+      }),
+    ]);
+    expect(malformedCall.some((event) => event.type === "waiting")).toBe(false);
+  });
+
   it("skips malformed and truncated JSONL records without dropping later events", () => {
     const content = [
-      '{"type":"tool_execution_start","toolName":"read","args":{"path":"src/auth.ts"}}',
+      JSON.stringify(
+        assistantRecord("a1", null, [toolCall("call_read", "read", { path: "src/auth.ts" })]),
+      ),
       "{not json",
-      '{"type":"tool_execution_end",',
-      '{"type":"tool_execution_start","toolName":"send_minion_peer","args":{"to":"parent"}}',
-      '{"type":"tool_execution_end","result":{"details":{"to":"parent","status":"queued"}}}',
+      '{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_trunc",',
+      JSON.stringify(toolResultRecord("r1", "a1", "call_read", "read", { text: "ok" })),
+      JSON.stringify(
+        assistantRecord("a2", "r1", [
+          toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+        ]),
+      ),
+      JSON.stringify(
+        toolResultRecord("r2", "a2", "call_send", "send_minion_peer", {
+          details: { status: "queued", to: "parent" },
+        }),
+      ),
     ].join("\n");
     const records = parseJsonlRecords(content);
-    expect(records).toHaveLength(3);
+    expect(records).toHaveLength(4);
     const replayed = replayActivity(sessionRecordsToActivityEvents(records), NOW);
     expect(replayed.current?.phase).toBe("waiting");
     expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
@@ -422,19 +536,13 @@ describe("transcript rehydration", () => {
       writeFileSync(
         sessionPath,
         [
-          JSON.stringify({
-            type: "tool_execution_start",
-            toolName: "read",
-            args: { path: "src/auth.ts" },
-          }),
-          JSON.stringify({ type: "tool_execution_end" }),
-          JSON.stringify({ type: "turn_end" }),
-          JSON.stringify({ type: "turn_end" }),
-          JSON.stringify({
-            type: "tool_execution_start",
-            toolName: "bash",
-            args: { command: "npm test" },
-          }),
+          JSON.stringify(
+            assistantRecord("a1", null, [toolCall("call_read", "read", { path: "src/auth.ts" })]),
+          ),
+          JSON.stringify(toolResultRecord("r1", "a1", "call_read", "read", { text: "ok" })),
+          JSON.stringify(
+            assistantRecord("a2", "r1", [toolCall("call_bash", "bash", { command: "npm test" })]),
+          ),
         ].join("\n"),
         "utf-8",
       );
@@ -473,22 +581,22 @@ describe("transcript rehydration", () => {
     writeFileSync(
       sessionPath,
       [
-        JSON.stringify({
-          type: "tool_execution_start",
-          toolName: "read",
-          args: { path: "src/auth.ts" },
-        }),
+        JSON.stringify(
+          assistantRecord("a1", null, [toolCall("call_read", "read", { path: "src/auth.ts" })]),
+        ),
         "{not-json",
-        '{"type":"tool_execution_end",',
-        JSON.stringify({
-          type: "tool_execution_start",
-          toolName: "send_minion_peer",
-          args: { to: "parent" },
-        }),
-        JSON.stringify({
-          type: "tool_execution_end",
-          result: { details: { to: "parent", status: "queued" } },
-        }),
+        '{"type":"message","message":{"role":"toolResult","toolCallId":"call_trunc",',
+        JSON.stringify(toolResultRecord("r1", "a1", "call_read", "read", { text: "ok" })),
+        JSON.stringify(
+          assistantRecord("a2", "r1", [
+            toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+          ]),
+        ),
+        JSON.stringify(
+          toolResultRecord("r2", "a2", "call_send", "send_minion_peer", {
+            details: { status: "queued", to: "parent" },
+          }),
+        ),
       ].join("\n"),
       "utf-8",
     );
@@ -661,7 +769,7 @@ describe("manager settling callback", () => {
 });
 
 describe("waiting mailbox resume", () => {
-  it("accepted question waits, parent reply and work think, later agent_end settles", async () => {
+  it("accepted question stays live across idle settlement until reply and later settle", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-wait-"));
     const session = new FakeChildSession();
     const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
@@ -699,8 +807,13 @@ describe("waiting mailbox resume", () => {
     const mailbox = new MinionCommMailbox({
       getTree: () => tree,
       getGroups: () => ({ getOpenGroup: () => ({ groupId: "grp-1", cwd }) }),
-      isLive: (id) => id === "child-wait",
-      followUp: (_id, text) => handle.followUp(text),
+      isLive: (id) => manager.isLive(id),
+      followUp: async (id, text) => {
+        const live = manager.getSessionHandle(id);
+        if (!live) throw new Error(`Child ${id} is terminal; further mail is rejected`);
+        await live.followUp(text);
+      },
+      markWaitingOnParent: (id) => manager.markWaitingOnParent(id),
     });
 
     const asked = mailbox.send({
@@ -715,7 +828,10 @@ describe("waiting mailbox resume", () => {
     expect(tree.get("child-wait")?.lastActivity).toBe("waiting on parent");
 
     session.emit({ type: "agent_end", willRetry: false });
+    session.emit({ type: "agent_settled" });
     await Promise.resolve();
+    expect(manager.getTerminal("child-wait")).toBeUndefined();
+    expect(manager.isLive("child-wait")).toBe(true);
     expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
     expect(tree.get("child-wait")?.status).toBe("running");
 

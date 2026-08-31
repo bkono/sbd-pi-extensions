@@ -291,54 +291,101 @@ function isParentBoundPeerStart(toolName: string, args: Record<string, unknown>)
   return toolName === "send_minion_peer" && String(args.to ?? "") === "parent";
 }
 
-/** One record. Waiting requires accepted parent-bound evidence, never a mere start. */
-export function activityEventsFromSessionRecord(event: Record<string, unknown>): ActivityEvent[] {
-  if (event.type === "tool_execution_start") {
-    const toolName = String(event.toolName ?? "");
-    const args = (event.args ?? {}) as Record<string, unknown>;
-    return [{ type: "tool_start", toolName, args }];
-  }
-  if (event.type === "tool_execution_end") {
-    const events: ActivityEvent[] = [{ type: "tool_end" }];
-    if (isAcceptedParentBoundQuestion(event, false)) events.push({ type: "waiting" });
-    return events;
-  }
-  if (event.type === "agent_end" && event.willRetry !== true) return [{ type: "settling" }];
-  return [];
+function messageFromRecord(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (record.type !== "message") return undefined;
+  return asRecord(record.message);
 }
 
-/** Ordered transcript replay. Pairs send start/end; skips uncertainty. */
+function contentBlocks(content: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(content)) return [];
+  const blocks: Record<string, unknown>[] = [];
+  for (const item of content) {
+    const block = asRecord(item);
+    if (block) blocks.push(block);
+  }
+  return blocks;
+}
+
+function toolCallFromBlock(
+  block: Record<string, unknown>,
+): { id: string; toolName: string; args: Record<string, unknown> } | undefined {
+  if (block.type !== "toolCall") return undefined;
+  const id = typeof block.id === "string" ? block.id : "";
+  const toolName = typeof block.name === "string" ? block.name : "";
+  if (!id || !toolName) return undefined;
+  return { id, toolName, args: asRecord(block.arguments) ?? {} };
+}
+
+/** One persisted SessionManager record. Live tool_execution events are not JSONL. */
+export function activityEventsFromSessionRecord(record: Record<string, unknown>): ActivityEvent[] {
+  return sessionRecordsToActivityEvents([record]);
+}
+
+/**
+ * Replay actual Pi SessionManager JSONL: type=message assistant toolCall blocks
+ * paired to toolResult records by toolCallId. Unmatched/malformed calls never wait.
+ */
 export function sessionRecordsToActivityEvents(
   records: Record<string, unknown>[],
 ): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  let pendingParentQuestion = false;
+  const pendingCalls = new Map<string, { toolName: string; args: Record<string, unknown> }>();
   let turnCount = 0;
-  for (const event of records) {
-    if (event.type === "turn_end") {
+
+  for (const record of records) {
+    const message = messageFromRecord(record);
+    if (!message) continue;
+
+    if (message.role === "assistant") {
       turnCount++;
       events.push({ type: "turn_end", turn: turnCount });
-      pendingParentQuestion = false;
-      continue;
-    }
-    if (event.type === "tool_execution_start") {
-      const toolName = String(event.toolName ?? "");
-      const args = (asRecord(event.args) ?? {}) as Record<string, unknown>;
-      events.push({ type: "tool_start", toolName, args });
-      pendingParentQuestion = isParentBoundPeerStart(toolName, args);
-      continue;
-    }
-    if (event.type === "tool_execution_end") {
-      events.push({ type: "tool_end" });
-      if (isAcceptedParentBoundQuestion(event, pendingParentQuestion)) {
-        events.push({ type: "waiting" });
+
+      if (typeof message.content === "string") {
+        if (message.content.trim()) events.push({ type: "thinking" });
+        continue;
       }
-      pendingParentQuestion = false;
+
+      for (const block of contentBlocks(message.content)) {
+        if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+          events.push({ type: "thinking" });
+        }
+        const call = toolCallFromBlock(block);
+        if (!call) continue;
+        events.push({ type: "tool_start", toolName: call.toolName, args: call.args });
+        pendingCalls.set(call.id, { toolName: call.toolName, args: call.args });
+      }
       continue;
     }
-    pendingParentQuestion = false;
-    events.push(...activityEventsFromSessionRecord(event));
+
+    if (message.role !== "toolResult") continue;
+
+    const callId = typeof message.toolCallId === "string" ? message.toolCallId : "";
+    if (!callId) continue;
+    const pending = pendingCalls.get(callId);
+    if (!pending) continue;
+    pendingCalls.delete(callId);
+    events.push({ type: "tool_end" });
+
+    const details = asRecord(message.details);
+    const resultRecord: Record<string, unknown> = {
+      toolName: pending.toolName,
+      args: pending.args,
+      isError: message.isError === true,
+    };
+    if (details) {
+      resultRecord.result = { details };
+      resultRecord.details = details;
+    }
+    if (
+      isAcceptedParentBoundQuestion(
+        resultRecord,
+        isParentBoundPeerStart(pending.toolName, pending.args),
+      )
+    ) {
+      events.push({ type: "waiting" });
+    }
   }
+
   return events;
 }
 
@@ -391,9 +438,10 @@ export function bindTreeActivity(
       if (line) tree.applyActivityEvent(id, { type: "narrative", text: line });
     },
     onTextDelta: (_delta, fullText) => {
-      tree.applyActivityEvent(id, { type: "thinking" });
+      const events: ActivityEvent[] = [{ type: "thinking" }];
       const preview = lastNarrativeLine(fullText);
-      if (preview) tree.applyActivityEvent(id, { type: "narrative", text: preview });
+      if (preview) events.push({ type: "narrative", text: preview });
+      tree.applyActivityEvents(id, events);
     },
     onTurnEnd: (turnCount) => {
       tree.applyActivityEvent(id, { type: "turn_end", turn: turnCount });

@@ -193,6 +193,8 @@ interface ChildRecord {
   pendingMail: number;
   /** True once any inbound mail was accepted on this run. */
   mailAccepted: boolean;
+  /** Accepted child→parent question. Idle settlement must not terminalize. */
+  waitingOnParent: boolean;
 }
 
 export class SubsessionManager {
@@ -299,6 +301,7 @@ export class SubsessionManager {
       unsubscribe: () => {},
       pendingMail: 0,
       mailAccepted: false,
+      waitingOnParent: false,
       sessionPath,
     };
     this.children.set(id, child);
@@ -487,6 +490,13 @@ export class SubsessionManager {
     return this.activeHandles.has(id) && !this.terminals.has(id) && !this.shutdown;
   }
 
+  /** Hold idle settlement until a parent reply or the child resumes model work. */
+  markWaitingOnParent(id: string): void {
+    const child = this.children.get(id);
+    if (!child || child.terminal || this.terminals.has(id)) return;
+    child.waitingOnParent = true;
+  }
+
   /** Re-apply the child tool formula. Call after late-registered tools. */
   applyTools(id: string): string[] {
     const child = this.children.get(id);
@@ -608,8 +618,14 @@ export class SubsessionManager {
     if (child) {
       child.pendingMail += 1;
       child.mailAccepted = true;
+      child.waitingOnParent = false;
     }
     return session;
+  }
+
+  private clearWaitingOnParent(id: string): void {
+    const child = this.children.get(id);
+    if (child) child.waitingOnParent = false;
   }
 
   private releaseMail(id: string): void {
@@ -626,6 +642,23 @@ export class SubsessionManager {
   private tryCommitIdle(id: string): void {
     const record = this.children.get(id);
     if (!record || record.terminal || this.terminals.has(id)) return;
+    if (record.abortRequested) {
+      this.commitTerminal(id, this.makeTerminal(record, "aborted"));
+      return;
+    }
+    if (record.pendingFailure) {
+      this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
+      return;
+    }
+    if (record.waitingOnParent) {
+      logger.info("subsession", "lifecycle", {
+        childId: id,
+        eventClass: "waiting",
+        terminalLatchFired: false,
+        winner: "waiting",
+      });
+      return;
+    }
     if (record.pendingMail > 0) {
       logger.info("subsession", "lifecycle", {
         childId: id,
@@ -633,14 +666,6 @@ export class SubsessionManager {
         terminalLatchFired: false,
         winner: "mail-then-settle",
       });
-      return;
-    }
-    if (record.abortRequested) {
-      this.commitTerminal(id, this.makeTerminal(record, "aborted"));
-      return;
-    }
-    if (record.pendingFailure) {
-      this.commitTerminal(id, this.makeTerminal(record, "failed", record.pendingFailure));
       return;
     }
     this.commitTerminal(id, this.makeTerminal(record, "settled"));
@@ -768,6 +793,7 @@ export class SubsessionManager {
     this.emitProgress(id, event);
 
     if (event.type === "tool_execution_start" && event.toolName) {
+      this.clearWaitingOnParent(id);
       child.options.onToolActivity?.({
         type: "start",
         toolName: event.toolName,
@@ -782,6 +808,7 @@ export class SubsessionManager {
       child.options.onToolOutput(event.toolName, fullText);
     }
     if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+      this.clearWaitingOnParent(id);
       const delta = event.assistantMessageEvent.delta ?? "";
       child.currentFullText += delta;
       child.options.onTextDelta?.(delta, child.currentFullText);

@@ -161,6 +161,8 @@ export interface CommMailboxBind {
    * The packet dispatcher coalesces; this callback must not send a parent packet itself.
    */
   onParentDirected?: (message: QueuedMinionMessage) => void;
+  /** Keep the sender live across idle settlement until reply or resumed model work. */
+  markWaitingOnParent?: (id: string) => void;
 }
 
 function isTerminalStatus(status: AgentStatus): boolean {
@@ -425,6 +427,7 @@ export class MinionCommMailbox {
       if (input.to !== PARENT_RECIPIENT_ID) appendNodeMessage(tree, input.to, recorded);
       if (input.to === PARENT_RECIPIENT_ID && input.from !== PARENT_RECIPIENT_ID) {
         tree.applyActivityEvent(input.from, { type: "waiting" });
+        this.bindState?.markWaitingOnParent?.(input.from);
       }
       if (input.from === PARENT_RECIPIENT_ID && input.to !== PARENT_RECIPIENT_ID) {
         tree.applyActivityEvent(input.to, { type: "thinking" });

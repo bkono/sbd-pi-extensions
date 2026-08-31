@@ -339,6 +339,9 @@ export default function (pi: ExtensionAPI): void {
         }
         await handle.followUp(text);
       },
+      markWaitingOnParent: (id) => {
+        subsessionManager?.markWaitingOnParent(id);
+      },
       onParentDirected: (message) => {
         eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, {
           class: "parentMessage",

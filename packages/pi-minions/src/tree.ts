@@ -88,6 +88,7 @@ export interface AddAgentOptions {
 export class AgentTree {
   private nodes = new Map<string, AgentNode>();
   private listeners = new Set<() => void>();
+  private nodeListeners = new Map<string, Set<() => void>>();
 
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -96,8 +97,35 @@ export class AgentTree {
     };
   }
 
-  private notify(): void {
+  onNodeChange(id: string, listener: () => void): () => void {
+    let set = this.nodeListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.nodeListeners.set(id, set);
+    }
+    set.add(listener);
+    return () => {
+      set.delete(listener);
+      if (set.size === 0) this.nodeListeners.delete(id);
+    };
+  }
+
+  listenerCount(): number {
+    let count = this.listeners.size;
+    for (const set of this.nodeListeners.values()) count += set.size;
+    return count;
+  }
+
+  private notify(id?: string): void {
     for (const listener of this.listeners) listener();
+    if (id) {
+      const set = this.nodeListeners.get(id);
+      if (set) for (const listener of set) listener();
+      return;
+    }
+    for (const set of this.nodeListeners.values()) {
+      for (const listener of set) listener();
+    }
   }
 
   add(id: string, name: string, task: string, options?: AddAgentOptions): AgentNode;
@@ -159,7 +187,7 @@ export class AgentTree {
       description: options.description,
     });
 
-    this.notify();
+    this.notify(id);
     return node;
   }
 
@@ -245,7 +273,7 @@ export class AgentTree {
     if (status !== "running" && status !== "pending") node.endTime = Date.now();
     else if (status === "running") this.applyLiveHandleThinking(node);
 
-    this.notify();
+    this.notify(id);
   }
 
   /**
@@ -259,7 +287,7 @@ export class AgentTree {
       this.updateStatus(id, "running");
       return;
     }
-    if (this.applyLiveHandleThinking(node)) this.notify();
+    if (this.applyLiveHandleThinking(node)) this.notify(id);
   }
 
   updateUsage(id: string, partial: Partial<UsageStats>): void {
@@ -267,7 +295,7 @@ export class AgentTree {
     if (!node) return;
 
     Object.assign(node.usage, partial);
-    this.notify();
+    this.notify(id);
   }
 
   getTotalUsage(): UsageStats {
@@ -286,10 +314,14 @@ export class AgentTree {
   }
 
   applyActivityEvent(id: string, event: ActivityEvent, now = Date.now()): void {
+    this.applyActivityEvents(id, [event], now);
+  }
+
+  applyActivityEvents(id: string, events: ActivityEvent[], now = Date.now()): void {
     const node = this.nodes.get(id);
-    if (!node) return;
-    this.applyActivityToNode(node, event, now);
-    this.notify();
+    if (!node || events.length === 0) return;
+    for (const event of events) this.applyActivityToNode(node, event, now);
+    this.notify(id);
   }
 
   setActivityHistory(id: string, history: ActivitySnapshot[]): void {
@@ -302,7 +334,7 @@ export class AgentTree {
       node.activity = cloneActivitySnapshot(last);
       node.lastActivity = last.summary;
     }
-    this.notify();
+    this.notify(id);
   }
 
   private applyLiveHandleThinking(node: AgentNode): boolean {
@@ -338,7 +370,7 @@ export class AgentTree {
     if (patch.pathIntent !== undefined) node.pathIntent = patch.pathIntent;
     if (patch.peerMessageFailed !== undefined) node.peerMessageFailed = patch.peerMessageFailed;
     if (patch.lastPeerError !== undefined) node.lastPeerError = patch.lastPeerError;
-    this.notify();
+    this.notify(id);
   }
 
   remove(id: string): void {

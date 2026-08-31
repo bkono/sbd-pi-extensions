@@ -295,6 +295,59 @@ describe("foreground spawn tool", () => {
     h.waiters[0]?.resolve({ class: "settled", exitCode: 0, output: "done" });
     await pending;
   });
+
+  it("one child text event updates foreground once and leaves zero listeners", async () => {
+    const h = harness();
+    const signatures: string[] = [];
+    const pending = h.execute(
+      "tool-1",
+      { tasks: [{ task: "task a" }, { task: "task b" }, { task: "task c" }] },
+      undefined,
+      (update) => {
+        const details = update.details as {
+          minions?: Array<{ id?: string; activity?: string }>;
+        };
+        signatures.push(
+          (details.minions ?? []).map((m) => `${m.id}:${m.activity ?? ""}`).join("|"),
+        );
+      },
+      h.ctx,
+    );
+    pendingExecutes.push(pending);
+    await vi.waitFor(() => {
+      expect(h.started).toHaveLength(3);
+    });
+    expect(h.tree.listenerCount()).toBe(3);
+
+    const before = signatures.length;
+    h.started[0]?.onTextDelta?.("hello", "hello");
+    expect(signatures.length - before).toBe(1);
+
+    for (const waiter of h.waiters) {
+      waiter.resolve({ class: "settled", exitCode: 0, output: "done" });
+    }
+    await pending;
+    expect(h.tree.listenerCount()).toBe(0);
+  });
+
+  it("throw during first synchronization yields startChildCalls=0 and zero listeners", async () => {
+    const h = harness();
+    let updates = 0;
+    const pending = h.execute(
+      "tool-1",
+      { task: "review the auth flow" },
+      undefined,
+      () => {
+        updates++;
+        if (updates === 1) throw new Error("sync boom");
+      },
+      h.ctx,
+    );
+    pendingExecutes.push(pending.catch(() => undefined));
+    await expect(pending).rejects.toThrow(/failed: sync boom/);
+    expect(h.started).toHaveLength(0);
+    expect(h.tree.listenerCount()).toBe(0);
+  });
 });
 
 describe("runMinionSession usage accumulator", () => {

@@ -104,17 +104,15 @@ export async function runSingleMinion(opts: {
       m.model = formatModelReference(selectedModel);
     }
 
-    coordinator.emit(true);
-
     const bound = bindTreeActivity(tree, m.id);
-    const syncSpawnActivity = () => {
+    const pushForeground = () => {
       m.activity = tree.get(m.id)?.lastActivity;
       coordinator.emit(true);
     };
-    const unsubActivity = tree.onChange(syncSpawnActivity);
-    syncSpawnActivity();
+    const unsubActivity = tree.onNodeChange(m.id, pushForeground);
     let result: SpawnResult;
     try {
+      pushForeground();
       result = await runMinionSession(config, spec.task, {
         id: m.id,
         name: m.name,
@@ -132,8 +130,8 @@ export async function runSingleMinion(opts: {
         onToolActivity: bound.onToolActivity,
         onToolOutput: bound.onToolOutput,
         onTextDelta: (delta, fullText) => {
-          bound.onTextDelta(delta, fullText);
           m.finalOutput = lastNarrativeLine(fullText);
+          bound.onTextDelta(delta, fullText);
         },
         onTurnEnd: bound.onTurnEnd,
         onAgentEnd: bound.onAgentEnd,
