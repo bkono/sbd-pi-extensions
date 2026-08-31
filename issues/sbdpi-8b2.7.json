@@ -22,11 +22,15 @@
     {
       "text": "Correction after parent adjudication: reviewer finding #1 is REJECTED, not FIX. A no-model scripted harness cannot prove semantic reviewer judgment, and adding test-owned `git show`/commit-content verification would build a second review mechanism, couple the scenario to Git fixture implementation details, and introduce shared-checkout/concurrent-commit assumptions. The acceptance boundary is protocol: implementer settles with a named SHA; only afterward the reviewer is launched with that exact SHA and explicit inspection instructions; the parent then applies review policy. Runtime child/reviewer claims remain untrusted and require parent adjudication, but this integration test must not simulate trust by inventing production commit heuristics. Do not add commit parsing, Git inspection, or fabricated-claim rejection tests. Finding #2 remains a valid narrow docs FIX. Finding #3 is valid only insofar as the tautological no-edit assertion should be removed/qualified; do not add broad coding-tool instrumentation. The prior comment's all-three-FIX disposition is superseded.",
       "timestamp": "2026-08-31T18:22:47Z"
+    },
+    {
+      "text": "Minimal parent fix committed as 6bfc7e3. Reviewer finding #1 remains rejected: no test-owned Git inspection or commit heuristics were added. Applied only the accepted surgical changes: both proposal docs now carry explicit historical/superseded banners and point to authoritative package/migration docs; the stale living-spec claim is removed; the pre-implementation handoff is time-qualified; the two tautological parent edit/write assertions were deleted without adding tool instrumentation. Focused acceptance passes (1 file/5 tests), git diff check passed, and current-HEAD root lint/test/typecheck/build all pass.",
+      "timestamp": "2026-08-31T18:28:35Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T18:22:47Z"
+  "updated_at": "2026-08-31T18:28:35Z"
 }
