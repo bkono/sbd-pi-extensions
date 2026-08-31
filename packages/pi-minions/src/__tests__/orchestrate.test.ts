@@ -86,7 +86,11 @@ function hangingHandle(id: string, cwd: string): MinionSessionHandle {
   };
 }
 
-function setup(options?: { startChild?: ReturnType<typeof vi.fn>; extraTools?: string[] }) {
+function setup(options?: {
+  startChild?: ReturnType<typeof vi.fn>;
+  extraTools?: string[];
+  generateId?: () => string;
+}) {
   const cwd = tempDir("pi-minions-orchestrate-");
   const tree = new AgentTree();
   const groups = new OrchestrationGroupState();
@@ -105,6 +109,7 @@ function setup(options?: { startChild?: ReturnType<typeof vi.fn>; extraTools?: s
     >,
     groups,
     extraTools: options?.extraTools ?? [],
+    generateId: options?.generateId,
     onLifecycle: (event) => events.push(event),
   });
   const ctx = createCtx(cwd);
@@ -137,6 +142,27 @@ function logCall(
 ) {
   console.log(label, data);
 }
+
+describe("public id collision handling", () => {
+  it("retries an occupied spawn id before orchestrated registration", async () => {
+    const candidates = ["aaaaaaaa", "bbbbbbbb"];
+    const fixture = setup({ generateId: () => candidates.shift() ?? "bbbbbbbb" });
+    fixture.tree.add("aaaaaaaa", "foreground", "spawn work", { kind: "spawn" });
+    const result = detailsOf(await run(fixture.execute, { tasks: [baseTask] }, fixture.ctx));
+    expect(result.accepted[0]?.childId).toBe("bbbbbbbb");
+    expect(fixture.tree.get("aaaaaaaa")?.kind).toBe("spawn");
+    expect(fixture.tree.get("bbbbbbbb")?.kind).toBe("orchestrated");
+  });
+});
+
+it("rejects bounded collision exhaustion without overwriting the spawn node", async () => {
+  const fixture = setup({ generateId: () => "aaaaaaaa" });
+  const original = fixture.tree.add("aaaaaaaa", "foreground", "spawn work", { kind: "spawn" });
+  await expect(run(fixture.execute, { tasks: [baseTask] }, fixture.ctx)).rejects.toThrow(
+    ORCHESTRATE_REJECT_REASONS.idAllocationFailed,
+  );
+  expect(fixture.tree.get("aaaaaaaa")).toBe(original);
+});
 
 describe("host-mode gate", () => {
   it("rejects print and json with a closed reason; tui and rpc accept", async () => {
@@ -283,7 +309,9 @@ describe("accepted state and start failure", () => {
       childId: result.accepted[0]?.childId,
       error: "runtime failed",
     });
-    expect(failed?.lifecycleId).toMatch(/^lifecycle-/);
+    expect(failed?.lifecycleId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(failed?.epoch).toBe(1);
     expect(tree.get(result.accepted[0]!.childId)?.status).toBe("failed");
 
@@ -490,6 +518,7 @@ describe("halt during detached start", () => {
         abortSession,
       } as unknown as SubsessionManager,
       groups,
+      { discardGroup: (groupId) => groups.closeGroup(groupId) },
     );
     expect(haltResult.groupClosed).toBe(result.groupId);
     expect(abortSession).toHaveBeenCalledWith(childId);

@@ -9,7 +9,12 @@ import { findAgent, unknownAgentMessage } from "../agents.js";
 import { getConfig, type ResolvedConfig } from "../config.js";
 import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
-import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
+import {
+  defaultMinionTemplate,
+  generateAvailableId,
+  generateId,
+  pickMinionName,
+} from "../minions.js";
 import {
   createLifecycleId,
   type InjectedCommTools,
@@ -47,6 +52,7 @@ export const ORCHESTRATE_REJECT_REASONS = {
   unknownModel: "unknown model",
   ephemeralDisabled: "ephemeral minions are disabled",
   registrationAborted: "registration aborted",
+  idAllocationFailed: "unable to allocate unique minion id",
 } as const;
 
 export type OrchestrateRejectReason =
@@ -71,10 +77,13 @@ export interface OrchestrateDeps {
   /** Pending overlap notices for the next real parent packet. */
   overlaps?: PathOverlapLog;
   now?: () => number;
+  /** Deterministic collision fault injection; production uses generateId. */
+  generateId?: () => string;
   /** Override bound-tool injection. Default binds list/send/announce/inspect with childId closed over. */
   injectCommTools?: (input: {
     childId: string;
     lifecycleId: string;
+    epoch: number;
     groupId: string;
   }) => InjectedCommTools;
   /** Event path 1.8 consumes. Do not deliver parent packets here. */
@@ -178,13 +187,16 @@ function injectBoundCommTools(
   group: { groupId: string; cwd: string },
   childId: string,
   lifecycleId: string,
+  epoch: number,
 ): InjectedCommTools {
   if (deps.injectCommTools)
-    return deps.injectCommTools({ childId, lifecycleId, groupId: group.groupId });
+    return deps.injectCommTools({ childId, lifecycleId, epoch, groupId: group.groupId });
   return injectOrchestratedCommTools({
     childId,
     groupId: group.groupId,
     lifecycleId,
+    epoch,
+    groups: deps.groups,
     cwd: group.cwd,
     tree: deps.tree,
     mailbox,
@@ -212,8 +224,20 @@ function startRegisteredChild(
   if (node?.lifecycleId !== lifecycleId || isTerminalStatus(node.status)) {
     return Promise.resolve();
   }
-  const injected = injectBoundCommTools(deps, mailbox, group, id, lifecycleId);
-  const bound = bindTreeActivity(tree, id, lifecycleId);
+  const injected = injectBoundCommTools(deps, mailbox, group, id, lifecycleId, epoch);
+  const authority = { groupId: group.groupId, childId: id, lifecycleId, epoch };
+  const ownsLiveAuthority = (): boolean => {
+    const current = tree.get(id);
+    return (
+      deps.groups.ownsLifecycle(authority) &&
+      current?.kind === "orchestrated" &&
+      current.groupId === group.groupId &&
+      current.lifecycleId === lifecycleId &&
+      current.lifecycleEpoch === epoch &&
+      !isTerminalStatus(current.status)
+    );
+  };
+  const bound = bindTreeActivity(tree, id, lifecycleId, ownsLiveAuthority);
 
   return subsessionManager
     .startChild({
@@ -241,7 +265,7 @@ function startRegisteredChild(
       onAgentEnd: bound.onAgentEnd,
       onWaitingResume: bound.onWaitingResume,
       onTurnEnd: (turnCount) => {
-        if (tree.get(id)?.lifecycleId !== lifecycleId) return;
+        if (!ownsLiveAuthority()) return;
         bound.onTurnEnd(turnCount);
         applyStepLimit({
           count: turnCount,
@@ -254,10 +278,10 @@ function startRegisteredChild(
         });
       },
       onUsageUpdate: (usage) => {
-        if (tree.get(id)?.lifecycleId === lifecycleId) tree.updateUsage(id, usage);
+        if (ownsLiveAuthority()) tree.updateUsage(id, usage);
       },
       onComplete: (result) => {
-        if (tree.get(id)?.lifecycleId !== lifecycleId) return;
+        if (!ownsLiveAuthority()) return;
         const status = result.status ?? (result.exitCode === 0 ? "completed" : "failed");
         tree.updateStatus(id, status, result.exitCode, result.error);
       },
@@ -272,7 +296,12 @@ function startRegisteredChild(
       });
       try {
         const current = tree.get(id);
-        if (current?.lifecycleId !== lifecycleId) return;
+        if (
+          current?.lifecycleId !== lifecycleId ||
+          current.lifecycleEpoch !== epoch ||
+          !deps.groups.ownsLifecycle(authority)
+        )
+          return;
         if (isTerminalStatus(current.status)) {
           const terminal = await handle.wait();
           deps.onLifecycle?.({
@@ -310,7 +339,7 @@ function startRegisteredChild(
     })
     .catch((err: unknown) => {
       const error = err instanceof Error ? err.message : String(err);
-      if (tree.get(id)?.lifecycleId === lifecycleId) tree.updateStatus(id, "failed", 1, error);
+      if (ownsLiveAuthority()) tree.updateStatus(id, "failed", 1, error);
       deps.onLifecycle?.({
         class: "failed",
         groupId: group.groupId,
@@ -422,7 +451,13 @@ export function orchestrate(deps: OrchestrateDeps) {
         continue;
       }
 
-      const id = generateId();
+      let id: string;
+      try {
+        id = generateAvailableId(tree, new Set(), deps.generateId ?? generateId);
+      } catch {
+        rejected.push({ index, reason: ORCHESTRATE_REJECT_REASONS.idAllocationFailed });
+        continue;
+      }
       const lifecycleId = createLifecycleId();
       const name = pickMinionName(tree, id, ctx, agent, assignedNames);
       const config = resolveAgentConfig(agent, name, optionalString(spec.model), previewed.cwd);

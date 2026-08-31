@@ -23,6 +23,7 @@ import {
   MinionCommMailbox,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
+  OrchestrationLifecycleCoordinator,
   type OrchestrationLifecycleEvent,
   PARENT_RECIPIENT_ID,
   SEND_MINION_MESSAGE_TOOL,
@@ -56,6 +57,7 @@ export default function (pi: ExtensionAPI): void {
   let groups = new OrchestrationGroupState();
   let mailbox = new MinionCommMailbox();
   let overlaps = new PathOverlapLog();
+  let lifecycleCoordinator: OrchestrationLifecycleCoordinator;
   let subsessionManager: SubsessionManager | undefined;
   let statusTracker: ReturnType<typeof createStatusTracker> | undefined;
   let cachedUi: ExtensionContext["ui"] | null = null;
@@ -87,10 +89,15 @@ export default function (pi: ExtensionAPI): void {
     ackOverlaps: (ids) => {
       overlaps.ack(ids);
     },
-    peekParentMail: (childId, lifecycleId) => {
+    peekParentMail: (authority) => {
       const messages = mailbox
-        .peekPending(PARENT_RECIPIENT_ID, childId)
-        .filter((message) => message.lifecycleId === lifecycleId);
+        .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+        .filter(
+          (message) =>
+            message.groupId === authority.groupId &&
+            message.lifecycleId === authority.lifecycleId &&
+            message.lifecycleEpoch === authority.epoch,
+        );
       if (messages.length === 0) return undefined;
       return {
         ids: messages.map((message) => message.id),
@@ -100,6 +107,14 @@ export default function (pi: ExtensionAPI): void {
     ackParentMail: (snapshot) => {
       mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
     },
+    onAcceptedTerminal: (authority) => lifecycleCoordinator.cleanupAcceptedLifecycle(authority),
+  });
+  lifecycleCoordinator = new OrchestrationLifecycleCoordinator({
+    tree,
+    groups,
+    mailbox,
+    overlaps,
+    packets,
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
     syncLiveGroupSystemPrompt();
@@ -233,7 +248,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: HaltToolParams,
     execute: async (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      const result = await halt(tree, subsessionManager, groups)(...args);
+      const result = await halt(tree, subsessionManager, groups, lifecycleCoordinator)(...args);
       syncLiveGroupSystemPrompt();
       return result;
     },
@@ -304,7 +319,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Halt minion(s): /halt <id | name | group | all>",
     handler: async (args, ctx) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      await createHaltHandler(tree, subsessionManager, groups)(args, ctx);
+      await createHaltHandler(tree, subsessionManager, groups, lifecycleCoordinator)(args, ctx);
       syncLiveGroupSystemPrompt();
     },
   });
@@ -369,6 +384,7 @@ export default function (pi: ExtensionAPI): void {
     sessionGeneration++;
     clearSessionUi();
     liveGroupSystemPrompt.reset();
+    lifecycleCoordinator.discardOpenGroup();
     packets.close();
     const manager = subsessionManager;
     subsessionManager = undefined;
@@ -379,6 +395,7 @@ export default function (pi: ExtensionAPI): void {
     const generation = ++sessionGeneration;
     clearSessionUi();
     liveGroupSystemPrompt.reset();
+    lifecycleCoordinator.discardOpenGroup();
     packets.close();
     const priorManager = subsessionManager;
     subsessionManager = undefined;
@@ -413,20 +430,25 @@ export default function (pi: ExtensionAPI): void {
         subsessionManager?.markWaitingOnParent(id);
       },
       onParentDirected: (message) => {
+        if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
         eventBus.emit(ORCHESTRATION_LIFECYCLE_CHANNEL, {
           class: "parentMessage",
           groupId: message.groupId,
           childId: message.from,
           output: message.body,
-          lifecycleId: message.lifecycleId ?? "",
-          epoch:
-            message.lifecycleId === undefined
-              ? -1
-              : (groups.getLifecycleRegistration(message.lifecycleId)?.epoch ?? -1),
+          lifecycleId: message.lifecycleId,
+          epoch: message.lifecycleEpoch,
         });
       },
     });
     overlaps = new PathOverlapLog();
+    lifecycleCoordinator = new OrchestrationLifecycleCoordinator({
+      tree,
+      groups,
+      mailbox,
+      overlaps,
+      packets,
+    });
     packets.open();
     syncLiveGroupSystemPrompt();
 

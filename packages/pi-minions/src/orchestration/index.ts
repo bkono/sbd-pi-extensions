@@ -15,6 +15,7 @@ export {
   LIST_MINION_PEERS_TOOL,
   type ListMinionPeersDetails,
   ListMinionPeersParams,
+  MAX_MAILBOX_HISTORY,
   MAX_MAILBOX_QUEUE_DEPTH,
   MAX_MINION_MESSAGE_BYTES,
   type MailFollowUpOpts,
@@ -33,6 +34,7 @@ export {
   SendMinionPeerParams,
   sendMinionMessage,
 } from "./comm.js";
+export { OrchestrationLifecycleCoordinator } from "./coordinator.js";
 export {
   createLifecycleId,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
@@ -43,6 +45,8 @@ export {
   GROUP_REJECT_REASONS,
   type GroupRejectReason,
   isResolveGroupReject,
+  type LifecycleAuthority,
+  type LifecycleRegistration,
   type OpenOrchestrationGroup,
   OrchestrationGroupState,
   type PreviewedOrchestrationGroup,

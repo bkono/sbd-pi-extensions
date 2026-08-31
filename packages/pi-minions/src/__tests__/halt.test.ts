@@ -23,6 +23,9 @@ import type { AgentConfig } from "../types.js";
 const ctx = {} as ExtensionContext;
 const dirs: string[] = [];
 
+function cancellation(groups: OrchestrationGroupState) {
+  return { discardGroup: (groupId: string) => groups.closeGroup(groupId) };
+}
 afterEach(() => {
   vi.restoreAllMocks();
   for (const dir of dirs.splice(0)) {
@@ -86,7 +89,13 @@ describe("halt one vs group vs missing", () => {
     const { groups, groupId } = openGroup(cwd);
     const tree = seedFleet(groupId);
     const abortSession = vi.fn(() => false);
-    const result = await runHalt("mn-orch-a", tree, stubManager(abortSession), groups);
+    const result = await runHalt(
+      "mn-orch-a",
+      tree,
+      stubManager(abortSession),
+      groups,
+      cancellation(groups),
+    );
 
     const node = tree.get("mn-orch-a")!;
     logNode("halt-one", node);
@@ -108,7 +117,7 @@ describe("halt one vs group vs missing", () => {
     const cwd = tempDir("pi-minions-halt-group-");
     const { groups, groupId } = openGroup(cwd);
     const tree = seedFleet(groupId);
-    const result = await runHalt(groupId, tree, stubManager(), groups);
+    const result = await runHalt(groupId, tree, stubManager(), groups, cancellation(groups));
 
     for (const id of ["mn-orch-a", "mn-orch-b", "mn-spawn"]) {
       logNode("halt-group", tree.get(id)!);
@@ -129,7 +138,7 @@ describe("halt one vs group vs missing", () => {
     const cwd = tempDir("pi-minions-halt-group-alias-");
     const { groups, groupId } = openGroup(cwd);
     const tree = seedFleet(groupId);
-    const result = await runHalt("group", tree, stubManager(), groups);
+    const result = await runHalt("group", tree, stubManager(), groups, cancellation(groups));
     logNode("halt-group-alias", tree.get("mn-orch-a")!);
 
     expect(result.groupClosed).toBe(groupId);
@@ -141,7 +150,7 @@ describe("halt one vs group vs missing", () => {
     const cwd = tempDir("pi-minions-halt-all-");
     const { groups, groupId } = openGroup(cwd);
     const tree = seedFleet(groupId);
-    const result = await runHalt("all", tree, stubManager(), groups);
+    const result = await runHalt("all", tree, stubManager(), groups, cancellation(groups));
 
     for (const id of ["mn-spawn", "mn-orch-a", "mn-orch-b"]) {
       logNode("halt-all", tree.get(id)!);
@@ -160,7 +169,7 @@ describe("halt one vs group vs missing", () => {
     const otherCwd = tempDir("pi-minions-halt-all-empty-other-");
     const { groups, groupId } = openGroup(cwd);
     const tree = new AgentTree();
-    const result = await runHalt("all", tree, stubManager(), groups);
+    const result = await runHalt("all", tree, stubManager(), groups, cancellation(groups));
 
     expect(result.halted).toEqual([]);
     expect(result.groupClosed).toBe(groupId);
@@ -175,7 +184,7 @@ describe("halt one vs group vs missing", () => {
     const cwd = tempDir("pi-minions-halt-missing-");
     const { groups, groupId } = openGroup(cwd);
     const tree = seedFleet(groupId);
-    const result = await runHalt("nope", tree, stubManager(), groups);
+    const result = await runHalt("nope", tree, stubManager(), groups, cancellation(groups));
     expect(result.missing).toBe(true);
     expect(result.error).toBe(true);
     expect(result.text).toBe("Minion not found: nope");
@@ -197,7 +206,12 @@ describe("halt one vs group vs missing", () => {
     const { groups, groupId } = openGroup(cwd);
     const tree = seedFleet(groupId);
     const notify = vi.fn();
-    const handler = createHaltHandler(tree, stubManager() as unknown as SubsessionManager, groups);
+    const handler = createHaltHandler(
+      tree,
+      stubManager() as unknown as SubsessionManager,
+      groups,
+      cancellation(groups),
+    );
     const cmdCtx = { ui: { notify } } as unknown as ExtensionCommandContext;
 
     await handler("", cmdCtx);
@@ -320,7 +334,7 @@ describe("halt integration abort path", () => {
     });
     await manager.startChild(startOptions("orch-1", cwd));
 
-    const result = await runHalt("orch-1", tree, manager, groups);
+    const result = await runHalt("orch-1", tree, manager, groups, cancellation(groups));
     const node = tree.get("orch-1")!;
     logNode("halt-orch-integration", node);
 
@@ -361,7 +375,7 @@ describe("halt integration abort path", () => {
     });
     await manager.startChild(startOptions("spawn-1", cwd));
 
-    const result = await runHalt("spawn-1", tree, manager, groups);
+    const result = await runHalt("spawn-1", tree, manager, groups, cancellation(groups));
     const node = tree.get("spawn-1")!;
     logNode("halt-spawn-integration", node);
 
@@ -406,7 +420,7 @@ describe("halt integration abort path", () => {
     startPromise.catch(() => {});
     expect(manager.getSessionHandle("orch-starting")).toBeUndefined();
 
-    const result = await runHalt("group", tree, manager, groups);
+    const result = await runHalt("group", tree, manager, groups, cancellation(groups));
     expect(tree.get("orch-starting")?.status).toBe("aborted");
     expect(result.groupClosed).toBe(groupId);
     expect(groups.getOpenGroup()).toBeUndefined();

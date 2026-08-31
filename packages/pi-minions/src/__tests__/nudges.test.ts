@@ -175,3 +175,13 @@ describe("nudgeFor precedence", () => {
     expect(nudgeFor({ completionNudge: "   " }, "failed")).toBe(nudgeFor({}, "failed"));
   });
 });
+
+it("falls back safely for hostile task and event runtime values", () => {
+  const hostileTaskType = "x".repeat(10_000);
+  expect(() => nudgeFor({ taskType: hostileTaskType }, "settled")).not.toThrow();
+  expect(nudgeFor({ taskType: hostileTaskType }, "settled")).toContain("Inspect");
+  expect(nudgeFor({ taskType: hostileTaskType }, "unknown-event")).toBe(
+    "A background child changed state. Inspect the evidence and decide the next action.",
+  );
+  expect(nudgeFor({ taskType: { malformed: true } }, null)).toContain("changed state");
+});

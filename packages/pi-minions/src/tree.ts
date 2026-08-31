@@ -170,6 +170,10 @@ export class AgentTree {
     }
   }
 
+  has(id: string): boolean {
+    return this.nodes.has(id);
+  }
+
   add(id: string, name: string, task: string, options?: AddAgentOptions): AgentNode;
   add(
     id: string,
@@ -191,6 +195,10 @@ export class AgentTree {
       typeof parentIdOrOptions === "object" && parentIdOrOptions !== null
         ? parentIdOrOptions
         : { parentId: parentIdOrOptions, agentName, model };
+
+    if (this.nodes.has(id)) {
+      throw new Error(`agent id already registered: ${id}`);
+    }
 
     const kind = options.kind ?? "spawn";
     const node: AgentNode = {

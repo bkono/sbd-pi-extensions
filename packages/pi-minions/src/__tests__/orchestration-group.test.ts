@@ -255,6 +255,18 @@ describe("OrchestrationGroupState close/forget", () => {
     groups.closeGroup("grp-other");
     expect(groups.getOpenGroup()).toEqual(created);
   });
+
+  it("uses reload-safe full UUID lifecycle identities", async () => {
+    const firstModule = await import("../orchestration/events.js");
+    const first = firstModule.createLifecycleId();
+    vi.resetModules();
+    const reloadedModule = await import("../orchestration/events.js");
+    const second = reloadedModule.createLifecycleId();
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(first).toMatch(uuid);
+    expect(second).toMatch(uuid);
+    expect(second).not.toBe(first);
+  });
 });
 
 describe("OrchestrationGroupState idle epochs", () => {

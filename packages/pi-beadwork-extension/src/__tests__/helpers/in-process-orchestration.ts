@@ -32,6 +32,7 @@ import {
   MinionCommMailbox,
   ORCHESTRATED_COMM_TOOL_NAMES,
   OrchestrationGroupState,
+  OrchestrationLifecycleCoordinator,
   PARENT_ONLY_MINION_TOOLS,
   PARENT_RECIPIENT_ID,
   SEND_MINION_MESSAGE_TOOL,
@@ -259,6 +260,7 @@ export async function createInProcessHarness(
   const packets: SentPacket[] = [];
   const overlaps = new PathOverlapLog();
   let mailbox!: MinionCommMailbox;
+  let lifecycleCoordinator!: OrchestrationLifecycleCoordinator;
   const dispatcher = createLifecyclePacketDispatcher({
     getTree: () => tree,
     getGroups: () => groups,
@@ -272,10 +274,15 @@ export async function createInProcessHarness(
     ackOverlaps: (ids) => {
       overlaps.ack(ids);
     },
-    peekParentMail: (childId, lifecycleId) => {
+    peekParentMail: (authority) => {
       const messages = mailbox
-        .peekPending(PARENT_RECIPIENT_ID, childId)
-        .filter((message) => message.lifecycleId === lifecycleId);
+        .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+        .filter(
+          (message) =>
+            message.groupId === authority.groupId &&
+            message.lifecycleId === authority.lifecycleId &&
+            message.lifecycleEpoch === authority.epoch,
+        );
       if (messages.length === 0) return undefined;
       return {
         ids: messages.map((message) => message.id),
@@ -285,8 +292,8 @@ export async function createInProcessHarness(
     ackParentMail: (snapshot) => {
       mailbox.ackPending(PARENT_RECIPIENT_ID, snapshot.ids);
     },
+    onAcceptedTerminal: (authority) => lifecycleCoordinator.cleanupAcceptedLifecycle(authority),
   });
-  dispatcher.open();
 
   const children = new Map<string, ScriptedChildSession>();
   const parentTools = parentToolNamesFrom(beadwork);
@@ -321,19 +328,25 @@ export async function createInProcessHarness(
       await handle.followUp(text);
     },
     onParentDirected: (message) => {
+      if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
       dispatcher.enqueue({
         class: "parentMessage",
         groupId: message.groupId,
         childId: message.from,
         output: message.body,
-        lifecycleId: message.lifecycleId ?? "",
-        epoch:
-          message.lifecycleId === undefined
-            ? -1
-            : (groups.getLifecycleRegistration(message.lifecycleId)?.epoch ?? -1),
+        lifecycleId: message.lifecycleId,
+        epoch: message.lifecycleEpoch,
       });
     },
   });
+  lifecycleCoordinator = new OrchestrationLifecycleCoordinator({
+    tree,
+    groups,
+    mailbox,
+    overlaps,
+    packets: dispatcher,
+  });
+  dispatcher.open();
 
   const executeOrchestrate = orchestrate({
     tree,
@@ -348,7 +361,7 @@ export async function createInProcessHarness(
   });
   const executeList = listMinions(tree);
   const executeShow = showMinion(tree, manager);
-  const executeHalt = halt(tree, manager, groups);
+  const executeHalt = halt(tree, manager, groups, lifecycleCoordinator);
   const executeSend = sendMinionMessage({ mailbox, groups });
 
   const ids = () => ({

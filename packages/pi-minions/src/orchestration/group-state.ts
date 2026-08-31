@@ -24,6 +24,8 @@ export interface LifecycleRegistration {
   epoch: number;
 }
 
+export type LifecycleAuthority = Readonly<LifecycleRegistration>;
+
 export interface AcceptLifecycleInput {
   lifecycleId: string;
   childId: string;
@@ -160,6 +162,33 @@ export class OrchestrationGroupState {
       return undefined;
     }
     return { ...registration };
+  }
+
+  /** Exact accepted registration ownership. Public child ids alone are never authority. */
+  ownsLifecycle(authority: LifecycleAuthority): boolean {
+    const current = this.getLifecycleRegistration(
+      authority.lifecycleId,
+      authority.groupId,
+      authority.epoch,
+    );
+    return current?.childId === authority.childId;
+  }
+
+  /** Revoke exactly one accepted runtime; replacement registrations are untouched. */
+  revokeLifecycle(authority: LifecycleAuthority): boolean {
+    if (!this.ownsLifecycle(authority)) return false;
+    return this.lifecycles.delete(authority.lifecycleId);
+  }
+
+  /** Revoke all mutable authority belonging to a canceled group. */
+  revokeGroup(groupId: string): number {
+    let removed = 0;
+    for (const [lifecycleId, registration] of this.lifecycles) {
+      if (registration.groupId !== groupId) continue;
+      this.lifecycles.delete(lifecycleId);
+      removed++;
+    }
+    return removed;
   }
 
   /** Reserve, but do not consume, an active→idle epoch owned by terminal evidence. */

@@ -485,6 +485,7 @@ export function bindTreeActivity(
   tree: AgentTree,
   id: string,
   lifecycleId?: string,
+  ownsLifecycle?: () => boolean,
 ): {
   onToolActivity: (activity: {
     type: "start" | "end";
@@ -498,7 +499,8 @@ export function bindTreeActivity(
   onWaitingResume: () => void;
 } {
   const isCurrent = (): boolean =>
-    lifecycleId === undefined || tree.get(id)?.lifecycleId === lifecycleId;
+    (lifecycleId === undefined || tree.get(id)?.lifecycleId === lifecycleId) &&
+    (ownsLifecycle === undefined || ownsLifecycle());
   return {
     onToolActivity: (activity) => {
       if (!isCurrent()) return;

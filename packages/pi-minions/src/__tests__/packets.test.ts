@@ -213,10 +213,15 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
     sendMessage: sendMessage as ExtensionAPI["sendMessage"],
     now: () => 10_000,
     schedule: (run) => pending.push(run),
-    peekParentMail: (childId, lifecycleId) => {
+    peekParentMail: (authority) => {
       const messages = mailbox
-        .peekPending(PARENT_RECIPIENT_ID, childId)
-        .filter((message) => message.lifecycleId === lifecycleId);
+        .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+        .filter(
+          (message) =>
+            message.groupId === authority.groupId &&
+            message.lifecycleId === authority.lifecycleId &&
+            message.lifecycleEpoch === authority.epoch,
+        );
       if (messages.length === 0) return undefined;
       return {
         ids: messages.map((message) => message.id),
@@ -230,19 +235,17 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
   const dispatcher = withIdentity(rawDispatcher, tree);
   mailbox = new MinionCommMailbox({
     getTree: () => tree,
-    getGroups: () => ({ getOpenGroup: () => ({ groupId, cwd: "/tmp" }) }),
+    getGroups: () => groups,
     isLive: (id) => tree.get(id)?.status === "running",
     followUp: async () => {},
     onParentDirected: (message) => {
+      if (message.lifecycleId === undefined || message.lifecycleEpoch === undefined) return;
       dispatcher.enqueue({
         class: "parentMessage",
         groupId: message.groupId,
         childId: message.from,
-        lifecycleId: message.lifecycleId ?? "",
-        epoch:
-          message.lifecycleId === undefined
-            ? -1
-            : (groups.getLifecycleRegistration(message.lifecycleId)?.epoch ?? -1),
+        lifecycleId: message.lifecycleId,
+        epoch: message.lifecycleEpoch,
         output: message.body,
       });
     },
@@ -660,6 +663,7 @@ it("bounds hostile fleet, overlap, and child counts with honest omission summari
   });
   mailNode.name = hostile;
   mailNode.completionNudge = hostile;
+  mailNode.taskType = "x".repeat(10_000) as never;
   mailNode.domain = { source: hostile, scopeId: hostile, workItemId: hostile, title: hostile };
   for (let index = 0; index < 100; index++) {
     const id = `mn-live-${index}`;
@@ -681,6 +685,8 @@ it("bounds hostile fleet, overlap, and child counts with honest omission summari
     groupId: "grp-hostile",
     childId: `mn-live-${index}`,
     childDescription: hostile,
+    lifecycleId: `life-live-${index}`,
+    epoch: 1,
     path: hostile,
     otherId: `mn-live-${index + 1}`,
     otherDescription: hostile,
@@ -695,8 +701,8 @@ it("bounds hostile fleet, overlap, and child counts with honest omission summari
       ids: overlaps.map((_, index) => `overlap-${index}`),
       notices: overlaps,
     }),
-    peekParentMail: (childId) =>
-      childId === mailId ? { ids: ["hostile-mail"], text: hostile } : undefined,
+    peekParentMail: (authority) =>
+      authority.childId === mailId ? { ids: ["hostile-mail"], text: hostile } : undefined,
     ackParentMail: () => {},
     schedule: (run) => pending.push(run),
   });
@@ -734,6 +740,7 @@ it("bounds hostile fleet, overlap, and child counts with honest omission summari
     // biome-ignore lint/suspicious/noControlCharactersInRegex: assert hostile projected text contains no unsafe C0/C1 controls
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u,
   );
+  expect(packet.details.changed.every((child) => child.taskType === undefined)).toBe(true);
   expect(formatLifecyclePacket(packet.details)).toBe(packet.content);
   for (const child of packet.details.stillRunning) {
     expect(child.description?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
@@ -841,6 +848,7 @@ describe("group idle transition", () => {
 
     dispatcher.reset();
     groups.closeGroup("grp-1");
+    tree.remove("mn-reused");
     groups.commitGroup({ groupId: "grp-1", cwd: "/tmp" });
     addOrchestrated(tree, "mn-reused");
     tree.updateStatus("mn-reused", "completed", 0);
@@ -1022,11 +1030,13 @@ describe("integration: orchestrate lifecycle to followUp", () => {
 describe("live child parentMessage wake", () => {
   it("send-to-parent yields one parentMessage packet and the child stays running", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const { tree, sendMessage, mailbox, drain, groupId, askId, otherId } = wakeHarness();
+    const { tree, groups, sendMessage, mailbox, drain, groupId, askId, otherId } = wakeHarness();
     const injected = injectOrchestratedCommTools({
       childId: askId,
-      lifecycleId: tree.get(askId)?.lifecycleId,
+      lifecycleId: tree.get(askId)!.lifecycleId!,
+      epoch: tree.get(askId)!.lifecycleEpoch!,
       groupId,
+      groups,
       tree,
       mailbox,
     });
@@ -1109,12 +1119,14 @@ describe("live child parentMessage wake", () => {
 
   it("coalesces a parent question with another child's settlement into one packet", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const { tree, sendMessage, mailbox, dispatcher, drain, groupId, askId, otherId } =
+    const { tree, groups, sendMessage, mailbox, dispatcher, drain, groupId, askId, otherId } =
       wakeHarness();
     const injected = injectOrchestratedCommTools({
       childId: askId,
-      lifecycleId: tree.get(askId)?.lifecycleId,
+      lifecycleId: tree.get(askId)!.lifecycleId!,
+      epoch: tree.get(askId)!.lifecycleEpoch!,
       groupId,
+      groups,
       tree,
       mailbox,
     });
@@ -1169,11 +1181,13 @@ describe("live child parentMessage wake", () => {
   });
 
   it("folds multiple questions from the same live child into one packet with drained bodies", async () => {
-    const { tree, sendMessage, mailbox, drain, groupId, askId } = wakeHarness();
+    const { tree, groups, sendMessage, mailbox, drain, groupId, askId } = wakeHarness();
     const injected = injectOrchestratedCommTools({
       childId: askId,
-      lifecycleId: tree.get(askId)?.lifecycleId,
+      lifecycleId: tree.get(askId)!.lifecycleId!,
+      epoch: tree.get(askId)!.lifecycleEpoch!,
       groupId,
+      groups,
       tree,
       mailbox,
     });
@@ -1324,11 +1338,14 @@ describe("transactional packet evidence", () => {
           to: PARENT_RECIPIENT_ID,
           groupId: "grp-tx",
           lifecycleId,
+          lifecycleEpoch: epoch,
           body: "Third reentrant question",
         });
         overlaps.record({
           groupId: "grp-tx",
           childId: "mn-tx",
+          lifecycleId,
+          epoch,
           path: "third/path",
           otherId: "mn-other",
           otherPath: "other/path",
@@ -1343,10 +1360,15 @@ describe("transactional packet evidence", () => {
       getGroups: () => groups,
       sendMessage: sendMessage as ExtensionAPI["sendMessage"],
       schedule: (run) => pending.push(run),
-      peekParentMail: (childId, identity) => {
+      peekParentMail: (authority) => {
         const messages = mailbox
-          .peekPending(PARENT_RECIPIENT_ID, childId)
-          .filter((message) => message.lifecycleId === identity);
+          .peekPending(PARENT_RECIPIENT_ID, authority.childId)
+          .filter(
+            (message) =>
+              message.groupId === authority.groupId &&
+              message.lifecycleId === authority.lifecycleId &&
+              message.lifecycleEpoch === authority.epoch,
+          );
         return messages.length === 0
           ? undefined
           : {
@@ -1369,6 +1391,7 @@ describe("transactional packet evidence", () => {
         to: PARENT_RECIPIENT_ID,
         groupId: "grp-tx",
         lifecycleId,
+        lifecycleEpoch: epoch,
         body,
       });
       expect(sent.status).toBe("queued");
@@ -1377,6 +1400,8 @@ describe("transactional packet evidence", () => {
     overlaps.record({
       groupId: "grp-tx",
       childId: "mn-tx",
+      lifecycleId,
+      epoch,
       path: "first/path",
       otherId: "mn-other",
       otherPath: "other/path",

@@ -1,16 +1,26 @@
 import { logger } from "../logger.js";
-import type { AgentTree } from "../tree.js";
+import { type AgentTree, isTerminalStatus } from "../tree.js";
 import type { PathIntent } from "../types.js";
 import { normalizeIntentPath, pathsOverlap } from "./paths.js";
 
 /** Mailbox shape used for overlap notices. 3.2 owns live delivery. */
 export interface PathIntentMailbox {
-  enqueue(input: { from: string; to: string; groupId: string; body: string }): unknown;
+  enqueue(input: {
+    from: string;
+    to: string;
+    groupId: string;
+    body: string;
+    lifecycleId: string;
+    lifecycleEpoch: number;
+  }): unknown;
 }
 
 export interface PathOverlapNotice {
   groupId: string;
   childId: string;
+  /** Immutable owner evidence; never recover from childId later. */
+  lifecycleId: string;
+  epoch: number;
   childDescription?: string;
   path: string;
   otherId: string;
@@ -26,7 +36,17 @@ export interface PathOverlapSnapshot {
 
 export interface AnnouncePathIntentInput {
   tree: AgentTree;
+  groups: {
+    ownsLifecycle(authority: {
+      groupId: string;
+      childId: string;
+      lifecycleId: string;
+      epoch: number;
+    }): boolean;
+  };
   childId: string;
+  lifecycleId: string;
+  epoch: number;
   groupId: string;
   cwd: string;
   paths: readonly string[];
@@ -76,10 +96,12 @@ export interface InspectPathIntentResult {
 export class PathOverlapLog {
   private pending: Array<{ id: string; notice: PathOverlapNotice }> = [];
   private nextId = 0;
+  static readonly MAX_PENDING = 256;
 
   record(notice: PathOverlapNotice): void {
     this.nextId++;
     this.pending.push({ id: `overlap-${this.nextId.toString(36)}`, notice });
+    if (this.pending.length > PathOverlapLog.MAX_PENDING) this.pending.shift();
   }
 
   peek(groupIds?: readonly string[]): PathOverlapSnapshot {
@@ -106,6 +128,31 @@ export class PathOverlapLog {
     const snapshot = this.peek(groupIds);
     this.ack(snapshot.ids);
     return snapshot.notices;
+  }
+
+  discardLifecycle(input: {
+    groupId: string;
+    childId: string;
+    lifecycleId: string;
+    epoch: number;
+  }): number {
+    const before = this.pending.length;
+    this.pending = this.pending.filter(
+      (entry) =>
+        !(
+          entry.notice.groupId === input.groupId &&
+          entry.notice.childId === input.childId &&
+          entry.notice.lifecycleId === input.lifecycleId &&
+          entry.notice.epoch === input.epoch
+        ),
+    );
+    return before - this.pending.length;
+  }
+
+  discardGroup(groupId: string): number {
+    const before = this.pending.length;
+    this.pending = this.pending.filter((entry) => entry.notice.groupId !== groupId);
+    return before - this.pending.length;
   }
 
   list(): readonly PathOverlapNotice[] {
@@ -159,7 +206,7 @@ function formatOverlapBody(notice: PathOverlapNotice): string {
  * or rejects writes. Spawn / other groups / terminal children are ignored.
  */
 export function announcePathIntent(input: AnnouncePathIntentInput): AnnouncePathIntentResult {
-  const { tree, childId, groupId, cwd, ttlMs, note, now } = input;
+  const { tree, groups, childId, lifecycleId, epoch, groupId, cwd, ttlMs, note, now } = input;
   const paths = uniqueNormalized(input.paths, cwd);
   const announced: PathIntent[] = paths.map((path) => ({
     path,
@@ -168,13 +215,28 @@ export function announcePathIntent(input: AnnouncePathIntentInput): AnnouncePath
     ...(note !== undefined ? { note } : {}),
   }));
 
+  const ownsLifecycle = groups.ownsLifecycle({ groupId, childId, lifecycleId, epoch });
   const node = tree.get(childId);
-  if (node?.kind === "orchestrated" && node.groupId === groupId) {
+  if (
+    node?.kind === "orchestrated" &&
+    node.groupId === groupId &&
+    node.lifecycleId === lifecycleId &&
+    node.lifecycleEpoch === epoch &&
+    !isTerminalStatus(node.status) &&
+    ownsLifecycle
+  ) {
     tree.updateInspection(childId, { pathIntent: announced });
   }
 
   const overlaps: PathOverlapHit[] = [];
-  if (node?.kind === "orchestrated" && node.groupId === groupId) {
+  if (
+    node?.kind === "orchestrated" &&
+    node.groupId === groupId &&
+    node.lifecycleId === lifecycleId &&
+    node.lifecycleEpoch === epoch &&
+    !isTerminalStatus(node.status) &&
+    ownsLifecycle
+  ) {
     for (const peer of tree.getOrchestratedGroup(groupId)) {
       if (peer.id === childId) continue;
       const peerIntents = pruneExpired(tree, peer.id, now);
@@ -205,6 +267,8 @@ export function announcePathIntent(input: AnnouncePathIntentInput): AnnouncePath
     const notice: PathOverlapNotice = {
       groupId,
       childId,
+      lifecycleId,
+      epoch,
       childDescription: node?.description,
       path: hit.path,
       otherId: hit.otherId,
@@ -217,6 +281,8 @@ export function announcePathIntent(input: AnnouncePathIntentInput): AnnouncePath
       from: childId,
       to: hit.otherId,
       groupId,
+      lifecycleId,
+      lifecycleEpoch: epoch,
       body: formatOverlapBody(notice),
     });
     logger.info("path-intent", "overlap", {

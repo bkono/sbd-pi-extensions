@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
+import { generateAvailableId, generateId, MAX_PUBLIC_ID_ATTEMPTS } from "../minions.js";
 import { AgentTree, PARENT_SESSION_RESTARTED, rehydratePersistedMinion } from "../tree.js";
 import type { OrchestrationDomain } from "../types.js";
 
@@ -44,6 +45,46 @@ describe("AgentTree spawn default", () => {
     expect(node.domain).toBeUndefined();
     expect(node.agentName).toBe("ephemeral");
     expect(node.model).toBe("gpt-test");
+  });
+
+  it("keeps the 8-hex public contract, retries occupied ids, and fails boundedly", () => {
+    const tree = new AgentTree();
+    expect(generateId()).toMatch(/^[0-9a-f]{8}$/);
+    tree.add("aaaaaaaa", "spawn", "spawn work", { kind: "spawn" });
+    const candidates = ["aaaaaaaa", "bbbbbbbb"];
+    expect(generateAvailableId(tree, new Set(), () => candidates.shift()!)).toBe("bbbbbbbb");
+    expect(() => generateAvailableId(tree, new Set(), () => "aaaaaaaa")).toThrow(
+      `after ${MAX_PUBLIC_ID_ATTEMPTS} attempts`,
+    );
+  });
+
+  it("rejects spawn/orchestrated duplicate registration atomically and permits reuse after retire", () => {
+    const tree = new AgentTree();
+    const original = tree.add("deadbeef", "spawn", "spawn work", { kind: "spawn" });
+    expect(() =>
+      tree.add("deadbeef", "orchestrated", "background work", {
+        kind: "orchestrated",
+        groupId: "grp-1",
+      }),
+    ).toThrow("agent id already registered: deadbeef");
+    expect(tree.get("deadbeef")).toBe(original);
+    tree.remove("deadbeef");
+    expect(
+      tree.add("deadbeef", "orchestrated", "replacement", {
+        kind: "orchestrated",
+        groupId: "grp-1",
+      }).task,
+    ).toBe("replacement");
+  });
+
+  it("admits exactly one concurrent-ish registration for one public id", async () => {
+    const tree = new AgentTree();
+    const attempts = await Promise.allSettled([
+      Promise.resolve().then(() => tree.add("cafebabe", "one", "one")),
+      Promise.resolve().then(() => tree.add("cafebabe", "two", "two")),
+    ]);
+    expect(attempts.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(tree.get("cafebabe")?.name).toBe("one");
   });
 
   it("registers orchestrated nodes as pending when requested", () => {

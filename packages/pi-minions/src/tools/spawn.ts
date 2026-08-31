@@ -9,7 +9,12 @@ import { Type } from "typebox";
 import { discoverAgents, requireAgent } from "../agents.js";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
-import { defaultMinionTemplate, generateId, pickMinionName } from "../minions.js";
+import {
+  defaultMinionTemplate,
+  generateAvailableId,
+  generateId,
+  pickMinionName,
+} from "../minions.js";
 import { BatchCoordinator, runSingleMinion } from "../spawn/index.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { AgentTree } from "../tree.js";
@@ -124,9 +129,11 @@ async function executeSpawn(
 
   const parentToolNames = pi.getAllTools().map((t) => t.name);
   const assignedNames = new Set<string>();
+  const reservedIds = new Set<string>();
 
   const minions: BatchMinionItem[] = specs.map((spec) => {
-    const id = generateId();
+    const id = generateAvailableId(tree, reservedIds);
+    reservedIds.add(id);
     const agentConfig = spec.agent ? resolveAgentConfig(spec.agent, ctx.cwd) : undefined;
     const name = pickMinionName(tree, id, ctx, agentConfig?.displayName, assignedNames);
     assignedNames.add(name);

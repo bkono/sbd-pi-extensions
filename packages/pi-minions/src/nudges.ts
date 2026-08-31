@@ -1,7 +1,8 @@
-import type { NudgeEvent, TaskType } from "./task-types.js";
+import { isNudgeEvent, isTaskType, type NudgeEvent, type TaskType } from "./task-types.js";
 
 export interface NudgeChild {
-  taskType?: TaskType;
+  /** API inputs are enum-validated; runtime projections still treat this as hostile. */
+  taskType?: TaskType | unknown;
   completionNudge?: string;
 }
 
@@ -74,15 +75,18 @@ function agentNudge(child: NudgeChild): string | undefined {
  * Task-type policy wins. Agent completion_nudge applies only to settled/failed
  * when taskType is absent. Never concatenates sources.
  */
-export function nudgeFor(child: NudgeChild, event: NudgeEvent): string {
-  if (child.taskType !== undefined) {
-    return BY_TASK_TYPE[child.taskType][event];
+export function nudgeFor(child: NudgeChild, event: NudgeEvent | unknown): string {
+  const normalizedEvent = isNudgeEvent(event) ? event : undefined;
+  if (!normalizedEvent) {
+    return "A background child changed state. Inspect the evidence and decide the next action.";
   }
 
-  if (event === "settled" || event === "failed") {
+  if (isTaskType(child.taskType)) return BY_TASK_TYPE[child.taskType][normalizedEvent];
+
+  if (normalizedEvent === "settled" || normalizedEvent === "failed") {
     const fromAgent = agentNudge(child);
     if (fromAgent !== undefined) return fromAgent;
   }
 
-  return GENERIC[event];
+  return GENERIC[normalizedEvent];
 }

@@ -1236,6 +1236,8 @@ describe("waiting mailbox resume", () => {
     tree.add("child-wait", "alpha", "ask parent", {
       kind: "orchestrated",
       groupId: "grp-1",
+      lifecycleId: "life-wait",
+      lifecycleEpoch: 1,
     });
     const bound = bindTreeActivity(tree, "child-wait");
     const idle = createDeferred<void>();
@@ -1259,9 +1261,12 @@ describe("waiting mailbox resume", () => {
       },
     });
     if (opts?.streaming) session.isStreaming = true;
+    const groups = new OrchestrationGroupState();
+    groups.commitGroup({ groupId: "grp-1", cwd });
+    groups.acceptLiveWork("grp-1", [{ childId: "child-wait", lifecycleId: "life-wait" }]);
     const mailbox = new MinionCommMailbox({
       getTree: () => tree,
-      getGroups: () => ({ getOpenGroup: () => ({ groupId: "grp-1", cwd }) }),
+      getGroups: () => groups,
       isLive: (id) => manager.isLive(id),
       followUp: async (id, text, followOpts) => {
         const live = manager.getSessionHandle(id);
@@ -1272,6 +1277,8 @@ describe("waiting mailbox resume", () => {
     });
     const asked = mailbox.send({
       from: "child-wait",
+      lifecycleId: "life-wait",
+      lifecycleEpoch: 1,
       to: PARENT_RECIPIENT_ID,
       groupId: "grp-1",
       body: "need a ruling",
@@ -1497,6 +1504,8 @@ describe("waiting mailbox resume", () => {
 
     const askedAgain = mailbox.send({
       from: "child-wait",
+      lifecycleId: "life-wait",
+      lifecycleEpoch: 1,
       to: PARENT_RECIPIENT_ID,
       groupId: "grp-1",
       body: "still need a ruling",
@@ -1582,6 +1591,8 @@ describe("waiting mailbox resume", () => {
 
     const askedAgain = mailbox.send({
       from: "child-wait",
+      lifecycleId: "life-wait",
+      lifecycleEpoch: 1,
       to: PARENT_RECIPIENT_ID,
       groupId: "grp-1",
       body: "still need a ruling",

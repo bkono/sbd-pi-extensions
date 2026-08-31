@@ -9,12 +9,12 @@
  */
 export const ORCHESTRATION_LIFECYCLE_CHANNEL = "orchestration:lifecycle";
 
-let nextLifecycleInstance = 0;
-
-/** Process-unique opaque runtime registration identity. Public child ids remain unchanged. */
+/**
+ * Reload-safe opaque runtime registration identity. `crypto.randomUUID()` is provided by the
+ * host runtime rather than module state, so Jiti `moduleCache:false` reloads cannot reset it.
+ */
 export function createLifecycleId(): string {
-  nextLifecycleInstance++;
-  return `lifecycle-${nextLifecycleInstance.toString(36)}`;
+  return crypto.randomUUID();
 }
 
 export type OrchestrationLifecycleClass =

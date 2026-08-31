@@ -4,7 +4,7 @@ import type { PathOverlapNotice, PathOverlapSnapshot } from "../coordination/ind
 import { logger } from "../logger.js";
 import { nudgeFor } from "../nudges.js";
 import { formatDuration } from "../render.js";
-import { NUDGE_EVENTS, type NudgeEvent } from "../task-types.js";
+import { isNudgeEvent, type NudgeEvent, normalizeTaskType } from "../task-types.js";
 import type { AgentTree } from "../tree.js";
 import {
   type AgentNode,
@@ -14,7 +14,11 @@ import {
   type TrustedActivityProjection,
 } from "../types.js";
 import type { OrchestrationLifecycleEvent } from "./events.js";
-import type { LifecycleRegistration, OrchestrationGroupState } from "./group-state.js";
+import type {
+  LifecycleAuthority,
+  LifecycleRegistration,
+  OrchestrationGroupState,
+} from "./group-state.js";
 
 export const LIFECYCLE_PACKET_CUSTOM_TYPE = "minion-lifecycle";
 /** Per-field caps remain defense in depth; aggregate budgets below are authoritative. */
@@ -26,6 +30,7 @@ export const MAX_STILL_RUNNING_CHILDREN = 16;
 export const MAX_PACKET_OVERLAPS = 4;
 export const PACKET_CONTENT_BYTE_BUDGET = 9800;
 export const PACKET_DETAILS_BYTE_BUDGET = 9800;
+export const MAX_DELIVERED_TERMINAL_HISTORY = 256;
 
 const SEND_OPTIONS = { triggerTurn: true, deliverAs: "followUp" } as const;
 const FALLBACK_NUDGE = "Inspect the child evidence and decide the next action.";
@@ -84,8 +89,9 @@ export interface LifecyclePacketDispatcherDeps {
   schedule?: (run: () => void) => void;
   peekOverlaps?: (groupIds: string[]) => PathOverlapSnapshot;
   ackOverlaps?: (ids: readonly string[]) => void;
-  peekParentMail?: (childId: string, lifecycleId: string) => ParentMailSnapshot | undefined;
+  peekParentMail?: (authority: LifecycleAuthority) => ParentMailSnapshot | undefined;
   ackParentMail?: (snapshot: ParentMailSnapshot) => void;
+  onAcceptedTerminal?: (authority: LifecycleAuthority) => void;
 }
 
 interface OwnedLifecycleEvent {
@@ -102,13 +108,14 @@ interface IdleReservation {
 interface BuiltLifecyclePacket {
   details: LifecyclePacketDetails;
   terminalKeys: string[];
+  terminalRegistrations: LifecycleRegistration[];
   idleReservation?: IdleReservation;
   parentMailSnapshots: ParentMailSnapshot[];
   overlapIds: string[];
 }
 
-function isPacketClass(value: string): value is NudgeEvent {
-  return (NUDGE_EVENTS as readonly string[]).includes(value);
+function isPacketClass(value: unknown): value is NudgeEvent {
+  return isNudgeEvent(value);
 }
 
 // ECMA-48 CSI/OSC/DCS/SOS/PM/APC plus C0/C1 controls. Preserve useful line breaks only.
@@ -184,6 +191,8 @@ function boundedActivity(
 function boundedOverlap(notice: PathOverlapNotice): PathOverlapNotice {
   return {
     groupId: field(notice.groupId) ?? "group",
+    lifecycleId: field(notice.lifecycleId) ?? "lifecycle",
+    epoch: Number.isSafeInteger(notice.epoch) ? notice.epoch : 0,
     childId: field(notice.childId) ?? "child",
     childDescription: field(notice.childDescription),
     path: field(notice.path) ?? "path",
@@ -307,7 +316,7 @@ function toStillRunning(node: AgentNode, now: number): StillRunningChildPacket {
   return {
     childId: field(node.id) ?? "child",
     agent: field(namedAgent(node)),
-    taskType: field(node.taskType) as TaskType | undefined,
+    taskType: normalizeTaskType(node.taskType),
     description: field(node.description),
     state: fleetChildState(node),
     elapsedMs: Number.isFinite(now - node.startTime) ? Math.max(0, now - node.startTime) : 0,
@@ -344,7 +353,8 @@ export class LifecyclePacketDispatcher {
   private closed = false;
   private readonly schedule: (run: () => void) => void;
   private readonly now: () => number;
-  private readonly deliveredTerminals = new Set<string>();
+  private readonly deliveredTerminals = new Map<string, string>();
+  private deliveredTerminalOrder: string[] = [];
 
   constructor(private readonly deps: LifecyclePacketDispatcherDeps) {
     this.schedule = deps.schedule ?? queueMicrotask;
@@ -378,6 +388,7 @@ export class LifecyclePacketDispatcher {
     this.scheduled = false;
     this.seq = 0;
     this.deliveredTerminals.clear();
+    this.deliveredTerminalOrder = [];
   }
 
   close(): void {
@@ -388,6 +399,31 @@ export class LifecyclePacketDispatcher {
   open(): void {
     this.closed = false;
     this.reset();
+  }
+
+  /** Cancellation is distinct from ack: queued/unaccepted evidence is forgotten. */
+  discardGroup(groupId: string): void {
+    this.queue = this.queue.filter((owned) => owned.event.groupId !== groupId);
+    const kept: string[] = [];
+    for (const key of this.deliveredTerminalOrder) {
+      if (this.deliveredTerminals.get(key) === groupId) this.deliveredTerminals.delete(key);
+      else kept.push(key);
+    }
+    this.deliveredTerminalOrder = kept;
+  }
+
+  inspectionCounts(): { queued: number; deliveredHistory: number } {
+    return { queued: this.queue.length, deliveredHistory: this.deliveredTerminals.size };
+  }
+
+  private recordDelivered(key: string, groupId: string): void {
+    if (this.deliveredTerminals.has(key)) return;
+    this.deliveredTerminals.set(key, groupId);
+    this.deliveredTerminalOrder.push(key);
+    while (this.deliveredTerminalOrder.length > MAX_DELIVERED_TERMINAL_HISTORY) {
+      const oldest = this.deliveredTerminalOrder.shift();
+      if (oldest !== undefined) this.deliveredTerminals.delete(oldest);
+    }
   }
 
   private scheduleDrain(): void {
@@ -417,7 +453,9 @@ export class LifecyclePacketDispatcher {
       return;
     }
 
-    for (const key of packet.terminalKeys) this.deliveredTerminals.add(key);
+    for (const registration of packet.terminalRegistrations) {
+      this.recordDelivered(registration.lifecycleId, registration.groupId);
+    }
     if (packet.idleReservation) {
       this.deps
         .getGroups()
@@ -425,6 +463,10 @@ export class LifecyclePacketDispatcher {
     }
     for (const snapshot of packet.parentMailSnapshots) this.deps.ackParentMail?.(snapshot);
     this.deps.ackOverlaps?.(packet.overlapIds);
+    // Accepted packet/evidence ack happens before exact-lifecycle cleanup. Replacement nodes survive.
+    for (const registration of packet.terminalRegistrations) {
+      this.deps.onAcceptedTerminal?.(registration);
+    }
   }
 
   private build(events: OwnedLifecycleEvent[]): BuiltLifecyclePacket | undefined {
@@ -463,6 +505,7 @@ export class LifecyclePacketDispatcher {
     const terminalLifecycleIds = new Set<string>();
     const terminalGroupEpochs = new Map<string, Set<number>>();
     const terminalKeys = new Set<string>();
+    const terminalRegistrations = new Map<string, LifecycleRegistration>();
     const groupIds: string[] = [];
     const parentMailSnapshots: ParentMailSnapshot[] = [];
 
@@ -475,7 +518,7 @@ export class LifecyclePacketDispatcher {
 
       let output = event.output;
       if (event.class === "parentMessage" && this.deps.peekParentMail) {
-        const snapshot = this.deps.peekParentMail(event.childId, event.lifecycleId);
+        const snapshot = this.deps.peekParentMail(owned.registration);
         if (!snapshot || snapshot.ids.length === 0) continue;
         parentMailSnapshots.push(snapshot);
         output = snapshot.text;
@@ -485,6 +528,7 @@ export class LifecyclePacketDispatcher {
         epochs.add(event.epoch);
         terminalGroupEpochs.set(event.groupId, epochs);
         if (owned.terminalKey) terminalKeys.add(owned.terminalKey);
+        terminalRegistrations.set(event.lifecycleId, owned.registration);
       }
 
       const boundedOutput = boundText(output);
@@ -493,7 +537,7 @@ export class LifecyclePacketDispatcher {
         childId: field(node.id) ?? "child",
         displayName: field(node.name) ?? "child",
         agent: field(namedAgent(node)),
-        taskType: field(node.taskType) as TaskType | undefined,
+        taskType: normalizeTaskType(node.taskType),
         description: field(node.description),
         domain: boundedDomain(node.domain),
         eventClass: event.class,
@@ -612,6 +656,7 @@ export class LifecyclePacketDispatcher {
     return {
       details,
       terminalKeys: [...terminalKeys],
+      terminalRegistrations: [...terminalRegistrations.values()],
       idleReservation,
       parentMailSnapshots,
       overlapIds: overlapSnapshot.ids,
