@@ -136,6 +136,10 @@ describe("in-process ticket from /bw run through child settlement", () => {
         const session = await harness.waitForChild(childId);
         expect(session.promptCalls).toBe(1);
 
+        await harness.waitUntilRunning(childId);
+        expect(harness.tree.get(childId)?.status).toBe("running");
+        expect(harness.tree.getRunning().map((node) => node.id)).toEqual([childId]);
+
         const parentContinued = await harness.listMinions();
         expect(parentContinued.minions).toHaveLength(1);
         const listed = parentContinued.minions[0];
@@ -150,6 +154,7 @@ describe("in-process ticket from /bw run through child settlement", () => {
           title: ticket.title,
         });
         expect(listed?.status).toBe("running");
+        expect(listed?.status).not.toBe("pending");
         expect(parentContinued.text).toContain("orchestrated");
         expect(parentContinued.text).toContain("implementation");
 

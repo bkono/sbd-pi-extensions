@@ -212,6 +212,7 @@ export type InProcessHarness = {
   invokeBeadworkTool: (name: string, params: unknown) => Promise<unknown>;
   invokeChildTool: (childId: string, name: string, params: unknown) => Promise<unknown>;
   waitForChild: (childId: string) => Promise<ScriptedChildSession>;
+  waitUntilRunning: (childId: string) => Promise<void>;
   childActiveTools: (childId: string) => string[];
   settleChild: (childId: string, prose: string) => Promise<void>;
   settleChildren: (entries: Array<{ childId: string; prose: string }>) => Promise<void>;
@@ -384,6 +385,23 @@ export async function createInProcessHarness(
     throw new Error(`Child ${childId} did not start`);
   };
 
+  const waitUntilRunning = async (childId: string): Promise<void> => {
+    const started = Date.now();
+    while (Date.now() - started < 5_000) {
+      const status = tree.get(childId)?.status;
+      if (status === "running") {
+        return;
+      }
+      if (status && status !== "pending") {
+        throw new Error(`Child ${childId} became ${status} without running`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(
+      `Child ${childId} did not become running (status=${tree.get(childId)?.status ?? "missing"})`,
+    );
+  };
+
   const harness: InProcessHarness = {
     fixture,
     log,
@@ -464,6 +482,7 @@ export async function createInProcessHarness(
       return session.executeTool(name, params);
     },
     waitForChild,
+    waitUntilRunning,
     childActiveTools(childId) {
       const session = children.get(childId);
       if (!session) {

@@ -287,6 +287,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
 
         const sessionA = await harness.waitForChild(childA);
         const sessionB = await harness.waitForChild(childB);
+        await Promise.all([harness.waitUntilRunning(childA), harness.waitUntilRunning(childB)]);
         for (const childId of [childA, childB]) {
           const active = harness.childActiveTools(childId);
           for (const name of BEADWORK_CHILD_INSPECTION_TOOLS) expect(active).toContain(name);
