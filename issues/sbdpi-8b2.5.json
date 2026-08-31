@@ -28,11 +28,15 @@
     {
       "text": "Review fixes landed at final superseding SHA d7f2acc517d77a6e6cb8724605fa20ab15bfc8bb (all prior 2ff95ab references superseded/invalid). Four scoped files: activity sanitizer + tests, fleet widget + tests. Reported: grapheme-safe Intl.Segmenter truncation with hostile surrogate replacement; complete ESC/C1 terminal string stripping through terminator/EOS; useful identity retained widths 4–7; production-shaped lifecycle sequences including TUI→RPC. Validation: 23/313 package, focused 5/142, lint/typecheck/build/diff/status clean. Manual TUI smoke not claimed. Independent re-review required.",
       "timestamp": "2026-08-31T06:18:57Z"
+    },
+    {
+      "text": "Independent re-review 644e2e3a PASS at exact d7f2acc517d77a6e6cb8724605fa20ab15bfc8bb. All four prior blockers fixed; adversarial probes: 41 terminal-string, 1,064 truncation, 909 widget-width cases. Scoped lint/typecheck/build and 23 files/313 tests pass. Root lint/typecheck/build pass. Supplemental root test was 2341/2342: persistent unrelated pre-existing harness failure in pi-beadwork E2E overlap-notice (expected ScriptedChildSession.followUps, delivery uses prompt when fake lacks production isStreaming). Parent disposition: FILE for upcoming cross-package `.6`/final `.7` gate, not a `.5` source blocker; root must be clean before epic completion.\n\nReal interactive TUI smoke performed by parent against source extension at d7f2acc using isolated Pi 0.84.4 (`--no-extensions -e ./packages/pi-minions/src/index.ts`): PASS. Wide dark run showed 2 active + group id, two taskType/description/activity rows, existing footer/status intact; `/minions` drill-down opened without breaking widget and widget disappeared after last terminal child. Narrow 42-column light run showed bounded useful row (`george implementation Nar… → $ sleep 45`) with no overflow/focus capture. Active-child `/reload` run showed widget before reload, then reload cleared it; `/minions` reported no active minions and no stale widget update. Settings UI coexisted beneath active widget; source/runtime theme invalidation already independently probed PASS. Temporary nested sessions were killed and background session sweep was empty. Parent accepts code + manual smoke; closure-ready.",
+      "timestamp": "2026-08-31T06:51:21Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add a persistent compact fleet progress widget",
   "type": "feature",
-  "updated_at": "2026-08-31T06:18:57Z"
+  "updated_at": "2026-08-31T06:51:21Z"
 }
