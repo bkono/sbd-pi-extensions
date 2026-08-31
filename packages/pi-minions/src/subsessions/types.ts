@@ -99,7 +99,7 @@ export interface MinionSessionHandle {
   id: string;
   path: string;
   steer(text: string): Promise<void>;
-  followUp(text: string, opts?: { parentReply?: boolean }): Promise<void>;
+  followUp(text: string, opts?: { parentReply?: boolean; deliveryId?: string }): Promise<void>;
   abort(): void;
   wait(): Promise<ChildTerminalEvent>;
 }

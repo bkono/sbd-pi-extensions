@@ -318,9 +318,7 @@ function isAcceptedParentBoundQuestion(
     (toolName === "send_minion_peer" && to === "parent");
   if (!parentBound) return false;
   if (to !== undefined && to !== "parent") return false;
-  if (status !== undefined && status !== "queued") return false;
-  if (status === "queued") return true;
-  return pendingParentQuestion;
+  return status === "queued";
 }
 
 function isParentBoundPeerStart(toolName: string, args: Record<string, unknown>): boolean {
@@ -388,12 +386,12 @@ export function sessionRecordsToActivityEvents(
         }
         const call = toolCallFromBlock(block);
         if (!call) continue;
-        events.push({ type: "tool_start", toolName: call.toolName, args: call.args });
         if (quarantinedCallIds.has(call.id) || pendingCalls.has(call.id)) {
           pendingCalls.delete(call.id);
           quarantinedCallIds.add(call.id);
           continue;
         }
+        events.push({ type: "tool_start", toolName: call.toolName, args: call.args });
         pendingCalls.set(call.id, { toolName: call.toolName, args: call.args });
       }
       continue;

@@ -19,10 +19,13 @@ import { logger } from "../logger.js";
 import {
   COMM_SEND_STATUS,
   createLifecyclePacketDispatcher,
+  formatMinionMail,
   type LifecyclePacketDetails,
   MinionCommMailbox,
   PARENT_RECIPIENT_ID,
+  parseMinionMailDeliveryId,
 } from "../orchestration/index.js";
+import { EventBus, MINION_COMPLETE_CHANNEL } from "../subsessions/event-bus.js";
 import { SubsessionManager } from "../subsessions/manager.js";
 import type {
   ChildSession,
@@ -425,6 +428,68 @@ describe("AgentTree activity", () => {
     expect(stale).toEqual([]);
     expect(hits).toEqual(["new"]);
   });
+
+  it("stale unsubscribe of the same callback does not remove the replacement registration", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    const hits: string[] = [];
+    const callback = () => {
+      hits.push("cb");
+    };
+    const staleUnsub = tree.onNodeChange("mn-1", callback);
+    staleUnsub();
+    tree.remove("mn-1");
+    tree.add("mn-1", "bravo", "work again");
+    tree.onNodeChange("mn-1", callback);
+    staleUnsub();
+    tree.applyActivityEvent("mn-1", { type: "thinking" });
+    expect(hits).toEqual(["cb"]);
+    expect(tree.listenerCount()).toBe(1);
+  });
+
+  it("explicit global and scoped registrations of the same callback each fire once", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    let hits = 0;
+    const callback = () => {
+      hits++;
+    };
+    tree.onChange(callback);
+    tree.onNodeChange("mn-1", callback);
+    tree.applyActivityEvent("mn-1", { type: "thinking" });
+    expect(hits).toBe(2);
+  });
+
+  it("contains logger failures and hostile thrown values without skipping later listeners", () => {
+    const tree = new AgentTree();
+    tree.add("mn-1", "alpha", "work");
+    const order: string[] = [];
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    vi.spyOn(logger, "error").mockImplementation(() => {
+      throw new Error("logger boom");
+    });
+    tree.onChange(() => {
+      order.push("g1");
+      const err = new Error("hostile");
+      Object.defineProperty(err, "message", {
+        get() {
+          JSON.stringify(cyclic);
+          return cyclic as unknown as string;
+        },
+      });
+      throw err;
+    });
+    tree.onChange(() => {
+      order.push("g2");
+    });
+    tree.onNodeChange("mn-1", () => {
+      order.push("n1");
+    });
+    expect(() => tree.applyActivityEvent("mn-1", { type: "thinking" })).not.toThrow();
+    expect(order).toEqual(["g1", "g2", "n1"]);
+    vi.restoreAllMocks();
+  });
 });
 
 const SESSION_TS = "2024-12-03T14:00:01.000Z";
@@ -540,6 +605,29 @@ describe("transcript rehydration", () => {
     ]);
     expect(failed.some((event) => event.type === "waiting")).toBe(false);
     expect(replayActivity(failed, NOW).current?.phase).toBe("thinking");
+
+    const missingDetails = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r1", "a1", "call_send", "send_minion_peer", { text: "ok" }),
+    ]);
+    expect(missingDetails.map((event) => event.type)).toEqual([
+      "turn_end",
+      "tool_start",
+      "tool_end",
+    ]);
+    expect(missingDetails.some((event) => event.type === "waiting")).toBe(false);
+    expect(replayActivity(missingDetails, NOW).current?.phase).not.toBe("waiting");
+
+    const emptyDetails = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        toolCall("call_send", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r1", "a1", "call_send", "send_minion_peer", { details: {} }),
+    ]);
+    expect(emptyDetails.some((event) => event.type === "waiting")).toBe(false);
+    expect(replayActivity(emptyDetails, NOW).current?.phase).not.toBe("waiting");
   });
 
   it("does not wait on unmatched or malformed calls and never cross-pairs", () => {
@@ -592,29 +680,64 @@ describe("transcript rehydration", () => {
   });
 
   it("quarantines duplicate active toolCallIds so no result can wait", () => {
-    const content = [
-      JSON.stringify(
-        assistantRecord("a1", null, [
-          toolCall("dup", "read", { path: "src/auth.ts" }),
-          toolCall("dup", "send_minion_peer", {
-            to: "parent",
-            body: "need a ruling",
-          }),
-        ]),
-      ),
-      JSON.stringify(
-        toolResultRecord("t1", "a1", "dup", "send_minion_peer", {
-          isError: false,
-          details: { status: "queued", to: "parent" },
-        }),
-      ),
-    ].join("\n");
-    const replayed = replayActivity(
-      sessionRecordsToActivityEvents(parseJsonlRecords(content)),
-      NOW,
-    );
-    expect(replayed.current?.phase).not.toBe("waiting");
-    expect(summaries(replayed.history)).not.toContain("waiting on parent");
+    const eventKey = (event: { type: string; toolName?: string }) =>
+      event.type === "tool_start" ? `tool_start:${event.toolName}` : event.type;
+
+    const readThenSend = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        toolCall("dup", "read", { path: "src/auth.ts" }),
+        toolCall("dup", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r1", "a1", "dup", "read", {
+        details: { status: COMM_SEND_STATUS.queued, to: "parent" },
+      }),
+      toolResultRecord("r2", "a1", "dup", "send_minion_peer", {
+        details: { status: COMM_SEND_STATUS.queued, to: "parent" },
+      }),
+    ]);
+    expect(readThenSend.map(eventKey)).toEqual(["turn_end", "tool_start:read"]);
+    expect(readThenSend.some((event) => event.type === "waiting")).toBe(false);
+    expect(replayActivity(readThenSend, NOW).current?.phase).not.toBe("waiting");
+
+    const sendThenRead = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        toolCall("dup", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+        toolCall("dup", "read", { path: "src/auth.ts" }),
+      ]),
+      toolResultRecord("r1", "a1", "dup", "send_minion_peer", {
+        details: { status: COMM_SEND_STATUS.queued, to: "parent" },
+      }),
+      toolResultRecord("r2", "a1", "dup", "read", {
+        details: { status: COMM_SEND_STATUS.queued, to: "parent" },
+      }),
+    ]);
+    expect(sendThenRead.map(eventKey)).toEqual(["turn_end", "tool_start:send_minion_peer"]);
+    expect(sendThenRead.some((event) => event.type === "waiting")).toBe(false);
+
+    const laterUnique = sessionRecordsToActivityEvents([
+      assistantRecord("a1", null, [
+        toolCall("dup", "read", { path: "src/auth.ts" }),
+        toolCall("dup", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r1", "a1", "dup", "read", {
+        details: { status: COMM_SEND_STATUS.queued, to: "parent" },
+      }),
+      assistantRecord("a2", null, [
+        toolCall("unique", "send_minion_peer", { to: "parent", body: "need a ruling" }),
+      ]),
+      toolResultRecord("r3", "a2", "unique", "send_minion_peer", {
+        details: { status: COMM_SEND_STATUS.queued, to: "parent" },
+      }),
+    ]);
+    expect(laterUnique.map(eventKey)).toEqual([
+      "turn_end",
+      "tool_start:read",
+      "turn_end",
+      "tool_start:send_minion_peer",
+      "tool_end",
+      "waiting",
+    ]);
+    expect(replayActivity(laterUnique, NOW).current?.phase).toBe("waiting");
   });
 
   it("parseSessionHistory reconstructs snapshots without turn N entries", () => {
@@ -878,6 +1001,68 @@ describe("manager settling callback", () => {
   });
 });
 
+describe("terminal observer exception safety", () => {
+  it("onComplete throw still settles, emits, disposes, and keeps terminal authority", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-settle-"));
+    const session = new FakeChildSession();
+    const bus = new EventBus();
+    const completions: Array<{ id: string; class: string }> = [];
+    bus.on(MINION_COMPLETE_CHANNEL, (event: { id: string; class: string }) => {
+      completions.push(event);
+    });
+    const onComplete = vi.fn(() => {
+      throw new Error("observer boom");
+    });
+    const logError = vi.spyOn(logger, "error").mockImplementation((_scope, msg) => {
+      if (msg === "on-complete-error") throw new Error("log boom");
+    });
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), bus, {
+      createChildRuntime: async () => ({
+        runtime: {
+          session,
+          dispose: () => {
+            session.dispose();
+          },
+        },
+        sessionPath: join(cwd, "child.jsonl"),
+      }),
+    });
+    const idle = createDeferred<void>();
+    session.waitForIdle = () => idle.promise;
+    const handle = await manager.startChild({
+      id: "child-obs",
+      name: "alpha",
+      task: "wrap up",
+      config,
+      spawnedBy: "parent",
+      cwd,
+      modelRegistry: {} as CreateMinionSessionOptions["modelRegistry"],
+      onComplete,
+    });
+
+    session.emit({ type: "agent_settled" });
+    idle.resolve();
+    await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
+    expect(manager.getTerminal("child-obs")?.class).toBe("settled");
+    expect(completions).toEqual([expect.objectContaining({ id: "child-obs", class: "settled" })]);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(session.disposed).toBe(true);
+      expect(manager.getSessionHandle("child-obs")).toBeUndefined();
+    });
+    expect(
+      manager.commitTerminal("child-obs", {
+        class: "failed",
+        exitCode: 1,
+        output: "",
+        error: "nope",
+      }),
+    ).toBe(false);
+    expect(manager.getTerminal("child-obs")?.class).toBe("settled");
+    expect(logError).toHaveBeenCalled();
+  });
+});
+
 describe("waiting mailbox resume", () => {
   async function setupWaitingChild(opts?: { streaming?: boolean }) {
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-activity-wait-"));
@@ -984,11 +1169,15 @@ describe("waiting mailbox resume", () => {
     expect(session.followUps).toEqual([]);
     const delivered = session.prompts.at(-1);
     expect(delivered).toBeTruthy();
+    expect(parseMinionMailDeliveryId(delivered ?? "")).toBe(reply.messageId);
+    expect(delivered).toBe(formatMinionMail(PARENT_RECIPIENT_ID, "continue", reply.messageId));
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
 
     session.emit(userStart(delivered ?? ""));
     await Promise.resolve();
     expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
     expect(session.prompts.length).toBe(initialPrompts + 1);
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
 
     session.emit({ type: "agent_end", willRetry: false });
     await Promise.resolve();
@@ -999,6 +1188,7 @@ describe("waiting mailbox resume", () => {
     idle.resolve();
     await expect(handle.wait()).resolves.toMatchObject({ class: "settled" });
     expect(manager.getTerminal("child-wait")?.class).toBe("settled");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
   });
 
   it("active-run followUp remains waiting until matching user message_start", async () => {
@@ -1015,6 +1205,7 @@ describe("waiting mailbox resume", () => {
     });
     expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
     const delivered = session.followUps[0] ?? "";
+    expect(parseMinionMailDeliveryId(delivered)).toBe(reply.messageId);
     session.emit({
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "tail" },
@@ -1044,6 +1235,7 @@ describe("waiting mailbox resume", () => {
     expect(manager.isLive("child-wait")).toBe(true);
     expect(tree.get("child-wait")?.status).toBe("running");
     expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
   });
 
   it("abort while waiting wins exactly once", async () => {
@@ -1052,6 +1244,7 @@ describe("waiting mailbox resume", () => {
     await expect(handle.wait()).resolves.toMatchObject({ class: "aborted" });
     expect(manager.getTerminal("child-wait")?.class).toBe("aborted");
     expect(manager.isLive("child-wait")).toBe(false);
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
   });
 
   it("provider failure while waiting wins exactly once", async () => {
@@ -1065,21 +1258,29 @@ describe("waiting mailbox resume", () => {
     await expect(handle.wait()).resolves.toMatchObject({ class: "failed" });
     expect(manager.getTerminal("child-wait")?.class).toBe("failed");
     expect(manager.isLive("child-wait")).toBe(false);
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
   });
 
-  it("stale user messages do not clear a newer wait", async () => {
-    const { session, tree, mailbox } = await setupWaitingChild();
+  it("stale same-body generation cannot clear a newer wait", async () => {
+    const { session, manager, tree, idle, mailbox } = await setupWaitingChild();
     const firstReply = mailbox.send({
       from: PARENT_RECIPIENT_ID,
       to: "child-wait",
       groupId: "grp-1",
-      body: "first",
+      body: "continue",
     });
     expect(firstReply.status).toBe(COMM_SEND_STATUS.queued);
     await vi.waitFor(() => {
       expect(session.prompts.length).toBeGreaterThan(1);
     });
-    const stale = session.prompts.at(-1) ?? "";
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+    const gen1Text = session.prompts.at(-1) ?? "";
+    expect(parseMinionMailDeliveryId(gen1Text)).toBe(firstReply.messageId);
+    session.emit(userStart(gen1Text));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
+
     const askedAgain = mailbox.send({
       from: "child-wait",
       to: PARENT_RECIPIENT_ID,
@@ -1088,21 +1289,131 @@ describe("waiting mailbox resume", () => {
     });
     expect(askedAgain.status).toBe(COMM_SEND_STATUS.queued);
     expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
-    session.emit(userStart(stale));
+    idle.resolve();
     await Promise.resolve();
-    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    await Promise.resolve();
+
     const secondReply = mailbox.send({
       from: PARENT_RECIPIENT_ID,
       to: "child-wait",
       groupId: "grp-1",
-      body: "second",
+      body: "continue",
     });
     expect(secondReply.status).toBe(COMM_SEND_STATUS.queued);
+    expect(secondReply.messageId).not.toBe(firstReply.messageId);
     await vi.waitFor(() => {
-      expect(session.prompts.at(-1)).not.toBe(stale);
+      expect(parseMinionMailDeliveryId(session.prompts.at(-1) ?? "")).toBe(secondReply.messageId);
     });
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+
+    session.emit(userStart(gen1Text));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(manager.pendingResumeCount("child-wait")).toBe(1);
+
     session.emit(userStart(session.prompts.at(-1) ?? ""));
     await Promise.resolve();
     expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
+  });
+
+  it("serializes concurrent idle parent deliveries exactly once in order", async () => {
+    const { session, manager, tree, idle, mailbox } = await setupWaitingChild();
+    let inPrompt = 0;
+    let maxConcurrent = 0;
+    session.prompt = async (text: string) => {
+      if (session.isStreaming) {
+        throw new Error(
+          "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+        );
+      }
+      await Promise.resolve();
+      if (session.isStreaming) {
+        throw new Error(
+          "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+        );
+      }
+      session.isStreaming = true;
+      inPrompt++;
+      maxConcurrent = Math.max(maxConcurrent, inPrompt);
+      try {
+        session.prompts.push(text);
+      } finally {
+        inPrompt--;
+        session.isStreaming = false;
+      }
+    };
+
+    const initialPrompts = session.prompts.length;
+    const first = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "one",
+    });
+    const second = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "two",
+    });
+    expect(first.status).toBe(COMM_SEND_STATUS.queued);
+    expect(second.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBe(initialPrompts + 1);
+    });
+    expect(manager.pendingResumeCount("child-wait")).toBeLessThanOrEqual(1);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    idle.resolve();
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBe(initialPrompts + 2);
+    });
+    expect(maxConcurrent).toBe(1);
+    const delivered = session.prompts.slice(initialPrompts);
+    expect(parseMinionMailDeliveryId(delivered[0] ?? "")).toBe(first.messageId);
+    expect(parseMinionMailDeliveryId(delivered[1] ?? "")).toBe(second.messageId);
+    expect(delivered[0]).toContain("\none");
+    expect(delivered[1]).toContain("\ntwo");
+    expect(manager.pendingResumeCount("child-wait")).toBeLessThanOrEqual(1);
+  });
+
+  it("async prompt rejection stays waiting and the next queued job still delivers", async () => {
+    const { session, manager, tree, mailbox } = await setupWaitingChild();
+    const initialPrompts = session.prompts.length;
+    let parentDeliveries = 0;
+    session.prompt = async (text: string) => {
+      session.prompts.push(text);
+      if (parseMinionMailDeliveryId(text)) {
+        parentDeliveries++;
+        if (parentDeliveries === 1) throw new Error("queue boom");
+      }
+    };
+    const first = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "one",
+    });
+    const second = mailbox.send({
+      from: PARENT_RECIPIENT_ID,
+      to: "child-wait",
+      groupId: "grp-1",
+      body: "two",
+    });
+    expect(first.status).toBe(COMM_SEND_STATUS.queued);
+    expect(second.status).toBe(COMM_SEND_STATUS.queued);
+    await vi.waitFor(() => {
+      expect(session.prompts.length).toBe(initialPrompts + 2);
+    });
+    expect(manager.isLive("child-wait")).toBe(true);
+    expect(tree.get("child-wait")?.activity?.phase).toBe("waiting");
+    expect(manager.pendingResumeCount("child-wait")).toBeLessThanOrEqual(1);
+    const last = session.prompts.at(-1) ?? "";
+    expect(parseMinionMailDeliveryId(last)).toBe(second.messageId);
+    session.emit(userStart(last));
+    await Promise.resolve();
+    expect(tree.get("child-wait")?.activity?.phase).toBe("thinking");
+    expect(manager.pendingResumeCount("child-wait")).toBe(0);
   });
 });

@@ -290,7 +290,12 @@ describe("injectOrchestratedCommTools", () => {
     ]);
     expect(mailbox.list()[0]?.from).toBe(childId);
     expect(mailbox.list()[0]?.from).not.toBe("forged-id");
-    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "hello peer") }]);
+    expect(followUps).toEqual([
+      {
+        id: peerId,
+        text: formatMinionMail(childId, "hello peer", mailbox.list()[0]?.id),
+      },
+    ]);
     expect(info).toHaveBeenCalledWith(
       "comm",
       "send",
@@ -633,7 +638,12 @@ describe("mailbox bounds and closed reasons", () => {
     const toPeer = await execTool(send, { to: peerId, body: "live still ok" });
     expect(toPeer.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
     expect(mailbox.depthFor(peerId)).toBe(0);
-    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "live still ok") }]);
+    expect(followUps).toEqual([
+      {
+        id: peerId,
+        text: formatMinionMail(childId, "live still ok", mailbox.list().at(-1)?.id),
+      },
+    ]);
   });
 
   it("takePending drains parent-directed pending without scanning list()", async () => {
@@ -831,7 +841,12 @@ describe("parent-directed wake hook", () => {
     const toPeer = await execTool(send, { to: peerId, body: "hello peer" });
     expect(toPeer.details).toMatchObject({ status: COMM_SEND_STATUS.queued });
     expect(parentDirected).toHaveLength(1);
-    expect(followUps).toEqual([{ id: peerId, text: formatMinionMail(childId, "hello peer") }]);
+    expect(followUps).toEqual([
+      {
+        id: peerId,
+        text: formatMinionMail(childId, "hello peer", mailbox.list().at(-1)?.id),
+      },
+    ]);
 
     const parentTool = createSendMinionMessageTool({ mailbox, groups });
     const fromParent = await execTool(parentTool, { to: peerId, body: "steer this" });
@@ -883,7 +898,14 @@ describe("parent send_minion_message", () => {
     });
     expect(sent.details).not.toMatchObject({ from: "forged-id" });
     expect(followUps).toEqual([
-      { id: peerId, text: formatMinionMail(PARENT_RECIPIENT_ID, "from parent") },
+      {
+        id: peerId,
+        text: formatMinionMail(
+          PARENT_RECIPIENT_ID,
+          "from parent",
+          (sent.details as { messageId?: string }).messageId,
+        ),
+      },
     ]);
     expect(info).toHaveBeenCalledWith(
       "comm",
@@ -993,7 +1015,9 @@ describe("live vs disposed delivery", () => {
       to: "mn-b",
       parentTurnTriggered: false,
     });
-    expect(sessions.get("mn-b")?.followUps).toEqual([formatMinionMail("mn-a", "hello from a")]);
+    expect(sessions.get("mn-b")?.followUps).toEqual([
+      formatMinionMail("mn-a", "hello from a", (peer.details as { messageId?: string }).messageId),
+    ]);
     expect(sessions.get("mn-b")?.steers).toEqual([]);
     expect(sessions.get("mn-a")?.followUps).toEqual([]);
 
@@ -1008,7 +1032,11 @@ describe("live vs disposed delivery", () => {
       parentTurnTriggered: false,
     });
     expect(sessions.get("mn-a")?.followUps).toEqual([
-      formatMinionMail(PARENT_RECIPIENT_ID, "steer this"),
+      formatMinionMail(
+        PARENT_RECIPIENT_ID,
+        "steer this",
+        (fromParent.details as { messageId?: string }).messageId,
+      ),
     ]);
     expect(sessions.get("mn-a")?.steers).toEqual([]);
 
@@ -1081,7 +1109,7 @@ describe("mailbox vs child terminal single winner", () => {
     expect(sent.status).toBe(COMM_SEND_STATUS.queued);
     await vi.waitFor(() => {
       expect(sessions.get("mn-b")?.followUps).toEqual([
-        formatMinionMail(PARENT_RECIPIENT_ID, "keep going"),
+        formatMinionMail(PARENT_RECIPIENT_ID, "keep going", sent.messageId),
       ]);
     });
     expect(manager.getTerminal("mn-b")).toBeUndefined();

@@ -150,12 +150,18 @@ export interface SendMinionMessageInput {
   body: string;
 }
 
+/** Options for live child delivery. deliveryId is the mailbox message id. */
+export interface MailFollowUpOpts {
+  parentReply?: boolean;
+  deliveryId?: string;
+}
+
 /** Live child delivery. followUp is the Pi child-safe send; do not invent another. */
 export interface CommMailboxBind {
   getTree: () => AgentTree;
   getGroups: () => Pick<OrchestrationGroupState, "getOpenGroup">;
   isLive: (id: string) => boolean;
-  followUp: (id: string, text: string, opts?: { parentReply?: boolean }) => Promise<void>;
+  followUp: (id: string, text: string, opts?: MailFollowUpOpts) => Promise<void>;
   /**
    * Child → parent mail is a parent-waking event (3.3). Peer mail must not call this.
    * The packet dispatcher coalesces; this callback must not send a parent packet itself.
@@ -174,8 +180,21 @@ function bodyBytes(body: string): number {
 }
 
 /** Prefix so a body starting with `/` cannot trip Pi extension-command checks. */
-export function formatMinionMail(from: string, body: string): string {
-  return `[minion-mail from ${from}]\n${body}`;
+export function formatMinionMail(from: string, body: string, deliveryId?: string): string {
+  const header =
+    deliveryId !== undefined && deliveryId.length > 0
+      ? `[minion-mail deliveryId=${deliveryId} from ${from}]`
+      : `[minion-mail from ${from}]`;
+  return `${header}\n${body}`;
+}
+
+/** Extract the trusted delivery id from a consumed user-message envelope. */
+export function parseMinionMailDeliveryId(text: string): string | undefined {
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  const headerEnd = text.indexOf("\n");
+  const header = headerEnd === -1 ? text : text.slice(0, headerEnd);
+  const match = /^\[minion-mail deliveryId=(\S+) from [^\]]+\]$/.exec(header);
+  return match?.[1];
 }
 
 function appendNodeMessage(tree: AgentTree, id: string, message: MinionMessage): void {
@@ -444,10 +463,11 @@ export class MinionCommMailbox {
 
     if (deliverToChild) {
       // Handed to followUp: no longer pending. Inspection id stays in `items`.
-      const text = formatMinionMail(input.from, input.body);
+      const text = formatMinionMail(input.from, input.body, message.id);
       void Promise.resolve(
         this.bindState?.followUp(input.to, text, {
           parentReply: input.from === PARENT_RECIPIENT_ID,
+          deliveryId: message.id,
         }),
       ).catch((err: unknown) => {
         logger.warn("comm", "deliver-failed", {

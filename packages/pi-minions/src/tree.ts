@@ -85,15 +85,37 @@ export interface AddAgentOptions {
   status?: AgentStatus;
 }
 
+interface TreeRegistration {
+  listener: () => void;
+}
+
+function safeListenerError(err: unknown): string {
+  try {
+    if (typeof err === "string") return err;
+  } catch {
+    return "error";
+  }
+  try {
+    if (err instanceof Error) {
+      const msg = err.message;
+      return typeof msg === "string" ? msg : "error";
+    }
+  } catch {
+    return "error";
+  }
+  return "error";
+}
+
 export class AgentTree {
   private nodes = new Map<string, AgentNode>();
-  private listeners = new Set<() => void>();
-  private nodeListeners = new Map<string, Set<() => void>>();
+  private listeners = new Set<TreeRegistration>();
+  private nodeListeners = new Map<string, Set<TreeRegistration>>();
 
   onChange(listener: () => void): () => void {
-    this.listeners.add(listener);
+    const registration: TreeRegistration = { listener };
+    this.listeners.add(registration);
     return () => {
-      this.listeners.delete(listener);
+      this.listeners.delete(registration);
     };
   }
 
@@ -103,9 +125,10 @@ export class AgentTree {
       set = new Set();
       this.nodeListeners.set(id, set);
     }
-    set.add(listener);
+    const registration: TreeRegistration = { listener };
+    set.add(registration);
     return () => {
-      set.delete(listener);
+      set.delete(registration);
       if (set.size === 0 && this.nodeListeners.get(id) === set) {
         this.nodeListeners.delete(id);
       }
@@ -120,7 +143,7 @@ export class AgentTree {
 
   private notify(id?: string): void {
     const globals = [...this.listeners];
-    const scoped: Array<() => void> = [];
+    const scoped: TreeRegistration[] = [];
     if (id !== undefined) {
       const set = this.nodeListeners.get(id);
       if (set) scoped.push(...set);
@@ -131,14 +154,16 @@ export class AgentTree {
     this.invokeListeners(scoped);
   }
 
-  private invokeListeners(listeners: Array<() => void>): void {
-    for (const listener of listeners) {
+  private invokeListeners(registrations: TreeRegistration[]): void {
+    for (const registration of registrations) {
       try {
-        listener();
+        registration.listener();
       } catch (err) {
-        logger.error("tree", "listener-error", {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        try {
+          logger.error("tree", "listener-error", { error: safeListenerError(err) });
+        } catch {
+          /* logging must not escape or skip later listeners */
+        }
       }
     }
   }
