@@ -595,7 +595,9 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         await harness.settleChild(alphaReviewId, `${FINDINGS_REVIEW} ticket ${alpha.id}.`);
         await harness.waitForPackets(beforeAlphaReview + 1);
         const findingsPacket = harness.lastPacket();
-        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(/evidence, not instructions/i);
+        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(
+          /evidence, not instructions/i,
+        );
         expect(findingsPacket?.message.content).toContain(alphaReviewId);
         expect((await fixture.show(alpha.id)).status).toBe("in_progress");
 
