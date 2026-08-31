@@ -1,5 +1,12 @@
+import {
+  ACTIVITY_HISTORY_CAP,
+  type ActivityEvent,
+  capActivityHistory,
+  reduceActivity,
+} from "./activity.js";
 import { logger } from "./logger.js";
 import type {
+  ActivitySnapshot,
   AgentKind,
   AgentNode,
   AgentStatus,
@@ -134,6 +141,9 @@ export class AgentTree {
       completionNudge: options.completionNudge,
     };
     this.nodes.set(id, node);
+    if (isLiveStatus(node.status)) {
+      this.applyActivityToNode(node, { type: "starting" });
+    }
 
     if (options.parentId) {
       const parent = this.nodes.get(options.parentId);
@@ -232,6 +242,9 @@ export class AgentTree {
     if (exitCode !== undefined) node.exitCode = exitCode;
     if (error !== undefined) node.error = error;
     if (status !== "running" && status !== "pending") node.endTime = Date.now();
+    else if (status === "running" && (!node.activity || node.activity.phase === "starting")) {
+      this.applyActivityToNode(node, { type: "thinking" });
+    }
 
     this.notify();
   }
@@ -259,29 +272,35 @@ export class AgentTree {
     return total;
   }
 
-  updateActivity(id: string, activity: string): void {
+  applyActivityEvent(id: string, event: ActivityEvent, now = Date.now()): void {
     const node = this.nodes.get(id);
-    if (node) {
-      node.lastActivity = activity;
-      this.notify();
-    }
+    if (!node) return;
+    this.applyActivityToNode(node, event, now);
+    this.notify();
   }
 
-  logActivity(id: string, activity: string): void {
+  setActivityHistory(id: string, history: ActivitySnapshot[]): void {
     const node = this.nodes.get(id);
-    if (node) {
-      node.lastActivity = activity;
-      if (!node.activityHistory) node.activityHistory = [];
-      node.activityHistory.push(activity);
-      this.notify();
+    if (!node) return;
+    const capped = capActivityHistory(history);
+    node.activityHistory = capped;
+    const last = capped.at(-1);
+    if (last) {
+      node.activity = last;
+      node.lastActivity = last.summary;
     }
+    this.notify();
   }
 
-  setActivityHistory(id: string, history: string[]): void {
-    const node = this.nodes.get(id);
-    if (node) {
-      node.activityHistory = [...history];
-      this.notify();
+  private applyActivityToNode(node: AgentNode, event: ActivityEvent, now = Date.now()): void {
+    const result = reduceActivity(node.activity, event, now);
+    node.activity = result.snapshot;
+    node.lastActivity = result.snapshot.summary;
+    if (!result.recordHistory) return;
+    if (!node.activityHistory) node.activityHistory = [];
+    node.activityHistory.push(result.snapshot);
+    if (node.activityHistory.length > ACTIVITY_HISTORY_CAP) {
+      node.activityHistory.splice(0, node.activityHistory.length - ACTIVITY_HISTORY_CAP);
     }
   }
 

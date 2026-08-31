@@ -423,6 +423,9 @@ export class MinionCommMailbox {
     if (tree) {
       if (input.from !== PARENT_RECIPIENT_ID) appendNodeMessage(tree, input.from, recorded);
       if (input.to !== PARENT_RECIPIENT_ID) appendNodeMessage(tree, input.to, recorded);
+      if (input.to === PARENT_RECIPIENT_ID && input.from !== PARENT_RECIPIENT_ID) {
+        tree.applyActivityEvent(input.from, { type: "waiting" });
+      }
     }
 
     const details: CommSendDetails = {

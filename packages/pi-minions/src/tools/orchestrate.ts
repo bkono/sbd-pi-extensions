@@ -4,6 +4,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { bindTreeActivity } from "../activity.js";
 import { findAgent, unknownAgentMessage } from "../agents.js";
 import { getConfig, type ResolvedConfig } from "../config.js";
 import type { PathOverlapLog } from "../coordination/index.js";
@@ -201,6 +202,7 @@ function startRegisteredChild(
     return Promise.resolve();
   }
   const injected = injectBoundCommTools(deps, mailbox, group, id);
+  const bound = bindTreeActivity(tree, id);
 
   return subsessionManager
     .startChild({
@@ -222,18 +224,12 @@ function startRegisteredChild(
       extraTools: [...injected.names, ...(deps.extraTools ?? [])],
       toolSyncEnabled: piConfig.toolSync.enabled,
       toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
-      onToolActivity: (activity) => {
-        if (activity.type === "start") {
-          tree.logActivity(id, `→ ${activity.toolName}`);
-        }
-      },
-      onTextDelta: (_delta, fullText) => {
-        const preview = fullText.split("\n").filter(Boolean).at(-1) ?? "";
-        if (preview) tree.updateActivity(id, preview);
-      },
+      onToolActivity: bound.onToolActivity,
+      onToolOutput: bound.onToolOutput,
+      onTextDelta: bound.onTextDelta,
+      onAgentEnd: bound.onAgentEnd,
       onTurnEnd: (turnCount) => {
-        tree.logActivity(id, `turn ${turnCount}`);
-        tree.updateUsage(id, { turns: turnCount });
+        bound.onTurnEnd(turnCount);
         applyStepLimit({
           count: turnCount,
           steps: config.steps,

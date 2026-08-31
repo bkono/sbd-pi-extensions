@@ -553,7 +553,10 @@ describe("halt during detached start", () => {
     expect(steer).toHaveBeenCalledTimes(1);
     expect(steer).toHaveBeenCalledWith(STEP_LIMIT_WRAP_UP_MESSAGE);
     expect(abortSession).not.toHaveBeenCalled();
-    expect(tree.get(childId)?.activityHistory).toContain("turn 1");
+    expect(tree.get(childId)?.activity?.turn).toBe(1);
+    expect(
+      tree.get(childId)?.activityHistory?.some((item) => item.summary.includes("turn 1")),
+    ).toBe(false);
     expect(tree.get(childId)?.usage.turns).toBe(1);
     expect(tree.getTotalUsage().turns).toBe(1);
 
@@ -564,7 +567,10 @@ describe("halt during detached start", () => {
     expect(steer).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledTimes(1);
     expect(abortSession).toHaveBeenCalledWith(childId);
-    expect(tree.get(childId)?.activityHistory).toContain("turn 3");
+    expect(tree.get(childId)?.activity?.turn).toBe(3);
+    expect(tree.get(childId)?.activityHistory?.some((item) => /turn \d/.test(item.summary))).toBe(
+      false,
+    );
     expect(tree.get(childId)?.usage.turns).toBe(3);
     expect(tree.getTotalUsage().turns).toBe(3);
   });

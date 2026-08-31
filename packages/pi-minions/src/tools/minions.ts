@@ -4,9 +4,9 @@ import { Type } from "typebox";
 import { logger } from "../logger.js";
 import { formatDuration, formatUsage } from "../render.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
-import { getMinionHistory } from "../subsessions/observability.js";
 import type { AgentTree } from "../tree.js";
 import {
+  type ActivitySnapshot,
   type AgentKind,
   type AgentNode,
   type AgentStatus,
@@ -48,7 +48,8 @@ export interface MinionInfo {
   agentName?: string;
   model?: string;
   lastActivity?: string;
-  lastSaid?: string;
+  activity?: ActivitySnapshot;
+  lastMessage?: string;
   peerMessageFailed: boolean;
   lastPeerError?: string;
 }
@@ -57,7 +58,7 @@ export interface ShowMinionInfo extends MinionInfo {
   output: string;
   messages: MinionMessage[];
   pathIntent: PathIntent[];
-  activityHistory: string[];
+  activityHistory: ActivitySnapshot[];
 }
 
 function nodeKind(node: AgentNode): AgentKind {
@@ -68,12 +69,8 @@ function peerFailed(node: AgentNode): boolean {
   return node.peerMessageFailed === true || (node.messages?.some((msg) => msg.failed) ?? false);
 }
 
-function lastSaid(node: AgentNode): string | undefined {
-  if (node.lastActivity) return node.lastActivity;
-  const lastMessage = node.messages?.at(-1)?.text;
-  if (lastMessage) return lastMessage;
-  if (!node.output) return undefined;
-  return node.output.split("\n").filter(Boolean).at(-1);
+function lastMessageOf(node: AgentNode): string | undefined {
+  return node.messages?.at(-1)?.text;
 }
 
 export function collectMinions(tree: AgentTree): AgentNode[] {
@@ -115,7 +112,8 @@ export function toInfo(node: AgentNode): MinionInfo {
     agentName: node.agentName,
     model: node.model,
     lastActivity: node.lastActivity,
-    lastSaid: lastSaid(node),
+    activity: node.activity,
+    lastMessage: lastMessageOf(node),
     peerMessageFailed: peerFailed(node),
     lastPeerError: node.lastPeerError,
   };
@@ -133,7 +131,7 @@ function formatListLine(m: MinionInfo): string {
   const group = m.kind === "orchestrated" && m.groupId ? ` group=${m.groupId}` : "";
   const agent = m.agent ? ` agent=${m.agent}` : "";
   const summary = m.description ?? m.task;
-  const activity = m.lastSaid ? ` -- ${m.lastSaid}` : "";
+  const activity = m.lastActivity ? ` -- ${m.lastActivity}` : "";
   const peer = m.peerMessageFailed ? " [peer-failed]" : "";
   return `  ${m.name} (${m.id}) ${m.kind} [${m.status}]${taskType}${group}${agent}${model}: ${summary}${activity}${peer}`;
 }
@@ -207,7 +205,7 @@ export function buildShowMinion(
     node.output ?? terminal?.output ?? subsessionManager?.parseSessionOutput?.(node.id) ?? "";
   const messages = node.messages ?? [];
   const pathIntent = node.pathIntent ?? [];
-  const history = node.activityHistory ?? getMinionHistory(node.id);
+  const history = node.activityHistory ?? [];
   const info: ShowMinionInfo = {
     ...infoBase,
     output,
@@ -229,12 +227,20 @@ export function buildShowMinion(
   }
   lines.push(`  Task: ${node.task}`);
   if (node.model) lines.push(`  Model: ${node.model}`);
-  lines.push(`  Last said: ${info.lastSaid ?? "(none)"}`);
+  if (info.activity) {
+    lines.push(`  Activity: ${info.activity.phase} — ${info.activity.summary}`);
+    if (info.activity.turn !== undefined) lines.push(`  Turn: ${info.activity.turn}`);
+    if (info.activity.narrativePreview) {
+      lines.push(`  Narrative preview: ${info.activity.narrativePreview}`);
+    }
+  } else {
+    lines.push("  Activity: (none)");
+  }
+  lines.push(`  Last message: ${info.lastMessage ?? "(none)"}`);
   lines.push(`  Peer message: ${formatPeer(info)}`);
 
   if (node.status === "running") {
     lines.push(`  Running for: ${formatDuration(Date.now() - node.startTime)}`);
-    if (node.lastActivity) lines.push(`  Activity: ${node.lastActivity}`);
   }
 
   if (node.endTime) lines.push(`  Duration: ${formatDuration(node.endTime - node.startTime)}`);
@@ -271,7 +277,7 @@ export function buildShowMinion(
 
   if (history.length > 0) {
     lines.push("  Recent activity:");
-    for (const msg of history) lines.push(`    ${msg}`);
+    for (const item of history) lines.push(`    ${item.phase} ${item.summary}`);
   }
 
   if (node.status === "running") {

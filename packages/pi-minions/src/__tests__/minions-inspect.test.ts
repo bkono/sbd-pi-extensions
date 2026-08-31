@@ -51,7 +51,11 @@ function seedTree(): AgentTree {
     description: "Other group",
   });
   tree.updateStatus("mn-orch-other", "completed", 0);
-  tree.updateActivity("mn-orch-a", "checking auth middleware");
+  tree.applyActivityEvent("mn-orch-a", {
+    type: "tool_start",
+    toolName: "read",
+    args: { path: "src/auth.ts" },
+  });
   tree.updateInspection("mn-orch-a", {
     output: "full child transcript lives here, not in packets",
     messages: [
@@ -62,7 +66,6 @@ function seedTree(): AgentTree {
     peerMessageFailed: true,
     lastPeerError: "recipient-terminal",
   });
-  tree.logActivity("mn-orch-a", "→ grep auth");
   return tree;
 }
 
@@ -142,19 +145,25 @@ describe("list_minions filters", () => {
     expect(pending.details.minions.map((m) => m.id)).toEqual(["mn-pending"]);
     expect(running.details.minions.map((m) => m.id)).toEqual(["mn-running"]);
     expect(tree.getRunning().map((n) => n.id)).toEqual(["mn-running"]);
+    expect(pending.details.minions[0]?.activity?.phase).toBe("starting");
+    expect(pending.details.minions[0]?.lastActivity).toBe("starting");
+    expect(running.details.minions[0]?.activity?.phase).toBe("starting");
   });
 
-  it("exposes last said and peer-message failure so the parent can inspect without packets", async () => {
+  it("exposes activity separately from last message and peer-message failure", async () => {
     const tree = seedTree();
     const listed = await list(tree, { kind: "orchestrated", groupId: "grp-1" });
     const bravo = listed.details.minions.find((m) => m.id === "mn-orch-a");
     logNode("list-comm", bravo!);
 
     expect(bravo?.taskType).toBe("implementation");
-    expect(bravo?.lastSaid).toBe("→ grep auth");
+    expect(bravo?.lastActivity).toBe("→ read src/auth.ts");
+    expect(bravo?.activity?.phase).toBe("tool");
+    expect(bravo?.lastMessage).toBe("peer send failed");
+    expect(bravo?.lastActivity).not.toBe(bravo?.lastMessage);
     expect(bravo?.peerMessageFailed).toBe(true);
     expect(bravo?.lastPeerError).toBe("recipient-terminal");
-    expect(listed.content[0]?.text).toContain("-- → grep auth");
+    expect(listed.content[0]?.text).toContain("-- → read src/auth.ts");
   });
 });
 
@@ -172,7 +181,10 @@ describe("show_minion fields", () => {
     expect(info.taskType).toBe("implementation");
     expect(info.description).toBe("Registry refactor");
     expect(info.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
-    expect(info.lastSaid).toBe("→ grep auth");
+    expect(info.lastActivity).toBe("→ read src/auth.ts");
+    expect(info.activity?.phase).toBe("tool");
+    expect(info.lastMessage).toBe("peer send failed");
+    expect(info.output).toBe("full child transcript lives here, not in packets");
     expect(info.peerMessageFailed).toBe(true);
     expect(info.lastPeerError).toBe("recipient-terminal");
     expect(info.output).toBe("full child transcript lives here, not in packets");
@@ -181,13 +193,15 @@ describe("show_minion fields", () => {
       { from: "mn-orch-a", to: "parent", text: "peer send failed", failed: true },
     ]);
     expect(info.pathIntent).toEqual([{ path: "src/registry.ts", ttlMs: 30_000 }]);
-    expect(info.activityHistory).toContain("→ grep auth");
+    expect(info.activityHistory.some((item) => item.summary === "→ read src/auth.ts")).toBe(true);
 
     const text = result.content[0]?.text ?? "";
     expect(text).toContain("Kind: orchestrated");
     expect(text).toContain("Group: grp-1");
     expect(text).toContain("Task type: implementation");
-    expect(text).toContain("Last said: → grep auth");
+    expect(text).toContain("Activity: tool — → read src/auth.ts");
+    expect(text).toContain("Last message: peer send failed");
+    expect(text).not.toContain("Last said:");
     expect(text).toContain("Peer message: failed (recipient-terminal)");
     expect(text).toContain("full child transcript lives here, not in packets");
     expect(text).toContain("mn-orch-b -> mn-orch-a: need the types first");

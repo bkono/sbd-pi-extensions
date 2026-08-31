@@ -1,9 +1,9 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { bindTreeActivity, lastNarrativeLine } from "../activity.js";
 import { requireAgent } from "../agents.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate } from "../minions.js";
-import { formatToolCall } from "../render.js";
 import { runMinionSession } from "../spawn.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { BatchMinionItem } from "../tools/spawn.js";
@@ -106,6 +106,7 @@ export async function runSingleMinion(opts: {
 
     coordinator.emit(true);
 
+    const bound = bindTreeActivity(tree, m.id);
     const result = await runMinionSession(config, spec.task, {
       id: m.id,
       name: m.name,
@@ -121,31 +122,20 @@ export async function runSingleMinion(opts: {
       toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
       tree,
       onToolActivity: (activity) => {
+        bound.onToolActivity(activity);
         if (activity.type === "start") {
-          const desc = formatToolCall(activity.toolName, activity.args ?? {});
-          m.activity = `→ ${desc}`;
-          tree.logActivity(m.id, `→ ${desc}`);
+          m.activity = tree.get(m.id)?.lastActivity;
           coordinator.emit(true);
         }
       },
-      onToolOutput: (toolName, delta) => {
-        const line = delta.trimEnd().split("\n").filter(Boolean).at(-1) ?? "";
-        if (line) {
-          m.activity = `${toolName}: ${line}`;
-          tree.updateActivity(m.id, `${toolName}: ${line}`);
-          coordinator.emit(true);
-        }
-      },
-      onTextDelta: (_delta, fullText) => {
-        const preview = fullText.split("\n").filter(Boolean).at(-1) ?? "";
-        m.activity = preview;
-        m.finalOutput = preview;
-        tree.updateActivity(m.id, preview);
+      onToolOutput: bound.onToolOutput,
+      onTextDelta: (delta, fullText) => {
+        bound.onTextDelta(delta, fullText);
+        m.finalOutput = lastNarrativeLine(fullText);
         coordinator.emit(true);
       },
-      onTurnEnd: (turnCount) => {
-        tree.logActivity(m.id, `turn ${turnCount}`);
-      },
+      onTurnEnd: bound.onTurnEnd,
+      onAgentEnd: bound.onAgentEnd,
       onUsageUpdate: (usage) => {
         tree.updateUsage(m.id, usage);
         m.usage = {

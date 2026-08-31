@@ -132,6 +132,7 @@ export interface CreateMinionSessionOptions {
   onToolOutput?: (toolName: string, delta: string) => void;
   onTextDelta?: (delta: string, fullText: string) => void;
   onTurnEnd?: (turnCount: number) => void;
+  onAgentEnd?: (info: { willRetry?: boolean }) => void;
   onUsageUpdate?: (usage: {
     input: number;
     output: number;

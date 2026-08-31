@@ -80,7 +80,8 @@ function addOrchestrated(
     taskType?: TaskType;
     description?: string;
     completionNudge?: string;
-    lastActivity?: string;
+    waiting?: boolean;
+    tool?: { toolName: string; args?: Record<string, unknown> };
   } = {},
 ) {
   const node = tree.add(id, opts.name ?? id, `task for ${id}`, {
@@ -92,7 +93,15 @@ function addOrchestrated(
     domain: { source: "beadwork", workItemId: id },
     completionNudge: opts.completionNudge,
   });
-  if (opts.lastActivity) tree.updateActivity(id, opts.lastActivity);
+  if (opts.tool) {
+    tree.applyActivityEvent(id, {
+      type: "tool_start",
+      toolName: opts.tool.toolName,
+      args: opts.tool.args,
+    });
+  } else if (opts.waiting) {
+    tree.applyActivityEvent(id, { type: "waiting" });
+  }
   return node;
 }
 
@@ -136,7 +145,7 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
     groupId,
     taskType: "implementation",
     description: "Need a ruling",
-    lastActivity: "waiting on parent",
+    waiting: true,
   });
   addOrchestrated(tree, otherId, {
     groupId,
@@ -199,7 +208,10 @@ describe("idle coalescing", () => {
       addOrchestrated(tree, id);
       tree.updateStatus(id, "completed", 0);
     }
-    addOrchestrated(tree, "mn-live", { description: "still going", lastActivity: "turn 2" });
+    addOrchestrated(tree, "mn-live", {
+      description: "still going",
+      tool: { toolName: "read", args: { path: "src/auth.ts" } },
+    });
 
     for (const id of ["mn-1", "mn-2", "mn-3", "mn-4"]) {
       dispatcher.enqueue({
@@ -230,7 +242,9 @@ describe("idle coalescing", () => {
       true,
     );
     expect(sent.message.details.stillRunning.map((child) => child.childId)).toEqual(["mn-live"]);
-    expect(sent.message.details.stillRunning[0]?.lastActivity).toBe("turn 2");
+    expect(sent.message.details.stillRunning[0]?.lastActivity).toBe("→ read src/auth.ts");
+    expect(sent.message.details.stillRunning[0]?.activity?.phase).toBe("tool");
+    expect(sent.message.details.stillRunning[0]?.activity?.summary).not.toMatch(/turn \d/);
     expect(sent.message.content).toContain("Orchestration update");
     expect(sent.message.content).toContain("mn-live");
     expect(sent.message.content).not.toContain("triggerTurn");
@@ -324,7 +338,7 @@ describe("event classes", () => {
     addOrchestrated(tree, "mn-settled", { taskType: "implementation" });
     addOrchestrated(tree, "mn-failed", { taskType: "implementation" });
     addOrchestrated(tree, "mn-aborted", { taskType: "implementation" });
-    addOrchestrated(tree, "mn-ask", { taskType: "implementation", lastActivity: "waiting" });
+    addOrchestrated(tree, "mn-ask", { taskType: "implementation", waiting: true });
     tree.updateStatus("mn-settled", "completed", 0);
     tree.updateStatus("mn-failed", "failed", 1, "boom");
     tree.updateStatus("mn-aborted", "aborted");

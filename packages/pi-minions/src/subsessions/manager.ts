@@ -7,9 +7,15 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import {
+  ACTIVITY_HISTORY_CAP,
+  type ActivityEvent,
+  activityEventsFromSessionRecord,
+  replayActivity,
+} from "../activity.js";
 import { logger } from "../logger.js";
 import { PARENT_ONLY_MINION_TOOLS } from "../orchestration/comm.js";
-import { formatToolCall } from "../render.js";
+import type { ActivitySnapshot } from "../types.js";
 import type { EventBus } from "./event-bus.js";
 import { MINION_COMPLETE_CHANNEL, MINION_PROGRESS_CHANNEL } from "./event-bus.js";
 import { getMinionsDir } from "./paths.js";
@@ -814,6 +820,7 @@ export class SubsessionManager {
     if (event.type === "agent_end") {
       // First agent_end is too early: retries, compaction, and queued continuations
       // may still run. Wait for agent_settled / waitForIdle.
+      child.options.onAgentEnd?.({ willRetry: event.willRetry === true });
       logger.info("subsession", "lifecycle", {
         childId: id,
         eventClass: "agent_end",
@@ -1106,27 +1113,29 @@ export class SubsessionManager {
     }
   }
 
-  parseSessionHistory(id: string): string[] {
+  parseSessionHistory(id: string): ActivitySnapshot[] {
     const path = this.getSessionPath(id);
     if (!path) return [];
-    const history: string[] = [];
+    const events: ActivityEvent[] = [];
     let turnCount = 0;
     try {
       for (const raw of readFileSync(path, "utf-8").split("\n")) {
         if (!raw.trim()) continue;
         const event = JSON.parse(raw) as Record<string, unknown>;
-        if (event.type === "tool_execution_start") {
-          const args = (event.args ?? {}) as Record<string, unknown>;
-          history.push(`→ ${formatToolCall(String(event.toolName), args)}`);
-        } else if (event.type === "turn_end") {
+        if (event.type === "turn_end") {
           turnCount++;
-          history.push(`turn ${turnCount}`);
+          events.push({ type: "turn_end", turn: turnCount });
+          continue;
         }
+        events.push(...activityEventsFromSessionRecord(event));
       }
     } catch {
       /* ignore */
     }
-    return history;
+    const replayed = replayActivity(events);
+    if (!replayed.current) return [];
+    if (replayed.history.at(-1) === replayed.current) return replayed.history;
+    return [...replayed.history, replayed.current].slice(-ACTIVITY_HISTORY_CAP);
   }
 
   parseSessionOutput(id: string): string {

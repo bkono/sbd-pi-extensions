@@ -39,6 +39,23 @@ export type AgentStatus = "pending" | "running" | "completed" | "failed" | "abor
 
 export type AgentKind = "spawn" | "orchestrated";
 
+/** Runtime-derived work phase. Terminal status is separate and authoritative. */
+export type ActivityPhase = "starting" | "thinking" | "tool" | "waiting" | "settling";
+
+export interface ActivitySnapshot {
+  phase: ActivityPhase;
+  /** Concise trusted summary. Never arbitrary streamed prose. */
+  summary: string;
+  toolName?: string;
+  /** formatToolCall()-quality preview, sanitized and bounded. */
+  toolPreview?: string;
+  /** Turn count as metadata, not the primary summary. */
+  turn?: number;
+  updatedAt: number;
+  /** Optional sanitized drill-down. Not canonical phase/progress. */
+  narrativePreview?: string;
+}
+
 export interface UsageStats {
   input: number;
   output: number;
@@ -110,10 +127,12 @@ export interface AgentNode {
   endTime?: number;
   exitCode?: number;
   error?: string;
-  /** Live activity line, e.g. "→ $ grep -r TODO src/" */
+  /** Current runtime activity. Describes work only, not speech or terminal output. */
+  activity?: ActivitySnapshot;
+  /** lastActivity is activity.summary for compact consumers. */
   lastActivity?: string;
-  /** Persistent activity history for observability widget */
-  activityHistory?: string[];
+  /** Bounded recent-activity ring. Full transcript remains canonical. */
+  activityHistory?: ActivitySnapshot[];
   /** Model used by this minion */
   model?: string;
   /** Origin of this node. Existing add() call sites default to spawn. */

@@ -117,8 +117,10 @@ class MinionObservabilityWidget {
       if (!node) return;
       const history = node.activityHistory || [];
       if (history.length > this.historyIndex) {
-        for (let i = this.historyIndex; i < history.length; i++)
-          this.messages.push({ text: history[i] ?? "" });
+        for (let i = this.historyIndex; i < history.length; i++) {
+          const item = history[i];
+          if (item) this.messages.push({ text: item.summary });
+        }
         this.historyIndex = history.length;
         this.trimMessages();
         this.triggerUpdate();
@@ -130,7 +132,9 @@ class MinionObservabilityWidget {
     // Preload persistent activity history
     const historyNode = this.tree.get(this.minionId);
     if (historyNode?.activityHistory) {
-      for (const activity of historyNode.activityHistory) this.messages.push({ text: activity });
+      for (const activity of historyNode.activityHistory) {
+        this.messages.push({ text: activity.summary });
+      }
       this.historyIndex = historyNode.activityHistory.length;
       this.trimMessages();
     }

@@ -6,6 +6,7 @@ import { formatDuration } from "../render.js";
 import { NUDGE_EVENTS, type NudgeEvent } from "../task-types.js";
 import type { AgentTree } from "../tree.js";
 import {
+  type ActivitySnapshot,
   type AgentNode,
   type AgentStatus,
   namedAgent,
@@ -42,6 +43,7 @@ export interface StillRunningChildPacket {
   state: AgentStatus;
   elapsedMs?: number;
   lastActivity?: string;
+  activity?: ActivitySnapshot;
 }
 
 export interface LifecyclePacketDetails {
@@ -112,7 +114,12 @@ function stillRunningLine(child: StillRunningChildPacket): string[] {
   if (child.elapsedMs !== undefined) {
     lines.push(`  elapsed: ${formatDuration(Math.max(0, child.elapsedMs))}`);
   }
-  if (child.lastActivity) lines.push(`  activity: ${child.lastActivity}`);
+  if (child.activity) {
+    lines.push(`  activity: ${child.activity.summary}`);
+    lines.push(`  phase: ${child.activity.phase}`);
+  } else if (child.lastActivity) {
+    lines.push(`  activity: ${child.lastActivity}`);
+  }
   return lines;
 }
 
@@ -202,6 +209,7 @@ function toStillRunning(node: AgentNode, now: number): StillRunningChildPacket {
     state: node.status,
     elapsedMs: now - node.startTime,
     lastActivity: node.lastActivity,
+    activity: node.activity,
   };
 }
 
