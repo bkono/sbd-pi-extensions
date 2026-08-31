@@ -32,11 +32,16 @@
     {
       "text": "Independent re-review of fb38351: NEEDS_FIXES; all findings dispositioned as blocking fixes. A: reload-local lifecycle counter repeats under Jiti moduleCache:false; terminal/stale child mail and path tools retain mutation authority; parent mail omits captured epoch; overlap records lack lifecycle ownership; public 32-bit ID collision can overwrite tree nodes. Required: reload-safe opaque UUID lifecycle identity, exact live registration+epoch+nonterminal checks for every child tool/mutation, identity-bearing mail/overlap, revoke/clear authority at accepted terminal, add-if-absent tree registration and bounded collision retry. B: aggregate budget works for valid states (\u003c9.8KB) but hostile unknown taskType crashes nudge lookup; normalize/fallback defensively. C: submit transaction passes, but failed evidence followed by explicit group halt/close becomes unreachable and leaks mailbox/overlap capacity. Required: extension-level discardGroup cancellation coordinator wired into halt (discard != ack), bounded inspection history, remove lifecycle ownership after accepted terminal. Dynamic prompt blocker remains separately unresolved. Root/scoped gates green but runtime probes fail acceptance.",
       "timestamp": "2026-08-31T09:56:12Z"
+    },
+    {
+      "text": "Independent closure re-review of 0f82b94: PASS for every extension-local blocker from fb38351. A1 reload-safe lifecycle UUID identity; A2 exact stale-authority rejection across terminal/close/reload/replacement; A3 captured lifecycle+epoch mail/overlap ownership and exact accepted-submit cleanup; A4 add-if-absent tree registration with bounded 32-attempt collision handling. B hostile aggregate remains total, sanitized, deterministic, and below 9.8KB (probe: content 8,471 bytes; details 9,782). C all production close paths use the cancellation coordinator; failed-submit cancellation discards exact group evidence/authority without ack, history is bounded while pending evidence survives, and duplicate terminals remain suppressed. Validation: minions 344 tests; Beadwork 267 tests plus focused 5; root lint/typecheck and 2,375 tests; archive build; diff check; clean exact HEAD. No extension-local fixes remain. Separate unresolved blocker: Pi 0.84.3 freezes the system prompt for queued follow-up turns, so the original every-parent-turn dynamic live-group invariant cannot be met extension-only. Ticket remains open pending explicit acceptance decision: upstream Pi support or relaxed static/agent-run-boundary semantics.",
+      "author": "pi",
+      "timestamp": "2026-08-31T11:11:33Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add model-visible fleet snapshots and an explicit group-idle barrier",
   "type": "feature",
-  "updated_at": "2026-08-31T09:56:12Z"
+  "updated_at": "2026-08-31T11:11:33Z"
 }
