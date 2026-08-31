@@ -36,11 +36,15 @@
     {
       "text": "Real persistent-TUI smoke reached goal mode after cleaning ignored local .pi/beadwork-config.json to current review.policy-only shape. Built-in worker/investigate resolved; two simultaneous live children shared workItemId; widget showed pending/running/activity and cleared; child-to-parent notification did not park sender; one group-idle adjudication packet arrived; reviewer launched afterward. Reviewer surfaced two valid product-correctness gaps: successful automatic retry can strand reentrant evidence, and parentMessage nudge may claim 'has not settled'/stillRunning while coalesced terminal+group-idle evidence proves otherwise. Smoke stopped read-only after the nested parent attempted remediation instead of reporting. No repository diff remains. sbdpi-8b2.9 must reopen for targeted fixes before final smoke.",
       "timestamp": "2026-08-31T20:49:36Z"
+    },
+    {
+      "text": "FINAL ACCEPTANCE PASS at HEAD 2381edf673d38d3132827d74d2d9692bb91eedea.\n\nAutomated: root `npm run lint \u0026\u0026 npm run test \u0026\u0026 npm run typecheck \u0026\u0026 npm run build` passed after all fixes; focused pi-minions 332 tests and agent-friendly E2E 5 tests passed; sbdpi-8b2.9/.10 exact commits independently reviewed PASS.\n\nReal persistent Pi TUI: local ignored `.pi/beadwork-config.json` was migrated from rejected supervisor leftovers to `{review:{policy:\"ticket\"}}`. `beadwork_start_goal` started epic and queued continuation. Group grp-c866c559 accepted bundled worker ff65dade and investigate e302bc03 concurrently with the same workItemId sbdpi-8b2.7. Widget showed pending/running/tool/thinking states and cleared at idle. Worker notification packet said only `A child sent a notification. No reply is required.`; no live/not-settled claim, no parent reply, and sender settled normally. Final packet had zero running and `Group idle ... Inspect the evidence and decide the next action`, with no success/closure claim. Reviewer 74e7b1a2 launched only after idle in the same group; runtime nudge said findings are evidence to assess against product goals/constraints, not instructions to accept verbatim, and prohibited adversarial expansion without product confirmation. Parent rejected the intentionally unnecessary adjudication-event hardening and made no edits/mutations. Repo remained clean. Prior sbdpi-8b2.5 TUI smoke separately covers narrow width, theme invalidation, `/minions` drill-down, and session lifecycle. Group was forgotten, goal mode abandoned back to interactive, and all interactive-shell sessions cleaned up.",
+      "timestamp": "2026-08-31T21:10:15Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prove and publish the agent-friendly orchestration vertical slice",
   "type": "task",
-  "updated_at": "2026-08-31T20:49:36Z"
+  "updated_at": "2026-08-31T21:10:15Z"
 }
