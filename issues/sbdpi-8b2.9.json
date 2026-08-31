@@ -18,11 +18,15 @@
     {
       "text": "Concurrency boundary: own packages/pi-minions only. Do not edit packages/pi-beadwork-extension while sbdpi-8b2.10 runs. Report any required cross-package harness/docs adaptation in the handoff; sbdpi-8b2.10 or parent integration will apply it.",
       "timestamp": "2026-08-31T19:22:28Z"
+    },
+    {
+      "text": "Implementation commits 697208f0 and 5852cd7c plus adjudicated packet-cap fix 3ed0b234 independently closure-reviewed PASS. Removed parked-child/reply correlation and workItem uniqueness; added reviewer evidence nudge; bounded incremental activity; removed redundant lifecycle diagnostics; coalesced peer overlap turns while preserving evidence; exactly one reentrant-safe automatic packet retry. pi-minions lint, 330 tests, typecheck, build, and focused Beadwork integration pass.",
+      "timestamp": "2026-08-31T20:26:28Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Remove semantic orchestration policy from Minions mechanics",
   "type": "task",
-  "updated_at": "2026-08-31T19:22:39Z"
+  "updated_at": "2026-08-31T20:26:28Z"
 }
