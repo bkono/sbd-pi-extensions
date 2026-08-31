@@ -16,9 +16,15 @@
     "orchestration"
   ],
   "parent": "sbdpi-8b2",
+  "comments": [
+    {
+      "text": "Independent review of acf3ae81 found one FIX/blocker: `renderGoalStartGuidance()` injects entry-only “Do not imitate /bw run with ready, ticket mutations, and orchestrate” copy into the active run appendix, directly contradicting the adjacent required manager loop that must use ready/start/orchestrate. Adjudication: keep entry/discovery and auto-start prohibition on interactive planning surfaces; active run-mode standing copy must retain lifecycle equivalence and manager-only behavior without forbidding the loop it is executing. Everything else reviewed PASS. Final integration must also confirm live sbdpi-8b2.3 preserves ORCHESTRATE_SIDECAR_GUIDELINES wiring in pi-minions index.ts.",
+      "timestamp": "2026-08-31T02:11:11Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Define sidecar and Beadwork manager-only orchestration boundaries",
   "type": "task",
-  "updated_at": "2026-08-31T01:50:40Z"
+  "updated_at": "2026-08-31T02:11:11Z"
 }
