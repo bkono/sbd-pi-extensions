@@ -197,6 +197,12 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         expect(standing).toContain(
           "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
         );
+        expect(standing).toContain(
+          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+        );
+        expect(standing).not.toContain(
+          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+        );
         await harness.logStep("bw-start-goal-injected", { ticketId: parentTicket.id });
 
         const runState = await sessionState(harness);

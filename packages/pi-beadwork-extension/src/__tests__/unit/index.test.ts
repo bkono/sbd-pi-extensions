@@ -1413,6 +1413,13 @@ describe("pi beadwork extension", () => {
       expect(toolStanding).toContain(
         "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
       );
+      expect(toolStanding).toContain(
+        "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+      );
+      expect(toolStanding).not.toContain(
+        "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+      );
+      expect(toolStanding).not.toContain("It does not implement the epic or dispatch children.");
 
       expect(toolResult.details).toMatchObject({
         epic_id: "BW-100",

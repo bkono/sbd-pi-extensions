@@ -213,6 +213,13 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain(
       "Planning/decomposition and executing the graph are distinct decisions.",
     );
+    expect(text).toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).toContain(
+      "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation.",
+    );
+    expect(text).toContain("It does not implement the epic or dispatch children.");
   });
 
   it("builds a run-mode appendix with orchestrate policy and settlement≠close", () => {
@@ -222,12 +229,24 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("You are in beadwork run mode.");
     expect(text).toContain("Goal mode: run the scoped epic to completion.");
     expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
+    expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain(
+      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    );
+    expect(text).toContain(
+      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+    );
     expect(text).toContain("Child settlement is evidence, not acceptance");
     expect(text).toContain("Do not close a ticket solely because a child settled.");
     expect(text).toContain("Start-before-work:");
     expect(text).toContain("This standing appendix is policy only. It does not start a turn.");
     expect(text).not.toContain("Stay human-led.");
     expect(text).not.toContain("Wait for the user.");
+    expect(text).not.toContain("## Goal mode entry");
+    expect(text).not.toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).not.toContain("It does not implement the epic or dispatch children.");
   });
 
   it("does not inject run-loop guidance for an interrupted run", () => {
@@ -426,10 +445,6 @@ describe("buildBeadworkPromptAppendix standing constraints", () => {
     expect(text).toContain(
       "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
     );
-    expect(text).toContain("## Goal mode entry");
-    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
-    expect(text).toContain("already-decomposed open epic");
-    expect(text).toContain("It does not implement the epic or dispatch children.");
     expect(text).toContain(
       "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
     );
@@ -526,17 +541,54 @@ describe("orchestration boundary guidance", () => {
       "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.";
     expect(runText).toContain(equivalent);
     expect(interactiveText).toContain(equivalent);
-    expect(runText).toContain(
-      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-    );
     expect(interactiveText).toContain(
       "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
     );
-    expect(runText).toContain(
+    expect(interactiveText).toContain(
       "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation.",
     );
-    expect(runText).toContain("It does not implement the epic or dispatch children.");
     expect(interactiveText).toContain("It does not implement the epic or dispatch children.");
+  });
+
+  it("keeps entry-only start prohibitions on the interactive surface", () => {
+    const text = appendix({
+      sessionState: { mode: "interactive", goal: undefined },
+    });
+
+    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
+    expect(text).toContain("already-decomposed open epic");
+    expect(text).toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).toContain(
+      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
+    );
+    expect(text).toContain(
+      "Planning/decomposition and executing the graph are distinct decisions.",
+    );
+    expect(text).toContain("It does not implement the epic or dispatch children.");
+    expect(text).not.toContain("This is a manager-only loop.");
+  });
+
+  it("omits entry-only start prohibitions from active run appendices", () => {
+    const text = appendix();
+
+    expect(text).not.toContain("## Goal mode entry");
+    expect(text).not.toContain(
+      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+    );
+    expect(text).not.toContain("It does not implement the epic or dispatch children.");
+    expect(text).not.toContain(
+      "Planning/decomposition and executing the graph are distinct decisions.",
+    );
+    expect(text).toContain(
+      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    );
+    expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
+    expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain(
+      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+    );
   });
 
   it("does not auto-start goal mode from existence, readiness, or creation", () => {
@@ -550,9 +602,6 @@ describe("orchestration boundary guidance", () => {
     );
     expect(interactiveText).toContain(
       "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
-    );
-    expect(runText).toContain(
-      "Planning/decomposition and executing the graph are distinct decisions.",
     );
     expect(interactiveText).toContain(
       "Planning/decomposition and executing the graph are distinct decisions.",

@@ -21,6 +21,10 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = "ticket";
 export const SCOPE_POLICY_TRADEOFF =
   "Dependents may start before aggregate review finds a problem.";
 
+/** Shared command/tool identity. Present on both planning and active run surfaces. */
+const GOAL_LIFECYCLE_EQUIVALENCE =
+  "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.";
+
 const BEADWORK_PARENT_TOOLS = [
   "beadwork_status",
   "beadwork_prime",
@@ -109,6 +113,7 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
     "You are in beadwork run mode.",
     "Goal mode: run the scoped epic to completion.",
     "This is a manager-only loop.",
+    GOAL_LIFECYCLE_EQUIVALENCE,
     "Prefer durable beadwork state over conversational replanning.",
     "Use `orchestrate` plus beadwork tools. Do not poll.",
     "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
@@ -212,7 +217,7 @@ function renderGoalStartGuidance(): string {
   return [
     "## Goal mode entry",
     "",
-    "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
+    GOAL_LIFECYCLE_EQUIVALENCE,
     "Call `beadwork_start_goal({ epic_id })` only after you have intentionally chosen to execute a ready, already-decomposed open epic.",
     "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
     "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation. It does not implement the epic or dispatch children.",
@@ -273,7 +278,7 @@ export function buildBeadworkPromptAppendix(input: {
   const sections = [
     "[BEADWORK SESSION ACTIVE]",
     renderModeGuidance(sessionState.mode).join("\n"),
-    renderGoalStartGuidance(),
+    ...(sessionState.mode === "interactive" ? [renderGoalStartGuidance()] : []),
     `Current scope: ${scopeLine}`,
     renderAgentVsTaskType(),
     renderTaskTypePolicy(),

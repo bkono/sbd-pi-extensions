@@ -102,6 +102,12 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(standing).toContain(
           "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
         );
+        expect(standing).toContain(
+          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+        );
+        expect(standing).not.toContain(
+          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+        );
         expect(harness.launchedChildren()).toEqual([]);
         await harness.logStep("bw-start-goal-injected", { ticketId: ticket.id });
 

@@ -237,6 +237,12 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(standing).toContain(
           "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
         );
+        expect(standing).toContain(
+          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+        );
+        expect(standing).not.toContain(
+          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
+        );
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");
