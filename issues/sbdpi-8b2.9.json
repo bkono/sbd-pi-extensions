@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [
     "sbdpi-8b2.7"
@@ -21,8 +21,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Remove semantic orchestration policy from Minions mechanics",
   "type": "task",
-  "updated_at": "2026-08-31T19:22:29Z"
+  "updated_at": "2026-08-31T19:22:39Z"
 }
