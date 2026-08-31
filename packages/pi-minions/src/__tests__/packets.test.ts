@@ -16,10 +16,14 @@ import {
   injectOrchestratedCommTools,
   LIFECYCLE_PACKET_CUSTOM_TYPE,
   type LifecyclePacketDetails,
+  MAX_CHANGED_CHILDREN,
+  MAX_PACKET_OVERLAPS,
+  MAX_STILL_RUNNING_CHILDREN,
   MinionCommMailbox,
   ORCHESTRATION_LIFECYCLE_CHANNEL,
   OrchestrationGroupState,
   type OrchestrationLifecycleEvent,
+  PACKET_FIELD_CHAR_CAP,
   PARENT_RECIPIENT_ID,
   SEND_MINION_PEER_TOOL,
 } from "../orchestration/index.js";
@@ -144,9 +148,9 @@ function wakeHarness(opts?: { askId?: string; otherId?: string; groupId?: string
   const sendMessage = vi.fn();
   const groupId = opts?.groupId ?? "grp-1";
   groups.commitGroup({ groupId, cwd: "/tmp" });
-  groups.acceptLiveWork(groupId);
   const askId = opts?.askId ?? "mn-ask";
   const otherId = opts?.otherId ?? "mn-other";
+  groups.acceptLiveWork(groupId, [askId, otherId]);
   addOrchestrated(tree, askId, {
     groupId,
     taskType: "implementation",
@@ -408,26 +412,40 @@ describe("event classes", () => {
   });
 });
 
-describe("consume-once", () => {
-  it("submits a drained batch once and does not retry after sendMessage throws", () => {
-    const { tree, sendMessage, dispatcher, drain } = harness();
+describe("acceptance-aware retry", () => {
+  it("retries terminal plus idle on the next lifecycle enqueue without sequence loss or duplicates", () => {
+    const { tree, groups, sendMessage, dispatcher, drain } = harness();
     addOrchestrated(tree, "mn-1");
+    groups.acceptLiveWork("grp-1", ["mn-1"]);
     tree.updateStatus("mn-1", "completed", 0);
     sendMessage.mockImplementationOnce(() => {
       throw new Error("delivery failed");
     });
 
-    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-1", output: "done" });
+    const terminal = {
+      class: "settled" as const,
+      groupId: "grp-1",
+      childId: "mn-1",
+      output: "done",
+    };
+    dispatcher.enqueue(terminal);
     drain();
     expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(packetOf(sendMessage, 0).message.details.seq).toBe(1);
+    expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
 
-    drain();
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-
-    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-1", output: "done" });
+    dispatcher.enqueue(terminal);
     drain();
     expect(sendMessage).toHaveBeenCalledTimes(2);
-    expect(packetOf(sendMessage, 1).message.details.seq).toBe(2);
+    expect(packetOf(sendMessage, 1).message.details.seq).toBe(1);
+    expect(packetOf(sendMessage, 1).message.details.changed.map((child) => child.childId)).toEqual([
+      "mn-1",
+    ]);
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+
+    dispatcher.enqueue(terminal);
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -558,10 +576,89 @@ describe("trusted fleet state", () => {
   });
 });
 
+it("bounds hostile fleet, overlap, and child counts with honest omission summaries", () => {
+  const pending: Array<() => void> = [];
+  const tree = new AgentTree();
+  const groups = new OrchestrationGroupState();
+  const sendMessage = vi.fn();
+  groups.commitGroup({ groupId: "grp-hostile", cwd: "/tmp" });
+  const hostile = `\u001b[31m${"🧪".repeat(5_000)}\npath/tool`;
+  const terminalIds: string[] = [];
+  const liveIds: string[] = [];
+
+  for (let index = 0; index < 80; index++) {
+    const id = `mn-terminal-${index}`;
+    terminalIds.push(id);
+    addOrchestrated(tree, id, { groupId: "grp-hostile", description: hostile });
+    tree.updateStatus(id, "completed", 0);
+  }
+  for (let index = 0; index < 100; index++) {
+    const id = `mn-live-${index}`;
+    liveIds.push(id);
+    const node = addOrchestrated(tree, id, {
+      groupId: "grp-hostile",
+      agentName: hostile,
+      description: hostile,
+    });
+    node.activity = {
+      phase: hostile,
+      summary: hostile,
+      toolPreview: hostile,
+      updatedAt: 1,
+    } as never;
+  }
+  groups.acceptLiveWork("grp-hostile", [...terminalIds, ...liveIds]);
+
+  const overlaps = Array.from({ length: 40 }, (_, index) => ({
+    groupId: "grp-hostile",
+    childId: `mn-live-${index}`,
+    childDescription: hostile,
+    path: hostile,
+    otherId: `mn-live-${index + 1}`,
+    otherDescription: hostile,
+    otherPath: hostile,
+    editAllowed: true as const,
+  }));
+  const dispatcher = createLifecyclePacketDispatcher({
+    getTree: () => tree,
+    getGroups: () => groups,
+    sendMessage: sendMessage as ExtensionAPI["sendMessage"],
+    consumeOverlaps: () => overlaps,
+    schedule: (run) => pending.push(run),
+  });
+  for (const childId of terminalIds) {
+    dispatcher.enqueue({ class: "settled", groupId: "grp-hostile", childId });
+  }
+  while (pending.length > 0) pending.shift()?.();
+
+  const packet = packetOf(sendMessage).message;
+  expect(packet.details.changed).toHaveLength(MAX_CHANGED_CHILDREN);
+  expect(packet.details.changedCount).toBe(terminalIds.length);
+  expect(packet.details.stillRunning).toHaveLength(MAX_STILL_RUNNING_CHILDREN);
+  expect(packet.details.stillRunningCount).toBe(liveIds.length);
+  expect(packet.details.overlaps).toHaveLength(MAX_PACKET_OVERLAPS);
+  expect(packet.details.omittedOverlapCount).toBe(overlaps.length - MAX_PACKET_OVERLAPS);
+  expect(packet.content).toContain(`+${terminalIds.length - MAX_CHANGED_CHILDREN} more changed`);
+  expect(packet.content).toContain(`+${liveIds.length - MAX_STILL_RUNNING_CHILDREN} more active`);
+  expect(packet.content).not.toContain("\u001b");
+  expect(Buffer.byteLength(JSON.stringify(packet), "utf8")).toBeLessThan(64_000);
+  for (const child of packet.details.stillRunning) {
+    expect(child.description?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(child.agent?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(child.activity?.summary.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(child.activity?.toolPreview?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+  }
+  for (const overlap of packet.details.overlaps) {
+    expect(overlap.path.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(overlap.otherPath.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+    expect(overlap.childDescription?.length).toBeLessThanOrEqual(PACKET_FIELD_CHAR_CAP);
+  }
+});
+
 describe("group idle transition", () => {
   it("coalesces near-simultaneous final settlements into one packet and one adjudication indication", () => {
     const { tree, groups, dispatcher, sendMessage, drain } = harness();
-    groups.acceptLiveWork("grp-1");
+    groups.acceptLiveWork("grp-1", ["mn-a", "mn-b"]);
     addOrchestrated(tree, "mn-a");
     addOrchestrated(tree, "mn-b");
     tree.updateStatus("mn-a", "completed", 0);
@@ -582,7 +679,7 @@ describe("group idle transition", () => {
 
   it("does not duplicate an idle epoch for repeated terminal delivery", () => {
     const { tree, groups, dispatcher, sendMessage, drain } = harness();
-    groups.acceptLiveWork("grp-1");
+    groups.acceptLiveWork("grp-1", ["mn-once"]);
     addOrchestrated(tree, "mn-once");
     tree.updateStatus("mn-once", "completed", 0);
 
@@ -591,28 +688,48 @@ describe("group idle transition", () => {
     dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-once" });
     drain();
 
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
-    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBeUndefined();
-    expect(packetOf(sendMessage, 1).message.content).not.toContain("Group idle:");
   });
 
   it("re-arms when the same open group accepts new work after idle", () => {
     const { tree, groups, dispatcher, sendMessage, drain } = harness();
-    groups.acceptLiveWork("grp-1");
+    groups.acceptLiveWork("grp-1", ["mn-epoch-1"]);
     addOrchestrated(tree, "mn-epoch-1");
     tree.updateStatus("mn-epoch-1", "completed", 0);
     dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-epoch-1" });
     drain();
 
     addOrchestrated(tree, "mn-epoch-2");
-    groups.acceptLiveWork("grp-1");
+    groups.acceptLiveWork("grp-1", ["mn-epoch-2"]);
     tree.updateStatus("mn-epoch-2", "completed", 0);
     dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-epoch-2" });
     drain();
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(packetOf(sendMessage, 0).message.details.groupIdleId).toBe("grp-1");
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+
+  it("does not let a stale prior-epoch terminal consume re-armed idle", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-old");
+    groups.acceptLiveWork("grp-1", ["mn-old"]);
+    tree.updateStatus("mn-old", "completed", 0);
+    const stale = { class: "settled" as const, groupId: "grp-1", childId: "mn-old" };
+    dispatcher.enqueue(stale);
+    drain();
+
+    addOrchestrated(tree, "mn-new");
+    groups.acceptLiveWork("grp-1", ["mn-new"]);
+    dispatcher.enqueue(stale);
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    tree.updateStatus("mn-new", "completed", 0);
+    dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-new" });
+    drain();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
   });
 
@@ -629,9 +746,32 @@ describe("group idle transition", () => {
     expect(packetOf(sendMessage).message.content).not.toContain("Group idle:");
   });
 
+  it("clears terminal dedupe and epoch ownership on session reset", () => {
+    const { tree, groups, dispatcher, sendMessage, drain } = harness();
+    addOrchestrated(tree, "mn-reused");
+    groups.acceptLiveWork("grp-1", ["mn-reused"]);
+    tree.updateStatus("mn-reused", "completed", 0);
+    const terminal = { class: "settled" as const, groupId: "grp-1", childId: "mn-reused" };
+    dispatcher.enqueue(terminal);
+    drain();
+
+    dispatcher.reset();
+    groups.closeGroup("grp-1");
+    groups.commitGroup({ groupId: "grp-1", cwd: "/tmp" });
+    addOrchestrated(tree, "mn-reused");
+    groups.acceptLiveWork("grp-1", ["mn-reused"]);
+    tree.updateStatus("mn-reused", "completed", 0);
+    dispatcher.enqueue(terminal);
+    drain();
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(packetOf(sendMessage, 1).message.details.seq).toBe(1);
+    expect(packetOf(sendMessage, 1).message.details.groupIdleId).toBe("grp-1");
+  });
+
   it("does not let spawn completion consume an armed group idle epoch", () => {
     const { tree, groups, dispatcher, sendMessage, drain } = harness();
-    groups.acceptLiveWork("grp-1");
+    groups.acceptLiveWork("grp-1", ["mn-real"]);
     tree.add("mn-spawn", "spawn", "foreground task");
     tree.updateStatus("mn-spawn", "completed", 0);
     dispatcher.enqueue({ class: "settled", groupId: "grp-1", childId: "mn-spawn" });
@@ -647,7 +787,7 @@ describe("group idle transition", () => {
 
   it("keeps a waiting child active and emits idle only after its true terminal commit", () => {
     const { tree, groups, dispatcher, sendMessage, drain } = harness();
-    groups.acceptLiveWork("grp-1");
+    groups.acceptLiveWork("grp-1", ["mn-question"]);
     addOrchestrated(tree, "mn-question", { waiting: true });
 
     dispatcher.enqueue({

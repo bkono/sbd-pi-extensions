@@ -69,8 +69,9 @@ function newGroupId(): string {
  */
 export class OrchestrationGroupState {
   private open: OpenOrchestrationGroup | undefined;
-  private idleArmed = false;
-
+  private epoch = 0;
+  private idleEpoch: number | undefined;
+  private readonly childEpochs = new Map<string, number>();
   previewGroup(input: ResolveGroupInput): PreviewGroupResult {
     const groupId = optionalString(input.groupId);
     const cwdInput = optionalString(input.cwd);
@@ -94,7 +95,9 @@ export class OrchestrationGroupState {
   commitGroup(group: OpenOrchestrationGroup): void {
     if (this.open) return;
     this.open = { groupId: group.groupId, cwd: group.cwd };
-    this.idleArmed = false;
+    this.epoch = 0;
+    this.idleEpoch = undefined;
+    this.childEpochs.clear();
     logger.info("orchestration-group", "commit", {
       groupId: group.groupId,
       cwd: group.cwd,
@@ -109,17 +112,39 @@ export class OrchestrationGroupState {
     return { groupId: result.groupId, cwd: result.cwd };
   }
 
-  /** Arm one idle epoch only after orchestrate accepted at least one live child. */
-  acceptLiveWork(groupId: string): boolean {
+  /** Arm an epoch after orchestrate accepts live children and record their stable ownership. */
+  acceptLiveWork(groupId: string, childIds: readonly string[] = []): boolean {
     if (this.open?.groupId !== groupId) return false;
-    this.idleArmed = true;
+    if (this.idleEpoch === undefined) {
+      this.epoch++;
+      this.idleEpoch = this.epoch;
+    }
+    for (const childId of childIds) this.childEpochs.set(childId, this.idleEpoch);
     return true;
   }
 
-  /** Consume the armed active→idle epoch once current tree truth has no live members. */
-  consumeIdleTransition(groupId: string, hasLiveWork: boolean): boolean {
-    if (this.open?.groupId !== groupId || hasLiveWork || !this.idleArmed) return false;
-    this.idleArmed = false;
+  /** Epoch assigned when this child was accepted. It never changes when the group re-arms. */
+  getChildEpoch(groupId: string, childId: string): number | undefined {
+    if (this.open?.groupId !== groupId) return undefined;
+    return this.childEpochs.get(childId);
+  }
+
+  /** Reserve, but do not consume, an active→idle epoch owned by terminal evidence. */
+  peekIdleTransition(
+    groupId: string,
+    hasLiveWork: boolean,
+    terminalEpochs: ReadonlySet<number>,
+  ): number | undefined {
+    if (this.open?.groupId !== groupId || hasLiveWork || this.idleEpoch === undefined) {
+      return undefined;
+    }
+    return terminalEpochs.has(this.idleEpoch) ? this.idleEpoch : undefined;
+  }
+
+  /** Consume a reservation only after the corresponding packet submission is accepted. */
+  acknowledgeIdleTransition(groupId: string, epoch: number): boolean {
+    if (this.open?.groupId !== groupId || this.idleEpoch !== epoch) return false;
+    this.idleEpoch = undefined;
     return true;
   }
 
@@ -143,7 +168,9 @@ export class OrchestrationGroupState {
       return;
     }
     this.open = undefined;
-    this.idleArmed = false;
+    this.epoch = 0;
+    this.idleEpoch = undefined;
+    this.childEpochs.clear();
     logger.info("orchestration-group", "close", {
       groupId: current.groupId,
       cwd: current.cwd,

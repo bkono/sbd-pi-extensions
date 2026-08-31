@@ -15,17 +15,51 @@ export function formatLiveGroupInvariant(groupId: string): string {
   );
 }
 
+export function getLiveGroupInvariant(
+  tree: AgentTree,
+  groups: OrchestrationGroupState,
+): string | undefined {
+  const group = groups.getOpenGroup();
+  if (!group || tree.getOrchestratedGroup(group.groupId).length === 0) return undefined;
+  return formatLiveGroupInvariant(group.groupId);
+}
+
+/**
+ * Pi 0.84.3 has no per-followUp prompt hook. This controller projects the current invariant into
+ * the registered orchestrate tool's promptGuidelines, which Pi rebuilds into its base system prompt.
+ */
+export class LiveGroupSystemPromptController {
+  private current: string | undefined;
+
+  constructor(
+    private readonly getTree: () => AgentTree,
+    private readonly getGroups: () => OrchestrationGroupState,
+    private readonly apply: (invariant: string | undefined) => void,
+  ) {}
+
+  sync(): void {
+    const next = getLiveGroupInvariant(this.getTree(), this.getGroups());
+    if (next === this.current) return;
+    this.current = next;
+    this.apply(next);
+  }
+
+  reset(): void {
+    if (this.current === undefined) return;
+    this.current = undefined;
+    this.apply(undefined);
+  }
+}
+
 /** Resolve current session state on every turn; no context or prompt appendix is retained. */
 export function createLiveGroupPromptHandler(
   getTree: () => AgentTree,
   getGroups: () => OrchestrationGroupState,
 ): (event: BeforeAgentStartPromptEvent) => { systemPrompt: string } | undefined {
   return (event) => {
-    const group = getGroups().getOpenGroup();
-    if (!group || getTree().getOrchestratedGroup(group.groupId).length === 0) return undefined;
+    const invariant = getLiveGroupInvariant(getTree(), getGroups());
+    if (!invariant || event.systemPrompt.includes(invariant)) return undefined;
 
-    return {
-      systemPrompt: `${event.systemPrompt}\n\n${formatLiveGroupInvariant(group.groupId)}`,
-    };
+    return { systemPrompt: `${event.systemPrompt}\n\n${invariant}` };
   };
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createLiveGroupPromptHandler, formatLiveGroupInvariant } from "../live-group-invariant.js";
+import {
+  createLiveGroupPromptHandler,
+  formatLiveGroupInvariant,
+  LiveGroupSystemPromptController,
+} from "../live-group-invariant.js";
 import { OrchestrationGroupState } from "../orchestration/group-state.js";
 import { AgentTree } from "../tree.js";
 
@@ -88,5 +92,33 @@ describe("live group system-prompt invariant", () => {
     const replacement = handler({ systemPrompt: "replacement base" });
     expect(replacement?.systemPrompt).toContain("grp-new");
     expect(replacement?.systemPrompt).not.toContain("grp-old");
+  });
+
+  it("disposes dynamic prompt state across session replacement", () => {
+    let tree = new AgentTree();
+    let groups = new OrchestrationGroupState();
+    const applied: Array<string | undefined> = [];
+    openArmedGroup(groups, "grp-old");
+    addOrchestrated(tree, "mn-old", "grp-old");
+    const controller = new LiveGroupSystemPromptController(
+      () => tree,
+      () => groups,
+      (invariant) => applied.push(invariant),
+    );
+
+    controller.sync();
+    controller.reset();
+    tree = new AgentTree();
+    groups = new OrchestrationGroupState();
+    controller.sync();
+    openArmedGroup(groups, "grp-new");
+    addOrchestrated(tree, "mn-new", "grp-new");
+    controller.sync();
+
+    expect(applied).toEqual([
+      formatLiveGroupInvariant("grp-old"),
+      undefined,
+      formatLiveGroupInvariant("grp-new"),
+    ]);
   });
 });

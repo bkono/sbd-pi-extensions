@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { projectTrustedActivity } from "../activity.js";
+import { projectTrustedActivity, sanitizeActivityText } from "../activity.js";
 import type { PathOverlapNotice } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import { nudgeFor } from "../nudges.js";
@@ -20,6 +20,11 @@ export const LIFECYCLE_PACKET_CUSTOM_TYPE = "minion-lifecycle";
 
 /** Modest bound so packets stay cheap in parent history. Full text via show_minion. */
 export const CHILD_OUTPUT_CHAR_CAP = 2000;
+export const PACKET_FIELD_CHAR_CAP = 96;
+export const PACKET_NUDGE_CHAR_CAP = 400;
+export const MAX_CHANGED_CHILDREN = 8;
+export const MAX_STILL_RUNNING_CHILDREN = 16;
+export const MAX_PACKET_OVERLAPS = 4;
 
 const SEND_OPTIONS = { triggerTurn: true, deliverAs: "followUp" } as const;
 
@@ -53,10 +58,13 @@ export interface LifecyclePacketDetails {
   groupIds: string[];
   changed: ChangedChildPacket[];
   stillRunning: StillRunningChildPacket[];
+  changedCount: number;
+  stillRunningCount: number;
   /** Present exactly once for one armed active→idle epoch. */
   groupIdleId?: string;
   /** Advisory overlaps recorded since the last real packet. Never a wake by themselves. */
   overlaps: PathOverlapNotice[];
+  omittedOverlapCount: number;
 }
 
 export interface LifecyclePacketDispatcherDeps {
@@ -73,6 +81,23 @@ export interface LifecyclePacketDispatcherDeps {
   drainParentMail?: (childId: string) => string | undefined;
 }
 
+interface OwnedLifecycleEvent {
+  event: OrchestrationLifecycleEvent;
+  epoch: number;
+  terminalKey?: string;
+}
+
+interface IdleReservation {
+  groupId: string;
+  epoch: number;
+}
+
+interface BuiltLifecyclePacket {
+  details: LifecyclePacketDetails;
+  terminalKeys: string[];
+  idleReservation?: IdleReservation;
+}
+
 function isPacketClass(value: string): value is NudgeEvent {
   return (NUDGE_EVENTS as readonly string[]).includes(value);
 }
@@ -81,6 +106,48 @@ function boundText(text: string | undefined): { text: string; truncated: boolean
   if (text === undefined || text.length === 0) return undefined;
   if (text.length <= CHILD_OUTPUT_CHAR_CAP) return { text, truncated: false };
   return { text: text.slice(0, CHILD_OUTPUT_CHAR_CAP), truncated: true };
+}
+
+function field(text: string | undefined, max = PACKET_FIELD_CHAR_CAP): string | undefined {
+  if (text === undefined) return undefined;
+  return sanitizeActivityText(text, max) || undefined;
+}
+
+function boundedDomain(domain: OrchestrationDomain | undefined): OrchestrationDomain | undefined {
+  if (!domain) return undefined;
+  const source = field(domain.source);
+  if (!source) return undefined;
+  return {
+    source,
+    scopeId: field(domain.scopeId),
+    workItemId: field(domain.workItemId),
+    title: field(domain.title),
+  };
+}
+
+function boundedActivity(
+  activity: TrustedActivityProjection | undefined,
+): TrustedActivityProjection | undefined {
+  if (!activity) return undefined;
+  return {
+    ...activity,
+    phase: (field(String(activity.phase)) ?? "thinking") as TrustedActivityProjection["phase"],
+    summary: field(activity.summary) ?? "active",
+    toolPreview: field(activity.toolPreview),
+  };
+}
+
+function boundedOverlap(notice: PathOverlapNotice): PathOverlapNotice {
+  return {
+    groupId: field(notice.groupId) ?? "group",
+    childId: field(notice.childId) ?? "child",
+    childDescription: field(notice.childDescription),
+    path: field(notice.path) ?? "path",
+    otherId: field(notice.otherId) ?? "child",
+    otherDescription: field(notice.otherDescription),
+    otherPath: field(notice.otherPath) ?? "path",
+    editAllowed: true,
+  };
 }
 
 function fenceUntrusted(label: string, text: string, truncated: boolean): string[] {
@@ -97,18 +164,6 @@ function formatInstruction(nudge: string): string[] {
   const lines = [`  Required judgment: ${first ?? ""}`];
   for (const line of rest) lines.push(`  ${line}`);
   return ["  --- runtime instruction ---", ...lines, "  --- end runtime instruction ---"];
-}
-
-function foldEvents(events: OrchestrationLifecycleEvent[]): OrchestrationLifecycleEvent[] {
-  const latest = new Map<string, OrchestrationLifecycleEvent>();
-  const order: string[] = [];
-  for (const event of events) {
-    if (!latest.has(event.childId)) order.push(event.childId);
-    latest.set(event.childId, event);
-  }
-  return order
-    .map((id) => latest.get(id))
-    .filter((event): event is OrchestrationLifecycleEvent => !!event);
 }
 
 function stillRunningLine(child: StillRunningChildPacket): string[] {
@@ -173,7 +228,7 @@ function formatChanged(child: ChangedChildPacket): string[] {
 export function formatLifecyclePacket(
   details: Omit<LifecyclePacketDetails, "seq"> & { seq?: number },
 ): string {
-  const lines = ["Orchestration update", "", "Changed:"];
+  const lines = ["Orchestration update", "", "Changed:", `Count: ${details.changedCount}`];
   if (details.changed.length === 0) {
     lines.push("- none");
   } else {
@@ -181,15 +236,20 @@ export function formatLifecyclePacket(
       lines.push(...formatChanged(child));
       lines.push("");
     }
+    const omitted = details.changedCount - details.changed.length;
+    if (omitted > 0)
+      lines.push(`- +${omitted} more changed children omitted; inspect list_minions`);
   }
 
-  lines.push("Still running:");
+  lines.push("Still running:", `Count: ${details.stillRunningCount}`);
   if (details.stillRunning.length === 0) {
     lines.push("- none");
   } else {
     for (const child of details.stillRunning) {
       lines.push(...stillRunningLine(child));
     }
+    const omitted = details.stillRunningCount - details.stillRunning.length;
+    if (omitted > 0) lines.push(`- +${omitted} more active children omitted; inspect list_minions`);
   }
 
   if (details.groupIdleId) {
@@ -200,10 +260,11 @@ export function formatLifecyclePacket(
     );
   }
 
-  if (details.overlaps && details.overlaps.length > 0) {
+  if (details.overlaps.length > 0 || details.omittedOverlapCount > 0) {
     lines.push("", "Overlaps (advisory; edits are not blocked):");
-    for (const notice of details.overlaps) {
-      lines.push(...overlapLine(notice));
+    for (const notice of details.overlaps) lines.push(...overlapLine(notice));
+    if (details.omittedOverlapCount > 0) {
+      lines.push(`- +${details.omittedOverlapCount} more overlaps omitted; inspect paths`);
     }
   }
 
@@ -219,24 +280,26 @@ function fleetChildState(node: AgentNode): FleetChildState {
 }
 
 function toStillRunning(node: AgentNode, now: number): StillRunningChildPacket {
+  const activity = node.activity ? projectTrustedActivity(node.activity) : undefined;
   return {
-    childId: node.id,
-    agent: namedAgent(node),
-    taskType: node.taskType,
-    description: node.description,
+    childId: field(node.id) ?? "child",
+    agent: field(namedAgent(node)),
+    taskType: field(node.taskType) as TaskType | undefined,
+    description: field(node.description),
     state: fleetChildState(node),
     elapsedMs: now - node.startTime,
-    activity: node.activity ? projectTrustedActivity(node.activity) : undefined,
+    activity: boundedActivity(activity),
   };
 }
 
 export class LifecyclePacketDispatcher {
-  private queue: OrchestrationLifecycleEvent[] = [];
+  private queue: OwnedLifecycleEvent[] = [];
   private scheduled = false;
   private seq = 0;
   private closed = false;
   private readonly schedule: (run: () => void) => void;
   private readonly now: () => number;
+  private readonly deliveredTerminals = new Set<string>();
 
   constructor(private readonly deps: LifecyclePacketDispatcherDeps) {
     this.schedule = deps.schedule ?? queueMicrotask;
@@ -244,12 +307,18 @@ export class LifecyclePacketDispatcher {
   }
 
   enqueue(event: OrchestrationLifecycleEvent): void {
-    if (this.closed) return;
-    if (!isPacketClass(event.class)) return;
+    if (this.closed || !isPacketClass(event.class)) return;
     const node = this.deps.getTree().get(event.childId);
     if (node?.kind !== "orchestrated") return;
 
-    this.queue.push(event);
+    const terminal = event.class !== "parentMessage";
+    const epoch = this.deps.getGroups().getChildEpoch(event.groupId, event.childId) ?? 0;
+    const terminalKey = terminal
+      ? `${event.groupId}\u0000${epoch}\u0000${event.childId}`
+      : undefined;
+    if (terminalKey && this.deliveredTerminals.has(terminalKey)) return;
+
+    this.queue.push({ event, epoch, terminalKey });
     this.scheduleDrain();
   }
 
@@ -257,8 +326,8 @@ export class LifecyclePacketDispatcher {
     this.queue = [];
     this.scheduled = false;
     this.seq = 0;
+    this.deliveredTerminals.clear();
   }
-
   close(): void {
     this.closed = true;
     this.reset();
@@ -283,8 +352,8 @@ export class LifecyclePacketDispatcher {
   }
 
   private drain(): void {
-    const batch: OrchestrationLifecycleEvent[] = [];
-    let packet: LifecyclePacketDetails | undefined;
+    const batch: OwnedLifecycleEvent[] = [];
+    let packet: BuiltLifecyclePacket | undefined;
     // Fold every event that arrives before submit. Queue drain, not a timer.
     do {
       batch.push(...this.queue.splice(0));
@@ -292,19 +361,40 @@ export class LifecyclePacketDispatcher {
     } while (this.queue.length > 0);
 
     if (!packet) return;
-    this.submit(packet);
+    if (!this.submit(packet.details)) {
+      this.queue.unshift(...batch);
+      return;
+    }
+
+    for (const key of packet.terminalKeys) this.deliveredTerminals.add(key);
+    if (packet.idleReservation) {
+      this.deps
+        .getGroups()
+        .acknowledgeIdleTransition(packet.idleReservation.groupId, packet.idleReservation.epoch);
+    }
   }
 
-  private build(events: OrchestrationLifecycleEvent[]): LifecyclePacketDetails | undefined {
+  private build(events: OwnedLifecycleEvent[]): BuiltLifecyclePacket | undefined {
     const tree = this.deps.getTree();
     const now = this.now();
-    const folded = foldEvents(events);
-    const changed: ChangedChildPacket[] = [];
+    const latest = new Map<string, OwnedLifecycleEvent>();
+    const order: string[] = [];
+    for (const owned of events) {
+      if (owned.terminalKey && this.deliveredTerminals.has(owned.terminalKey)) continue;
+      if (!latest.has(owned.event.childId)) order.push(owned.event.childId);
+      latest.set(owned.event.childId, owned);
+    }
+    const folded = order
+      .map((id) => latest.get(id))
+      .filter((event): event is OwnedLifecycleEvent => !!event);
+    const allChanged: ChangedChildPacket[] = [];
     const terminalChanged = new Set<string>();
-    const terminalGroupIds = new Set<string>();
+    const terminalGroupEpochs = new Map<string, Set<number>>();
     const groupIds: string[] = [];
+    const terminalKeys = new Set<string>();
 
-    for (const event of folded) {
+    for (const owned of folded) {
+      const event = owned.event;
       if (!isPacketClass(event.class)) continue;
       const node = tree.get(event.childId);
       if (node?.kind !== "orchestrated") continue;
@@ -312,68 +402,84 @@ export class LifecyclePacketDispatcher {
       if (!groupIds.includes(event.groupId)) groupIds.push(event.groupId);
       if (event.class !== "parentMessage") {
         terminalChanged.add(event.childId);
-        terminalGroupIds.add(event.groupId);
+        const epochs = terminalGroupEpochs.get(event.groupId) ?? new Set<number>();
+        epochs.add(owned.epoch);
+        terminalGroupEpochs.set(event.groupId, epochs);
+        if (owned.terminalKey) terminalKeys.add(owned.terminalKey);
       }
 
       const drained =
         event.class === "parentMessage" ? this.deps.drainParentMail?.(event.childId) : undefined;
       const output = drained && drained.length > 0 ? drained : event.output;
 
-      changed.push({
-        childId: node.id,
-        displayName: node.name,
-        agent: namedAgent(node),
-        taskType: node.taskType,
-        description: node.description,
-        domain: node.domain,
+      allChanged.push({
+        childId: field(node.id) ?? "child",
+        displayName: field(node.name) ?? "child",
+        agent: field(namedAgent(node)),
+        taskType: field(node.taskType) as TaskType | undefined,
+        description: field(node.description),
+        domain: boundedDomain(node.domain),
         eventClass: event.class,
         output: boundText(output)?.text,
         error: boundText(event.error ?? node.error)?.text,
-        nudge: nudgeFor(
-          { taskType: node.taskType, completionNudge: node.completionNudge },
-          event.class,
-        ),
+        nudge:
+          field(
+            nudgeFor(
+              { taskType: node.taskType, completionNudge: node.completionNudge },
+              event.class,
+            ),
+            PACKET_NUDGE_CHAR_CAP,
+          ) ?? "Inspect the child evidence and decide the next action.",
       });
     }
 
-    if (changed.length === 0) return undefined;
+    if (allChanged.length === 0) return undefined;
+    const changed = allChanged.slice(0, MAX_CHANGED_CHILDREN);
 
     const seen = new Set<string>();
-    const stillRunning: StillRunningChildPacket[] = [];
+    const allStillRunning: StillRunningChildPacket[] = [];
     for (const groupId of groupIds) {
-      for (const node of tree.getOrchestratedGroup(groupId)) {
-        if (terminalChanged.has(node.id) || seen.has(node.id) || node.kind !== "orchestrated") {
-          continue;
-        }
+      const members = [...tree.getOrchestratedGroup(groupId)].sort((a, b) =>
+        a.id.localeCompare(b.id),
+      );
+      for (const node of members) {
+        if (terminalChanged.has(node.id) || seen.has(node.id)) continue;
         seen.add(node.id);
-        stillRunning.push(toStillRunning(node, now));
+        allStillRunning.push(toStillRunning(node, now));
       }
     }
+    const stillRunning = allStillRunning.slice(0, MAX_STILL_RUNNING_CHILDREN);
 
     let groupIdleId: string | undefined;
+    let idleReservation: IdleReservation | undefined;
     const groups = this.deps.getGroups();
-    for (const groupId of terminalGroupIds) {
+    for (const [groupId, epochs] of terminalGroupEpochs) {
       const hasLiveWork = tree.getOrchestratedGroup(groupId).length > 0;
-      if (groups.consumeIdleTransition(groupId, hasLiveWork)) {
-        groupIdleId = groupId;
+      const epoch = groups.peekIdleTransition(groupId, hasLiveWork, epochs);
+      if (epoch !== undefined) {
+        groupIdleId = field(groupId) ?? "group";
+        idleReservation = { groupId, epoch };
         break;
       }
     }
 
-    const overlaps = this.deps.consumeOverlaps?.(groupIds) ?? [];
-
-    return {
+    const allOverlaps = (this.deps.consumeOverlaps?.(groupIds) ?? []).map(boundedOverlap);
+    const overlaps = allOverlaps.slice(0, MAX_PACKET_OVERLAPS);
+    const details: LifecyclePacketDetails = {
       seq: this.seq + 1,
-      groupIds,
+      groupIds: groupIds.slice(0, MAX_CHANGED_CHILDREN).map((id) => field(id) ?? "group"),
       changed,
+      changedCount: allChanged.length,
       stillRunning,
+      stillRunningCount: allStillRunning.length,
       groupIdleId,
       overlaps,
+      omittedOverlapCount: allOverlaps.length - overlaps.length,
     };
+    return { details, terminalKeys: [...terminalKeys], idleReservation };
   }
 
-  private submit(packet: LifecyclePacketDetails): void {
-    this.seq = packet.seq;
+  private submit(packet: LifecyclePacketDetails): boolean {
     const content = formatLifecyclePacket(packet);
     const byteSize = Buffer.byteLength(content, "utf8");
     const childIds = packet.changed.map((child) => child.childId);
@@ -410,9 +516,12 @@ export class LifecyclePacketDispatcher {
         },
         SEND_OPTIONS,
       );
+      this.seq = packet.seq;
+      return true;
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       logger.error("packets", "submit-failed", { seq: packet.seq, error });
+      return false;
     }
   }
 }

@@ -262,26 +262,34 @@ describe("OrchestrationGroupState idle epochs", () => {
     const groups = new OrchestrationGroupState();
     groups.commitGroup({ groupId: "grp-idle", cwd: "/tmp" });
 
-    expect(groups.consumeIdleTransition("grp-idle", false)).toBe(false);
-    expect(groups.acceptLiveWork("grp-other")).toBe(false);
-    expect(groups.acceptLiveWork("grp-idle")).toBe(true);
-    expect(groups.consumeIdleTransition("grp-idle", true)).toBe(false);
-    expect(groups.consumeIdleTransition("grp-idle", false)).toBe(true);
-    expect(groups.consumeIdleTransition("grp-idle", false)).toBe(false);
+    expect(groups.peekIdleTransition("grp-idle", false, new Set())).toBeUndefined();
+    expect(groups.acceptLiveWork("grp-other", ["mn-other"])).toBe(false);
+    expect(groups.acceptLiveWork("grp-idle", ["mn-idle"])).toBe(true);
+    expect(groups.getChildEpoch("grp-idle", "mn-idle")).toBe(1);
+    expect(groups.peekIdleTransition("grp-idle", true, new Set([1]))).toBeUndefined();
+    expect(groups.peekIdleTransition("grp-idle", false, new Set([1]))).toBe(1);
+    expect(groups.acknowledgeIdleTransition("grp-idle", 1)).toBe(true);
+    expect(groups.peekIdleTransition("grp-idle", false, new Set([1]))).toBeUndefined();
   });
 
   it("re-arms a later epoch in the same open group and clears state on close", () => {
     const groups = new OrchestrationGroupState();
     groups.commitGroup({ groupId: "grp-reuse", cwd: "/tmp" });
-    groups.acceptLiveWork("grp-reuse");
-    expect(groups.consumeIdleTransition("grp-reuse", false)).toBe(true);
+    groups.acceptLiveWork("grp-reuse", ["mn-1"]);
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([1]))).toBe(1);
+    expect(groups.acknowledgeIdleTransition("grp-reuse", 1)).toBe(true);
 
-    groups.acceptLiveWork("grp-reuse");
-    expect(groups.consumeIdleTransition("grp-reuse", false)).toBe(true);
+    groups.acceptLiveWork("grp-reuse", ["mn-2"]);
+    expect(groups.getChildEpoch("grp-reuse", "mn-1")).toBe(1);
+    expect(groups.getChildEpoch("grp-reuse", "mn-2")).toBe(2);
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([1]))).toBeUndefined();
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([2]))).toBe(2);
+    expect(groups.acknowledgeIdleTransition("grp-reuse", 2)).toBe(true);
 
-    groups.acceptLiveWork("grp-reuse");
+    groups.acceptLiveWork("grp-reuse", ["mn-3"]);
     groups.closeGroup("grp-reuse");
-    expect(groups.consumeIdleTransition("grp-reuse", false)).toBe(false);
+    expect(groups.peekIdleTransition("grp-reuse", false, new Set([3]))).toBeUndefined();
+    expect(groups.getChildEpoch("grp-reuse", "mn-3")).toBeUndefined();
   });
 });
 

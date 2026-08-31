@@ -58,5 +58,9 @@ export {
   type LifecyclePacketDetails,
   LifecyclePacketDispatcher,
   type LifecyclePacketDispatcherDeps,
+  MAX_CHANGED_CHILDREN,
+  MAX_PACKET_OVERLAPS,
+  MAX_STILL_RUNNING_CHILDREN,
+  PACKET_FIELD_CHAR_CAP,
   type StillRunningChildPacket,
 } from "./packets.js";
