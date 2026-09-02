@@ -45,10 +45,12 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
 
 const LEGACY_OBSERVATION_CONTEXT_PROMPT =
   "The following observations block contains your memory of past conversations with this user.";
-const COMPACTION_CONTEXT_MARKER = "<!-- pi-om-compaction-context -->";
-const QUOTED_COMPACTION_CONTEXT_MARKER = "<!-- pi-om-compaction-context:quoted -->";
+const COMPACTION_CONTEXT_START_MARKER = "<!-- pi-om-compaction-context:start -->";
+const COMPACTION_CONTEXT_END_MARKER = "<!-- pi-om-compaction-context:end -->";
+const QUOTED_COMPACTION_CONTEXT_START_MARKER = "<!-- pi-om-compaction-context:quoted-start -->";
+const QUOTED_COMPACTION_CONTEXT_END_MARKER = "<!-- pi-om-compaction-context:quoted-end -->";
 const CURRENT_OBSERVATION_CONTEXT_START = `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`;
-const TAGGED_OBSERVATION_CONTEXT_START = `${COMPACTION_CONTEXT_MARKER}\n${CURRENT_OBSERVATION_CONTEXT_START}`;
+const TAGGED_OBSERVATION_CONTEXT_START = `${COMPACTION_CONTEXT_START_MARKER}\n${CURRENT_OBSERVATION_CONTEXT_START}`;
 const OBSERVATION_CONTEXT_FORMATS = [
   {
     start: CURRENT_OBSERVATION_CONTEXT_START,
@@ -69,9 +71,11 @@ const OBSERVATION_CONTEXT_FORMATS = [
  */
 function stripObservationContexts(summary: string): string {
   let result = summary.trimEnd();
-  const taggedContextStart = result.lastIndexOf(TAGGED_OBSERVATION_CONTEXT_START);
-  if (taggedContextStart >= 0 && result.endsWith("</observational-memory>")) {
-    return result.slice(0, taggedContextStart).trim();
+
+  while (result.endsWith(COMPACTION_CONTEXT_END_MARKER)) {
+    const taggedContextStart = result.lastIndexOf(TAGGED_OBSERVATION_CONTEXT_START);
+    if (taggedContextStart < 0) break;
+    result = result.slice(0, taggedContextStart).trimEnd();
   }
 
   while (true) {
@@ -95,11 +99,10 @@ function stripObservationContexts(summary: string): string {
 }
 
 function tagObservationContext(context: string): string {
-  const escapedContext = context.replaceAll(
-    COMPACTION_CONTEXT_MARKER,
-    QUOTED_COMPACTION_CONTEXT_MARKER,
-  );
-  return `${COMPACTION_CONTEXT_MARKER}\n${escapedContext}`;
+  const escapedContext = context
+    .replaceAll(COMPACTION_CONTEXT_START_MARKER, QUOTED_COMPACTION_CONTEXT_START_MARKER)
+    .replaceAll(COMPACTION_CONTEXT_END_MARKER, QUOTED_COMPACTION_CONTEXT_END_MARKER);
+  return `${COMPACTION_CONTEXT_START_MARKER}\n${escapedContext}\n${COMPACTION_CONTEXT_END_MARKER}`;
 }
 
 /**
