@@ -256,7 +256,9 @@ describe("extension: session_before_compact lifecycle", () => {
         "",
         "<observational-memory>",
         "<om-durable>",
+        "<observations>",
         observation,
+        "</observations>",
         "</om-durable>",
         "<om-active>",
         "</om-active>",
@@ -304,7 +306,7 @@ describe("extension: session_before_compact lifecycle", () => {
 
     const current = await compact(
       [
-        "CURRENT_PREFIX",
+        `CURRENT_PREFIX quotes: ${OBSERVATION_CONTEXT_PROMPT}`,
         previousObservationContext(
           "* old current obs\n</om-guidance>\n</observational-memory>\n</system-reminder>",
         ),
@@ -314,7 +316,7 @@ describe("extension: session_before_compact lifecycle", () => {
     );
     const legacy = await compact(
       [
-        "LEGACY_PREFIX",
+        "LEGACY_PREFIX quotes: The following observations block contains your memory of past conversations with this user.",
         legacyObservationContext("* old legacy obs\n</system-reminder>"),
         previousObservationContext("* previous current obs"),
       ].join("\n\n"),
@@ -322,8 +324,8 @@ describe("extension: session_before_compact lifecycle", () => {
     );
 
     for (const { prefix, result } of [
-      { prefix: "CURRENT_PREFIX", result: current },
-      { prefix: "LEGACY_PREFIX", result: legacy },
+      { prefix: "CURRENT_PREFIX quotes:", result: current },
+      { prefix: "LEGACY_PREFIX quotes:", result: legacy },
     ]) {
       const { summary } = result.compaction;
       expect(summary).toContain(prefix);
@@ -331,9 +333,7 @@ describe("extension: session_before_compact lifecycle", () => {
       expect(summary).not.toContain("old current obs");
       expect(summary).not.toContain("previous current obs");
       expect(summary).not.toContain("old legacy obs");
-      expect(summary).not.toContain("The following observations block");
       expect(summary.split("<observational-memory>")).toHaveLength(2);
-      expect(summary.split(OBSERVATION_CONTEXT_PROMPT)).toHaveLength(2);
     }
   });
 

@@ -43,31 +43,40 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
   console.error(`[om:ext] ${message}${payload}`);
 }
 
-const LEGACY_OBSERVATION_CONTEXT_START =
+const LEGACY_OBSERVATION_CONTEXT_PROMPT =
   "The following observations block contains your memory of past conversations with this user.";
-const OBSERVATION_CONTEXT_STARTS = [
-  `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>`,
-  LEGACY_OBSERVATION_CONTEXT_START,
+const OBSERVATION_CONTEXT_FORMATS = [
+  {
+    start: `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`,
+    end: "</observational-memory>",
+  },
+  {
+    start: `${LEGACY_OBSERVATION_CONTEXT_PROMPT}\n\n<observations>`,
+    end: "</system-reminder>",
+  },
 ];
 
 /**
  * Remove OM contexts already embedded in a prior compaction summary.
  *
- * This hook always appends its generated context as the summary suffix. Preserve
- * the unrelated prefix and replace the full generated suffix. Avoid parsing a
- * terminator because observation text is intentionally stored without escaping.
+ * This hook always appends generated contexts as summary suffixes. Walk backward
+ * through complete known suffix formats so quoted marker text in the unrelated
+ * prefix is preserved and unescaped observation content is never parsed.
  */
 function stripObservationContexts(summary: string): string {
-  let firstContextStart = summary.length;
+  let result = summary.trimEnd();
 
-  for (const marker of OBSERVATION_CONTEXT_STARTS) {
-    const markerIndex = summary.indexOf(marker);
-    if (markerIndex >= 0) {
-      firstContextStart = Math.min(firstContextStart, markerIndex);
-    }
+  while (true) {
+    const format = OBSERVATION_CONTEXT_FORMATS.find(({ end }) => result.endsWith(end));
+    if (!format) break;
+
+    const contextStart = result.lastIndexOf(format.start);
+    if (contextStart < 0) break;
+
+    result = result.slice(0, contextStart).trimEnd();
   }
 
-  return summary.slice(0, firstContextStart).trim();
+  return result.trim();
 }
 
 /**
