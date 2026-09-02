@@ -45,41 +45,29 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
 
 const LEGACY_OBSERVATION_CONTEXT_START =
   "The following observations block contains your memory of past conversations with this user.";
-const OBSERVATION_CONTEXT_FORMATS = [
-  {
-    start: `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>`,
-    end: "</om-guidance>\n</observational-memory>",
-  },
-  {
-    start: LEGACY_OBSERVATION_CONTEXT_START,
-    end: "</system-reminder>",
-  },
+const OBSERVATION_CONTEXT_STARTS = [
+  `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>`,
+  LEGACY_OBSERVATION_CONTEXT_START,
 ];
 
 /**
- * Remove known OM contexts already embedded in a prior compaction summary.
+ * Remove OM contexts already embedded in a prior compaction summary.
  *
- * Compaction summaries are cumulative, so retaining a previous generated
- * context would append another complete snapshot on every compaction. Match
- * the current and historical generated formats so unrelated text remains.
+ * This hook always appends its generated context as the summary suffix. Preserve
+ * the unrelated prefix and replace the full generated suffix. Avoid parsing a
+ * terminator because observation text is intentionally stored without escaping.
  */
 function stripObservationContexts(summary: string): string {
-  let result = summary;
+  let firstContextStart = summary.length;
 
-  for (const format of OBSERVATION_CONTEXT_FORMATS) {
-    while (true) {
-      const contextStart = result.indexOf(format.start);
-      if (contextStart < 0) break;
-
-      const endStart = result.indexOf(format.end, contextStart + format.start.length);
-      if (endStart < 0) break;
-
-      const contextEnd = endStart + format.end.length;
-      result = `${result.slice(0, contextStart)}${result.slice(contextEnd)}`;
+  for (const marker of OBSERVATION_CONTEXT_STARTS) {
+    const markerIndex = summary.indexOf(marker);
+    if (markerIndex >= 0) {
+      firstContextStart = Math.min(firstContextStart, markerIndex);
     }
   }
 
-  return result.trim();
+  return summary.slice(0, firstContextStart).trim();
 }
 
 /**

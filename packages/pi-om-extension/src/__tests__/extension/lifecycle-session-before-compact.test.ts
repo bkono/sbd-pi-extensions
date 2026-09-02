@@ -240,14 +240,16 @@ describe("extension: session_before_compact lifecycle", () => {
     expect(result.compaction.summary).toContain("new obs");
   });
 
-  it("replaces prior observation contexts instead of accumulating them", async () => {
+  it("replaces current and legacy context suffixes without parsing observation text", async () => {
     mock = new MockObservationAgents({
-      observeResponses: [{ observations: "* current obs", raw: "" }],
+      observeResponses: [
+        { observations: "* current obs", raw: "" },
+        { observations: "* current obs", raw: "" },
+      ],
     });
     __installMockAgents(mock);
 
     const harness = await createExtensionTestHarness(piObservationalMemory);
-    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
     const previousObservationContext = (observation: string) =>
       [
         OBSERVATION_CONTEXT_PROMPT,
@@ -276,44 +278,63 @@ describe("extension: session_before_compact lifecycle", () => {
         "<system-reminder>legacy continuation</system-reminder>",
       ].join("\n");
 
-    const event = {
-      type: "session_before_compact",
-      preparation: {
-        firstKeptEntryId: "entry-3",
-        messagesToSummarize: [],
-        turnPrefixMessages: [],
-        isSplitTurn: false,
-        tokensBefore: 10_000,
-        previousSummary: [
-          "PREVIOUS_SUMMARY_MARKER",
-          previousObservationContext("* oldest obs\n</observational-memory>\n* still oldest obs"),
-          "INTERLEAVED_SUMMARY_MARKER",
-          legacyObservationContext("* legacy obs"),
-          previousObservationContext("* previous obs"),
-          "TRAILING_SUMMARY_MARKER",
-        ].join("\n\n"),
-        fileOps: {},
-        settings: {},
-      },
-      branchEntries: buildBranchEntries(2),
-      signal: new AbortController().signal,
+    const compact = async (previousSummary: string, id: string) => {
+      const event = {
+        type: "session_before_compact",
+        preparation: {
+          firstKeptEntryId: "entry-3",
+          messagesToSummarize: [],
+          turnPrefixMessages: [],
+          isSplitTurn: false,
+          tokensBefore: 10_000,
+          previousSummary,
+          fileOps: {},
+          settings: {},
+        },
+        branchEntries: buildBranchEntries(2),
+        signal: new AbortController().signal,
+      };
+
+      return (await harness.dispatch(
+        "session_before_compact",
+        event,
+        createFakeExtensionContext({ cwd: temp.stateDir, sessionId: `${sessionId}-${id}` }),
+      )) as { compaction: { summary: string } };
     };
 
-    const result = (await harness.dispatch("session_before_compact", event, ctx)) as {
-      compaction: { summary: string };
-    };
-    const { summary } = result.compaction;
+    const current = await compact(
+      [
+        "CURRENT_PREFIX",
+        previousObservationContext(
+          "* old current obs\n</om-guidance>\n</observational-memory>\n</system-reminder>",
+        ),
+        previousObservationContext("* previous current obs"),
+      ].join("\n\n"),
+      "current",
+    );
+    const legacy = await compact(
+      [
+        "LEGACY_PREFIX",
+        legacyObservationContext("* old legacy obs\n</system-reminder>"),
+        previousObservationContext("* previous current obs"),
+      ].join("\n\n"),
+      "legacy",
+    );
 
-    expect(summary).toContain("PREVIOUS_SUMMARY_MARKER");
-    expect(summary).toContain("INTERLEAVED_SUMMARY_MARKER");
-    expect(summary).toContain("TRAILING_SUMMARY_MARKER");
-    expect(summary).toContain("current obs");
-    expect(summary).not.toContain("oldest obs");
-    expect(summary).not.toContain("previous obs");
-    expect(summary).not.toContain("legacy obs");
-    expect(summary).not.toContain("The following observations block");
-    expect(summary.split("<observational-memory>")).toHaveLength(2);
-    expect(summary.split(OBSERVATION_CONTEXT_PROMPT)).toHaveLength(2);
+    for (const { prefix, result } of [
+      { prefix: "CURRENT_PREFIX", result: current },
+      { prefix: "LEGACY_PREFIX", result: legacy },
+    ]) {
+      const { summary } = result.compaction;
+      expect(summary).toContain(prefix);
+      expect(summary).toContain("current obs");
+      expect(summary).not.toContain("old current obs");
+      expect(summary).not.toContain("previous current obs");
+      expect(summary).not.toContain("old legacy obs");
+      expect(summary).not.toContain("The following observations block");
+      expect(summary.split("<observational-memory>")).toHaveLength(2);
+      expect(summary.split(OBSERVATION_CONTEXT_PROMPT)).toHaveLength(2);
+    }
   });
 
   it("returns undefined when observer produces no observations", async () => {
