@@ -76,8 +76,15 @@ function stripObservationContexts(summary: string): string {
     const format = OBSERVATION_CONTEXT_FORMATS.find(({ end }) => result.endsWith(end));
     if (!format) break;
 
-    const contextStart = result.lastIndexOf(format.start);
+    const contextStart = result.indexOf(format.start);
     if (contextStart < 0) break;
+
+    // Historical formats were not escaped or explicitly delimited. If the
+    // structural header occurs more than once, its outer boundary is ambiguous;
+    // discard that legacy summary rather than retaining a malformed stale tail.
+    if (result.indexOf(format.start, contextStart + format.start.length) >= 0) {
+      return "";
+    }
 
     result = result.slice(0, contextStart).trimEnd();
   }

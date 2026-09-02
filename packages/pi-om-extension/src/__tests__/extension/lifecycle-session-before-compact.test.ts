@@ -310,11 +310,19 @@ describe("extension: session_before_compact lifecycle", () => {
       )) as { compaction: { summary: string } };
     };
 
+    const embeddedCurrentHeader = [
+      OBSERVATION_CONTEXT_PROMPT,
+      "",
+      "<observational-memory>",
+      "<om-durable>",
+      "<observations>",
+    ].join("\n");
+
     const current = await compact(
       [
         `CURRENT_PREFIX quotes: ${OBSERVATION_CONTEXT_PROMPT}`,
         previousObservationContext(
-          "* old current obs\n</om-guidance>\n</observational-memory>\n</system-reminder>",
+          `* old current obs\n${embeddedCurrentHeader}\n</om-guidance>\n</observational-memory>\n</system-reminder>`,
         ),
         previousObservationContext("* previous current obs"),
       ].join("\n\n"),
@@ -330,13 +338,12 @@ describe("extension: session_before_compact lifecycle", () => {
     );
     const tagged = await compact(current.compaction.summary, "tagged");
 
-    for (const { prefix, result } of [
-      { prefix: "CURRENT_PREFIX quotes:", result: current },
-      { prefix: "LEGACY_PREFIX quotes:", result: legacy },
-      { prefix: "CURRENT_PREFIX quotes:", result: tagged },
-    ]) {
+    expect(current.compaction.summary).not.toContain("CURRENT_PREFIX quotes:");
+    expect(tagged.compaction.summary).not.toContain("CURRENT_PREFIX quotes:");
+    expect(legacy.compaction.summary).toContain("LEGACY_PREFIX quotes:");
+
+    for (const result of [current, legacy, tagged]) {
       const { summary } = result.compaction;
-      expect(summary).toContain(prefix);
       expect(summary).toContain("current obs");
       expect(summary).not.toContain("old current obs");
       expect(summary).not.toContain("previous current obs");
