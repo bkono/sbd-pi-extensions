@@ -14,11 +14,15 @@
     {
       "text": "Addressed Codex PR finding: sudo wrapper normalization now consumes legitimate options, including options with separate or attached values, before classifying the wrapped executable. Added regressions for `sudo -E`, `sudo --preserve-env`, `sudo -u root`, combined `-Eu root`, and nested SSH safety. Root lint, 442 test files / 2,359 tests, and all workspace typechecks pass.",
       "timestamp": "2026-09-02T21:38:17Z"
+    },
+    {
+      "text": "Assessed all three follow-up Codex findings as valid and in-scope: sudo non-execution modes could cause destructive false-positive compression; env option parsing and empty assignments were parity regressions in wrappers this change explicitly supports. Replaced ad hoc sudo-only handling with a shared fail-open wrapper option parser for command/sudo/env, explicitly rejecting non-execution modes and unknown options. Preserved assignment grammar context so `command CI= npm run build` is not misclassified, while leading/sudo/env assignments remain supported. Added regressions for all reported cases plus `sudo -U/--other-user`. Root lint, 442 test files / 2,361 tests, and all workspace typechecks pass.",
+      "timestamp": "2026-09-02T21:57:12Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prevent RTK classifiers from consuming wrapped SSH and Python output",
   "type": "task",
-  "updated_at": "2026-09-02T21:44:03Z"
+  "updated_at": "2026-09-02T21:57:12Z"
 }
