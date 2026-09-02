@@ -23,6 +23,7 @@ import {
   OM_COMMAND_USAGE,
   type OMStatusReport,
 } from "./format.js";
+import { OBSERVATION_CONTEXT_PROMPT } from "./prompts.js";
 import { loadSessionState, saveSessionState } from "./state.js";
 import { countMessageTokens, summarizeMessageWindow } from "./tokens.js";
 import type { OMConfig } from "./types.js";
@@ -40,6 +41,68 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
   if (!config.debug) return;
   const payload = details ? ` ${JSON.stringify(details)}` : "";
   console.error(`[om:ext] ${message}${payload}`);
+}
+
+const LEGACY_OBSERVATION_CONTEXT_PROMPT =
+  "The following observations block contains your memory of past conversations with this user.";
+const COMPACTION_CONTEXT_START_MARKER = "<!-- pi-om-compaction-context:start -->";
+const COMPACTION_CONTEXT_END_MARKER = "<!-- pi-om-compaction-context:end -->";
+const QUOTED_COMPACTION_CONTEXT_START_MARKER = "<!-- pi-om-compaction-context:quoted-start -->";
+const QUOTED_COMPACTION_CONTEXT_END_MARKER = "<!-- pi-om-compaction-context:quoted-end -->";
+const CURRENT_OBSERVATION_CONTEXT_START = `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`;
+const TAGGED_OBSERVATION_CONTEXT_START = `${COMPACTION_CONTEXT_START_MARKER}\n${CURRENT_OBSERVATION_CONTEXT_START}`;
+const OBSERVATION_CONTEXT_FORMATS = [
+  {
+    start: CURRENT_OBSERVATION_CONTEXT_START,
+    end: "</observational-memory>",
+  },
+  {
+    start: `${LEGACY_OBSERVATION_CONTEXT_PROMPT}\n\n<observations>`,
+    end: "</system-reminder>",
+  },
+];
+
+/**
+ * Remove OM contexts already embedded in a prior compaction summary.
+ *
+ * This hook always appends generated contexts as summary suffixes. Walk backward
+ * through complete known suffix formats so quoted marker text in the unrelated
+ * prefix is preserved and unescaped observation content is never parsed.
+ */
+function stripObservationContexts(summary: string): string {
+  let result = summary.trimEnd();
+
+  while (result.endsWith(COMPACTION_CONTEXT_END_MARKER)) {
+    const taggedContextStart = result.lastIndexOf(TAGGED_OBSERVATION_CONTEXT_START);
+    if (taggedContextStart < 0) break;
+    result = result.slice(0, taggedContextStart).trimEnd();
+  }
+
+  while (true) {
+    const format = OBSERVATION_CONTEXT_FORMATS.find(({ end }) => result.endsWith(end));
+    if (!format) break;
+
+    const contextStart = result.indexOf(format.start);
+    if (contextStart < 0) break;
+
+    // Historical formats were not escaped or explicitly delimited. If the
+    // structural header occurs more than once, its outer boundary is ambiguous;
+    // discard that legacy summary rather than retaining a malformed stale tail.
+    if (result.indexOf(format.start, contextStart + format.start.length) >= 0) {
+      return "";
+    }
+
+    result = result.slice(0, contextStart).trimEnd();
+  }
+
+  return result.trim();
+}
+
+function tagObservationContext(context: string): string {
+  const escapedContext = context
+    .replaceAll(COMPACTION_CONTEXT_START_MARKER, QUOTED_COMPACTION_CONTEXT_START_MARKER)
+    .replaceAll(COMPACTION_CONTEXT_END_MARKER, QUOTED_COMPACTION_CONTEXT_END_MARKER);
+  return `${COMPACTION_CONTEXT_START_MARKER}\n${escapedContext}\n${COMPACTION_CONTEXT_END_MARKER}`;
 }
 
 /**
@@ -265,17 +328,19 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     if (observationContext) {
       const { preparation } = event;
 
-      // Build a summary that combines the previous summary (if any) with our
-      // observation context. The observation context IS the compressed memory —
-      // it's a better summary than what the default LLM compaction would produce
-      // from raw messages, since our observer has already extracted the key facts.
+      // The previous compaction summary can already contain one or more OM
+      // snapshots. Replace those with the current cumulative published snapshot
+      // rather than recursively growing the summary on each compaction.
       const summaryParts: string[] = [];
+      const previousSummary = preparation.previousSummary
+        ? stripObservationContexts(preparation.previousSummary)
+        : "";
 
-      if (preparation.previousSummary) {
-        summaryParts.push(preparation.previousSummary);
+      if (previousSummary) {
+        summaryParts.push(previousSummary);
       }
 
-      summaryParts.push(observationContext);
+      summaryParts.push(tagObservationContext(observationContext));
 
       return {
         compaction: {
