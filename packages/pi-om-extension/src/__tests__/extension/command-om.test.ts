@@ -143,6 +143,30 @@ describe("extension: /om command", () => {
     expect(message).not.toContain("{\n");
   });
 
+  it("shows effective thresholds for the active 200k model", async () => {
+    preloadState({});
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ui = createFakeUi();
+    const ctx = createFakeCommandContext({
+      cwd: temp.stateDir,
+      sessionId,
+      ui,
+      model: { contextWindow: 200_000 } as never,
+    });
+
+    await harness.invokeCommand("om", "status", ctx);
+
+    const message = ui.notifications[0]?.message ?? "";
+    expect(message).toContain(
+      "Staging trigger: 50,494 tokens / 48 messages / 20,197 tool-result tokens",
+    );
+    expect(message).toContain(
+      "Publish trigger: 100,988 tokens / 96 messages / 50,494 tool-result tokens",
+    );
+    expect(message).toContain("Reflection trigger: 24,000 staged observation tokens");
+  });
+
   it("shows formatted observations via /om observations", async () => {
     preloadState({
       observations: "* 🔴 user likes tests\n* 🟡 worker is on formatting",

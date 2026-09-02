@@ -57,10 +57,12 @@ That's it. The extension runs automatically once loaded.
 
 The extension hooks into pi's lifecycle to maintain a persistent memory layer:
 
-1. **Stage observations** — After an agent loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 96k), an observer agent extracts key facts, decisions, and context into a staged draft.
+1. **Stage observations** — During long agent loops and again after the loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 96k), an observer agent extracts key facts, decisions, and context into a staged draft. Mid-loop staging never advances the published prune cursor.
 2. **Publish observations** — If the staged-but-unpublished raw message window also exceeds the publish threshold (default: 192k), that draft becomes the public observation block injected on the next turn. Publish is what moves the prune cursor; staging alone does not drop raw history.
 3. **Reflect** — If staged observation tokens exceed a third threshold (default: 120k), a reflector agent consolidates observations, removing redundancy while preserving meaning.
 4. **Inject** — On the next user prompt, only the published observations are appended to the system prompt. Raw message history is pruned to only the unpublished tail, giving the LLM continuity without carrying the full conversation.
+
+On models with smaller context windows, token thresholds are treated as upper bounds and are clamped at runtime using Pi's 16,384-token default compaction reserve, plus conservative headroom for the retained message tail and system prompt. These limits do not replace Pi's actual compaction decision: `session_before_compact` always forces observation/publication regardless of configured Pi reserve. The configured OM values are never raised or mutated, so switching back to a larger model restores the original thresholds. The injected OM appendix is also capped to 12% of the active context window; if that fallback omits older observations, cursor pruning is disabled so omitted facts remain represented in Pi's normal conversation context.
 
 ```
 agent_end
@@ -158,6 +160,8 @@ Configuration merges from multiple sources (highest precedence first):
 | `storage.stateDir` | `<cwd>/.pi/om-state` | — | Directory for session state JSON files |
 | `debug` | `false` | `OM_DEBUG=1` | Verbose logging to stderr |
 
+These token settings are configured maxima. For an active 200k-token model, the defaults are effectively clamped to 50,494 staged message tokens, 100,988 publish message tokens, 20,197/50,494 staged/publish tool-result tokens, and 24,000 reflection/injection tokens. A 1M-token model retains the configured defaults.
+
 ### Temperature Note
 
 Reasoning models (GPT-5.x, some Opus 4.6 variants) reject the `temperature` parameter entirely. The default is **unset** so the extension works with any model out of the box. If your observer/reflector model supports temperature and you want deterministic output, set `observation.temperature: 0.2` and/or `reflection.temperature: 0.2` (matching the opencode reference's behavior).
@@ -204,12 +208,12 @@ Returns the stored observation block for the current session as XML-wrapped text
 | `before_agent_start` | Before each agent loop | Append one segmented observation block (durable / active / guidance) to the system prompt |
 | `context` | Before each LLM call | Prune messages to the unobserved window (skipped when paused) |
 | `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed (skipped when paused) |
-| `session_before_compact` | Before context compaction | Force a final observation pass and inject a custom `CompactionResult` that includes the observation block (observation pass skipped when paused; injection still occurs) |
+| `session_before_compact` | Before context compaction | Force a final observation/publish pass, then return `undefined` so Pi performs its native LLM summarization and retains its normal tail (observation pass skipped when paused) |
 | `session_shutdown` | Process exit | Persist final state |
 
 ### Important: Observation Timing Deviation
 
-Unlike the opencode reference, observation cycles run **only in `agent_end`**, not during every LLM call. System prompt injection happens once per agent loop in `before_agent_start`, not per turn. This is an intentional trade-off to avoid drift between the system prompt and the pruning cursor within a long agent loop.
+Unlike the opencode reference, draft observations may stage during a long agent loop, but publication and prune-cursor advancement occur only at the turn boundary in `agent_end`. System prompt injection happens once per agent loop in `before_agent_start`. This keeps the published prompt and pruning cursor stable throughout the loop.
 
 **Full rationale and mitigations**: see [`docs/observation-timing-deviation.md`](docs/observation-timing-deviation.md).
 
@@ -250,9 +254,9 @@ PI_SMOKE_PROVIDER=openai-codex PI_SMOKE_MODEL=gpt-5.6-luna npm run smoke
 | **Config path** | `.opencode/om-config.json`, `~/.config/opencode/om-config.json` | `.pi/om-config.json`, `~/.pi/om-config.json` |
 | **Temperature** | Hard-coded `0.2` | Configurable per section, defaults unset (for GPT-5.x reasoning models) |
 | **Agent filtering** | `agents` config restricts OM to specific agent names | Removed — pi sessions are single-agent |
-| **Observation trigger** | On `session.idle` and before every LLM call (`messages.transform`) | On `agent_end` only |
+| **Observation trigger** | On `session.idle` and before every LLM call (`messages.transform`) | Stage during threshold-crossing `context` calls; final catch-up and publication in `agent_end` |
 | **System prompt injection** | Per-call via `system.transform` hook | Once per agent loop via `before_agent_start` |
-| **Compaction behavior** | Pushes observations into the default compaction's context | Returns a custom `CompactionResult` with observations baked into the summary, skipping pi's default LLM summarization |
+| **Compaction behavior** | Pushes observations into the default compaction's context | Forces a final observation/publish pass, then defers to Pi's native LLM compaction; OM remains injected separately on the next turn |
 | **Tool output** | `om_observations` writes to a temp file and returns the path | Returns inline content (better for pi's tool model) |
 
 The **core OM engine** — observer/reflector prompts, token thresholds, cursor modes, append semantics, XML output parsing, `currentTask` / `suggestedResponse` tracking — is preserved character-for-character from the opencode reference.

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionStatePath } from "../../config.js";
 import piObservationalMemory from "../../index.js";
+import { countTokens } from "../../tokens.js";
 import {
   createExtensionTestHarness,
   createFakeExtensionContext,
@@ -116,6 +117,34 @@ describe("extension: before_agent_start lifecycle", () => {
     expect(result!.systemPrompt).toContain("🔴 user likes X");
     expect(result!.systemPrompt).toContain("<om-guidance>");
     expect(result!.systemPrompt).toContain("<system-reminder>");
+  });
+
+  it("caps the complete injected appendix for a 200k active model", async () => {
+    const observations = Array.from(
+      { length: 500 },
+      (_, index) => `* observation-${index} ${"durable detail ".repeat(50)}`,
+    ).join("\n");
+    preloadState({ observations, observationTokens: countTokens(observations) });
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      model: { contextWindow: 200_000 } as never,
+    });
+
+    const result = (await harness.dispatch(
+      "before_agent_start",
+      { type: "before_agent_start", prompt: "hi", systemPrompt: "Base prompt" },
+      ctx,
+    )) as { systemPrompt: string };
+    const appendix = extractInjectedObservationContext(result.systemPrompt, "Base prompt");
+
+    expect(countTokens(appendix)).toBeLessThanOrEqual(24_000);
+    expect(appendix).toContain(
+      "(older observational-memory omitted to fit the active model context window)",
+    );
+    expect(appendix).toContain("observation-499");
+    expect(appendix).not.toContain("observation-0 ");
   });
 
   it("injects only the published snapshot when draft state is ahead", async () => {

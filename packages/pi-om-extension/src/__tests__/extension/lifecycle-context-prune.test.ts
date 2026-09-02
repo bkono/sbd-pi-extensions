@@ -135,6 +135,34 @@ describe("extension: context lifecycle (message pruning)", () => {
     expect(result.messages).toHaveLength(3);
   });
 
+  it("does not prune history when the injected observation appendix is capped", async () => {
+    const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
+    const observations = Array.from(
+      { length: 500 },
+      (_, index) => `* observation-${index} ${"durable detail ".repeat(50)}`,
+    ).join("\n");
+    preloadState({
+      observations,
+      observationTokens: 40_000,
+      lastObservedEntryId: messageId(msgs[3]!),
+      lastObservedTimestamp: 1_700_000_003_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      entries: asBranchEntries(msgs),
+      model: { contextWindow: 200_000 } as never,
+    });
+
+    const result = await harness.dispatch("context", { type: "context", messages: msgs }, ctx);
+
+    expect(result).toBeUndefined();
+    const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+    expect(state.prunedEntriesCount).toBeUndefined();
+  });
+
   it("returns messages after the cursor plus the previous assistant bridge", async () => {
     const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
     const cursorId = messageId(msgs[1]!)!;
