@@ -47,9 +47,11 @@ const LEGACY_OBSERVATION_CONTEXT_PROMPT =
   "The following observations block contains your memory of past conversations with this user.";
 const COMPACTION_CONTEXT_MARKER = "<!-- pi-om-compaction-context -->";
 const QUOTED_COMPACTION_CONTEXT_MARKER = "<!-- pi-om-compaction-context:quoted -->";
+const CURRENT_OBSERVATION_CONTEXT_START = `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`;
+const TAGGED_OBSERVATION_CONTEXT_START = `${COMPACTION_CONTEXT_MARKER}\n${CURRENT_OBSERVATION_CONTEXT_START}`;
 const OBSERVATION_CONTEXT_FORMATS = [
   {
-    start: `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`,
+    start: CURRENT_OBSERVATION_CONTEXT_START,
     end: "</observational-memory>",
   },
   {
@@ -66,11 +68,11 @@ const OBSERVATION_CONTEXT_FORMATS = [
  * prefix is preserved and unescaped observation content is never parsed.
  */
 function stripObservationContexts(summary: string): string {
-  const taggedContextStart = summary.lastIndexOf(COMPACTION_CONTEXT_MARKER);
-  if (taggedContextStart >= 0) {
-    return summary.slice(0, taggedContextStart).trim();
-  }
   let result = summary.trimEnd();
+  const taggedContextStart = result.lastIndexOf(TAGGED_OBSERVATION_CONTEXT_START);
+  if (taggedContextStart >= 0 && result.endsWith("</observational-memory>")) {
+    return result.slice(0, taggedContextStart).trim();
+  }
 
   while (true) {
     const format = OBSERVATION_CONTEXT_FORMATS.find(({ end }) => result.endsWith(end));

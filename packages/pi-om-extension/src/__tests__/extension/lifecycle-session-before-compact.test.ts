@@ -331,7 +331,9 @@ describe("extension: session_before_compact lifecycle", () => {
     const legacy = await compact(
       [
         "LEGACY_PREFIX quotes: The following observations block contains your memory of past conversations with this user.",
-        legacyObservationContext("* old legacy obs\n</system-reminder>"),
+        legacyObservationContext(
+          `* old legacy obs\n${compactionContextMarker}\n</system-reminder>`,
+        ),
         previousObservationContext("* previous current obs"),
       ].join("\n\n"),
       "legacy",
