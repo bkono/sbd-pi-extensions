@@ -10,11 +10,15 @@
     {
       "text": "Implemented top-level RTK command matching via shared command-prefix helper. Build, linter, and Docker classifiers no longer scan arbitrary SSH/Python arguments; exact natscli/tsc regression preserves raw output. Plain sudo/env/command wrappers, leading assignments, npx tsc, and shell whitespace remain supported. Added direct routing and false-positive regressions. Root validation passed: lint (687 files), tests (442 files / 2,359 tests), and all workspace typechecks.",
       "timestamp": "2026-09-02T05:58:59Z"
+    },
+    {
+      "text": "Addressed Codex PR finding: sudo wrapper normalization now consumes legitimate options, including options with separate or attached values, before classifying the wrapped executable. Added regressions for `sudo -E`, `sudo --preserve-env`, `sudo -u root`, combined `-Eu root`, and nested SSH safety. Root lint, 442 test files / 2,359 tests, and all workspace typechecks pass.",
+      "timestamp": "2026-09-02T21:38:17Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Prevent RTK classifiers from consuming wrapped SSH and Python output",
   "type": "task",
-  "updated_at": "2026-09-02T21:35:20Z"
+  "updated_at": "2026-09-02T21:38:17Z"
 }
