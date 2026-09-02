@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import piObservationalMemory from "../../index.js";
+import { OBSERVATION_CONTEXT_PROMPT } from "../../prompts.js";
 import {
   createExtensionTestHarness,
   createFakeExtensionContext,
@@ -237,6 +238,54 @@ describe("extension: session_before_compact lifecycle", () => {
 
     expect(result.compaction.summary).toContain("PREVIOUS_SUMMARY_MARKER");
     expect(result.compaction.summary).toContain("new obs");
+  });
+
+  it("replaces prior observation contexts instead of accumulating them", async () => {
+    mock = new MockObservationAgents({
+      observeResponses: [{ observations: "* current obs", raw: "" }],
+    });
+    __installMockAgents(mock);
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
+    const previousObservationContext = (observation: string) =>
+      `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n${observation}\n</observational-memory>`;
+
+    const event = {
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "entry-3",
+        messagesToSummarize: [],
+        turnPrefixMessages: [],
+        isSplitTurn: false,
+        tokensBefore: 10_000,
+        previousSummary: [
+          "PREVIOUS_SUMMARY_MARKER",
+          previousObservationContext("* oldest obs"),
+          "INTERLEAVED_SUMMARY_MARKER",
+          previousObservationContext("* previous obs"),
+          "TRAILING_SUMMARY_MARKER",
+        ].join("\n\n"),
+        fileOps: {},
+        settings: {},
+      },
+      branchEntries: buildBranchEntries(2),
+      signal: new AbortController().signal,
+    };
+
+    const result = (await harness.dispatch("session_before_compact", event, ctx)) as {
+      compaction: { summary: string };
+    };
+    const { summary } = result.compaction;
+
+    expect(summary).toContain("PREVIOUS_SUMMARY_MARKER");
+    expect(summary).toContain("INTERLEAVED_SUMMARY_MARKER");
+    expect(summary).toContain("TRAILING_SUMMARY_MARKER");
+    expect(summary).toContain("current obs");
+    expect(summary).not.toContain("oldest obs");
+    expect(summary).not.toContain("previous obs");
+    expect(summary.split("<observational-memory>")).toHaveLength(2);
+    expect(summary.split(OBSERVATION_CONTEXT_PROMPT)).toHaveLength(2);
   });
 
   it("returns undefined when observer produces no observations", async () => {
