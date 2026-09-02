@@ -43,28 +43,40 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
   console.error(`[om:ext] ${message}${payload}`);
 }
 
-const OBSERVATIONAL_MEMORY_CLOSE = "</observational-memory>";
-const OBSERVATION_CONTEXT_START = `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>`;
+const LEGACY_OBSERVATION_CONTEXT_START =
+  "The following observations block contains your memory of past conversations with this user.";
+const OBSERVATION_CONTEXT_FORMATS = [
+  {
+    start: `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>`,
+    end: "</om-guidance>\n</observational-memory>",
+  },
+  {
+    start: LEGACY_OBSERVATION_CONTEXT_START,
+    end: "</system-reminder>",
+  },
+];
 
 /**
- * Remove OM contexts already embedded in a prior compaction summary.
+ * Remove known OM contexts already embedded in a prior compaction summary.
  *
- * Compaction summaries are cumulative, so retaining the previous generated
- * context would append another complete OM snapshot on every compaction.
- * Match the full generated-context prefix so unrelated tagged content remains.
+ * Compaction summaries are cumulative, so retaining a previous generated
+ * context would append another complete snapshot on every compaction. Match
+ * the current and historical generated formats so unrelated text remains.
  */
 function stripObservationContexts(summary: string): string {
   let result = summary;
 
-  while (true) {
-    const contextStart = result.indexOf(OBSERVATION_CONTEXT_START);
-    if (contextStart < 0) break;
+  for (const format of OBSERVATION_CONTEXT_FORMATS) {
+    while (true) {
+      const contextStart = result.indexOf(format.start);
+      if (contextStart < 0) break;
 
-    const closeStart = result.indexOf(OBSERVATIONAL_MEMORY_CLOSE, contextStart);
-    if (closeStart < 0) break;
+      const endStart = result.indexOf(format.end, contextStart + format.start.length);
+      if (endStart < 0) break;
 
-    const contextEnd = closeStart + OBSERVATIONAL_MEMORY_CLOSE.length;
-    result = `${result.slice(0, contextStart)}${result.slice(contextEnd)}`;
+      const contextEnd = endStart + format.end.length;
+      result = `${result.slice(0, contextStart)}${result.slice(contextEnd)}`;
+    }
   }
 
   return result.trim();

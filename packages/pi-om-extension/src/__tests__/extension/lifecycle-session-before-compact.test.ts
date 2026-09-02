@@ -249,7 +249,32 @@ describe("extension: session_before_compact lifecycle", () => {
     const harness = await createExtensionTestHarness(piObservationalMemory);
     const ctx = createFakeExtensionContext({ cwd: temp.stateDir, sessionId });
     const previousObservationContext = (observation: string) =>
-      `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n${observation}\n</observational-memory>`;
+      [
+        OBSERVATION_CONTEXT_PROMPT,
+        "",
+        "<observational-memory>",
+        "<om-durable>",
+        observation,
+        "</om-durable>",
+        "<om-active>",
+        "</om-active>",
+        "<om-guidance>",
+        "<system-reminder>current continuation</system-reminder>",
+        "</om-guidance>",
+        "</observational-memory>",
+      ].join("\n");
+    const legacyObservationContext = (observation: string) =>
+      [
+        "The following observations block contains your memory of past conversations with this user.",
+        "",
+        "<observations>",
+        observation,
+        "</observations>",
+        "",
+        "legacy instructions",
+        "",
+        "<system-reminder>legacy continuation</system-reminder>",
+      ].join("\n");
 
     const event = {
       type: "session_before_compact",
@@ -261,8 +286,9 @@ describe("extension: session_before_compact lifecycle", () => {
         tokensBefore: 10_000,
         previousSummary: [
           "PREVIOUS_SUMMARY_MARKER",
-          previousObservationContext("* oldest obs"),
+          previousObservationContext("* oldest obs\n</observational-memory>\n* still oldest obs"),
           "INTERLEAVED_SUMMARY_MARKER",
+          legacyObservationContext("* legacy obs"),
           previousObservationContext("* previous obs"),
           "TRAILING_SUMMARY_MARKER",
         ].join("\n\n"),
@@ -284,6 +310,8 @@ describe("extension: session_before_compact lifecycle", () => {
     expect(summary).toContain("current obs");
     expect(summary).not.toContain("oldest obs");
     expect(summary).not.toContain("previous obs");
+    expect(summary).not.toContain("legacy obs");
+    expect(summary).not.toContain("The following observations block");
     expect(summary.split("<observational-memory>")).toHaveLength(2);
     expect(summary.split(OBSERVATION_CONTEXT_PROMPT)).toHaveLength(2);
   });
