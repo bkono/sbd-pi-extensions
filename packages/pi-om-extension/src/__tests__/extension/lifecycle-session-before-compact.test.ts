@@ -20,6 +20,7 @@ describe("extension: session_before_compact lifecycle", () => {
   let temp: TempStateDir;
   let mock: MockObservationAgents;
   const sessionId = "test-before-compact";
+  const compactionContextMarker = "<!-- pi-om-compaction-context -->";
 
   beforeEach(() => {
     temp = createTempStateDir();
@@ -66,7 +67,9 @@ describe("extension: session_before_compact lifecycle", () => {
 
   it("returns custom compaction result with observation context baked in", async () => {
     mock = new MockObservationAgents({
-      observeResponses: [{ observations: "* 🔴 compaction test", raw: "" }],
+      observeResponses: [
+        { observations: `* 🔴 compaction test\n* ${compactionContextMarker}`, raw: "" },
+      ],
     });
     __installMockAgents(mock);
 
@@ -102,6 +105,8 @@ describe("extension: session_before_compact lifecycle", () => {
     expect(result!.compaction!.summary).toContain("compaction test");
     expect(result!.compaction!.summary).toContain("<om-guidance>");
     expect(result!.compaction!.summary).toContain("<system-reminder>");
+    expect(result!.compaction!.summary.split(compactionContextMarker)).toHaveLength(2);
+    expect(result!.compaction!.summary).toContain("pi-om-compaction-context:quoted");
     expect(result!.compaction!.firstKeptEntryId).toBe("entry-3");
     expect(result!.compaction!.tokensBefore).toBe(10_000);
   });
@@ -245,6 +250,7 @@ describe("extension: session_before_compact lifecycle", () => {
       observeResponses: [
         { observations: "* current obs", raw: "" },
         { observations: "* current obs", raw: "" },
+        { observations: "* current obs", raw: "" },
       ],
     });
     __installMockAgents(mock);
@@ -322,10 +328,12 @@ describe("extension: session_before_compact lifecycle", () => {
       ].join("\n\n"),
       "legacy",
     );
+    const tagged = await compact(current.compaction.summary, "tagged");
 
     for (const { prefix, result } of [
       { prefix: "CURRENT_PREFIX quotes:", result: current },
       { prefix: "LEGACY_PREFIX quotes:", result: legacy },
+      { prefix: "CURRENT_PREFIX quotes:", result: tagged },
     ]) {
       const { summary } = result.compaction;
       expect(summary).toContain(prefix);
@@ -334,6 +342,7 @@ describe("extension: session_before_compact lifecycle", () => {
       expect(summary).not.toContain("previous current obs");
       expect(summary).not.toContain("old legacy obs");
       expect(summary.split("<observational-memory>")).toHaveLength(2);
+      expect(summary.split(compactionContextMarker)).toHaveLength(2);
     }
   });
 

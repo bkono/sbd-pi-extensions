@@ -45,6 +45,8 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
 
 const LEGACY_OBSERVATION_CONTEXT_PROMPT =
   "The following observations block contains your memory of past conversations with this user.";
+const COMPACTION_CONTEXT_MARKER = "<!-- pi-om-compaction-context -->";
+const QUOTED_COMPACTION_CONTEXT_MARKER = "<!-- pi-om-compaction-context:quoted -->";
 const OBSERVATION_CONTEXT_FORMATS = [
   {
     start: `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`,
@@ -64,6 +66,10 @@ const OBSERVATION_CONTEXT_FORMATS = [
  * prefix is preserved and unescaped observation content is never parsed.
  */
 function stripObservationContexts(summary: string): string {
+  const taggedContextStart = summary.lastIndexOf(COMPACTION_CONTEXT_MARKER);
+  if (taggedContextStart >= 0) {
+    return summary.slice(0, taggedContextStart).trim();
+  }
   let result = summary.trimEnd();
 
   while (true) {
@@ -77,6 +83,14 @@ function stripObservationContexts(summary: string): string {
   }
 
   return result.trim();
+}
+
+function tagObservationContext(context: string): string {
+  const escapedContext = context.replaceAll(
+    COMPACTION_CONTEXT_MARKER,
+    QUOTED_COMPACTION_CONTEXT_MARKER,
+  );
+  return `${COMPACTION_CONTEXT_MARKER}\n${escapedContext}`;
 }
 
 /**
@@ -314,7 +328,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
         summaryParts.push(previousSummary);
       }
 
-      summaryParts.push(observationContext);
+      summaryParts.push(tagObservationContext(observationContext));
 
       return {
         compaction: {
