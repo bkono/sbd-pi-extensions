@@ -8,6 +8,10 @@ describe("isDockerCommand", () => {
     expect(isDockerCommand("docker compose build")).toBe(true);
     expect(isDockerCommand("docker buildx build .")).toBe(true);
     expect(isDockerCommand("sudo docker build .")).toBe(true);
+    expect(isDockerCommand("sudo -E docker build .")).toBe(true);
+    expect(isDockerCommand("sudo --preserve-env docker build .")).toBe(true);
+    expect(isDockerCommand("sudo -u root docker build .")).toBe(true);
+    expect(isDockerCommand("sudo -Eu root docker build .")).toBe(true);
     expect(isDockerCommand("env DOCKER_BUILDKIT=1 docker build .")).toBe(true);
     expect(isDockerCommand("docker\tbuild .")).toBe(true);
   });
@@ -22,6 +26,7 @@ describe("isDockerCommand", () => {
   it("does not match Docker command text nested inside another command", () => {
     expect(isDockerCommand("ssh build-host 'docker build .'")).toBe(false);
     expect(isDockerCommand(`python3 -c 'print("docker build .")'`)).toBe(false);
+    expect(isDockerCommand("sudo -E ssh build-host 'docker build .'")).toBe(false);
   });
 });
 
