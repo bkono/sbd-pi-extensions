@@ -2,6 +2,7 @@ import { stripAnsi } from "./ansi.ts";
 import { getBashAntiPatternHint } from "./bash-anti-pattern-hints.ts";
 import * as build from "./build.ts";
 import * as buildTools from "./build-tools.ts";
+import { startsWithCommand } from "./command-prefix.ts";
 import * as docker from "./docker.ts";
 import * as fileListing from "./file-listing.ts";
 import * as git from "./git.ts";
@@ -54,15 +55,25 @@ export function isGitCommand(command: string): boolean {
 }
 
 export function isBuildCommand(command: string): boolean {
-  const c = command.toLowerCase();
-  return ["tsc", "cargo build", "cargo check", "cargo test", "npm run build"].some((t) =>
-    c.includes(t),
-  );
+  return startsWithCommand(command, [
+    "tsc",
+    "npx tsc",
+    "cargo build",
+    "cargo check",
+    "cargo test",
+    "npm run build",
+  ]);
 }
 
 export function isLinterCommand(command: string): boolean {
-  const c = command.toLowerCase();
-  return ["eslint", "prettier --check", "tsc --noemit"].some((t) => c.includes(t));
+  return startsWithCommand(command, [
+    "eslint",
+    "npx eslint",
+    "prettier --check",
+    "npx prettier --check",
+    "tsc --noemit",
+    "npx tsc --noemit",
+  ]);
 }
 
 function makeInfo(

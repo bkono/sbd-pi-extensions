@@ -1,12 +1,17 @@
+import { startsWithCommand } from "./command-prefix.ts";
+
 const LINTER_COMMANDS = [
   "eslint",
+  "npx eslint",
   "prettier",
+  "npx prettier",
   "ruff",
   "pylint",
   "mypy",
   "flake8",
   "black",
   "clippy",
+  "cargo clippy",
   "golangci-lint",
 ];
 
@@ -19,12 +24,7 @@ interface Issue {
 }
 
 export function isLinterCommand(command: string | undefined | null): boolean {
-  if (typeof command !== "string" || command.length === 0) {
-    return false;
-  }
-
-  const cmdLower = command.toLowerCase();
-  return LINTER_COMMANDS.some((lc) => cmdLower.includes(lc));
+  return startsWithCommand(command, LINTER_COMMANDS);
 }
 
 function parseIssues(output: string, linterType: string): Issue[] {

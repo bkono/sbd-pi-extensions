@@ -1,3 +1,5 @@
+import { startsWithCommand } from "./command-prefix.ts";
+
 interface BuildStats {
   compiled: number;
   errors: string[][];
@@ -12,6 +14,7 @@ const BUILD_COMMANDS = [
   "yarn build",
   "pnpm build",
   "tsc",
+  "npx tsc",
   "go build",
   "go install",
   "python setup.py build",
@@ -50,12 +53,7 @@ function isWarning(line: string): boolean {
 }
 
 export function isBuildCommand(command: string | undefined | null): boolean {
-  if (typeof command !== "string" || command.length === 0) {
-    return false;
-  }
-
-  const cmdLower = command.toLowerCase();
-  return BUILD_COMMANDS.some((bc) => cmdLower.includes(bc.toLowerCase()));
+  return startsWithCommand(command, BUILD_COMMANDS);
 }
 
 export function filterBuildOutput(
