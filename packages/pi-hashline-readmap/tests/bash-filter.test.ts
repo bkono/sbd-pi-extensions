@@ -27,12 +27,27 @@ describe("command detection", () => {
     expect(isBuildCommand("tsc")).toBe(true);
     expect(isBuildCommand("cargo build")).toBe(true);
     expect(isBuildCommand("npm run build")).toBe(true);
+    expect(isBuildCommand("CI=1 npm run build")).toBe(true);
+    expect(isBuildCommand("npx tsc --pretty false")).toBe(true);
+    expect(isBuildCommand("npx\ttsc --pretty false")).toBe(true);
 
     expect(isBuildCommand("cargo clippy")).toBe(false);
 
     expect(isLinterCommand("eslint .")).toBe(true);
     expect(isLinterCommand("prettier --check .")).toBe(true);
     expect(isLinterCommand("tsc --noEmit")).toBe(true);
+    expect(isLinterCommand("npx tsc --noEmit")).toBe(true);
+
+    const sshCommand =
+      "ssh ubuntu@agfly-1 'curl https://api.github.com/repos/nats-io/natscli/releases/latest'";
+    expect(isBuildCommand(sshCommand)).toBe(false);
+    expect(buildModule.isBuildCommand(sshCommand)).toBe(false);
+
+    const pythonCommand = `python3 -c 'print("tsc --noEmit")'`;
+    expect(isBuildCommand(pythonCommand)).toBe(false);
+    expect(isLinterCommand(pythonCommand)).toBe(false);
+    expect(buildModule.isBuildCommand(pythonCommand)).toBe(false);
+    expect(linterModule.isLinterCommand(pythonCommand)).toBe(false);
 
     expect(isTestCommand("echo hello")).toBe(false);
   });
@@ -92,6 +107,27 @@ describe("filterBashOutput routing", () => {
     expect(result.info.technique).toBe("none");
   });
 
+  it("preserves SSH output when arguments contain a build command substring", () => {
+    const command =
+      "ssh ubuntu@agfly-1 'curl -fsSL https://api.github.com/repos/nats-io/natscli/releases/latest'";
+    const output = "v0.4.0\nnats-0.4.0-amd64.deb\nnats-0.4.0-arm64.deb";
+
+    const result = filterBashOutput(command, output);
+
+    expect(result.output).toBe(output);
+    expect(result.info.technique).toBe("none");
+  });
+
+  it("preserves Python output when source contains build and linter command substrings", () => {
+    const command = `python3 -c 'print("tsc --noEmit")'`;
+    const output = "tsc --noEmit";
+
+    const result = filterBashOutput(command, output);
+
+    expect(result.output).toBe(output);
+    expect(result.info.technique).toBe("none");
+  });
+
   it("routes linter commands to aggregateLinterOutput and falls back when null", () => {
     const spy = vi
       .spyOn(linterModule, "aggregateLinterOutput")
@@ -119,6 +155,24 @@ describe("filterBashOutput routing", () => {
     expect(linterSpy).toHaveBeenCalledWith("raw build output", "tsc --noEmit");
     expect(buildSpy).toHaveBeenCalledWith("raw build output", "tsc --noEmit");
     expect(result.output).toBe("build fallback output");
+
+    linterSpy.mockRestore();
+    buildSpy.mockRestore();
+  });
+
+  it("preserves supported wrappers when routing TypeScript builds", () => {
+    const linterSpy = vi.spyOn(linterModule, "aggregateLinterOutput").mockReturnValue(null);
+    const buildSpy = vi
+      .spyOn(buildModule, "filterBuildOutput")
+      .mockReturnValue("wrapped build output");
+
+    const npxResult = filterBashOutput("npx tsc --noEmit", "raw npx output");
+    const envResult = filterBashOutput("CI=1 npm run build", "raw npm output");
+
+    expect(npxResult.output).toBe("wrapped build output");
+    expect(envResult.output).toBe("wrapped build output");
+    expect(buildSpy).toHaveBeenCalledWith("raw npx output", "npx tsc --noEmit");
+    expect(buildSpy).toHaveBeenCalledWith("raw npm output", "CI=1 npm run build");
 
     linterSpy.mockRestore();
     buildSpy.mockRestore();

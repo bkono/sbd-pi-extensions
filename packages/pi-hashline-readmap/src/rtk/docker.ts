@@ -1,3 +1,5 @@
+import { startsWithCommand } from "./command-prefix.ts";
+
 const DOCKER_BUILD_PATTERNS = [
   "docker build",
   "docker compose build",
@@ -6,8 +8,7 @@ const DOCKER_BUILD_PATTERNS = [
 ];
 
 export function isDockerCommand(cmd: string): boolean {
-  const c = cmd.toLowerCase().trim();
-  return DOCKER_BUILD_PATTERNS.some((p) => c.startsWith(p) || c.includes(` ${p}`));
+  return startsWithCommand(cmd, DOCKER_BUILD_PATTERNS);
 }
 
 export function compressDockerOutput(output: string): string | null {
