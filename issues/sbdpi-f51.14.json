@@ -7,9 +7,15 @@
   "id": "sbdpi-f51.14",
   "labels": [],
   "parent": "sbdpi-f51",
+  "comments": [
+    {
+      "text": "Implementation complete pending commit/PR. Confirmed root cause: OM's custom session_before_compact result bypassed Pi native summarization and duplicated the OM appendix on the next turn. Changed hook to force observe/publish then always return undefined. Added active-model budget clamping (200k defaults: stage 50,494; publish 100,988; tool 20,197/50,494; reflection/injection 24,000), full rendered-appendix capping, and conservative no-prune behavior whenever capping omits published observations so prompt/prune alignment cannot diverge. Removed #5 marker/suffix parsing. Added lifecycle/unit/status regressions and docs; bumped package to 0.3.1. Full repo lint, 444 files/2,380 tests, all workspace typechecks, and scoped production build pass. Auth behavior and emergency rollover remain out of scope.",
+      "timestamp": "2026-09-02T23:46:26Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Stop OM compaction loops on 200k-class models",
   "type": "task",
-  "updated_at": "2026-09-02T23:22:18Z"
+  "updated_at": "2026-09-02T23:46:26Z"
 }
