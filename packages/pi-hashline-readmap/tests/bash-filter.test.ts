@@ -28,6 +28,11 @@ describe("command detection", () => {
     expect(isBuildCommand("cargo build")).toBe(true);
     expect(isBuildCommand("npm run build")).toBe(true);
     expect(isBuildCommand("CI=1 npm run build")).toBe(true);
+    expect(isBuildCommand("CI= npm run build")).toBe(true);
+    expect(isBuildCommand("command CI= npm run build")).toBe(false);
+    expect(isBuildCommand("env -i npm run build")).toBe(true);
+    expect(isBuildCommand("env -u CI npm run build")).toBe(true);
+    expect(isBuildCommand("env -C /tmp npm run build")).toBe(true);
     expect(isBuildCommand("npx tsc --pretty false")).toBe(true);
     expect(isBuildCommand("npx\ttsc --pretty false")).toBe(true);
 
@@ -37,6 +42,10 @@ describe("command detection", () => {
     expect(isLinterCommand("prettier --check .")).toBe(true);
     expect(isLinterCommand("tsc --noEmit")).toBe(true);
     expect(isLinterCommand("npx tsc --noEmit")).toBe(true);
+    expect(isLinterCommand("sudo -l eslint .")).toBe(false);
+    expect(isLinterCommand("sudo --list eslint .")).toBe(false);
+    expect(isLinterCommand("sudo -U root eslint .")).toBe(false);
+    expect(isLinterCommand("sudo --other-user root eslint .")).toBe(false);
 
     const sshCommand =
       "ssh ubuntu@agfly-1 'curl https://api.github.com/repos/nats-io/natscli/releases/latest'";
@@ -123,6 +132,22 @@ describe("filterBashOutput routing", () => {
     const output = "tsc --noEmit";
 
     const result = filterBashOutput(command, output);
+
+    expect(result.output).toBe(output);
+    expect(result.info.technique).toBe("none");
+  });
+
+  it("preserves sudo non-execution mode output", () => {
+    const output = "User root may run the following commands:\n    (ALL) ALL";
+    const result = filterBashOutput("sudo -l eslint .", output);
+
+    expect(result.output).toBe(output);
+    expect(result.info.technique).toBe("none");
+  });
+
+  it("does not treat command operands as environment assignments", () => {
+    const output = "command: CI=: not found";
+    const result = filterBashOutput("command CI= npm run build", output);
 
     expect(result.output).toBe(output);
     expect(result.info.technique).toBe("none");

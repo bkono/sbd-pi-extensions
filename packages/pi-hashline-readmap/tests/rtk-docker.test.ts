@@ -10,6 +10,7 @@ describe("isDockerCommand", () => {
     expect(isDockerCommand("sudo docker build .")).toBe(true);
     expect(isDockerCommand("sudo -E docker build .")).toBe(true);
     expect(isDockerCommand("sudo --preserve-env docker build .")).toBe(true);
+    expect(isDockerCommand("sudo --preserve-env=CI docker build .")).toBe(true);
     expect(isDockerCommand("sudo -u root docker build .")).toBe(true);
     expect(isDockerCommand("sudo -Eu root docker build .")).toBe(true);
     expect(isDockerCommand("env DOCKER_BUILDKIT=1 docker build .")).toBe(true);
