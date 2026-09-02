@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-02T21:57:33Z",
+  "close_reason": "All three valid in-scope review findings fixed in 251a10a with fail-open wrapper parsing, contextual assignments, regression tests, and full root gates passing.",
   "created": "2026-09-02T05:41:07Z",
   "description": "RTK build/linter command detection currently uses unanchored substring matching. An SSH command referencing github.com/nats-io/natscli is misclassified as `tsc`, and its output is replaced with a synthetic build-success summary. Restrict routing to recognized top-level commands (after supported command prefixes/wrappers), preserve SSH/Python output, and add exact regression coverage. Validate lint, tests, and typecheck.",
   "id": "sbdpi-ulg",
@@ -21,8 +23,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Prevent RTK classifiers from consuming wrapped SSH and Python output",
   "type": "task",
-  "updated_at": "2026-09-02T21:57:12Z"
+  "updated_at": "2026-09-02T21:57:33Z"
 }
