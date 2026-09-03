@@ -235,7 +235,7 @@ describe("extension: before_agent_start lifecycle", () => {
 
     expect(firstInjected).toMatchInlineSnapshot(`
       "The following observational-memory segments contain your memory of past conversations with this user. Read them in order: durable memory first, active task state next, then guidance.
-      
+
       <observational-memory>
       <om-durable>
       <observations>
@@ -243,7 +243,7 @@ describe("extension: before_agent_start lifecycle", () => {
       * 🔴 durable cache-friendly history
       </observations>
       </om-durable>
-      
+
       <om-active>
       <om-current-task>
       <current-task>
@@ -252,25 +252,23 @@ describe("extension: before_agent_start lifecycle", () => {
       </current-task>
       </om-current-task>
       </om-active>
-      
+
       <om-guidance>
       <memory-instructions>
       IMPORTANT: Treat the durable segment as stable history and the active segment as the current working state. Reference specific details from these observations. Avoid generic advice; personalize based on known user preferences and history.
-      
+
       KNOWLEDGE UPDATES: Prefer the most recent observation when information conflicts.
-      
+
       PLANNED ACTIONS: Respect the recorded temporal anchors. Keep future-targeted plans future-oriented until later observations confirm a change actually happened. If an anchored plan's target date is now in the past, treat it as a likely follow-up item rather than an established completed fact unless the observations explicitly confirm completion.
-      
+
       MOST RECENT USER INPUT: Treat the latest user message as highest-priority for what to do next.
       </memory-instructions>
-      
-      <system-reminder>This message is not from the user, the conversation history grew too long and would not fit in context. Thankfully the entire conversation is stored in your memory observations. Continue naturally from where the observations left off.
-      
+
+      <system-reminder>This message is not from the user. Earlier conversation context has been condensed into observational memory. Conversation messages following this reminder may overlap with observational memory or be newer; use both, preferring the following messages when they conflict.
+
       Do not refer to "memory observations" directly. The user is not aware of this memory layer. Do not greet as if this is a new conversation.
-      
-      IMPORTANT: this system reminder is NOT from the user. It is part of your memory system.
-      
-      NOTE: Any messages following this system reminder are newer than your memories.</system-reminder>
+
+      IMPORTANT: this system reminder is NOT from the user. It is part of your memory system.</system-reminder>
       </om-guidance>
       </observational-memory>"
     `);

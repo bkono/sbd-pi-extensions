@@ -1,5 +1,11 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Message } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  type SessionEntry,
+  sessionEntryToContextMessages,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { AuthResolver } from "./agents.js";
 import { ObservationAgents } from "./agents.js";
@@ -42,6 +48,59 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
   if (!config.debug) return;
   const payload = details ? ` ${JSON.stringify(details)}` : "";
   console.error(`[om:ext] ${message}${payload}`);
+}
+
+function preserveNativeCompactionFloor(
+  allMessages: Message[],
+  boundedMessages: Message[],
+  branchEntries: SessionEntry[],
+): Message[] {
+  let compactionIndex = -1;
+  for (let index = branchEntries.length - 1; index >= 0; index -= 1) {
+    if (branchEntries[index]?.type === "compaction") {
+      compactionIndex = index;
+      break;
+    }
+  }
+  if (compactionIndex < 0) return boundedMessages;
+
+  const compaction = branchEntries[compactionIndex]!;
+  if (compaction.type !== "compaction") return boundedMessages;
+
+  const firstKeptIndex = branchEntries.findIndex(
+    (entry) => entry.id === compaction.firstKeptEntryId,
+  );
+  if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) return boundedMessages;
+
+  const summaryIndex = allMessages.findIndex((message) => {
+    const candidate = message as unknown as {
+      role?: unknown;
+      summary?: unknown;
+      tokensBefore?: unknown;
+    };
+    return (
+      candidate.role === "compactionSummary" &&
+      candidate.summary === compaction.summary &&
+      candidate.tokensBefore === compaction.tokensBefore
+    );
+  });
+  if (summaryIndex < 0) return boundedMessages;
+
+  const retainedMessages = branchEntries
+    .slice(firstKeptIndex, compactionIndex)
+    .flatMap(sessionEntryToContextMessages);
+  const floor = [allMessages[summaryIndex]!];
+  for (const message of allMessages.slice(summaryIndex + 1)) {
+    const retainedIndex = retainedMessages.findIndex((retained) =>
+      isDeepStrictEqual(retained, message),
+    );
+    if (retainedIndex < 0) continue;
+    floor.push(message);
+    retainedMessages.splice(retainedIndex, 1);
+  }
+
+  const selected = new Set([...floor, ...boundedMessages]);
+  return allMessages.filter((message) => selected.has(message));
 }
 
 /**
@@ -199,6 +258,11 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
 
     boundedMessages = preservePreviousAssistantResponse(allMessages, boundedMessages);
     boundedMessages = ensureToolCallPairing(allMessages, boundedMessages);
+    boundedMessages = preserveNativeCompactionFloor(
+      allMessages,
+      boundedMessages,
+      ctx.sessionManager.getBranch(),
+    );
 
     // Track pruning metrics
     await saveSessionState(cfg.storage.stateDir, {

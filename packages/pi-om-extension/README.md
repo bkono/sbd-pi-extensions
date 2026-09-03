@@ -60,7 +60,7 @@ The extension hooks into pi's lifecycle to maintain a persistent memory layer:
 1. **Stage observations** — During long agent loops and again after the loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 96k), an observer agent extracts key facts, decisions, and context into a staged draft. Mid-loop staging never advances the published prune cursor.
 2. **Publish observations** — If the staged-but-unpublished raw message window also exceeds the publish threshold (default: 192k), that draft becomes the public observation block injected on the next turn. Publish is what moves the prune cursor; staging alone does not drop raw history.
 3. **Reflect** — If staged observation tokens exceed a third threshold (default: 120k), a reflector agent consolidates observations, removing redundancy while preserving meaning.
-4. **Inject** — On the next user prompt, only the published observations are appended to the system prompt. Raw message history is pruned to only the unpublished tail, giving the LLM continuity without carrying the full conversation.
+4. **Inject** — On the next user prompt, only the published observations are appended to the system prompt. Before native compaction, raw message history is pruned to the unpublished tail. After native compaction, Pi's summary and retained tail form a stable context floor while OM prunes only later observed messages.
 
 On models with smaller context windows, token thresholds are treated as upper bounds and are clamped at runtime using Pi's 16,384-token default compaction reserve, plus conservative headroom for the retained message tail and system prompt. These limits do not replace Pi's actual compaction decision: `session_before_compact` always forces observation/publication regardless of configured Pi reserve. The configured OM values are never raised or mutated, so switching back to a larger model restores the original thresholds. The injected OM appendix is also capped to 12% of the active context window; if that fallback omits older observations, cursor pruning is disabled so omitted facts remain represented in Pi's normal conversation context.
 
@@ -85,7 +85,7 @@ next turn: before_agent_start
 
 next turn: context
   |
-  +-- messages pruned to unobserved window
+  +-- Pi compaction floor retained; later messages pruned to unobserved window
 ```
 
 ### Observer / Reflector Pattern
@@ -206,7 +206,7 @@ Returns the stored observation block for the current session as XML-wrapped text
 |------|---------|--------|
 | `session_start` | Session created (fires on `bindExtensions`) | Initialize/load session state from disk |
 | `before_agent_start` | Before each agent loop | Append one segmented observation block (durable / active / guidance) to the system prompt |
-| `context` | Before each LLM call | Prune messages to the unobserved window (skipped when paused) |
+| `context` | Before each LLM call | Preserve Pi's native compaction summary/tail and prune later messages to the unobserved window (skipped when paused) |
 | `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed (skipped when paused) |
 | `session_before_compact` | Before context compaction | Force a final observation/publish pass, then return `undefined` so Pi performs its native LLM summarization and retains its normal tail (observation pass skipped when paused) |
 | `session_shutdown` | Process exit | Persist final state |
