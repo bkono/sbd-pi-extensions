@@ -195,13 +195,11 @@ ${customInstruction}`
     }`;
 }
 
-export const OBSERVATION_CONTINUATION_HINT = `This message is not from the user, the conversation history grew too long and would not fit in context. Thankfully the entire conversation is stored in your memory observations. Continue naturally from where the observations left off.
+export const OBSERVATION_CONTINUATION_HINT = `This message is not from the user. Earlier conversation context has been condensed into observational memory. Conversation messages following this reminder may overlap with observational memory or be newer; use both, preferring the following messages when they conflict.
 
 Do not refer to "memory observations" directly. The user is not aware of this memory layer. Do not greet as if this is a new conversation.
 
-IMPORTANT: this system reminder is NOT from the user. It is part of your memory system.
-
-NOTE: Any messages following this system reminder are newer than your memories.`;
+IMPORTANT: this system reminder is NOT from the user. It is part of your memory system.`;
 
 export const OBSERVATION_CONTEXT_PROMPT = `The following observational-memory segments contain your memory of past conversations with this user. Read them in order: durable memory first, active task state next, then guidance.`;
 

@@ -73,7 +73,9 @@ Those published observations are then visible on the **next** `before_agent_star
 
 ### 4. `session_before_compact` — force final publication before compaction
 
-Before compaction, the extension still forces a final observation pass so compaction summaries include the latest published OM state.
+Before compaction, the extension forces a final observation and publication pass, then returns `undefined` from `session_before_compact`. Pi performs its native LLM summarization of the real conversation history and retains its normal recent-message tail. On later context passes, that native summary and retained tail remain as a stable floor; OM cursor pruning applies only to messages created after the compaction. OM is injected separately on the next turn and is never embedded into a custom compaction summary.
+
+All runtime token thresholds are capped against the active model's context window without mutating the configured values. The injected observation appendix is independently capped at 12% of that window. If capping omits older observations, OM conservatively disables cursor pruning so those facts remain represented in Pi's ordinary history/compaction summary rather than disappearing from both contexts.
 
 ## Why This Was Changed
 
@@ -111,6 +113,7 @@ This keeps raw context available to the model even while background/incremental 
 | Mid-loop pruning cursor | Advances with published observation | Stays on **published** cursor only |
 | Raw context after staged observation | May be replaced by newly published memory on later calls | Remains available because pruning ignores draft cursor |
 | End-of-turn behavior | Usually small catch-up | Final catch-up + publish staged draft |
+| Compaction | Force observation and use host compaction | Force observation/publication, then defer entirely to Pi's native summarizer |
 
 ## Risks / Tradeoffs
 

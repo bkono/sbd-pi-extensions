@@ -135,6 +135,183 @@ describe("extension: context lifecycle (message pruning)", () => {
     expect(result.messages).toHaveLength(3);
   });
 
+  it("does not prune history when the injected observation appendix is capped", async () => {
+    const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
+    const observations = Array.from(
+      { length: 500 },
+      (_, index) => `* observation-${index} ${"durable detail ".repeat(50)}`,
+    ).join("\n");
+    preloadState({
+      observations,
+      observationTokens: 40_000,
+      lastObservedEntryId: messageId(msgs[3]!),
+      lastObservedTimestamp: 1_700_000_003_000,
+    });
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      entries: asBranchEntries(msgs),
+      model: { contextWindow: 200_000 } as never,
+    });
+
+    const result = await harness.dispatch("context", { type: "context", messages: msgs }, ctx);
+
+    expect(result).toBeUndefined();
+    const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+    expect(state.prunedEntriesCount).toBeUndefined();
+  });
+
+  it("preserves Pi's native compaction summary and retained tail after force-publish", async () => {
+    const original = conversation(4, { baseTs: 1_700_000_000_000 });
+    const postCompactUser = userMsg("continue after compaction", 1_700_000_010_000);
+    const branchEntries = asBranchEntries(original);
+    branchEntries.push(
+      {
+        type: "compaction" as never,
+        id: "compaction-1",
+        parentId: "entry-3",
+        timestamp: new Date(1_700_000_005_000).toISOString(),
+        firstKeptEntryId: "entry-1",
+        summary: "Pi native summary",
+        tokensBefore: 190_000,
+      } as never,
+      {
+        type: "message",
+        id: "post-user",
+        parentId: "compaction-1",
+        timestamp: new Date(1_700_000_010_000).toISOString(),
+        message: postCompactUser,
+      },
+    );
+    preloadState({
+      observations: "* published through compaction",
+      observationTokens: 10,
+      lastObservedEntryId: messageId(original[3]!),
+      lastObservedTimestamp: 1_700_000_003_000,
+    });
+    const compactedMessages = [
+      {
+        role: "compactionSummary",
+        summary: "Pi native summary",
+        tokensBefore: 190_000,
+        timestamp: 1_700_000_005_000,
+      } as unknown as Message,
+      original[1]!,
+      original[2]!,
+      original[3]!,
+      postCompactUser,
+    ];
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      entries: branchEntries,
+    });
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: compactedMessages },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toEqual(compactedMessages);
+  });
+
+  it("prunes observed post-compaction messages without dropping Pi's native context floor", async () => {
+    const original = conversation(4, { baseTs: 1_700_000_000_000 });
+    const failedOverflowAssistant = {
+      ...assistantMsg("overflow response omitted from retry context", 1_700_000_004_000),
+      stopReason: "error",
+    } as unknown as Message;
+    const firstPostUser = userMsg("first post-compaction turn", 1_700_000_010_000);
+    const firstPostAssistant = assistantMsg("first post-compaction answer", 1_700_000_011_000);
+    const latestUser = userMsg("latest request", 1_700_000_012_000);
+    const branchEntries = asBranchEntries(original);
+    branchEntries.push(
+      {
+        type: "message",
+        id: "failed-overflow-assistant",
+        parentId: "entry-3",
+        timestamp: new Date(1_700_000_004_000).toISOString(),
+        message: failedOverflowAssistant,
+      },
+      {
+        type: "compaction" as never,
+        id: "compaction-1",
+        parentId: "failed-overflow-assistant",
+        timestamp: new Date(1_700_000_005_000).toISOString(),
+        firstKeptEntryId: "entry-1",
+        summary: "Pi native summary",
+        tokensBefore: 190_000,
+      } as never,
+      {
+        type: "message",
+        id: "post-user-1",
+        parentId: "compaction-1",
+        timestamp: new Date(1_700_000_010_000).toISOString(),
+        message: firstPostUser,
+      },
+      {
+        type: "message",
+        id: "post-assistant-1",
+        parentId: "post-user-1",
+        timestamp: new Date(1_700_000_011_000).toISOString(),
+        message: firstPostAssistant,
+      },
+      {
+        type: "message",
+        id: "post-user-2",
+        parentId: "post-assistant-1",
+        timestamp: new Date(1_700_000_012_000).toISOString(),
+        message: latestUser,
+      },
+    );
+    preloadState({
+      observations: "* published through first post-compaction turn",
+      observationTokens: 10,
+      lastObservedEntryId: messageId(firstPostAssistant),
+      lastObservedTimestamp: 1_700_000_011_000,
+    });
+    const nativeSummary = {
+      role: "compactionSummary",
+      summary: "Pi native summary",
+      tokensBefore: 190_000,
+      timestamp: 1_700_000_005_000,
+    } as unknown as Message;
+    const compactedMessages = [
+      nativeSummary,
+      original[1]!,
+      original[2]!,
+      original[3]!,
+      firstPostUser,
+      firstPostAssistant,
+      latestUser,
+    ];
+
+    const harness = await createExtensionTestHarness(piObservationalMemory);
+    const ctx = createFakeExtensionContext({
+      cwd: temp.stateDir,
+      sessionId,
+      entries: branchEntries,
+    });
+    const result = (await harness.dispatch(
+      "context",
+      { type: "context", messages: compactedMessages },
+      ctx,
+    )) as { messages: Message[] };
+
+    expect(result.messages).toEqual([
+      nativeSummary,
+      original[1],
+      original[2],
+      original[3],
+      firstPostAssistant,
+      latestUser,
+    ]);
+  });
+
   it("returns messages after the cursor plus the previous assistant bridge", async () => {
     const msgs = conversation(5, { baseTs: 1_700_000_000_000 });
     const cursorId = messageId(msgs[1]!)!;

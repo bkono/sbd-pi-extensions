@@ -142,6 +142,7 @@ export function createFakeExtensionContext(
     entries?: unknown[];
     systemPrompt?: string;
     ui?: FakeUi;
+    model?: ExtensionContext["model"];
   } = {},
 ): ExtensionContext {
   const sessionId = overrides.sessionId ?? "test-session-123";
@@ -167,7 +168,7 @@ export function createFakeExtensionContext(
     ui,
     hasUI: true,
     modelRegistry: {},
-    model: undefined,
+    model: overrides.model,
     isIdle: () => true,
     signal: undefined,
     abort: () => {},
@@ -187,6 +188,7 @@ export function createFakeCommandContext(
     entries?: unknown[];
     systemPrompt?: string;
     ui?: FakeUi;
+    model?: ExtensionContext["model"];
   } = {},
 ): ExtensionCommandContext {
   return createFakeExtensionContext(overrides) as unknown as ExtensionCommandContext;

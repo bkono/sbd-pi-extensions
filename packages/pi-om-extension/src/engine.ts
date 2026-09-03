@@ -785,6 +785,131 @@ export function buildObservationContext(state: PublishedObservationState): strin
   ];
   return sections.join("\n");
 }
+
+export const OBSERVATION_OMISSION_PREFIX =
+  "(older observational-memory omitted to fit the active model context window)";
+
+const CURRENT_TASK_OMISSION_PREFIX =
+  "(older current-task detail omitted to fit the active model context window)";
+
+function truncateNewestTextToFit(
+  text: string,
+  prefix: string,
+  fits: (candidate: string) => boolean,
+): string {
+  const normalized = normalizeRenderedBlock(text);
+  if (fits(normalized)) return normalized;
+
+  const lines = normalized.split("\n");
+  let low = 0;
+  let high = lines.length - 1;
+  let best: string | undefined;
+
+  while (low <= high) {
+    const start = Math.floor((low + high) / 2);
+    const candidate = `${prefix}\n${lines.slice(start).join("\n")}`;
+    if (fits(candidate)) {
+      best = candidate;
+      high = start - 1;
+    } else {
+      low = start + 1;
+    }
+  }
+
+  if (best) return best;
+
+  let newestLine = lines.at(-1) ?? "";
+  while (newestLine.length > 0) {
+    newestLine = newestLine.slice(Math.ceil(newestLine.length / 2));
+    const candidate = newestLine ? `${prefix}\n${newestLine}` : prefix;
+    if (fits(candidate)) return candidate;
+  }
+
+  return prefix;
+}
+
+export function truncateObservationText(text: string, maxTokens: number): string {
+  return truncateNewestTextToFit(
+    text,
+    OBSERVATION_OMISSION_PREFIX,
+    (candidate) => countTokens(candidate) <= maxTokens,
+  );
+}
+
+export function capPublishedObservationState(
+  state: PublishedObservationState,
+  maxContextTokens: number,
+): PublishedObservationState {
+  const renderedContext = buildObservationContext(state);
+  if (!renderedContext || countTokens(renderedContext) <= maxContextTokens) return state;
+
+  const fits = (observations: string, currentTask: string | undefined): boolean => {
+    const candidate = buildObservationContext({
+      ...state,
+      observations,
+      observationEntries: undefined,
+      currentTask,
+    });
+    return candidate !== undefined && countTokens(candidate) <= maxContextTokens;
+  };
+
+  let currentTask = state.currentTask;
+  const maxCurrentTaskTokens = Math.max(1, Math.floor(maxContextTokens * 0.25));
+  if (currentTask && countTokens(currentTask) > maxCurrentTaskTokens) {
+    currentTask = truncateNewestTextToFit(
+      currentTask,
+      CURRENT_TASK_OMISSION_PREFIX,
+      (candidate) => countTokens(candidate) <= maxCurrentTaskTokens,
+    );
+  }
+  if (currentTask && !fits(OBSERVATION_OMISSION_PREFIX, currentTask)) {
+    currentTask = truncateNewestTextToFit(currentTask, CURRENT_TASK_OMISSION_PREFIX, (candidate) =>
+      fits(OBSERVATION_OMISSION_PREFIX, candidate),
+    );
+    if (!fits(OBSERVATION_OMISSION_PREFIX, currentTask)) currentTask = undefined;
+  }
+
+  if (state.observationEntries && state.observationEntries.length > 0) {
+    let low = 0;
+    let high = state.observationEntries.length - 1;
+    let best: string | undefined;
+
+    while (low <= high) {
+      const start = Math.floor((low + high) / 2);
+      const renderedEntries = renderObservationEntries(state.observationEntries.slice(start));
+      const candidate =
+        start === 0 ? renderedEntries : `${OBSERVATION_OMISSION_PREFIX}\n${renderedEntries}`;
+      if (fits(candidate, currentTask)) {
+        best = candidate;
+        high = start - 1;
+      } else {
+        low = start + 1;
+      }
+    }
+
+    if (best) {
+      return {
+        ...state,
+        observations: best,
+        observationEntries: undefined,
+        currentTask,
+      };
+    }
+  }
+
+  const observations = truncateNewestTextToFit(
+    renderStoredObservations(state),
+    OBSERVATION_OMISSION_PREFIX,
+    (candidate) => fits(candidate, currentTask),
+  );
+
+  return {
+    ...state,
+    observations,
+    observationEntries: undefined,
+    currentTask,
+  };
+}
 export function buildContinuationReminder(): string {
   return `<system-reminder>${OBSERVATION_CONTINUATION_HINT}</system-reminder>`;
 }

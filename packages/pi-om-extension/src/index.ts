@@ -1,5 +1,11 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Message } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  type SessionEntry,
+  sessionEntryToContextMessages,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { AuthResolver } from "./agents.js";
 import { ObservationAgents } from "./agents.js";
@@ -7,6 +13,7 @@ import { loadConfig, sessionStatePath } from "./config.js";
 import {
   buildObservationContext,
   buildStoredObservationBlock,
+  capPublishedObservationState,
   ensureToolCallPairing,
   evaluateObservationTrigger,
   getMessagesBetweenCursors,
@@ -23,10 +30,10 @@ import {
   OM_COMMAND_USAGE,
   type OMStatusReport,
 } from "./format.js";
-import { OBSERVATION_CONTEXT_PROMPT } from "./prompts.js";
 import { loadSessionState, saveSessionState } from "./state.js";
 import { countMessageTokens, summarizeMessageWindow } from "./tokens.js";
 import type { OMConfig } from "./types.js";
+import { clampConfigToContextWindow, contextWindowBudget } from "./window-budget.js";
 
 /**
  * Load the merged OM config for a given cwd. Exposed so host runtimes
@@ -43,66 +50,57 @@ function debugLog(config: OMConfig, message: string, details?: Record<string, un
   console.error(`[om:ext] ${message}${payload}`);
 }
 
-const LEGACY_OBSERVATION_CONTEXT_PROMPT =
-  "The following observations block contains your memory of past conversations with this user.";
-const COMPACTION_CONTEXT_START_MARKER = "<!-- pi-om-compaction-context:start -->";
-const COMPACTION_CONTEXT_END_MARKER = "<!-- pi-om-compaction-context:end -->";
-const QUOTED_COMPACTION_CONTEXT_START_MARKER = "<!-- pi-om-compaction-context:quoted-start -->";
-const QUOTED_COMPACTION_CONTEXT_END_MARKER = "<!-- pi-om-compaction-context:quoted-end -->";
-const CURRENT_OBSERVATION_CONTEXT_START = `${OBSERVATION_CONTEXT_PROMPT}\n\n<observational-memory>\n<om-durable>\n<observations>`;
-const TAGGED_OBSERVATION_CONTEXT_START = `${COMPACTION_CONTEXT_START_MARKER}\n${CURRENT_OBSERVATION_CONTEXT_START}`;
-const OBSERVATION_CONTEXT_FORMATS = [
-  {
-    start: CURRENT_OBSERVATION_CONTEXT_START,
-    end: "</observational-memory>",
-  },
-  {
-    start: `${LEGACY_OBSERVATION_CONTEXT_PROMPT}\n\n<observations>`,
-    end: "</system-reminder>",
-  },
-];
-
-/**
- * Remove OM contexts already embedded in a prior compaction summary.
- *
- * This hook always appends generated contexts as summary suffixes. Walk backward
- * through complete known suffix formats so quoted marker text in the unrelated
- * prefix is preserved and unescaped observation content is never parsed.
- */
-function stripObservationContexts(summary: string): string {
-  let result = summary.trimEnd();
-
-  while (result.endsWith(COMPACTION_CONTEXT_END_MARKER)) {
-    const taggedContextStart = result.lastIndexOf(TAGGED_OBSERVATION_CONTEXT_START);
-    if (taggedContextStart < 0) break;
-    result = result.slice(0, taggedContextStart).trimEnd();
-  }
-
-  while (true) {
-    const format = OBSERVATION_CONTEXT_FORMATS.find(({ end }) => result.endsWith(end));
-    if (!format) break;
-
-    const contextStart = result.indexOf(format.start);
-    if (contextStart < 0) break;
-
-    // Historical formats were not escaped or explicitly delimited. If the
-    // structural header occurs more than once, its outer boundary is ambiguous;
-    // discard that legacy summary rather than retaining a malformed stale tail.
-    if (result.indexOf(format.start, contextStart + format.start.length) >= 0) {
-      return "";
+function preserveNativeCompactionFloor(
+  allMessages: Message[],
+  boundedMessages: Message[],
+  branchEntries: SessionEntry[],
+): Message[] {
+  let compactionIndex = -1;
+  for (let index = branchEntries.length - 1; index >= 0; index -= 1) {
+    if (branchEntries[index]?.type === "compaction") {
+      compactionIndex = index;
+      break;
     }
+  }
+  if (compactionIndex < 0) return boundedMessages;
 
-    result = result.slice(0, contextStart).trimEnd();
+  const compaction = branchEntries[compactionIndex]!;
+  if (compaction.type !== "compaction") return boundedMessages;
+
+  const firstKeptIndex = branchEntries.findIndex(
+    (entry) => entry.id === compaction.firstKeptEntryId,
+  );
+  if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) return boundedMessages;
+
+  const summaryIndex = allMessages.findIndex((message) => {
+    const candidate = message as unknown as {
+      role?: unknown;
+      summary?: unknown;
+      tokensBefore?: unknown;
+    };
+    return (
+      candidate.role === "compactionSummary" &&
+      candidate.summary === compaction.summary &&
+      candidate.tokensBefore === compaction.tokensBefore
+    );
+  });
+  if (summaryIndex < 0) return boundedMessages;
+
+  const retainedMessages = branchEntries
+    .slice(firstKeptIndex, compactionIndex)
+    .flatMap(sessionEntryToContextMessages);
+  const floor = [allMessages[summaryIndex]!];
+  for (const message of allMessages.slice(summaryIndex + 1)) {
+    const retainedIndex = retainedMessages.findIndex((retained) =>
+      isDeepStrictEqual(retained, message),
+    );
+    if (retainedIndex < 0) continue;
+    floor.push(message);
+    retainedMessages.splice(retainedIndex, 1);
   }
 
-  return result.trim();
-}
-
-function tagObservationContext(context: string): string {
-  const escapedContext = context
-    .replaceAll(COMPACTION_CONTEXT_START_MARKER, QUOTED_COMPACTION_CONTEXT_START_MARKER)
-    .replaceAll(COMPACTION_CONTEXT_END_MARKER, QUOTED_COMPACTION_CONTEXT_END_MARKER);
-  return `${COMPACTION_CONTEXT_START_MARKER}\n${escapedContext}\n${COMPACTION_CONTEXT_END_MARKER}`;
+  const selected = new Set([...floor, ...boundedMessages]);
+  return allMessages.filter((message) => selected.has(message));
 }
 
 /**
@@ -138,11 +136,22 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     return { config, agents };
   }
 
+  function ensureRuntime(ctx: ExtensionContext): {
+    config: OMConfig;
+    agents: ObservationAgents;
+  } {
+    const initialized = ensureInitialized(ctx);
+    return {
+      ...initialized,
+      config: clampConfigToContextWindow(initialized.config, ctx.model?.contextWindow),
+    };
+  }
+
   // -------------------------------------------------------------------------
   // session_start — initialize/load state
   // -------------------------------------------------------------------------
   pi.on("session_start", async (_event, ctx) => {
-    const { config: cfg } = ensureInitialized(ctx);
+    const { config: cfg } = ensureRuntime(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
 
     debugLog(cfg, "session_start", { sessionId });
@@ -155,13 +164,16 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   // before_agent_start — inject observation context into system prompt
   // -------------------------------------------------------------------------
   pi.on("before_agent_start", async (event, ctx) => {
-    const { config: cfg } = ensureInitialized(ctx);
+    const { config: cfg } = ensureRuntime(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
-    const observationContext = buildObservationContext(
-      getPublishedObservationState(state, getBranchMessages(ctx)),
-    );
+    const publishedState = getPublishedObservationState(state, getBranchMessages(ctx));
+    const budget = contextWindowBudget(ctx.model?.contextWindow);
+    const injectedState = budget
+      ? capPublishedObservationState(publishedState, budget.maxInjectedObservationTokens)
+      : publishedState;
+    const observationContext = buildObservationContext(injectedState);
     if (!observationContext) return;
 
     // Append the segmented observation context to the system prompt. The chaining
@@ -171,6 +183,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     debugLog(cfg, "before_agent_start: injecting observations into system prompt", {
       sessionId,
       observationTokens: state.observationTokens,
+      capped: injectedState !== publishedState,
     });
 
     return { systemPrompt: `${event.systemPrompt}\n\n${observationContext}` };
@@ -180,7 +193,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   // context — prune messages to unobserved window before each LLM call
   // -------------------------------------------------------------------------
   pi.on("context", async (event, ctx) => {
-    const { config: cfg, agents: agts } = ensureInitialized(ctx);
+    const { config: cfg, agents: agts } = ensureRuntime(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
     const allMessages = [...event.messages] as Message[];
 
@@ -210,6 +223,21 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     // outrun what the model can see in the injected system prompt this turn.
     // Re-load state after observation cycle may have mutated it.
     const postCycleState = await loadSessionState(cfg.storage.stateDir, sessionId);
+    const publishedState = getPublishedObservationState(postCycleState, getBranchMessages(ctx));
+    const budget = contextWindowBudget(ctx.model?.contextWindow);
+    if (
+      budget &&
+      capPublishedObservationState(publishedState, budget.maxInjectedObservationTokens) !==
+        publishedState
+    ) {
+      // The prompt contains only a bounded subset of OM in this fallback state.
+      // Keep Pi's full context so the published cursor cannot hide omitted history.
+      debugLog(cfg, "context: capped observations, skipping cursor pruning", {
+        sessionId,
+        maxInjectedObservationTokens: budget.maxInjectedObservationTokens,
+      });
+      return;
+    }
 
     // Compute the unobserved window
     const unobservedWindow = getUnobservedMessages(
@@ -230,6 +258,11 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
 
     boundedMessages = preservePreviousAssistantResponse(allMessages, boundedMessages);
     boundedMessages = ensureToolCallPairing(allMessages, boundedMessages);
+    boundedMessages = preserveNativeCompactionFloor(
+      allMessages,
+      boundedMessages,
+      ctx.sessionManager.getBranch(),
+    );
 
     // Track pruning metrics
     await saveSessionState(cfg.storage.stateDir, {
@@ -257,7 +290,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   // agent_end — finish the turn with a final observation pass and publish draft state
   // -------------------------------------------------------------------------
   pi.on("agent_end", async (event, ctx) => {
-    const { config: cfg, agents: agts } = ensureInitialized(ctx);
+    const { config: cfg, agents: agts } = ensureRuntime(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
 
     // When paused, skip observation entirely
@@ -288,10 +321,10 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   });
 
   // -------------------------------------------------------------------------
-  // session_before_compact — force observation, inject context into compaction
+  // session_before_compact — force observation, then defer to Pi compaction
   // -------------------------------------------------------------------------
   pi.on("session_before_compact", async (event, ctx) => {
-    const { config: cfg, agents: agts } = ensureInitialized(ctx);
+    const { config: cfg, agents: agts } = ensureRuntime(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
 
     debugLog(cfg, "session_before_compact", { sessionId });
@@ -305,53 +338,19 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       }
     }
 
-    // When paused, skip forced observation but still inject existing
-    // observations into compaction summary if available
+    // When paused, skip forced observation. Otherwise force the final staged
+    // observation pass and publish it before Pi starts its native compaction.
     const preState = await loadSessionState(cfg.storage.stateDir, sessionId);
     if (!preState.paused) {
-      // Force a final observation pass to capture everything before compaction
       await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
         forceObserve: true,
         reason: "compacting",
       });
     }
 
-    // Build a custom compaction that includes observation context in the summary.
-    // This ensures the compaction summary benefits from our extracted observations,
-    // matching the original opencode behavior where observations were injected
-    // into the compaction context.
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    const observationContext = buildObservationContext(
-      getPublishedObservationState(state, messages),
-    );
-
-    if (observationContext) {
-      const { preparation } = event;
-
-      // The previous compaction summary can already contain one or more OM
-      // snapshots. Replace those with the current cumulative published snapshot
-      // rather than recursively growing the summary on each compaction.
-      const summaryParts: string[] = [];
-      const previousSummary = preparation.previousSummary
-        ? stripObservationContexts(preparation.previousSummary)
-        : "";
-
-      if (previousSummary) {
-        summaryParts.push(previousSummary);
-      }
-
-      summaryParts.push(tagObservationContext(observationContext));
-
-      return {
-        compaction: {
-          summary: summaryParts.join("\n\n"),
-          firstKeptEntryId: preparation.firstKeptEntryId,
-          tokensBefore: preparation.tokensBefore,
-        },
-      };
-    }
-
-    // No observations yet — let the default compaction proceed
+    // Do not provide a custom CompactionResult. Returning undefined lets Pi
+    // summarize the real history, retain its normal tail, and update prior
+    // summaries without embedding another copy of OM into the summary.
     return undefined;
   });
 
@@ -383,7 +382,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
     ctx: ExtensionContext,
     sessionId: string,
   ): Promise<OMStatusReport> {
-    const { config: cfg } = ensureInitialized(ctx);
+    const { config: cfg } = ensureRuntime(ctx);
     const statePath = sessionStatePath(cfg.storage.stateDir, sessionId);
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
     const messages = getBranchMessages(ctx);
@@ -469,7 +468,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   }
 
   async function buildObservationSections(ctx: ExtensionContext): Promise<string[]> {
-    const { config: cfg } = ensureInitialized(ctx);
+    const { config: cfg } = ensureRuntime(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
     const state = await loadSessionState(cfg.storage.stateDir, sessionId);
 
@@ -504,7 +503,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
       }
 
       if (subcommand === "observations") {
-        const { config: cfg } = ensureInitialized(ctx);
+        const { config: cfg } = ensureRuntime(ctx);
         const sessionId = ctx.sessionManager.getSessionId();
         const state = await loadSessionState(cfg.storage.stateDir, sessionId);
         ctx.ui.notify(formatObservationsReport(state), "info");
@@ -518,7 +517,7 @@ export default function piObservationalMemory(pi: ExtensionAPI) {
   pi.registerCommand("om:toggle", {
     description: "Pause or resume observational memory for this session",
     handler: async (_args, ctx) => {
-      const { config: cfg } = ensureInitialized(ctx);
+      const { config: cfg } = ensureRuntime(ctx);
       const sessionId = ctx.sessionManager.getSessionId();
       const state = await loadSessionState(cfg.storage.stateDir, sessionId);
       const nowPaused = !state.paused;
