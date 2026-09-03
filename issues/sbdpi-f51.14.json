@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-03T00:27:57Z",
+  "close_reason": "PR #7 review fixes completed and pushed in 89f6093; all reviewer comments answered and full quality gates pass.",
   "created": "2026-09-02T23:22:16Z",
   "description": "Observed after #5/db87cef: on 200k-class models, OM's session_before_compact custom CompactionResult replaces Pi's real summarizer with an OM snapshot while before_agent_start injects the same snapshot again. Combined summary + injected OM + retained tail can immediately recross Pi's compaction threshold and loop. Assess against current Pi compaction lifecycle, then if confirmed: force-observe/publish in session_before_compact but return undefined; remove custom OM CompactionResult machinery; clamp stage/publish/reflection thresholds down to the active model window without raising user-configured values; cap injected published OM to a bounded share of the active window; update focused regressions/docs/version; validate lint, tests, and typecheck. Observer auth behavior is explicitly out of scope.",
   "id": "sbdpi-f51.14",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Stop OM compaction loops on 200k-class models",
   "type": "task",
-  "updated_at": "2026-09-03T00:27:53Z"
+  "updated_at": "2026-09-03T00:27:57Z"
 }
