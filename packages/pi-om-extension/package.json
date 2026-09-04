@@ -45,7 +45,7 @@
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*",
     "tsdown": "^0.21.7",
-    "tsx": "^4",
+    "tsx": "4.21.0",
     "typescript": "^6",
     "vitest": "^4"
   }

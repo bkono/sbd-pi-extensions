@@ -59,7 +59,7 @@
     "@earendil-works/pi-tui": "*",
     "typebox": "*",
     "@types/node": "^24.12.2",
-    "jiti": "^2.6.1",
+    "jiti": "2.7.0",
     "tsdown": "^0.21.7",
     "typescript": "^6",
     "vitest": "^4"
