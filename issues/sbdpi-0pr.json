@@ -6,9 +6,15 @@
   "description": "Implement approved external-review items 1 and 2 only: replace run-mode recipe with evidence-first bounded turn ending in yield; remove running orchestrated show_minion live-stream tip. Preserve per-child adjudication with siblings live, human observability, followUp. Item3 partial-acceptance wording explicitly skipped. Add composed-output regressions and align workflows/goldens.",
   "id": "sbdpi-0pr",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented approved external-review findings1/2 only. Evidence-first bounded goal-management procedure ends in yield; explicitly permits adjudicating settled children with unrelated siblings live. Orchestrated inspection omits live-stream invitation, foreground retains it. Finding3 unchanged by explicit user request. Three initial regression failures confirmed; final2389tests/444files, lint690files, allworkspace typechecks and diffcheck pass. Reviewed3goldens and zero diff for partial renderer/tests, human commands/observability, packet delivery against58d5f13. docs/minions-yield-guidance.md updated with ledger/validation. No fresh-model trials or polling-reduction claims.",
+      "timestamp": "2026-09-22T19:18:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "fix: reconcile supervisor turn and inspection guidance",
   "type": "task",
-  "updated_at": "2026-09-22T19:13:58Z"
+  "updated_at": "2026-09-22T19:18:28Z"
 }
