@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-22T18:25:08Z",
@@ -7,8 +7,8 @@
   "id": "sbdpi-u0e",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "fix(pi-minions): teach event-driven supervisor yielding",
   "type": "task",
-  "updated_at": "2026-09-22T18:25:08Z"
+  "updated_at": "2026-09-22T18:25:13Z"
 }
