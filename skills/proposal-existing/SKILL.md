@@ -4,7 +4,8 @@ description: >-
   Compile messy feature brain dumps into strong, repo-grounded initial plans for
   existing codebases. Use when the user says proposal:existing, wants to turn a
   rough feature idea into the first serious markdown plan for a repo, or wants
-  repo inspection before planning/review begins.
+  repo inspection before planning/review begins. Resolve load-bearing human
+  decisions before handing the candidate to repeated architectural review.
 category: workflow
 tags:
   - planning
@@ -22,25 +23,26 @@ Turn a messy feature brain dump into a comprehensive, repo-grounded initial plan
 This skill is the **Stage 0 → Stage 1 compiler**:
 
 - **Stage 0:** normalize rough human intent into a clear feature brief.
-- **Stage 1:** inspect the existing repo and turn that brief into the strongest possible initial markdown plan.
+- **Stage 1:** inspect the existing repo, draft a grounded candidate, and resolve its load-bearing assumptions with the user before handing it to architectural review.
 
-The plan is “initial” only because it has not yet gone through review and revision. It should not be shallow. The stronger this first pass is, the better every downstream review, competing-plan pass, and implementation handoff will be.
+A candidate is not an approved plan. Make it comprehensive enough to expose consequential choices, without polishing an architecture around intent the user has not approved.
 
 ## Boundary
 
-This skill owns only the repo-grounded initial plan step.
+This skill owns the repo-grounded candidate and its intent-confirmation checkpoint. Repeated architectural review remains downstream.
 
 Use this sequence:
 
 ```text
 proposal-existing
-  messy brain dump + existing repo → comprehensive repo-grounded initial plan
+  rough intent → targeted clarification / repo reconnaissance (order depends on the unknowns)
+  → grounded candidate → load-bearing decision grilling → confirmed intent
 
 planning-workflow
-  initial plan → reviewed, challenged, revised, stabilized plan
+  intent-confirmed candidate → reviewed, challenged, revised, stabilized plan
 
-beads-workflow
-  stabilized plan → bead/task graph
+beadwork-workflow
+  stabilized plan → dependency-aware task graph
 
 implementation agents
   beads/tasks → code
@@ -78,6 +80,7 @@ Plan before patching.
 - Do not modify tests, schemas, migrations, config, or application docs unless explicitly authorized.
 - Do not create beads/tasks/issues.
 - If writing a file, only create/update the initial plan/proposal document, normally under `docs/proposals/`.
+- Optional skills do not expand that write scope: capture decisions and proposed glossary/ADR changes in the proposal unless the user separately authorizes editing those artifacts.
 
 ## Workflow
 
@@ -98,7 +101,13 @@ Capture:
 - assumptions you are making from incomplete input
 - unknowns that may materially affect the design
 
-If no coherent user/problem/outcome can be inferred, ask 1–3 blocking clarification questions before repo work. Otherwise proceed with labeled assumptions.
+Choose the order by the missing input, not by a fixed interview ritual:
+
+- **Repository knowledge is missing:** inspect first, then draft a grounded candidate with explicit assumptions. Do not ask the user facts you can discover from code, tests, or docs.
+- **Human intent is missing:** if competing interpretations would change the user/problem/outcome, v1 scope, or behavior to preserve, ask a short round of blocking questions before detailed design. Use targeted repo reads first when needed to make those questions concrete.
+- **Both are missing:** alternate targeted inspection and decision questions. Do not conduct exhaustive archaeology for an undefined feature or demand product decisions without useful evidence.
+
+Previously approved decisions are inputs, not questions to repeat. Surface contradictions explicitly rather than silently reopening them. Non-blocking unknowns may remain labeled in the candidate; load-bearing assumptions must pass the checkpoint in step 5 before repeated architectural review.
 
 ### 2. Perform repo reconnaissance
 
@@ -108,6 +117,7 @@ Look for:
 
 1. Project instructions: `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `README.md`, docs.
 2. Existing proposal/planning conventions: `docs/proposals/`, `docs/`, `planning/`.
+   Read relevant `CONTEXT.md` vocabulary (via `CONTEXT-MAP.md` if present) and ADRs. Their absence is not a blocker; do not scaffold them as part of reconnaissance.
 3. Existing work signals: open/closed beads, issues, TODOs, roadmap notes, related proposals.
 4. File tree and major boundaries: CLI, API, frontend, packages, internal modules, tests.
 5. Relevant implementation areas for the feature.
@@ -127,23 +137,15 @@ Bias guards during reconnaissance:
 - Treat older proposals, docs, and TODOs as possible evidence, not truth; check whether the repo has moved on.
 - Summarize source evidence instead of copying large code/doc blocks into the plan.
 
-### 3. Ask only high-leverage questions
+### 3. Identify load-bearing assumptions
 
-After reconnaissance, ask at most 5 questions **only if** answers would materially change the initial plan.
+Separate discoverable facts from decisions only the user can make. An assumption is **load-bearing** when a different answer would materially change scope, user-visible behavior, preservation/replacement boundaries, ownership, trust, persistence, or rollout.
 
-Good questions clarify:
+If one prevents a meaningful candidate, ask it now. Otherwise make the recommendation concrete in the candidate and resolve it in step 5. Ask only questions whose prerequisites are known; defer questions dependent on unanswered choices. Give a recommendation and explain the consequential trade-off without presenting it as approved.
 
-- the primary user or workflow
-- the v1 success boundary
-- scope boundaries and non-goals
-- existing behavior that must be preserved
-- durable vs ephemeral data
-- security/trust boundaries
-- rollout/backout needs
+Keep rounds manageable (normally no more than five questions). This is a pacing guideline, not permission to leave a sixth consequential decision silently assumed. Avoid generic intake and permission-seeking for already authorized work.
 
-Avoid permission-seeking or generic intake questions. If questions are non-blocking, proceed with labeled assumptions.
-
-### 4. Draft the initial plan artifact
+### 4. Draft the grounded candidate artifact
 
 Default path:
 
@@ -153,12 +155,24 @@ docs/proposals/<short-feature-name>.md
 
 If the user asked only for a prompt/template, return the repo-native prompt instead of creating a file.
 
-The plan must be self-contained enough for GPT Pro or other models to review without rediscovering the basics. A fresh model with only this plan plus the repo should be able to perform a high-quality review or competing-plan pass.
+The candidate must be self-contained enough for the user to judge its assumptions and for later reviewers to challenge its design without rediscovering the basics. Mark recommendations conditional where they depend on unresolved decisions. Detail should expose choices, not make an unapproved architecture look settled.
+
+Keep two kinds of content distinct:
+
+- **Behavioral requirements and invariants:** identify whether user-confirmed or proposed. Confirmed constraints govern downstream design and review.
+- **File paths, symbols, and implementation sketches:** retain them as grounded evidence and navigation hints, with confidence labels. They are not immutable implementation requirements unless the user explicitly makes them so; later agents must revalidate them against the repo.
 
 Use this structure unless the repo has a stronger convention:
 
 ```markdown
 # Initial Plan: <Feature Name>
+
+**Intent status:** awaiting decisions / confirmed for architectural review
+**Open load-bearing decisions:** <list or none>
+**Confirmation:** <user confirmation reference/summary, or pending>
+
+## Decision ledger
+For each consequential choice, record: question, recommendation, status (proposed / user-confirmed / deferred), rationale, rejected alternatives, and affected sections. Preserve existing approvals; deferred load-bearing choices still block review of the dependent design.
 
 ## 1. Normalized feature intent
 - Clear rewrite of the user’s brain dump
@@ -255,17 +269,43 @@ If applicable, describe access rules, sensitive data, trust boundaries, and abus
 ## 17. Risks and open questions
 - Material risks
 - Open questions that affect design
-- Assumptions that downstream review should challenge
+- Assumptions to confirm with the user versus technical uncertainties reviewers should investigate
 
-## 18. Handoff to planning-workflow
-- What reviewers should scrutinize first
-- Areas where competing approaches may be valuable
-- Why this plan is ready for review/revision
+## 18. Next checkpoint / handoff
+- Awaiting intent confirmation: next answerable questions and design sections they affect
+- After confirmation: what planning-workflow reviewers should scrutinize, where competing approaches are useful, and the approved constraints they must preserve
+- A later review finding that invalidates an approved premise must return to the user, not silently change the premise
 
 ## Appendix A: Files inspected, evidence pointers, and search anchors
 
 ## Appendix B: Likely implementation files
 ```
+
+### 5. Grill load-bearing assumptions before architectural polishing
+
+Present the candidate and its unresolved consequential choices. Work in dependency-aware rounds:
+
+1. Ask the currently answerable decision questions, each with a recommendation and concrete consequences or edge-case examples. Do not ask dependent questions as though earlier choices were already settled.
+2. Wait for the user's answers. Repository research can inform decisions; neither a research agent nor model consensus can supply human approval.
+3. Record each answer and rationale in the proposal immediately. Update affected behavior, alternatives, examples, and implementation recommendations; remove contradictions rather than appending a competing answer.
+4. Recompute the remaining questions. If the user pauses or requests only a draft, stop without launching review. Leave unconfirmed intent explicitly awaiting decisions and state the next questions; preserve any existing confirmation that still covers the candidate.
+5. When no load-bearing decisions remain open, summarize the agreed intent, behavioral invariants, rejected paths, and remaining non-blocking uncertainties. Obtain explicit confirmation of that understanding, reusing an existing explicit confirmation if it already covers the current candidate.
+
+Confirmation makes the candidate ready for `planning-workflow`; it does not stabilize the architecture, authorize ticket creation, or authorize implementation. Hand off rather than launching downstream workflows automatically. Facts can be investigated before confirmation, but repeated architectural polishing and competing implementation plans must not treat unresolved intent as settled.
+
+**Optional skill composition:** this checkpoint works without additional installation. If `grilling` is available, load it using the host's skill-loading mechanism for interview technique, bounded by the feature's load-bearing decisions. If terminology is ambiguous, `domain-modeling` can help challenge terms and concrete scenarios. Keep its results in the proposal under this skill's write scope; separate authorization is required for glossary/ADR edits. `grill-with-docs` is an optional user-invoked entry point, not a mandatory dependency or an automatic expansion of permissions.
+
+### Acceptance checks for this skill
+
+Before handoff, check the exact failure modes:
+
+- Repo-unknown but intent-clear: investigated facts instead of asking the user to supply them; produced a grounded candidate.
+- Intent-ambiguous: clarified consequential alternatives before committing to detailed architecture.
+- Unanswered load-bearing choice: candidate remains awaiting decisions; no premature architectural-review handoff.
+- Answer changed a premise: affected sections agree with the decision ledger; dependent questions were reconsidered.
+- Already confirmed intent: approvals were reused, not subjected to a redundant interview.
+- Optional skills absent: the same checkpoint still works without installation or extra document writes.
+- File guidance: concrete evidence remains available, but approved behavior is distinguished from provisional implementation hints.
 
 ## Output standards
 
@@ -283,7 +323,7 @@ A good initial plan:
 - Defines v1 scope and non-goals sharply.
 - Includes example workflows, canonical usage, or surface shapes when those clarify the feature.
 - Includes a testing strategy that protects existing behavior.
-- Leaves the plan ready for `planning-workflow`, not for immediate implementation.
+- Marks an unconfirmed candidate as awaiting decisions; hands off to `planning-workflow` only after intent confirmation, never directly to implementation.
 
 ## Exact prompt for repo-native initial plan creation
 
@@ -300,7 +340,7 @@ Feature brain dump:
 
 Planning objective:
 
-Create a self-contained initial plan that can later be handed to GPT Pro / other models for review, competing-plan feedback, and revision via planning-workflow. This is not a lightweight sketch: downstream reviewers should be improving and challenging the plan, not rediscovering the feature intent or basic repo architecture.
+Create a self-contained grounded candidate, then resolve load-bearing assumptions with me before handing it to GPT Pro / other models for repeated architectural review via planning-workflow. A candidate is not approval. Reviewers should challenge the design within confirmed intent, not optimize an assumption I never accepted. If I request only a draft, stop without launching review; mark unconfirmed intent awaiting decisions and preserve any still-applicable existing confirmation.
 
 First normalize the brain dump:
 
@@ -309,6 +349,8 @@ First normalize the brain dump:
 3. Define likely v1 success criteria.
 4. Identify source ideas, examples, metaphors, or prior art embedded in the brain dump.
 5. Identify non-goals, constraints, assumptions, and unknowns.
+
+Choose order by the unknowns: investigate discoverable repository facts first; ask a short round first when unresolved human intent would change the feature's outcome, scope, or preserved behavior. Alternate when needed. Reuse prior explicit approvals rather than reopening them.
 
 Then perform repo reconnaissance / context hydration:
 
@@ -322,7 +364,7 @@ Then perform repo reconnaissance / context hydration:
 8. Identify relevant existing issues, TODOs, beads, docs, or proposal files if present.
 9. Corroborate important patterns when practical; do not overfit to one file or one old issue.
 
-Then produce an initial plan with these sections:
+Then produce a grounded candidate with intent status, open load-bearing decisions, and a decision ledger (proposed/user-confirmed/deferred choices, rationale, rejected alternatives, affected sections), followed by these sections:
 
 1. Normalized feature intent
 2. Problem and success criteria
@@ -341,8 +383,10 @@ Then produce an initial plan with these sections:
 15. Error handling and failure modes
 16. Testing strategy
 17. Risks and open questions
-18. Handoff notes for planning-workflow review
+18. Next checkpoint: answerable decision questions if unconfirmed, or planning-workflow handoff constrained by confirmed intent
 19. Appendices: files inspected, evidence pointers, search anchors, and likely implementation files
+
+After presenting the candidate, resolve load-bearing decisions in dependency-aware rounds: ask currently answerable questions with recommendations, wait for my answers, record them immediately, reconcile affected sections, and recompute remaining questions. Keep rounds manageable, normally up to five questions; that is not a total limit or a reason to silently assume an answer. Summarize the settled intent and obtain explicit confirmation before architectural polishing. Confirmation is not implementation approval. Optional skills are not required; this workflow writes only the proposal unless separately authorized.
 
 Important constraints:
 
@@ -350,8 +394,8 @@ Important constraints:
 - Prefer changes that fit existing project conventions.
 - Ground claims in files you inspected.
 - Clearly distinguish confirmed repo facts from assumptions.
-- Ask at most 5 high-leverage questions, and only if answers would materially change the plan.
-- If questions are non-blocking, proceed with labeled assumptions.
+- Distinguish user-confirmed behavioral requirements from provisional file paths and implementation sketches; retain evidence pointers and confidence labels for revalidation.
+- Carry non-blocking technical uncertainties into review, but leave unanswered load-bearing human decisions visibly blocking that handoff.
 - Do not start implementation.
 - Do not create beads/tasks/issues.
 ```
@@ -368,8 +412,10 @@ Avoid:
 - Copying large source excerpts into the plan instead of using concise evidence pointers.
 - Fabricating technical details, latencies, APIs, flags, storage shapes, or error codes without repo evidence or explicit assumptions.
 - Asking broad generic questions before inspecting the repo.
-- Absorbing planning-workflow, research-software, idea-wizard, or beads-workflow responsibilities into this skill.
+- Absorbing planning-workflow, research-software, idea-wizard, or beadwork-workflow responsibilities into this skill.
 - Converting the feature directly into tasks before the plan stabilizes.
 - Starting implementation while the user is still shaping product intent.
+- Sending an unconfirmed candidate into repeated architectural review or treating model consensus as user approval.
+- Removing concrete repo pointers to avoid staleness, or treating those pointers as an immutable file-by-file build contract.
 - Recommending rewrites without strong evidence.
 - Producing a vague plan with no file/module grounding.
