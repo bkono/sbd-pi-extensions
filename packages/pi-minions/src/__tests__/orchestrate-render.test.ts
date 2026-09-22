@@ -31,6 +31,21 @@ const partial: OrchestrateResult = {
 };
 
 describe("orchestrate renderer", () => {
+  it("directs accepted work to yield and partial acceptance to resolve rejections first", () => {
+    const accepted = formatOrchestrateText({ ...partial, rejected: [] });
+    expect(accepted).toContain("Otherwise end this turn now");
+    expect(accepted).toContain("follow-ups after you yield");
+    expect(accepted).toContain("You do not need to poll the subagents");
+    expect(accepted).not.toContain("Resolve rejected registrations");
+
+    const mixed = formatOrchestrateText(partial);
+    expect(mixed).toContain("Resolve rejected registrations");
+    expect(mixed).toContain("Otherwise end this turn now");
+
+    const rejected = formatOrchestrateText({ ...partial, accepted: [] });
+    expect(rejected).not.toContain("follow-ups after you yield");
+    expect(rejected).not.toContain("Otherwise end this turn now");
+  });
   it("summarizes partial acceptance as starting and rejected, never completed", () => {
     expect(summarizeOrchestrate(partial)).toBe("2 starting, 1 rejected");
     const text = formatOrchestrateText(partial);

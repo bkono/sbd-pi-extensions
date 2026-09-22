@@ -397,7 +397,7 @@ describe("agent-friendly orchestration vertical slice", () => {
         expect(finalPacket?.message.details.stillRunning).toEqual([]);
         expect(finalPacket?.message.content).toMatch(/group idle:/i);
         expect(finalPacket?.message.content).toMatch(
-          /inspect the evidence and decide the next action/i,
+          /evaluate the supplied evidence and decide the next action/i,
         );
         expect(finalPacket?.message.content).not.toMatch(/goal (completed|succeeded)/i);
         expect(finalPacket?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });

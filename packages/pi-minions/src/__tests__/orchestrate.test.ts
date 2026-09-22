@@ -953,6 +953,7 @@ describe("extension registration", () => {
       string,
       {
         name: string;
+        description?: string;
         promptGuidelines?: string[];
         renderCall?: unknown;
         renderResult?: unknown;
@@ -968,6 +969,7 @@ describe("extension registration", () => {
     const pi = {
       registerTool: (tool: {
         name: string;
+        description?: string;
         promptGuidelines?: string[];
         renderCall?: unknown;
         renderResult?: unknown;
@@ -1034,13 +1036,26 @@ describe("extension registration", () => {
     expect(
       tools
         .get("spawn")
-        ?.promptGuidelines?.some((line) => /orchestrate for background/i.test(line)),
+        ?.promptGuidelines?.some((line) =>
+          /supervisor must remain available to the user/i.test(line),
+        ),
     ).toBe(true);
     const orchestrateGuidelines = tools.get("orchestrate")?.promptGuidelines ?? [];
     expect(
-      orchestrateGuidelines.some((line) => /spawn instead if you intend to wait/i.test(line)),
+      orchestrateGuidelines.some((line) =>
+        /foreground delegation whose result should return inside this turn/i.test(line),
+      ),
     ).toBe(true);
-    expect(orchestrateGuidelines.every((line) => /\borchestrate\b/i.test(line))).toBe(true);
+    expect(orchestrateGuidelines.join("\n")).toContain("normally yields between actionable events");
+    expect(orchestrateGuidelines.join("\n")).not.toContain("intend to wait");
+    expect(tools.get("orchestrate")?.description).toContain("follow-ups after you end the turn");
+    expect(tools.get("list_minions")?.description).toContain(
+      "wait for the event instead of polling",
+    );
+    expect(tools.get("show_minion")?.description).toContain(
+      "specific evidence missing from a delivered packet",
+    );
+    expect(tools.get("learn_minions")?.description).toContain("before first delegation");
     expect(orchestrateGuidelines).toContain(
       "After orchestrate registers background work, treat delegated work as live until terminal lifecycle evidence, explicit inspection, or halt proves otherwise.",
     );

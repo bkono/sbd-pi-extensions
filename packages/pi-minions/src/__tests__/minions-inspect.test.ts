@@ -78,6 +78,44 @@ async function show(tree: AgentTree, target: string) {
 }
 
 describe("list_minions filters", () => {
+  it.each([
+    "pending",
+    "running",
+    "settling",
+  ] as const)("guides %s orchestrated snapshots back to events without changing inspection data", async (phase) => {
+    const tree = new AgentTree();
+    tree.add("mn-active", "active", "work", {
+      kind: "orchestrated",
+      status: phase === "pending" ? "pending" : "running",
+    });
+    if (phase === "settling") tree.applyActivityEvent("mn-active", { type: "settling" });
+    const before = toInfo(tree.get("mn-active")!);
+    const footer =
+      "This is a snapshot, not a wait operation. Completion follow-ups arrive automatically after you end the turn. If this answers your question, yield rather than inspect again.";
+    expect((await list(tree)).content[0]?.text).toContain(footer);
+    expect((await show(tree, "mn-active")).content[0]?.text).toContain(footer);
+    expect(toInfo(tree.get("mn-active")!)).toEqual(before);
+  });
+
+  it("does not suggest waiting for filtered-out, terminal, missing, or foreground children", async () => {
+    const tree = seedTree();
+    for (const params of [
+      { kind: "spawn" },
+      { status: "completed" },
+      { groupId: "missing" },
+    ] satisfies ListMinionsParams[]) {
+      expect((await list(tree, params)).content[0]?.text).not.toContain("Completion follow-ups");
+    }
+    for (const target of ["mn-spawn", "mn-orch-other"]) {
+      expect((await show(tree, target)).content[0]?.text).not.toContain("Completion follow-ups");
+    }
+    for (const status of ["failed", "aborted"] as const) {
+      tree.updateStatus("mn-orch-a", status);
+      expect((await show(tree, "mn-orch-a")).content[0]?.text).not.toContain(
+        "Completion follow-ups",
+      );
+    }
+  });
   it("lists spawn and orchestrated together and filters by kind, group, and status", async () => {
     const tree = seedTree();
 

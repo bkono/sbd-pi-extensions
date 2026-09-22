@@ -32,22 +32,40 @@ package owns live child sessions.
 
 Slash commands: `/spawn`, `/minions`, `/halt`.
 
-### `orchestrate` vs `spawn`
+### Blocking versus yielding
 
-Use `orchestrate` when the parent must keep talking to the user or continue an epic unattended.
-Use `spawn` when you intend to wait.
+Use `spawn` for foreground delegation whose result should return inside the current turn.
+Use `orchestrate` when the supervisor must remain available to the user or manage an ongoing workflow.
+An orchestrated supervisor normally yields between actionable events; it does not need to keep working
+while children run.
+
+Read `learn_minions` before first delegation or when recovering unclear orchestration state after
+compaction. It teaches the supervisor loop and the fix/file/reject judgment: correctness, approved
+scope, project goals, and the quality bar remain the supervisor's responsibility.
 
 `orchestrate` requires a persistent host. It is rejected in print and json.
 
 ### Cooperative sidecar
 
-Use `orchestrate` only for slices independent of the parent's continuing work. Once scope is
-delegated, the parent must not edit that delegated scope while the child is live; message or halt
-the child instead. The parent may continue user interaction, inspection, planning, or
-non-overlapping work.
+Delegate independent slices with `orchestrate`; keep any continuing parent work outside their scope.
+Once scope is delegated, the parent must not edit it while the child is live; message or halt the child
+instead. Path intent and overlap notices are advisory, not locks.
 
-Path intent and overlap notices are advisory, not locks. A parent turn ending while children run
-is normal. Do not represent delegated work as complete while children are live.
+After dispatch, finish any already-identified independent parent work, then **yield**: end the assistant
+turn without another tool call. Children continue running, and their follow-ups resume supervision
+automatically. Yielding is token-efficient and preserves context for decisions. It is not abandonment,
+task completion, or process shutdown; do not claim delegated work complete while children remain live.
+
+Follow-ups intentionally wait until the current tool sequence ends, preserving the active user
+conversation. Polling an active child's status postpones the events the supervisor is waiting for.
+Wait for the event instead. Do not sleep, ask the user to say “continue,” or invent work to keep a turn
+alive. Answer user questions normally; use inspection for a specific status/evidence question, concrete
+problem, or recovery after compaction. Inspection does not acknowledge queued follow-ups.
+
+The loop is **dispatch → yield → receive follow-up → evaluate and decide → dispatch or yield**.
+Evaluate supplied evidence first and retrieve missing details only if needed. After the resulting
+decision or dispatch, yield if further progress depends on children. New findings require evaluation;
+already-decided evidence does not require repeated work or a separate “already handled” acknowledgment.
 
 Each orchestrated task needs:
 
@@ -103,12 +121,13 @@ While children are pending/running, a persistent fleet widget appears above the 
 focus. It shows a bounded activity summary and clears after the final active child. `/minions` remains
 the interactive drill-down; `list_minions` and `show_minion` are the model inspection surfaces.
 
-Real lifecycle events produce bounded, coalesced parent packets. A final active-to-idle transition adds
-one `Group idle` boundary telling the parent to inspect evidence and decide the next action. Idle does
-not mean success, ticket closure, or goal completion. Spawn children never appear in orchestrated group
-packets. There are no heartbeat/progress wakes. Static `orchestrate` guidance defines the live-work
-invariant; runtime truth comes from registration/results, lifecycle packets, inspection, and halt—not
-dynamic system-prompt state.
+Real lifecycle events produce bounded, coalesced parent packets using non-preemptive `followUp`
+delivery. Other-child listings are snapshots at packet creation, not current liveness guarantees. A
+final active-to-idle transition adds one `Group idle` boundary telling the parent to evaluate the supplied
+evidence and decide the next action. Idle does not mean success, ticket closure, or goal completion.
+Spawn children never appear in orchestrated group packets. There are no heartbeat/progress wakes.
+Static `orchestrate` guidance defines the live-work invariant; runtime truth comes from
+registration/results, lifecycle packets, inspection, and halt—not dynamic system-prompt state.
 
 ### Child tools
 
@@ -166,7 +185,7 @@ Global settings come from `getAgentDir()/settings.json`; project settings in `<c
 override them.
 
 Delegation reminders are injected into the system prompt, never as synthetic user messages. The
-default reminder mentions both `spawn` (wait) and `orchestrate` (background). The
+default reminder distinguishes `spawn` (foreground blocking) from `orchestrate` (event-driven yielding). The
 `acknowledgementRequired` setting is kept for backward compatibility but no longer adds mandatory
 acknowledgement text; custom `message` values are used verbatim.
 
@@ -182,3 +201,13 @@ Beadwork injects a manager-only goal prompt. The parent should `orchestrate` rea
 domain metadata and must not implement a delegated ticket concurrently with its live child.
 Do not use tmux, `/bw delegate`, or `spawn` as the epic runtime. `spawn` remains valid for
 foreground one-off waits outside that loop.
+Goal execution spans multiple event-driven turns: yielding when progress depends on children preserves
+goal mode, and lifecycle follow-ups resume the manager. General sidecar guidance does not authorize
+parent implementation in a manager-only role.
+
+## Changelog
+
+- **2026-09-22:** Teach token/context-preserving supervisor yielding at selection, dispatch,
+  inspection, and lifecycle-result boundaries; expand `learn_minions` with the supervisor loop and
+  fix/file/reject judgment. Non-preemptive delivery is unchanged. See the
+  [decision and validation notes](../../docs/minions-yield-guidance.md).

@@ -150,6 +150,13 @@ function logInspect(
   });
 }
 
+const ACTIVE_ORCHESTRATED_INSPECTION_FOOTER =
+  "This is a snapshot, not a wait operation. Completion follow-ups arrive automatically after you end the turn. If this answers your question, yield rather than inspect again.";
+
+function isActiveOrchestrated(info: MinionInfo): boolean {
+  return info.kind === "orchestrated" && (info.status === "pending" || info.status === "running");
+}
+
 export function listMinions(tree: AgentTree) {
   return async function execute(
     _toolCallId: string,
@@ -167,6 +174,9 @@ export function listMinions(tree: AgentTree) {
     } else {
       lines.push(`Minions (${minions.length}):`);
       for (const m of minions) lines.push(formatListLine(m));
+    }
+    if (minions.some(isActiveOrchestrated)) {
+      lines.push("", ACTIVE_ORCHESTRATED_INSPECTION_FOOTER);
     }
 
     return {
@@ -317,6 +327,9 @@ export function showMinion(
       throw new Error(`Minion not found: ${params.target}`);
     }
     logInspect("show_minion", "show", shown.info);
-    return { content: [{ type: "text", text: shown.text }], details: shown.info };
+    const text = isActiveOrchestrated(shown.info)
+      ? `${shown.text}\n\n${ACTIVE_ORCHESTRATED_INSPECTION_FOOTER}`
+      : shown.text;
+    return { content: [{ type: "text", text }], details: shown.info };
   };
 }

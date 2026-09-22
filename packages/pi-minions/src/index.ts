@@ -29,7 +29,12 @@ import {
 import { renderCall, renderResult } from "./render.js";
 import { minionSpawnMessageRenderer } from "./renderers/minion-spawn.js";
 import { renderOrchestrateCall, renderOrchestrateResult } from "./renderers/orchestrate.js";
-import { getMinionsSkill, ORCHESTRATE_SIDECAR_GUIDELINES } from "./skill.js";
+import {
+  getMinionsSkill,
+  ORCHESTRATE_GUIDELINE,
+  ORCHESTRATE_SIDECAR_GUIDELINES,
+  SPAWN_GUIDELINE,
+} from "./skill.js";
 import { createStatusTracker } from "./status.js";
 import { EventBus } from "./subsessions/event-bus.js";
 import { SubsessionManager } from "./subsessions/manager.js";
@@ -125,17 +130,17 @@ export default function (pi: ExtensionAPI): void {
       "Delegate a task to a named agent or an ephemeral minion with isolated foreground context. " +
       "If no agent name is provided, spawns an ephemeral minion with default capabilities. " +
       "Agents are discovered from global and project agent/minion directories, including ~/.pi/agent/{agents,minions}/, ~/.agents/{agents,minions}/, .pi/{agents,minions}/, and .agents/{agents,minions}/. " +
-      "The agent runs as a file-based foreground session with parent tracking.",
+      "The agent runs as a file-based foreground session with parent tracking. Blocks this turn until the child completes; use orchestrate for an event-driven supervisor that yields between results.",
     promptSnippet: "Spawn a foreground minion for isolated task delegation",
     promptGuidelines: [
-      "Use spawn for foreground task delegation. The tool blocks until the minion completes and returns its result.",
-      "Use spawn when you intend to wait. Use orchestrate for background work that should not block this turn.",
+      SPAWN_GUIDELINE,
+      ORCHESTRATE_GUIDELINE,
       "To spawn multiple minions in parallel, use the `tasks` array parameter with multiple task descriptors. Each task can specify `task`, optional `agent`, and optional `model`.",
       "For single task delegation, use the `task` parameter directly.",
       "Use list_agents to discover available named agents before spawning by name.",
       "Omit the agent parameter to spawn an ephemeral minion with default capabilities.",
       "When a spawn result says [HALTED], the user intentionally stopped the minion. Do NOT retry, re-spawn, or ask about it. Acknowledge and move on.",
-      "Use list_minions and show_minion to inspect spawn and orchestrated minion activity.",
+      "Use list_minions and show_minion to answer a specific status or evidence question. For orchestrated work, wait for completion events instead of polling an active child's status.",
     ],
     parameters: SpawnToolParams,
     execute: (...args) => {
@@ -153,8 +158,8 @@ export default function (pi: ExtensionAPI): void {
   });
 
   const orchestratePromptGuidelines = [
-    "Use orchestrate for background work that should not block this turn. It returns handles immediately; results arrive later.",
-    "When using orchestrate, use spawn instead if you intend to wait for the minion before continuing.",
+    ORCHESTRATE_GUIDELINE,
+    SPAWN_GUIDELINE,
     "For orchestrate, description is required on every task; do not omit it or infer it from task.",
     "For orchestrate, agent is a discovered agent/template name from the same loader as spawn; built-in worker and investigate are always available, and list_agents resolves uncertainty.",
     "For orchestrate, taskType is a closed workflow-policy enum; never collapse agent and taskType.",
@@ -168,8 +173,9 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Register background minion work and return handles immediately. " +
       "Children start in the session's one open group and report later; this tool does not wait. " +
+      "Yield after dispatch unless already-identified independent work remains; results arrive as follow-ups after you end the turn. " +
       "Each task requires a short description. Persistent hosts only (tui/rpc).",
-    promptSnippet: "Orchestrate background minions without waiting",
+    promptSnippet: "Dispatch background minions; yield between actionable events",
     promptGuidelines: [...orchestratePromptGuidelines],
     parameters: OrchestrateToolParams,
     execute: async (...args: Parameters<ReturnType<typeof orchestrate>>) => {
@@ -246,10 +252,11 @@ export default function (pi: ExtensionAPI): void {
     name: "list_minions",
     label: "List Minions",
     description:
-      "List spawn and orchestrated minions in the current session, including agent, taskType, group, and last activity.",
-    promptSnippet: "List current spawn and orchestrated minions",
+      "Inspect spawn and orchestrated minions for a user's status question, context recovery, or a concrete coordination decision. " +
+      "Includes agent, taskType, group, and last activity. For completion monitoring, wait for the event instead of polling an active child's status.",
+    promptSnippet: "Inspect minions for a specific question; wait for events to monitor completion",
     promptGuidelines: [
-      "Use list_minions to see who is running, spawn vs orchestrated, taskType, last said, and whether a peer message failed.",
+      "Use list_minions for a user's status question, context recovery, or a concrete coordination decision. Once the question is answered, yield; wait for the completion event instead of polling an active child's status.",
     ],
     parameters: ListMinionsParams,
     execute: (...args) => listMinions(tree)(...args),
@@ -259,7 +266,11 @@ export default function (pi: ExtensionAPI): void {
     name: "show_minion",
     label: "Show Minion",
     description:
-      "Show full status, output, messages, path intent, and activity of a minion by ID or name.",
+      "Retrieve specific evidence missing from a delivered packet or investigate a concrete problem by minion ID or name. " +
+      "Returns status, output, messages, path intent, and activity. Wait for the completion event instead of repeatedly inspecting an active child's status.",
+    promptGuidelines: [
+      "Use show_minion only when a specific evidence question needs it; evaluate the supplied lifecycle packet first. Inspection is read-only and does not acknowledge pending follow-ups. For completion monitoring, yield and wait for the event.",
+    ],
     parameters: ShowMinionParams,
     execute: (...args) => showMinion(tree, subsessionManager)(...args),
   });
@@ -267,7 +278,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "learn_minions",
     label: "Learn Minions",
-    description: "Return concise guidance for using pi-minions spawn and orchestrate.",
+    description:
+      "Learn blocking versus yielding, the event-driven supervisor loop, and how to evaluate results. Read before first delegation or when recovering unclear orchestration state after compaction.",
     promptSnippet: "Learn how to use pi-minions",
     parameters: LearnMinionsParams,
     execute: async () => ({

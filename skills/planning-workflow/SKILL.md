@@ -108,7 +108,7 @@ Choose lenses according to the plan's risks. For a substantive plan, cover both 
 
 Give every reviewer the same named plan revision or immutable copy, approved constraints, relevant evidence pointers, a specific lens, and read-only instructions. Ask for supported findings, their impact, and a minimal proposed revision, including areas checked that need no change. Do not ask for speculative features or a longer plan.
 
-Independent criticism may run in parallel. Changes to the canonical plan are serialized through one integrator. Use the host's actual delegation tools; in SBD, `spawn` is appropriate when waiting and `orchestrate` for independent background work. Plan review is not automatically an implementation-review task type. Do not assume leaf workers can delegate again. No branch switching, commits, or shared-document edits by parallel reviewers.
+Independent criticism may run in parallel. Changes to the canonical plan are serialized through one integrator. Use the host's actual delegation tools; in SBD, use `spawn` for foreground results within the current turn and `orchestrate` for event-driven supervision that yields between actionable events. Plan review is not automatically an implementation-review task type. Do not assume leaf workers can delegate again. No branch switching, commits, or shared-document edits by parallel reviewers.
 
 Without delegation, review serially and state that independence was limited. External-model review may use supplied document text, but claims about uninspected code remain unverified. If work returns against an older revision, reconcile each finding against the current plan rather than applying its patch blindly. Do not declare convergence while reviews for the current round are still live.
 

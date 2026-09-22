@@ -36,6 +36,15 @@ export function formatOrchestrateText(result: OrchestrateResult): string {
       lines.push(formatRejectedLine(item));
     }
   }
+  if (result.accepted.length > 0) {
+    const rejectionStep = result.rejected.length > 0 ? "Resolve rejected registrations. " : "";
+    lines.push(
+      "",
+      `Next: ${rejectionStep}Finish only already-planned independent work. Otherwise end this turn now. ` +
+        "Children continue in the background; results arrive as follow-ups after you yield. " +
+        "You do not need to poll the subagents; wait for the event instead.",
+    );
+  }
   return lines.join("\n");
 }
 

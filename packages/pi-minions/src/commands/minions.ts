@@ -145,7 +145,7 @@ export function createMinionsHandler(tree: AgentTree, eventBus: EventBus) {
 
       if (sortedIds.length === 0) {
         ctx.ui.notify(
-          "No active minions. Use /spawn or the spawn tool to wait, or orchestrate for background work.",
+          "No active minions. Use /spawn or the spawn tool for foreground delegation, or orchestrate for background supervision that yields between results.",
           "info",
         );
         return;

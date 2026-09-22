@@ -222,7 +222,7 @@ describe("in-process ticket from /bw run through child settlement", () => {
         );
         expect(packet?.message.details.stillRunning).toEqual([]);
         expect(packet?.message.content).toContain("Changed:");
-        expect(packet?.message.content).toContain("Still running:");
+        expect(packet?.message.content).toContain("Other children at packet creation:");
         expect(packet?.message.content).toMatch(/--- runtime instruction ---/);
         expect(packet?.message.content).toMatch(/--- untrusted child output ---/);
         expect(packet?.message.content).toContain(CHILD_PROSE);

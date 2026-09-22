@@ -33,7 +33,8 @@ export const PACKET_DETAILS_BYTE_BUDGET = 9800;
 export const MAX_DELIVERED_TERMINAL_HISTORY = 256;
 
 const SEND_OPTIONS = { triggerTurn: true, deliverAs: "followUp" } as const;
-const FALLBACK_NUDGE = "Inspect the child evidence and decide the next action.";
+const FALLBACK_NUDGE =
+  "Evaluate the supplied child evidence and decide the next action; retrieve missing details only if needed.";
 
 export interface ChangedChildPacket {
   childId: string;
@@ -272,22 +273,28 @@ export function formatLifecyclePacket(
       lines.push("");
     }
     const omitted = details.changedCount - details.changed.length;
-    if (omitted > 0) lines.push(`- +${omitted} more changed events omitted; inspect list_minions`);
+    if (omitted > 0)
+      lines.push(
+        `- +${omitted} more changed events omitted; use list_minions if needed to locate missing evidence`,
+      );
   }
 
-  lines.push("Still running:", `Count: ${details.stillRunningCount}`);
+  lines.push("Other children at packet creation:", `Count: ${details.stillRunningCount}`);
   if (details.stillRunning.length === 0) lines.push("- none");
   else {
     for (const child of details.stillRunning) lines.push(...stillRunningLine(child));
     const omitted = details.stillRunningCount - details.stillRunning.length;
-    if (omitted > 0) lines.push(`- +${omitted} more active children omitted; inspect list_minions`);
+    if (omitted > 0)
+      lines.push(
+        `- +${omitted} more active children omitted; use list_minions only for a specific coordination question`,
+      );
   }
 
   if (details.groupIdleId) {
     lines.push(
       "",
       `Group idle: ${details.groupIdleId}`,
-      "Inspect the evidence and decide the next action.",
+      "Evaluate the supplied evidence and decide the next action. Idle alone does not establish acceptance or goal completion.",
     );
   }
 
@@ -299,7 +306,12 @@ export function formatLifecyclePacket(
     }
   }
 
-  lines.push("", "Full transcripts: show_minion <id>");
+  lines.push(
+    "",
+    "Address new actionable evidence in this update. After the resulting decision or dispatch, yield if further progress depends on children. Background status alone requires no action.",
+    "If this evidence was already evaluated and decided, do not repeat the work or publish a separate 'already handled' acknowledgment. New findings still require evaluation.",
+    "Additional evidence, if needed: show_minion <id>",
+  );
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 

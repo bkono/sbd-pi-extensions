@@ -109,7 +109,8 @@ describe("nudgeFor table", () => {
     const parentMessage = nudgeFor({}, "parentMessage");
 
     expect(settled).toMatch(/background task settled/i);
-    expect(settled.toLowerCase()).toMatch(/inspect/);
+    expect(settled).toContain("Evaluate the evidence included below");
+    expect(settled).toContain("retrieve additional evidence only if needed");
     expect(failed).toMatch(/background task failed/i);
     expect(aborted).toMatch(/background task was aborted/i);
     expect(aborted.toLowerCase()).toMatch(/do not retry unless the user asks/);
@@ -181,9 +182,9 @@ describe("nudgeFor precedence", () => {
 it("falls back safely for hostile task and event runtime values", () => {
   const hostileTaskType = "x".repeat(10_000);
   expect(() => nudgeFor({ taskType: hostileTaskType }, "settled")).not.toThrow();
-  expect(nudgeFor({ taskType: hostileTaskType }, "settled")).toContain("Inspect");
+  expect(nudgeFor({ taskType: hostileTaskType }, "settled")).toContain("Evaluate");
   expect(nudgeFor({ taskType: hostileTaskType }, "unknown-event")).toBe(
-    "A background child changed state. Inspect the evidence and decide the next action.",
+    "A background child changed state. Evaluate the supplied evidence and decide the next action; retrieve missing details only if needed.",
   );
   expect(nudgeFor({ taskType: { malformed: true } }, null)).toContain("changed state");
 });

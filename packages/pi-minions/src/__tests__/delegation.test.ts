@@ -20,8 +20,12 @@ describe("delegation hint", () => {
 
     expect(hint).toContain("DELEGATION REMINDER: You have made 17 tool calls");
     expect(hint).toContain("pi-minions extension is active");
-    expect(hint).toContain("`spawn` tool when you intend to wait");
-    expect(hint).toContain("`orchestrate` for background work");
+    expect(hint).toContain("Use `spawn` for a foreground delegation");
+    expect(hint).toContain(
+      "Use `orchestrate` when the supervisor must remain available to the user",
+    );
+    expect(hint).toContain("normally yields between actionable events");
+    expect(hint).not.toContain("when you intend to wait");
     expect(hint).toContain("pass a `tasks` array to `spawn`");
     expect(hint).toContain("`learn_minions`");
     expect(hint).not.toContain("isolated foreground delegation");

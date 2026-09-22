@@ -203,6 +203,7 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("`orchestrate`");
     expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
     expect(text).not.toContain("This is a manager-only loop.");
+    expect(text).not.toContain("Goal execution spans multiple event-driven turns");
     expect(text).not.toContain(
       "The parent does not implement a delegated ticket concurrently with its live child.",
     );
@@ -230,6 +231,9 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("Goal mode: run the scoped epic to completion.");
     expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
     expect(text).toContain("This is a manager-only loop.");
+    expect(text).toContain("Goal execution spans multiple event-driven turns");
+    expect(text).toContain("end the turn when progress depends on children");
+    expect(text).toContain("Yielding preserves goal mode; lifecycle follow-ups resume the manager");
     expect(text).toContain(
       "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
     );

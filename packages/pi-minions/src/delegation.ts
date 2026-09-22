@@ -1,12 +1,13 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ResolvedDelegationConfig } from "./config.js";
+import { ORCHESTRATE_GUIDELINE, SPAWN_GUIDELINE } from "./skill.js";
 
 const DEFAULT_HINT_TEMPLATE =
   "\n\nDELEGATION REMINDER: You have made {toolCallCount} tool calls. " +
   "The pi-minions extension is active." +
-  "\nUse the `spawn` tool when you intend to wait. Use `orchestrate` for background work that should not block this turn." +
+  `\n${SPAWN_GUIDELINE}\n${ORCHESTRATE_GUIDELINE}` +
   "\nFor parallel foreground waits, pass a `tasks` array to `spawn`. For background fleets, pass `tasks` to `orchestrate` with a required `description` on each." +
-  "\nUse `learn_minions` if you need the full contract, then continue the user's task normally.\n";
+  "\nRead `learn_minions` before first delegation for the supervisor loop, then continue the user's task.\n";
 
 export function createDelegationHint(
   toolCallCount: number,

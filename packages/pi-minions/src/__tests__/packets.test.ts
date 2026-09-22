@@ -171,6 +171,29 @@ function harness(options: { autoAccept?: boolean } = {}) {
   return { tree, groups, sendMessage, dispatcher, drain, pending };
 }
 
+it("bounds the supervisor action without changing non-preemptive delivery or implying current liveness", () => {
+  const { tree, dispatcher, sendMessage, drain } = harness();
+  addOrchestrated(tree, "mn-done");
+  addOrchestrated(tree, "mn-running");
+  tree.updateStatus("mn-done", "completed", 0);
+  dispatcher.enqueue({
+    class: "settled",
+    groupId: "grp-1",
+    childId: "mn-done",
+    output: "evidence",
+  });
+  drain();
+  const { message, options } = packetOf(sendMessage);
+  expect(options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+  expect(message.content).toContain("Other children at packet creation:");
+  expect(message.content).not.toContain("Still running:");
+  expect(message.content).toContain("yield if further progress depends on children");
+  expect(message.content).toContain("already evaluated and decided");
+  expect(message.content).toContain("New findings still require evaluation");
+  expect(message.content).toContain("Additional evidence, if needed");
+  expect(message.content).not.toContain("Full transcripts:");
+});
+
 async function execTool(tool: ToolDefinition, params: unknown) {
   const result = await tool.execute(
     "call-1",
@@ -906,7 +929,7 @@ describe("group idle transition", () => {
     const packet = packetOf(sendMessage).message;
     expect(packet.details.groupIdleId).toBe("grp-1");
     expect(packet.content.match(/Group idle: grp-1/g)).toHaveLength(1);
-    expect(packet.content).toContain("Inspect the evidence and decide the next action.");
+    expect(packet.content).toContain("Evaluate the supplied evidence and decide the next action.");
     const idleCopy = packet.content.slice(packet.content.indexOf("Group idle:"));
     expect(idleCopy).not.toMatch(/success|completed|accepted|ticket closed|goal complete/i);
   });

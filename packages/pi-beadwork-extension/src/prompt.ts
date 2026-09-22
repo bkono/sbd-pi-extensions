@@ -116,6 +116,7 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
     GOAL_LIFECYCLE_EQUIVALENCE,
     "Prefer durable beadwork state over conversational replanning.",
     "Use `orchestrate` plus beadwork tools. Do not poll.",
+    "Goal execution spans multiple event-driven turns. After dispatching eligible work and handling available evidence, end the turn when progress depends on children. Yielding preserves goal mode; lifecycle follow-ups resume the manager.",
     "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
     "The parent does not implement a delegated ticket concurrently with its live child.",
     "Children do not start, close, or reopen tickets, and do not start goals.",
