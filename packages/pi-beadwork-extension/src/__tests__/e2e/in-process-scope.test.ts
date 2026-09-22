@@ -198,7 +198,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
         );
         expect(standing).toContain(
-          "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+          "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
         );
         expect(standing).not.toContain(
           "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",

@@ -291,7 +291,7 @@ export function buildShowMinion(
     for (const item of history) lines.push(`    ${item.phase} ${item.summary}`);
   }
 
-  if (node.status === "running") {
+  if (node.status === "running" && info.kind !== "orchestrated") {
     lines.push(`\n  Tip: Use '/minions show ${node.name}' for live activity stream`);
   }
 

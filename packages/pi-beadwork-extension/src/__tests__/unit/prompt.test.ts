@@ -235,8 +235,14 @@ describe("buildBeadworkPromptAppendix modes", () => {
     expect(text).toContain("end the turn when progress depends on children");
     expect(text).toContain("Yielding preserves goal mode; lifecycle follow-ups resume the manager");
     expect(text).toContain(
-      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+      [
+        "When a goal-management turn runs:",
+        "1. Evaluate available child evidence and apply the active review policy, including when unrelated siblings remain live. Do not wait for group idle to adjudicate a settled child.",
+        "2. Refresh relevant `bw` state (ready/show); start eligible work, compose each child's `task`, then `orchestrate`.",
+        "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
+      ].join("\n"),
     );
+    expect(text).not.toContain("When a turn runs: refresh `bw`");
     expect(text).toContain(
       "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
     );
@@ -283,9 +289,7 @@ describe("buildBeadworkPromptAppendix modes", () => {
       "Resume only after explicit `/bw run <epic-id>` or `beadwork_start_goal`.",
     );
     expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
-    expect(text).not.toContain(
-      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
-    );
+    expect(text).not.toContain("When a goal-management turn runs:");
     expect(text).not.toContain("You are in beadwork run mode.");
   });
 
@@ -586,7 +590,7 @@ describe("orchestration boundary guidance", () => {
       "Planning/decomposition and executing the graph are distinct decisions.",
     );
     expect(text).toContain(
-      "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+      "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
     );
     expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
     expect(text).toContain("This is a manager-only loop.");

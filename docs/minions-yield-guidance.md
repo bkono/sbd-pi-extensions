@@ -53,3 +53,16 @@ Implemented and independently reviewed (foreground reviewer `86f83e56`: approve,
 The global `~/.pi/agent/AGENTS.md` edit is applied and verified separately; it is outside this repository and its commit. New Pi sessions load the changed extension guidance; an already-running session retains its previously loaded implementation (confirmed by this session's old `learn_minions` response).
 
 **Remaining validation:** fresh-model behavioral trials are not run. There is no claim that these text changes eliminate queued stale-event inference or quantitatively reduce polling/token use. Do not treat the deterministic tests as that evidence.
+
+## External-review follow-up (2026-09-22, `sbdpi-0pr`)
+
+Approved scope: findings 1 and 2 only. Replace the unconditional Beadwork turn recipe with an evidence-first, bounded procedure ending in yield; remove the live-stream invitation from orchestrated inspection output. These are guidance defects, not demonstrated model polling loops.
+
+- **Invariant:** adjudicate a settled child's evidence while unrelated siblings remain live. Do not introduce a group-idle barrier.
+- **Invariant:** preserve the human `/minions show` observability UI, foreground inspection behavior, and non-preemptive delivery.
+- **Closed door:** finding 3 (partial-acceptance wording) explicitly skipped by the user; do not change it or mandate retries.
+- [x] Add failing composed-output/prompt regression assertions: two failures exposed the running/settling live-stream tip, one exposed the missing bounded turn procedure.
+- [x] Implement the two corrections and reconcile workflow documentation/run-policy goldens. Reviewed all three golden diffs; review policies remain unchanged.
+- [x] Validate: inspection suite **12/12 passed**; `npm run lint` **690 files clean**; `npm run test -- --silent` **2,389 tests / 444 files passed**; `npm run typecheck` **all workspaces passed**; `git diff --check` **passed**.
+
+Verified zero diff against `58d5f13` for partial-acceptance renderer/tests, human `/minions` commands and observability implementation, and lifecycle packet implementation. Foreground inspection retains its tip (regression assertion). Fresh-model behavioral trials remain unrun; these checks validate emitted instructions and preserved behavior, not a measured reduction in model polling.

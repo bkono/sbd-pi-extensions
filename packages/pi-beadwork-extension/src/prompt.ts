@@ -116,13 +116,16 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
     GOAL_LIFECYCLE_EQUIVALENCE,
     "Prefer durable beadwork state over conversational replanning.",
     "Use `orchestrate` plus beadwork tools. Do not poll.",
-    "Goal execution spans multiple event-driven turns. After dispatching eligible work and handling available evidence, end the turn when progress depends on children. Yielding preserves goal mode; lifecycle follow-ups resume the manager.",
+    "Goal execution spans multiple event-driven turns. Yielding preserves goal mode; lifecycle follow-ups resume the manager.",
     "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
     "The parent does not implement a delegated ticket concurrently with its live child.",
     "Children do not start, close, or reopen tickets, and do not start goals.",
     "Child settlement is evidence, not acceptance or ticket closure. Do not close a ticket solely because a child settled.",
     "Use beadwork tools for durable graph mutations instead of text parsing heuristics.",
-    "When a turn runs: refresh `bw` (ready/show), start ready work, compose each child's `task`, then `orchestrate`.",
+    "When a goal-management turn runs:",
+    "1. Evaluate available child evidence and apply the active review policy, including when unrelated siblings remain live. Do not wait for group idle to adjudicate a settled child.",
+    "2. Refresh relevant `bw` state (ready/show); start eligible work, compose each child's `task`, then `orchestrate`.",
+    "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
     "This standing appendix is policy only. It does not start a turn.",
   ];
 }

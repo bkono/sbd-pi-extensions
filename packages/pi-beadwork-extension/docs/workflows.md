@@ -120,17 +120,21 @@ dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready
 The parent does not implement a delegated ticket concurrently with its live child. Children do not
 start, close, or reopen tickets, and do not start goals.
 
-When a turn runs:
+When a goal-management turn runs:
 
-1. refresh `bw ready` / `bw show`
-2. `beadwork_start_issue` on work about to begin
-3. compose each child’s complete `task` (beadwork does not wrap it), requiring an atomic
+1. evaluate available child evidence and apply the active review policy; parent closes only after
+   acceptance. Adjudicate a settled child even while unrelated siblings remain live—do not wait for
+   group idle
+2. refresh relevant `bw ready` / `bw show` state
+3. `beadwork_start_issue` on eligible work about to begin
+4. compose each child’s complete `task` (beadwork does not wrap it), requiring an atomic
    ticket-scoped commit and returned commit SHA; stage only owned files
-4. `orchestrate` with domain `{ source: "beadwork", scopeId, workItemId, title }` and a `taskType`
-5. on settlement: judge evidence; apply review policy; parent closes. Settlement is evidence, not
-   acceptance or ticket closure
+5. `orchestrate` with domain `{ source: "beadwork", scopeId, workItemId, title }` and a `taskType`
+6. after handling available evidence and dispatching eligible work, end the turn without another tool
+   call when progress depends on children. Do not repeat the sweep to wait for results
 
-`orchestrate` `accepted` means starting, not liveness. Do not poll.
+Yielding preserves goal mode; lifecycle follow-ups resume the manager. Settlement is evidence, not
+acceptance or ticket closure. `orchestrate` `accepted` means starting, not liveness. Do not poll.
 
 Registration is pending/starting, not confirmed liveness. A child is running only after its live handle
 exists. The ambient fleet widget shows bounded trusted `tool`, `waiting`, and `settling` activity; use

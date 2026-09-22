@@ -93,12 +93,15 @@ describe("list_minions filters", () => {
     const footer =
       "This is a snapshot, not a wait operation. Completion follow-ups arrive automatically after you end the turn. If this answers your question, yield rather than inspect again.";
     expect((await list(tree)).content[0]?.text).toContain(footer);
-    expect((await show(tree, "mn-active")).content[0]?.text).toContain(footer);
+    const shown = (await show(tree, "mn-active")).content[0]?.text;
+    expect(shown).toContain(footer);
+    expect(shown).not.toContain("live activity stream");
     expect(toInfo(tree.get("mn-active")!)).toEqual(before);
   });
 
   it("does not suggest waiting for filtered-out, terminal, missing, or foreground children", async () => {
     const tree = seedTree();
+    expect((await show(tree, "mn-spawn")).content[0]?.text).toContain("live activity stream");
     for (const params of [
       { kind: "spawn" },
       { status: "completed" },
