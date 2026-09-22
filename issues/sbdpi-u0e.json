@@ -2,6 +2,7 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-22T18:39:37Z",
   "created": "2026-09-22T18:25:08Z",
   "description": "Implement the user-approved seven-point guidance pass: blocking vs yielding selection; token/context-preserving default; dispatch/inspection result guidance; learn_minions supervisor loop and fix/file/reject; bounded lifecycle nudges and snapshot labeling; Beadwork multi-turn goal guidance; global AGENTS pointer. Preserve non-preemptive followUp delivery, packet lifecycle/ack semantics, inspection availability, acceptance policies, and user availability. No scheduler, polling enforcement, or steering changes. Test emitted tool surfaces and unchanged lifecycle behavior; distinguish deterministic contract tests from fresh-model behavioral evidence. Branch fix/minions-yield-guidance; decision/validation artifact docs/minions-yield-guidance.md.",
   "id": "sbdpi-u0e",
@@ -13,7 +14,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "fix(pi-minions): teach event-driven supervisor yielding",
   "type": "task",
   "updated_at": "2026-09-22T18:39:37Z"
