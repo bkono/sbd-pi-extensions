@@ -2,6 +2,7 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-22T19:18:28Z",
   "created": "2026-09-22T19:13:50Z",
   "description": "Implement approved external-review items 1 and 2 only: replace run-mode recipe with evidence-first bounded turn ending in yield; remove running orchestrated show_minion live-stream tip. Preserve per-child adjudication with siblings live, human observability, followUp. Item3 partial-acceptance wording explicitly skipped. Add composed-output regressions and align workflows/goldens.",
   "id": "sbdpi-0pr",
@@ -13,7 +14,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "fix: reconcile supervisor turn and inspection guidance",
   "type": "task",
   "updated_at": "2026-09-22T19:18:28Z"
