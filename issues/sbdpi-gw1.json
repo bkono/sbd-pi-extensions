@@ -2,6 +2,8 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-23T17:47:37Z",
+  "close_reason": "Approved mandatory-yield guidance implemented; wording-lock tests removed and behavioral suites validated. Fresh-model trials explicitly remain separate and unrun.",
   "created": "2026-09-23T16:58:01Z",
   "description": "Apply user-approved mandatory dispatch boundary text and sequential-registration dispatch result. Remove independent-parent-work exceptions across guidance, align tests/docs/global AGENTS. Preserve followUp delivery and registration failure handling; no runtime enforcement or claimed behavioral proof.",
   "id": "sbdpi-gw1",
@@ -17,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "fix: require supervisor yielding after dispatch",
   "type": "task",
   "updated_at": "2026-09-23T17:47:37Z"
