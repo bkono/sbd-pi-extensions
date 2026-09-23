@@ -10,11 +10,15 @@
     {
       "text": "User expanded acceptance: remove all brittle guidance/nudge/copy wording tests and snapshots, not merely update assertions. Preserve meaningful behavioral coverage; guidance edits must not require test updates.",
       "timestamp": "2026-09-23T17:05:21Z"
+    },
+    {
+      "text": "Removed copy locks in 965df58: 194 test/fixture files, net -2848 lines, four prompt goldens and 13 prose-only test files deleted. Retained lifecycle/delivery/registration/composition, structured errors, parser/security/data contracts. Final repository lint clean (677 files), 2289 tests across 431 files pass, all workspace typechecks pass; explicit Beadwork E2E 8/8 pass. Global AGENTS already matches mandatory boundary. Guidance source/docs are ready for separate commit; no runtime delivery changes or model behavioral proof claimed.",
+      "timestamp": "2026-09-23T17:47:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "fix: require supervisor yielding after dispatch",
   "type": "task",
-  "updated_at": "2026-09-23T17:05:21Z"
+  "updated_at": "2026-09-23T17:47:37Z"
 }
