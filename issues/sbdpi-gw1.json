@@ -6,9 +6,15 @@
   "description": "Apply user-approved mandatory dispatch boundary text and sequential-registration dispatch result. Remove independent-parent-work exceptions across guidance, align tests/docs/global AGENTS. Preserve followUp delivery and registration failure handling; no runtime enforcement or claimed behavioral proof.",
   "id": "sbdpi-gw1",
   "labels": [],
+  "comments": [
+    {
+      "text": "User expanded acceptance: remove all brittle guidance/nudge/copy wording tests and snapshots, not merely update assertions. Preserve meaningful behavioral coverage; guidance edits must not require test updates.",
+      "timestamp": "2026-09-23T17:05:21Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "fix: require supervisor yielding after dispatch",
   "type": "task",
-  "updated_at": "2026-09-23T16:58:52Z"
+  "updated_at": "2026-09-23T17:05:21Z"
 }
