@@ -68,7 +68,7 @@ describe("compressHttpOutput", () => {
     for (let i = 0; i < 250; i++) lines.push(`line ${i}`);
     const result = compressHttpOutput(lines.join("\n"));
     expect(result).not.toBeNull();
-    expect(result).toContain("[... 50 more lines]");
+    expect(result?.split("\n").filter((line) => /^line \d+$/.test(line))).toHaveLength(200);
     expect(result).not.toContain("line 249");
   });
 
@@ -99,6 +99,6 @@ it("truncates pure body output (curl -s) to 200 lines when no headers present", 
   const output = lines.join("\n");
   const result = compressHttpOutput(output);
   expect(result).not.toBeNull();
-  expect(result).toContain("[... 50 more lines]");
+  expect(result?.split("\n").filter((line) => /^\s*"key\d+": \d+$/.test(line))).toHaveLength(200);
   expect(result).not.toContain('"key249"');
 });

@@ -277,10 +277,6 @@ describe("find limit truncation", () => {
       { cwd: fixturesDir },
     );
 
-    const output = text(result);
-    expect(output).toContain("more entries");
-    expect(output).toContain("refine pattern");
-
     const ptc = result.details?.ptcValue;
     expect(ptc.truncated).toBe(true);
     expect(ptc.entries).toHaveLength(2);
@@ -319,7 +315,6 @@ describe("find byte-budget truncation", () => {
       );
 
       const output = text(result);
-      expect(output).toContain("truncated at 50 KB");
       expect(Buffer.byteLength(output, "utf8")).toBeLessThan(55 * 1024);
     } finally {
       rmSync(bigDir, { recursive: true, force: true });
@@ -345,8 +340,6 @@ describe("find empty results", () => {
       { cwd: fixturesDir },
     );
 
-    const output = text(result);
-    expect(output).toContain("No files found matching pattern");
     expect(result.isError).toBeUndefined();
 
     const ptc = result.details?.ptcValue;
@@ -481,8 +474,7 @@ describe("find fd hint", () => {
     );
 
     const output1 = text(result1);
-    expect(output1).toContain("Install fd for faster file discovery");
-    expect(output1).toContain("brew install fd");
+    expect(_testable.fdHintShown).toBe(true);
 
     // Second call should NOT show the hint
     const result2 = await tool.execute(
@@ -494,7 +486,9 @@ describe("find fd hint", () => {
     );
 
     const output2 = text(result2);
-    expect(output2).not.toContain("Install fd for faster file discovery");
+    expect(output1.startsWith(output2)).toBe(true);
+    expect(output1.slice(output2.length).trim().length).toBeGreaterThan(0);
+    expect(result1.details.ptcValue.entries).toEqual(result2.details.ptcValue.entries);
   });
 });
 

@@ -36,7 +36,7 @@ describe("edit ptcValue.error — text-not-found and no-op", () => {
     expect(r.isError).toBe(true);
     expect(getPtc(r)?.error?.code).toBe("text-not-found");
     const text = r.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toMatch(/Could not find exact text to replace/);
+    expect(text).toContain(getPtc(r).error.message);
   });
 
   it("no-op when edits produce identical content", async () => {
@@ -52,6 +52,6 @@ describe("edit ptcValue.error — text-not-found and no-op", () => {
     expect(r.isError).toBe(true);
     expect(getPtc(r)?.error?.code).toBe("no-op");
     const text = r.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toMatch(/No changes made/);
+    expect(text).toContain(getPtc(r).error.message);
   });
 });

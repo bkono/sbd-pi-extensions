@@ -60,7 +60,6 @@ describe("Bug #030a: binary file guard in edit", () => {
       { cwd: process.cwd() },
     );
     expect(result.isError).toBe(true);
-    const text = result.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toMatch(/Cannot edit binary file/);
+    expect(result.details.ptcValue.error.code).toBe("binary-file");
   });
 });

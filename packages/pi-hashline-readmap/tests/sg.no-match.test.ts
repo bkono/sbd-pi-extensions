@@ -18,14 +18,10 @@ async function getSgTool() {
   return captured;
 }
 
-function text(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 describe("sg no-match", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("returns a friendly message when sg returns []", async () => {
+  it("returns empty results when sg returns []", async () => {
     const tool = await getSgTool();
 
     vi.mocked(cp.execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
@@ -42,6 +38,6 @@ describe("sg no-match", () => {
     );
 
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toBe("No matches found for pattern: nonExistentPattern");
+    expect(result.details.ptcValue.files).toEqual([]);
   });
 });

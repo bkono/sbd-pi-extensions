@@ -120,7 +120,6 @@ describe("renderTuiDiff", () => {
   it("renders collapsed progressive hidden-content hints", () => {
     const collapsed = renderTuiDiff({ diffData, width: 80, theme, expanded: false });
     expect(collapsed.lines[0]).toBe("↳ diff +2 -1 • 1 hunk • 1 file • unified");
-    expect(collapsed.lines[1]).toBe("… (4 more diff lines • 1 more hunk • Ctrl+O to expand)");
     expect(renderTuiDiff({ diffData, width: 36, theme, expanded: false }).lines.at(-1)).toMatch(
       /^… \(/,
     );

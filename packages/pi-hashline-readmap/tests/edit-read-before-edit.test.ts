@@ -45,11 +45,11 @@ describe("edit read-before-edit guard", () => {
 
     const text = getTextContent(result);
     expect(result.isError).toBe(true);
-    expect(text).toContain(`You must get fresh anchors for ${filePath} before editing it.`);
-    expect(text).toContain("read, grep, ast_search, or write");
-    expect(text).toContain(
-      "edit requires fresh LINE:HASH anchors from read, grep, ast_search, or write so the hashes match the current file contents.",
-    );
+    const error = result.details.ptcValue.error;
+    expect(error.code).toBe("file-not-read");
+    expect(error.hint).toEqual(expect.any(String));
+    expect(text).toContain(error.message);
+    expect(text).toContain(filePath);
     expect(readFileSync(filePath, "utf-8")).toBe("const value = 1;\n");
   });
 });

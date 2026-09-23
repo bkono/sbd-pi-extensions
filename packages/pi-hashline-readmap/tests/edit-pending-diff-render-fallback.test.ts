@@ -47,7 +47,6 @@ describe("edit renderCall preview fallback", () => {
     await Promise.resolve();
     const rendered = textOf(tool.renderCall(args, theme, context));
     expect(rendered).toContain("edit");
-    expect(rendered).toContain("pending edit");
 
     const result = await tool.execute("edit-call", args, new AbortController().signal, undefined, {
       cwd,

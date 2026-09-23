@@ -113,19 +113,19 @@ describe("activity reducer phases", () => {
       return snap;
     };
 
-    expect(apply({ type: "starting" })).toMatchObject({ phase: "starting", summary: "starting" });
-    expect(apply({ type: "thinking" })).toMatchObject({ phase: "thinking", summary: "thinking" });
+    expect(apply({ type: "starting" }).phase).toBe("starting");
+    expect(apply({ type: "thinking" }).phase).toBe("thinking");
     expect(
       apply({ type: "tool_start", toolName: "read", args: { path: "src/auth.ts" } }),
     ).toMatchObject({
       phase: "tool",
-      summary: "→ read src/auth.ts",
+      summary: formatToolActivity("read", { path: "src/auth.ts" }).summary,
       toolName: "read",
-      toolPreview: "read src/auth.ts",
+      toolPreview: formatToolActivity("read", { path: "src/auth.ts" }).toolPreview,
     });
     expect(apply({ type: "tool_end" })).toMatchObject({
       phase: "thinking",
-      summary: "→ read src/auth.ts",
+      summary: formatToolActivity("read", { path: "src/auth.ts" }).summary,
     });
     expect(apply({ type: "settling" }).phase).toBe("settling");
   });
@@ -138,12 +138,12 @@ describe("activity reducer phases", () => {
     ).snapshot;
     const next = reduceActivity(tool, { type: "thinking" }, NOW + 1).snapshot;
     expect(next.phase).toBe("tool");
-    expect(next.summary).toBe("→ read src/auth.ts");
+    expect(next.summary).toBe(tool.summary);
   });
 
   it("uses formatToolCall-quality previews for bash and read", () => {
-    expect(formatToolActivity("read", { path: "src/tree.ts" }).summary).toBe("→ read src/tree.ts");
-    expect(formatToolActivity("bash", { command: "npm test" }).summary).toBe("→ $ npm test");
+    expect(formatToolActivity("read", { path: "src/tree.ts" }).summary).toContain("src/tree.ts");
+    expect(formatToolActivity("bash", { command: "npm test" }).summary).toContain("npm test");
   });
 
   it("sanitizes ANSI, control, and multiline tool args through the real formatter", () => {
@@ -154,7 +154,6 @@ describe("activity reducer phases", () => {
     expect(dirty.summary.includes("\r")).toBe(false);
     expect(dirty.summary.includes("\u001B")).toBe(false);
     expect(dirty.toolPreview.includes("\n")).toBe(false);
-    expect(dirty.summary.startsWith("→ $")).toBe(true);
     expect(dirty.summary.length).toBeLessThanOrEqual(120);
   });
 
@@ -166,10 +165,9 @@ describe("activity reducer phases", () => {
     ).snapshot;
     const afterTurn = reduceActivity(afterTool, { type: "turn_end", turn: 3 }, NOW + 1);
     expect(afterTurn.snapshot.phase).toBe("tool");
-    expect(afterTurn.snapshot.summary).toBe("→ read src/auth.ts");
+    expect(afterTurn.snapshot.summary).toBe(afterTool.summary);
     expect(afterTurn.snapshot.turn).toBe(3);
     expect(afterTurn.recordHistory).toBe(false);
-    expect(afterTurn.snapshot.summary).not.toMatch(/turn \d/);
   });
 
   it("does not let narrative overwrite canonical phase/summary", () => {
@@ -184,7 +182,7 @@ describe("activity reducer phases", () => {
       NOW + 1,
     );
     expect(next.snapshot.phase).toBe("tool");
-    expect(next.snapshot.summary).toBe("→ read src/auth.ts");
+    expect(next.snapshot.summary).toBe(tool.summary);
     expect(next.snapshot.narrativePreview).toBe("I am going to rewrite auth next");
     expect(next.recordHistory).toBe(false);
   });
@@ -258,12 +256,12 @@ describe("AgentTree activity", () => {
     });
     expect(pending.status).toBe("pending");
     expect(pending.activity?.phase).toBe("starting");
-    expect(pending.lastActivity).toBe("starting");
+    expect(pending.lastActivity).toBe(pending.activity?.summary);
 
     tree.markLiveHandle("mn-pending");
     expect(tree.get("mn-pending")?.status).toBe("running");
     expect(tree.get("mn-pending")?.activity?.phase).toBe("thinking");
-    expect(tree.get("mn-pending")?.lastActivity).toBe("thinking");
+    expect(tree.get("mn-pending")?.lastActivity).toBe(tree.get("mn-pending")?.activity?.summary);
   });
 
   it("does not let spawn or orchestrate live-handle thinking clobber a started tool", () => {
@@ -277,7 +275,9 @@ describe("AgentTree activity", () => {
     tree.markLiveHandle("mn-spawn");
     expect(tree.get("mn-spawn")?.status).toBe("running");
     expect(tree.get("mn-spawn")?.activity?.phase).toBe("tool");
-    expect(tree.get("mn-spawn")?.lastActivity).toBe("→ read src/auth.ts");
+    expect(tree.get("mn-spawn")?.lastActivity).toBe(
+      formatToolActivity("read", { path: "src/auth.ts" }).summary,
+    );
 
     tree.add("mn-orch", "bravo", "read the file", {
       kind: "orchestrated",
@@ -292,7 +292,9 @@ describe("AgentTree activity", () => {
     tree.markLiveHandle("mn-orch");
     expect(tree.get("mn-orch")?.status).toBe("running");
     expect(tree.get("mn-orch")?.activity?.phase).toBe("tool");
-    expect(tree.get("mn-orch")?.lastActivity).toBe("→ read src/auth.ts");
+    expect(tree.get("mn-orch")?.lastActivity).toBe(
+      formatToolActivity("read", { path: "src/auth.ts" }).summary,
+    );
   });
 
   it("notifies once for a batched thinking and narrative text event", () => {
@@ -345,12 +347,13 @@ describe("AgentTree activity", () => {
     const node = tree.get("mn-1")!;
     const current = node.activity!;
     const tail = node.activityHistory.at(-1)!;
+    const originalSummary = tail.summary;
     expect(current).not.toBe(tail);
     expect(current).toEqual(tail);
     current.summary = "mutated";
-    expect(tail.summary).toBe("→ read src/auth.ts");
+    expect(tail.summary).toBe(originalSummary);
     expect(tree.get("mn-1")?.activity?.summary).toBe("mutated");
-    expect(tree.get("mn-1")?.lastActivity).toBe("→ read src/auth.ts");
+    expect(tree.get("mn-1")?.lastActivity).toBe(originalSummary);
   });
 
   it("shows a bounded formatted read path instead of turn N", () => {
@@ -358,14 +361,16 @@ describe("AgentTree activity", () => {
     tree.add("mn-1", "alpha", "read the file");
     const bound = bindTreeActivity(tree, "mn-1");
     bound.onToolActivity({ type: "start", toolName: "read", args: { path: "src/auth.ts" } });
+    const before = summaries(tree.get("mn-1")!.activityHistory);
     bound.onTurnEnd(3);
     const node = tree.get("mn-1")!;
     expect(node.status).toBe("running");
     expect(node.activity?.phase).toBe("tool");
-    expect(node.activity?.summary).toBe("→ read src/auth.ts");
+    expect(node.activity?.summary).toBe(
+      formatToolActivity("read", { path: "src/auth.ts" }).summary,
+    );
     expect(node.activity?.turn).toBe(3);
-    expect(node.lastActivity).not.toMatch(/turn \d/);
-    expect(summaries(node.activityHistory).some((line) => /turn \d/.test(line))).toBe(false);
+    expect(summaries(node.activityHistory)).toEqual(before);
     expect(node.usage.turns).toBe(3);
   });
 
@@ -381,8 +386,8 @@ describe("AgentTree activity", () => {
     }
     const history = tree.get("mn-1")?.activityHistory ?? [];
     expect(history.length).toBe(ACTIVITY_HISTORY_CAP);
-    expect(history[0]?.summary).toBe("→ read src/file-10.ts");
-    expect(history.at(-1)?.summary).toBe(`→ read src/file-${ACTIVITY_HISTORY_CAP + 9}.ts`);
+    expect(history[0]?.summary).toContain("src/file-10.ts");
+    expect(history.at(-1)?.summary).toContain(`src/file-${ACTIVITY_HISTORY_CAP + 9}.ts`);
   });
 
   it("terminal status stays authoritative outside the activity snapshot", () => {
@@ -593,7 +598,9 @@ describe("transcript rehydration", () => {
     const replayed = replayActivity(flattened, NOW);
     expect(replayed.current?.phase).toBe("thinking");
     expect(replayed.current?.turn).toBe(2);
-    expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
+    expect(summaries(replayed.history)).toContain(
+      formatToolActivity("read", { path: "src/auth.ts" }).summary,
+    );
   });
 
   it("does not synthesize a parked state from parent-bound tool records", () => {
@@ -655,7 +662,9 @@ describe("transcript rehydration", () => {
     expect(records).toHaveLength(4);
     const replayed = replayActivity(sessionRecordsToActivityEvents(records), NOW);
     expect(replayed.current?.phase).toBe("thinking");
-    expect(summaries(replayed.history)).toContain("→ read src/auth.ts");
+    expect(summaries(replayed.history)).toContain(
+      formatToolActivity("read", { path: "src/auth.ts" }).summary,
+    );
   });
 
   it("quarantines duplicate active toolCallIds so no result can wait", () => {
@@ -758,9 +767,10 @@ describe("transcript rehydration", () => {
         "utf-8",
       );
       const history = manager.parseSessionHistory("child-1");
-      expect(history.some((item) => /turn \d/.test(item.summary))).toBe(false);
-      expect(history.some((item) => item.summary === "→ read src/auth.ts")).toBe(true);
-      expect(history.at(-1)?.summary).toBe("→ $ npm test");
+      expect(history.some((item) => item.toolName === "read")).toBe(true);
+      expect(history.at(-1)?.summary).toBe(
+        formatToolActivity("bash", { command: "npm test" }).summary,
+      );
       expect(history.at(-1)?.turn).toBe(2);
     });
   });
@@ -812,7 +822,7 @@ describe("transcript rehydration", () => {
       "utf-8",
     );
     const history = manager.parseSessionHistory("child-1");
-    expect(history.some((item) => item.summary === "→ read src/auth.ts")).toBe(true);
+    expect(history.some((item) => item.toolName === "read")).toBe(true);
     expect(history.at(-1)?.phase).toBe("thinking");
     expect(history.at(-1)?.summary).toContain("send_minion_peer");
     expect(manager.parseSessionOutput("child-1")).toBe("");
@@ -830,11 +840,11 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     orchBound.onToolActivity({ type: "start", toolName: "read", args: { path: "a.ts" } });
     expect(tree.get("mn-spawn")?.activity).toMatchObject({
       phase: "tool",
-      summary: "→ read a.ts",
+      summary: formatToolActivity("read", { path: "a.ts" }).summary,
     });
     expect(tree.get("mn-orch")?.activity).toMatchObject({
       phase: "tool",
-      summary: "→ read a.ts",
+      summary: formatToolActivity("read", { path: "a.ts" }).summary,
     });
     expect(tree.get("mn-spawn")?.kind).toBe("spawn");
     expect(tree.get("mn-orch")?.kind).toBe("orchestrated");
@@ -910,9 +920,11 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     const details = sendMessage.mock.calls[0]?.[0]?.details as LifecyclePacketDetails;
     expect(details.changed.map((child) => child.childId)).toEqual(["mn-done"]);
     expect(details.stillRunning.map((child) => child.childId)).toEqual(["mn-orch"]);
-    expect(details.stillRunning[0]?.activity?.summary).toBe("→ read src/auth.ts");
+    expect(details.stillRunning[0]?.activity?.summary).toBe(tree.get("mn-orch")?.activity?.summary);
     expect(details.stillRunning[0]?.activity?.phase).toBe("tool");
-    expect(details.stillRunning[0]?.activity?.toolPreview).toBe("read src/auth.ts");
+    expect(details.stillRunning[0]?.activity?.toolPreview).toBe(
+      tree.get("mn-orch")?.activity?.toolPreview,
+    );
     expect(details.stillRunning[0]?.activity).not.toHaveProperty("toolName");
     expect(details.stillRunning[0]?.activity).not.toHaveProperty("narrativePreview");
     expect(JSON.stringify(details.stillRunning[0]?.activity)).not.toContain(
@@ -921,7 +933,9 @@ describe("spawn and orchestrated share activity; packets exclude spawn", () => {
     expect(details.stillRunning[0]?.activity).not.toBe(tree.get("mn-orch")?.activity);
     const projected = { ...details.stillRunning[0]!.activity! };
     projected.summary = "hacked";
-    expect(tree.get("mn-orch")?.activity?.summary).toBe("→ read src/auth.ts");
+    expect(tree.get("mn-orch")?.activity?.summary).toBe(
+      formatToolActivity("read", { path: "src/auth.ts" }).summary,
+    );
     expect(details.stillRunning.some((child) => child.childId === "mn-spawn")).toBe(false);
     expect(JSON.stringify(details)).not.toContain("spawn-only.ts");
   });
@@ -933,13 +947,13 @@ describe("no turn N overwrite regression", () => {
     tree.add("mn-1", "alpha", "work");
     const bound = bindTreeActivity(tree, "mn-1");
     bound.onToolActivity({ type: "start", toolName: "read", args: { path: "src/auth.ts" } });
+    const before = summaries(tree.get("mn-1")!.activityHistory);
     bound.onTurnEnd(1);
     bound.onTurnEnd(2);
     const node = tree.get("mn-1")!;
-    expect(node.lastActivity).toBe("→ read src/auth.ts");
+    expect(node.lastActivity).toBe(formatToolActivity("read", { path: "src/auth.ts" }).summary);
     expect(node.activity?.turn).toBe(2);
-    expect(summaries(node.activityHistory)).not.toContain("turn 1");
-    expect(summaries(node.activityHistory)).not.toContain("turn 2");
+    expect(summaries(node.activityHistory)).toEqual(before);
   });
 });
 
@@ -986,7 +1000,9 @@ describe("manager settling callback", () => {
     expect(manager.getTerminal("child-settle")).toBeUndefined();
     expect(tree.get("child-settle")?.status).toBe("running");
     expect(tree.get("child-settle")?.activity?.phase).toBe("settling");
-    expect(tree.get("child-settle")?.lastActivity).toBe("settling");
+    expect(tree.get("child-settle")?.lastActivity).toBe(
+      tree.get("child-settle")?.activity?.summary,
+    );
 
     session.emit({ type: "agent_settled" });
     idle.resolve();

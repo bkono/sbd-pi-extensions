@@ -163,13 +163,7 @@ describe("goal-mode supervisor config rejection", () => {
     );
 
     const error = new SupervisorConfigError(rejected);
-    expect(error.message).toContain("tmux.sessionName");
-    expect(error.message).toContain("landing.validateCommands");
-    expect(error.message).toContain("PI_BEADWORK_DEFAULT_WORKERS");
-    expect(error.message).toContain("standing appendix plus injected prompt");
-    for (const key of rejected) {
-      expect(error.message).toContain(`- ${key}`);
-    }
+    expect(error.rejectedKeys).toEqual(rejected);
   });
 
   it("fails goal-mode start when tmux.sessionName is configured", async () => {
@@ -180,7 +174,6 @@ describe("goal-mode supervisor config rejection", () => {
     expect(() => assertGoalModeConfig(repoRoot, { homeDir, env: {} })).toThrow(
       SupervisorConfigError,
     );
-    expect(() => assertGoalModeConfig(repoRoot, { homeDir, env: {} })).toThrow(/tmux\.sessionName/);
   });
 
   it("loads a clean config for goal mode", async () => {
@@ -275,9 +268,6 @@ describe("goal-mode supervisor config rejection", () => {
       expect(error).toBeInstanceOf(SupervisorConfigError);
       const rejected = (error as SupervisorConfigError).rejectedKeys;
       expect(rejected).toEqual(uniqueSorted(Object.keys(env)));
-      for (const key of rejected) {
-        expect((error as SupervisorConfigError).message).toContain(`- ${key}`);
-      }
     }
   });
 

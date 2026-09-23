@@ -51,19 +51,23 @@ describe("Bug #024: bare CR warning in read output", () => {
   it("read output for bare-CR file starts with bare-CR warning", async () => {
     const result = await callReadTool({ path: bareCRFile });
     const text = getTextContent(result);
-    expect(text).toContain("[Warning: file contains bare CR");
-    expect(text).toContain("line numbering may be inconsistent");
+    const warning = result.details.ptcValue.warnings.find((item: any) => item.code === "bare-cr");
+    expect(warning).toBeDefined();
+    expect(text.startsWith(warning.message)).toBe(true);
   });
 
   it("read output for normal LF file does NOT contain bare-CR warning", async () => {
     const result = await callReadTool({ path: normalFile });
-    const text = getTextContent(result);
-    expect(text).not.toContain("bare CR");
+    expect(result.details.ptcValue.warnings).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "bare-cr" })]),
+    );
   });
 
   it("read output for mixed LF+bare-CR file includes bare-CR warning", async () => {
     const result = await callReadTool({ path: mixedFile });
     const text = getTextContent(result);
-    expect(text).toContain("[Warning: file contains bare CR");
+    const warning = result.details.ptcValue.warnings.find((item: any) => item.code === "bare-cr");
+    expect(warning).toBeDefined();
+    expect(text).toContain(warning.message);
   });
 });

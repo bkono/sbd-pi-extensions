@@ -3,10 +3,27 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { registerEditTool } from "../src/edit.js";
+import { buildEditOutput } from "../src/edit-output.js";
 import { computeLineHash, ensureHashInit } from "../src/hashline.js";
 
-const INFO_HINT =
-  "[info: this edit used replace (unverified). For safer future edits, prefer set_line/replace_lines with an anchor from read/grep/ast_search.]";
+function replacementHint(): string {
+  const base = {
+    path: "fixture.ts",
+    displayPath: "fixture.ts",
+    diff: "",
+    firstChangedLine: undefined,
+    warnings: [],
+    noopEdits: [],
+  };
+  const withoutHint = buildEditOutput(base).text;
+  const withHint = buildEditOutput({
+    ...base,
+    edits: [{ replace: { old_text: "before", new_text: "after" } }],
+  }).text;
+  const hint = withHint.slice(withoutHint.length).trim();
+  expect(hint.length).toBeGreaterThan(0);
+  return hint;
+}
 
 async function callEditTool(params: Record<string, unknown>) {
   let capturedTool: any = null;
@@ -46,8 +63,7 @@ describe("edit replace hint", () => {
 
     const text = getTextContent(result);
     expect(result.isError).not.toBe(true);
-    expect(text).toContain(INFO_HINT);
-    expect(text.split("\n").at(-1)).toBe(INFO_HINT);
+    expect(text.endsWith(replacementHint())).toBe(true);
   });
 
   it("omits the info line for anchored-only batches", async () => {
@@ -59,7 +75,7 @@ describe("edit replace hint", () => {
       edits: [{ set_line: { anchor, new_text: "const value = 2;" } }],
     });
 
-    expect(getTextContent(result)).not.toContain(INFO_HINT);
+    expect(getTextContent(result)).not.toContain(replacementHint());
   });
 
   it("omits the info line for mixed anchored-plus-replace batches", async () => {
@@ -74,7 +90,7 @@ describe("edit replace hint", () => {
       ],
     });
 
-    expect(getTextContent(result)).not.toContain(INFO_HINT);
+    expect(getTextContent(result)).not.toContain(replacementHint());
   });
 
   it("puts the info line after warnings for legacy replace-only success", async () => {
@@ -87,10 +103,14 @@ describe("edit replace hint", () => {
 
     const text = getTextContent(result);
     expect(result.isError).not.toBe(true);
-    expect(text).toContain("Warnings:");
-    expect(text).toContain(INFO_HINT);
-    expect(text.indexOf("Warnings:")).toBeLessThan(text.indexOf(INFO_HINT));
-    expect(text.split("\n").at(-1)).toBe(INFO_HINT);
+    const hint = replacementHint();
+    const warnings = result.details.ptcValue.warnings;
+    expect(warnings).toEqual(expect.arrayContaining([expect.any(String)]));
+    for (const warning of warnings) {
+      expect(text).toContain(warning);
+      expect(text.indexOf(warning)).toBeLessThan(text.indexOf(hint));
+    }
+    expect(text.endsWith(hint)).toBe(true);
   });
 
   it("suppresses the info line for replace no-op results", async () => {
@@ -102,7 +122,7 @@ describe("edit replace hint", () => {
 
     expect(result.isError).toBe(true);
     const text = getTextContent(result);
-    expect(text).toContain("No changes made to");
-    expect(text).not.toContain(INFO_HINT);
+    expect(result.details.ptcValue.error.code).toBe("no-op");
+    expect(text).not.toContain(replacementHint());
   });
 });

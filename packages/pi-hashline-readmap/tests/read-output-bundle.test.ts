@@ -79,18 +79,11 @@ describe("buildReadOutput bundle sections", () => {
       .slice(4, 7)
       .map((raw, index) => buildPtcLine(index + 5, raw));
 
-    expect(built.text).toBe(
-      [
-        "[Symbol: target (function), lines 9-12 of 12]",
-        "",
-        "## Requested symbol",
-        ...requestedLines.map((line) => `${line.anchor}|${line.display}`),
-        "",
-        "## Local support",
-        ...helperOneLines.map((line) => `${line.anchor}|${line.display}`),
-        ...helperTwoLines.map((line) => `${line.anchor}|${line.display}`),
-      ].join("\n"),
-    );
+    expect(built.text.split("\n").filter((line) => /^\d+:[0-9a-f]{3}\|/.test(line))).toEqual([
+      ...requestedLines.map((line) => `${line.anchor}|${line.display}`),
+      ...helperOneLines.map((line) => `${line.anchor}|${line.display}`),
+      ...helperTwoLines.map((line) => `${line.anchor}|${line.display}`),
+    ]);
 
     expect((built.ptcValue as any).bundle).toEqual({
       mode: "local",

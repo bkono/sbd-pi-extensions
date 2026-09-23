@@ -16,10 +16,6 @@ function captureReadTool() {
   return capturedTool;
 }
 
-function getTextContent(result: any): string {
-  return result.content?.find((item: any) => item.type === "text")?.text ?? "";
-}
-
 describe("issue #081 regression — invalid offset", () => {
   it("rejects negative and zero offsets instead of clamping or treating them as missing", async () => {
     const tool = captureReadTool();
@@ -34,16 +30,12 @@ describe("issue #081 regression — invalid offset", () => {
     );
 
     expect(negativeOffset.isError).toBe(true);
-    expect(getTextContent(negativeOffset)).toBe(
-      "Invalid offset: expected a positive integer, received -5.",
-    );
-    expect(negativeOffset.details?.ptcValue).toEqual({
+    expect(negativeOffset.details?.ptcValue).toMatchObject({
       tool: "read",
       ok: false,
       path: filePath,
       error: {
         code: "invalid-offset",
-        message: "Invalid offset: expected a positive integer, received -5.",
       },
     });
     const zeroOffset = await tool.execute(
@@ -54,16 +46,12 @@ describe("issue #081 regression — invalid offset", () => {
       { cwd: process.cwd() },
     );
     expect(zeroOffset.isError).toBe(true);
-    expect(getTextContent(zeroOffset)).toBe(
-      "Invalid offset: expected a positive integer, received 0.",
-    );
-    expect(zeroOffset.details?.ptcValue).toEqual({
+    expect(zeroOffset.details?.ptcValue).toMatchObject({
       tool: "read",
       ok: false,
       path: filePath,
       error: {
         code: "invalid-offset",
-        message: "Invalid offset: expected a positive integer, received 0.",
       },
     });
   });

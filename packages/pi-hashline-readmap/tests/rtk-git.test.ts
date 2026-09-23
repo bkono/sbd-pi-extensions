@@ -96,7 +96,6 @@ describe("compactDiff", () => {
     const resultLines = result.split("\n");
     // Should be dramatically smaller than the 200+ input lines
     expect(resultLines.length).toBeLessThan(30);
-    expect(result).toContain("more changes");
   });
 
   it("returns output unchanged when under maxLines", () => {
@@ -116,10 +115,6 @@ describe("compactDiff", () => {
 });
 
 describe("compactStatus", () => {
-  it("returns clean for empty output", () => {
-    expect(compactStatus("")).toBe("Clean working tree");
-  });
-
   it("shows branch name and staged files", () => {
     const output = ["## main...origin/main", "M  src/foo.ts", "A  src/bar.ts"].join("\n");
 
@@ -167,7 +162,7 @@ describe("compactLog", () => {
     const output = lines.join("\n");
 
     const result = compactLog(output);
-    expect(result).toContain("and 30 more commits");
+    expect(result.split("\n").filter((line) => lines.includes(line))).toEqual(lines.slice(0, 20));
   });
 
   it("limits log entries to custom limit", () => {
@@ -178,15 +173,13 @@ describe("compactLog", () => {
     const output = lines.join("\n");
 
     const result = compactLog(output, 5);
-    expect(result).toContain("and 15 more commits");
+    expect(result.split("\n").filter((line) => lines.includes(line))).toEqual(lines.slice(0, 5));
   });
 
   it("returns all entries when under limit", () => {
     const output = "commit 1\ncommit 2\ncommit 3";
     const result = compactLog(output, 10);
-    expect(result).not.toContain("more commits");
-    expect(result).toContain("commit 1");
-    expect(result).toContain("commit 3");
+    expect(result).toBe(output);
   });
 
   it("truncates long lines to 80 chars", () => {

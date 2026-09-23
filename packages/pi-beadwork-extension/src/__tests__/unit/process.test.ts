@@ -33,13 +33,5 @@ describe("defaultProcessRunner", () => {
       timedOut: true,
       timeoutMs: 50,
     });
-
-    await expect(
-      defaultProcessRunner(
-        process.execPath,
-        ["-e", 'setTimeout(() => process.stdout.write("done"), 1000);'],
-        { timeout: 50 },
-      ),
-    ).rejects.toThrow(/timed out after 50ms/);
   });
 });

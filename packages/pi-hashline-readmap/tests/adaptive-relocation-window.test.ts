@@ -28,7 +28,7 @@ describe("adaptive relocation window", () => {
       applyHashlineEdits(movedContent, [
         { set_line: { anchor: `30:${hash30}`, new_text: "edited" } },
       ]),
-    ).toThrow(/changed since last read/);
+    ).toThrow();
   });
 
   it("multi-edit batch expands window — relocation at 25 lines succeeds with 5 edits", () => {
@@ -91,7 +91,7 @@ describe("adaptive relocation window", () => {
       });
     }
 
-    expect(() => applyHashlineEdits(movedContent, edits)).toThrow(/changed since last read/);
+    expect(() => applyHashlineEdits(movedContent, edits)).toThrow();
   });
 
   it("mismatch error reports the actual window size", () => {

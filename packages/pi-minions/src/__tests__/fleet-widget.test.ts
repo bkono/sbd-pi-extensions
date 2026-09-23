@@ -103,9 +103,14 @@ describe("FleetWidgetComponent", () => {
     openGroup(groups, "grp-1234");
 
     const lines = plain(renderWidget(tree, groups, 120));
-    expect(lines[0]).toContain("2 active · group grp-1234");
-    expect(lines[1]).toMatch(/otto\s+worker\/implementation\s+Add auth guard\s+pending · starting/);
-    expect(lines[2]).toMatch(/mel\s+reviewer\s+Review the auth commit\s+→ read src\/auth\.ts/);
+    expect(lines[0]).toContain("grp-1234");
+    for (const [index, id] of ["mn-orch", "mn-spawn"].entries()) {
+      const node = tree.get(id)!;
+      expect(lines[index + 1]).toContain(node.name);
+      expect(lines[index + 1]).toContain(node.agentName!);
+      expect(lines[index + 1]).toContain(node.description ?? node.task);
+      expect(lines[index + 1]).toContain(node.activity!.summary);
+    }
     expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
   });
 
@@ -129,10 +134,7 @@ describe("FleetWidgetComponent", () => {
     });
 
     const text = plain(renderWidget(tree, groups, 100)).join("\n");
-    expect(text).toContain("pending · starting");
-    expect(text).toContain("thinking");
-    expect(text).toContain('→ grep {"pattern":"x"}');
-    expect(text).toContain("settling");
+    for (const node of tree.getRoots()) expect(text).toContain(node.activity!.summary);
   });
 
   it("obeys every supplied width with ANSI-aware truncation", () => {
@@ -181,12 +183,11 @@ describe("FleetWidgetComponent", () => {
     tree.add("mn-narrow", "otto", "work");
     const groups = new OrchestrationGroupState();
 
-    expect([4, 5, 6, 7].map((width) => plain(renderWidget(tree, groups, width))[1])).toEqual([
-      "o  s",
-      "o  s…",
-      "o  st…",
-      "o  sta…",
-    ]);
+    for (const width of [4, 5, 6, 7]) {
+      const row = plain(renderWidget(tree, groups, width))[1]!;
+      expect(row).toContain("o");
+      expect(row).toContain(tree.get("mn-narrow")!.activity!.summary[0]!);
+    }
     const emojiTree = new AgentTree();
     emojiTree.add("mn-emoji-narrow", "👨‍👩‍👧‍👦", "work");
     expect(plain(renderWidget(emojiTree, groups, 4))[1]).toBe("👨‍👩‍👧‍👦");
@@ -212,7 +213,7 @@ describe("FleetWidgetComponent", () => {
     expect(lines.slice(1, 1 + FLEET_WIDGET_ROW_CAP).join("\n")).not.toContain(
       `name-${FLEET_WIDGET_ROW_CAP + 1}`,
     );
-    expect(lines.at(-1)).toContain("+2 more");
+    expect(lines.at(-1)).toContain("2");
     expect(lines.every((line) => visibleWidth(line) <= 36)).toBe(true);
   });
 
@@ -319,7 +320,9 @@ describe("fleet widget reactivity and lifecycle", () => {
     tree.markLiveHandle("mn-1");
     tree.applyActivityEvent("mn-1", { type: "thinking" });
     expect(harness.requestRender.mock.calls.length).toBeGreaterThan(rendersBefore);
-    expect(plain(component?.render(80) ?? []).join("\n")).toContain("thinking");
+    expect(plain(component?.render(80) ?? []).join("\n")).toContain(
+      tree.get("mn-1")!.activity!.summary,
+    );
 
     tree.updateStatus("mn-1", "completed", 0);
     expect(harness.setWidget).toHaveBeenLastCalledWith(FLEET_WIDGET_KEY, undefined);

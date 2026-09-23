@@ -46,9 +46,6 @@ describe("write renderCall pending diff preview", () => {
     );
     const text = textOf(rendered);
 
-    expect(text).toContain("↳ pending overwrite");
-    expect(text).toContain("Ctrl+O to expand");
-    expect(text).not.toContain("↳ diff +1 -1");
     expect(text).not.toContain("▌- 1");
   });
 
@@ -73,8 +70,6 @@ describe("write renderCall pending diff preview", () => {
     );
     const text = textOf(rendered);
 
-    expect(text).toContain("↳ pending overwrite");
-    expect(text).toContain("↳ diff +1 -1");
     expect(text).toContain("▌- 1 │ old value");
     expect(text).toContain("▌+ 1 │ new value");
   });
@@ -96,9 +91,6 @@ describe("write renderCall pending diff preview", () => {
     const collapsed = textOf(
       tool.renderCall({ path: "fresh.txt", content: "hello\nworld\n" }, theme, collapsedContext),
     );
-    expect(collapsed).toContain("↳ pending create");
-    expect(collapsed).toContain("Ctrl+O to expand");
-    expect(collapsed).not.toContain("↳ diff +");
     expect(collapsed).not.toContain("▌+");
     expect(collapsed).not.toContain("hello");
 
@@ -115,10 +107,8 @@ describe("write renderCall pending diff preview", () => {
     const expanded = textOf(
       tool.renderCall({ path: "fresh.txt", content: "hello\nworld\n" }, theme, expandedContext),
     );
-    expect(expanded).toContain("↳ pending create");
     expect(expanded).toContain("  1 │ hello");
     expect(expanded).toContain("  2 │ world");
-    expect(expanded).not.toContain("↳ diff +");
     expect(expanded).not.toContain("▌+");
   });
 });

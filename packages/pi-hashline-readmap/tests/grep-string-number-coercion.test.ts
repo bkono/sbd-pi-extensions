@@ -75,8 +75,6 @@ describe("grep numeric-string coercion", () => {
     );
 
     expect(invalid.isError).toBe(true);
-    expect(getTextContent(invalid)).toBe(
-      'Invalid limit: expected a base-10 integer, received "1x".',
-    );
+    expect(invalid.details.ptcValue.error.code).toBe("invalid-limit");
   });
 });

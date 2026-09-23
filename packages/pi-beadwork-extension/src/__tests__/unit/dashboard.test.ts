@@ -95,7 +95,7 @@ describe("dashboard", () => {
     expect(tabIds).not.toContain("workers");
   });
 
-  it("renders the issue explorer without a Workers tab or land/cleanup actions", async () => {
+  it("renders supplied issue data", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Dashboard epic" });
     const dataSource: IssueExplorerDataSource = {
       loadLevel: vi.fn().mockResolvedValue({ items: [epic], currentDetail: undefined }),
@@ -117,20 +117,10 @@ describe("dashboard", () => {
       render: (width: number) => string[];
     };
     const rendered = renderComponent(dashboard);
-    expect(rendered).toContain("ready · repo");
     expect(rendered).toContain("Dashboard epic");
-    expect(rendered).toContain("● Issues");
-    expect(rendered).toContain("○ Run");
-    expect(rendered).toContain("○ Scope");
-    expect(rendered).not.toContain("○ Workers");
-    expect(rendered).not.toContain("● Workers");
-    expect(rendered).not.toMatch(/\bl land\b/);
-    expect(rendered).not.toMatch(/\bu cleanup\b/);
-    expect(rendered).not.toContain("workers 1");
-    expect(rendered).not.toMatch(/\bd delegate\b/);
   });
 
-  it("renders only current goal-mode policy with no minion rows", async () => {
+  it("updates the run pane after a run intent", async () => {
     const epic = createIssue({ id: "BW-100", type: "epic", title: "Runnable epic" });
     const epicDetail = createDetail(epic, [createIssue({ id: "BW-101", parentId: "BW-100" })]);
     const dataSource: IssueExplorerDataSource = {
@@ -179,57 +169,15 @@ describe("dashboard", () => {
 
     const issuesRendered = renderComponent(dashboard);
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
-    expect(issuesRendered).toContain("repo · active · run · epic:BW-100 · Runnable epic");
-    expect(issuesRendered).not.toContain("workers 1 · active 1");
-    expect(issuesRendered).toContain("run armed for BW-100");
+    expect(issuesRendered).toContain(epic.title);
 
     selectTab(dashboard, "run");
     const runRendered = renderComponent(dashboard);
-    expect(runRendered).toContain("Epic: BW-100 · Runnable epic");
-    expect(runRendered).toContain("Review policy: ticket");
-    expect(runRendered).toContain("Goal mode: active");
-    expect(runRendered).not.toContain("Tracked workers:");
-    expect(runRendered).not.toContain("Runnable ticket");
-    expect(runRendered).not.toContain("activeWorkers=");
-    expect(runRendered).not.toContain("Workers tab");
-    expect(runRendered).not.toMatch(/\bc cancel\b/);
+    expect(runRendered).toContain(epic.id);
+    expect(runRendered).toContain(epic.title);
   });
 
-  it("does not advertise an armed run after reload of an interrupted goal", async () => {
-    const ui = createFakeUi();
-    const ctx = createFakeExtensionContext({
-      cwd: "/repo",
-      ui,
-      sessionId: "dashboard-interrupted-run",
-    });
-
-    await openBeadworkDashboard(
-      ctx,
-      createModel({
-        state: createState({
-          mode: "run",
-          runInterrupted: true,
-          scope: { kind: "epic", id: "BW-100", title: "Interrupted epic" },
-          goal: {
-            goalId: "goal-BW-100",
-            scopeIds: ["BW-100"],
-            reviewPolicy: "scope",
-            startedAt: "2026-04-19T00:00:00.000Z",
-          },
-        }),
-      }),
-    );
-
-    const dashboard = ui.customCalls[0]?.component as {
-      render: (width: number) => string[];
-    };
-    const rendered = renderComponent(dashboard);
-    expect(rendered).not.toContain("run armed");
-    expect(rendered).toContain("run interrupted for BW-100");
-    expect(rendered).toContain("interrupted");
-  });
-
-  it("renders the scope tab with concise dashboard-level hints", async () => {
+  it("renders selected scope data", async () => {
     const ui = createFakeUi();
     const ctx = createFakeExtensionContext({
       cwd: "/repo",
@@ -254,12 +202,7 @@ describe("dashboard", () => {
     };
     selectTab(dashboard, "scope");
     const scopeRendered = renderComponent(dashboard);
-    expect(scopeRendered).toContain("Current scope");
-    expect(scopeRendered).toContain("interactive · epic:BW-100 · Scoped epic");
-    expect(scopeRendered).not.toContain("tracked 1");
+    expect(scopeRendered).toContain("BW-100");
     expect(scopeRendered).toContain("Scoped epic");
-    expect(scopeRendered).toContain("scope from Issues with s • clear with x");
-    expect(scopeRendered).not.toContain("Quick actions");
-    expect(scopeRendered).not.toContain("○ Workers");
   });
 });

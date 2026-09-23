@@ -21,7 +21,6 @@ describe("pending write overwrite preview", () => {
 
     expect(overwrite.type).toBe("ok");
     if (overwrite.type !== "ok") throw new Error(overwrite.reason);
-    expect(overwrite.data.headerLabel).toBe("pending overwrite");
     expect(overwrite.data.fileExistedBeforeWrite).toBe(true);
     expect(overwrite.data.previousContent).toBe("old value\n");
     expect(overwrite.data.nextContent).toBe("new value\n");

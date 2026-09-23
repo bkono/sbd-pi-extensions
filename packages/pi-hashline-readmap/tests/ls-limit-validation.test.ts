@@ -15,10 +15,6 @@ async function getLsTool() {
   return captured;
 }
 
-function text(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 function makeDir() {
   const dir = mkdtempSync(join(tmpdir(), "ls-limit-"));
   writeFileSync(join(dir, "a.ts"), "");
@@ -39,7 +35,6 @@ describe("ls limit validation", () => {
         { cwd: process.cwd() },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain("Invalid limit: expected a positive integer, received 0.");
       expect(result.details?.ptcValue?.error?.code).toBe("invalid-limit");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -58,7 +53,7 @@ describe("ls limit validation", () => {
         { cwd: process.cwd() },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain("Invalid limit: expected a positive integer, received -5.");
+      expect(result.details.ptcValue.error.code).toBe("invalid-limit");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -76,7 +71,7 @@ describe("ls limit validation", () => {
         { cwd: process.cwd() },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain("Invalid limit: expected a base-10 integer, received");
+      expect(result.details.ptcValue.error.code).toBe("invalid-limit");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -26,7 +26,6 @@ describe("read ptcValue.error — invalid-offset", () => {
     const result = await callReadTool({ path: filePath, offset: 0 });
     expect(result.isError).toBe(true);
     const text = result.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toContain("Invalid offset");
     const ptc = result.details?.ptcValue;
     expect(ptc).toBeDefined();
     expect(ptc.tool).toBe("read");

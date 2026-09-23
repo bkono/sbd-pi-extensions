@@ -48,9 +48,7 @@ describe("grep builtin parameter narrowing", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content?.[0]?.type).toBe("text");
-    expect(result.content?.[0]?.text).toBe(
-      'Invalid context: expected a base-10 integer, received "1x".',
-    );
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
     expect(builtinExecute).toHaveBeenCalledTimes(0);
   });
 });

@@ -78,27 +78,20 @@ describe("read bundle=local integration", () => {
     const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
 
-    expect(text).toBe(
-      [
-        "[Symbol: target (function), lines 9-12 of 12]",
-        "",
-        "## Requested symbol",
-        ...sourceLines.slice(8, 12).map((raw, index) => {
-          const lineNumber = index + 9;
-          return `${lineNumber}:${computeLineHash(lineNumber, raw)}|${escapeControlCharsForDisplay(raw)}`;
-        }),
-        "",
-        "## Local support",
-        ...sourceLines.slice(0, 3).map((raw, index) => {
-          const lineNumber = index + 1;
-          return `${lineNumber}:${computeLineHash(lineNumber, raw)}|${escapeControlCharsForDisplay(raw)}`;
-        }),
-        ...sourceLines.slice(4, 7).map((raw, index) => {
-          const lineNumber = index + 5;
-          return `${lineNumber}:${computeLineHash(lineNumber, raw)}|${escapeControlCharsForDisplay(raw)}`;
-        }),
-      ].join("\n"),
-    );
+    expect(text.split("\n").filter((line) => /^\d+:[0-9a-f]{3}\|/.test(line))).toEqual([
+      ...sourceLines.slice(8, 12).map((raw, index) => {
+        const lineNumber = index + 9;
+        return `${lineNumber}:${computeLineHash(lineNumber, raw)}|${escapeControlCharsForDisplay(raw)}`;
+      }),
+      ...sourceLines.slice(0, 3).map((raw, index) => {
+        const lineNumber = index + 1;
+        return `${lineNumber}:${computeLineHash(lineNumber, raw)}|${escapeControlCharsForDisplay(raw)}`;
+      }),
+      ...sourceLines.slice(4, 7).map((raw, index) => {
+        const lineNumber = index + 5;
+        return `${lineNumber}:${computeLineHash(lineNumber, raw)}|${escapeControlCharsForDisplay(raw)}`;
+      }),
+    ]);
 
     expect(ptc.symbol).toEqual({
       query: "target",
@@ -108,7 +101,7 @@ describe("read bundle=local integration", () => {
       startLine: 9,
       endLine: 12,
     });
-    expect(ptc.bundle).toEqual({
+    expect(ptc.bundle).toMatchObject({
       mode: "local",
       applied: true,
       localSupport: [
@@ -143,25 +136,15 @@ describe("read bundle=local integration", () => {
       symbol: "createDemoDirectory",
       bundle: "local",
     });
-    const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
 
-    expect(text).toContain(
-      "[Warning: local bundle context could not be determined for symbol 'createDemoDirectory' — showing plain symbol read]",
-    );
-    expect(text).toMatch(
-      /^\[Warning: local bundle context could not be determined for symbol 'createDemoDirectory' — showing plain symbol read\]\n\n\[Symbol: createDemoDirectory \(function\), lines 45-49 of 50\]/,
-    );
-    expect(text).not.toContain("## Requested symbol");
-    expect(ptc.bundle).toEqual({
+    expect(ptc.bundle).toMatchObject({
       mode: "local",
       applied: false,
       localSupport: [],
       warnings: [
         {
           code: "bundle-context-unavailable",
-          message:
-            "[Warning: local bundle context could not be determined for symbol 'createDemoDirectory' — showing plain symbol read]",
         },
       ],
     });
@@ -173,24 +156,15 @@ describe("read bundle=local integration", () => {
 
     const filePath = resolve(fixturesDir, "plain.txt");
     const result = await callReadTool({ path: filePath, symbol: "anything", bundle: "local" });
-    const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
 
-    expect(text).toContain(
-      "[Warning: local bundle unavailable because symbol mapping is not available for .txt files — showing plain symbol read]",
-    );
-    expect(text).toContain(
-      "[Warning: symbol lookup not available for .txt files — showing full file]",
-    );
-    expect(ptc.bundle).toEqual({
+    expect(ptc.bundle).toMatchObject({
       mode: "local",
       applied: false,
       localSupport: [],
       warnings: [
         {
           code: "bundle-unmappable",
-          message:
-            "[Warning: local bundle unavailable because symbol mapping is not available for .txt files — showing plain symbol read]",
         },
       ],
     });

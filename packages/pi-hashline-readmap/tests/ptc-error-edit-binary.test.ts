@@ -33,8 +33,6 @@ describe("edit ptcValue.error — binary-file", () => {
       edits: [{ set_line: { anchor: "1:00", new_text: "x" } }],
     });
     expect(r.isError).toBe(true);
-    const text = r.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toMatch(/Cannot edit binary file/);
     const ptc = r.details?.ptcValue;
     expect(ptc?.tool).toBe("edit");
     expect(ptc?.error?.code).toBe("binary-file");

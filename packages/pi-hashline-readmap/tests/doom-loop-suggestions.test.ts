@@ -1,6 +1,8 @@
 /* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { describe, expect, it } from "vitest";
 import init from "../index.js";
+import { formatDoomLoopMessage, makeToolFingerprint } from "../src/doom-loop.js";
+import { GENERIC_SUGGESTION, SUGGESTIONS } from "../src/doom-loop-suggestions.js";
 
 function createHarness() {
   const handlers: Record<string, Function> = {};
@@ -45,10 +47,18 @@ describe("doom loop suggestions — end-to-end", () => {
       final = await handlers.tool_result(result("grep", `g${i}`, input, "match line"), {});
     }
     const text = final.content[0].text as string;
-    expect(text.startsWith("⚠ REPEATED-CALL WARNING")).toBe(true);
+    expect(
+      text.startsWith(
+        formatDoomLoopMessage({
+          kind: "identical-tail",
+          toolName: "grep",
+          fingerprint: makeToolFingerprint("grep", input),
+        }),
+      ),
+    ).toBe(true);
     expect(text).toContain("grep");
     expect(text).toContain("addRoute");
-    expect(text).toMatch(/ignoreCase|ast_search|literal|narrower|summary/);
+    for (const suggestion of SUGGESTIONS.grep) expect(text).toContain(suggestion);
     expect(text).toContain("match line");
   });
 
@@ -67,9 +77,19 @@ describe("doom loop suggestions — end-to-end", () => {
       }
     }
     const text = final.content[0].text as string;
-    expect(text.startsWith("⚠ ALTERNATING-CALL WARNING")).toBe(true);
-    expect(text).toContain("For grep:");
-    expect(text).toContain("For read:");
+    expect(
+      text.startsWith(
+        formatDoomLoopMessage({
+          kind: "repeated-subsequence",
+          toolName: "read",
+          fingerprint: makeToolFingerprint("read", steps[1].input),
+          steps,
+        }),
+      ),
+    ).toBe(true);
+    for (const suggestion of [...SUGGESTIONS.grep, ...SUGGESTIONS.read]) {
+      expect(text).toContain(suggestion);
+    }
     expect(text).toContain("read out");
   });
 
@@ -92,8 +112,15 @@ describe("doom loop suggestions — end-to-end", () => {
       );
     }
     const text = final.content[0].text as string;
-    expect(text.startsWith("⚠ REPEATED-CALL WARNING")).toBe(true);
-    expect(text).toContain("bash");
-    expect(text.toLowerCase()).toContain("different approach");
+    expect(
+      text.startsWith(
+        formatDoomLoopMessage({
+          kind: "identical-tail",
+          toolName: "bash",
+          fingerprint: makeToolFingerprint("bash", { command }),
+        }),
+      ),
+    ).toBe(true);
+    expect(text).toContain(GENERIC_SUGGESTION);
   });
 });

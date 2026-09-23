@@ -25,10 +25,6 @@ async function getFindTool() {
   return captured;
 }
 
-function text(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 describe("find maxDepth validation", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -49,9 +45,6 @@ describe("find maxDepth validation", () => {
         { cwd: dir },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain(
-        "Invalid maxDepth: expected a non-negative integer, received -1.",
-      );
       expect(result.details?.ptcValue?.ok).toBe(false);
       expect(result.details?.ptcValue?.error?.code).toBe("invalid-params-combo");
       expect(execFileSpy).not.toHaveBeenCalled();
@@ -73,9 +66,7 @@ describe("find maxDepth validation", () => {
         { cwd: dir },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain(
-        "Invalid maxDepth: expected a non-negative integer, received -1.",
-      );
+      expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -94,7 +85,7 @@ describe("find maxDepth validation", () => {
         { cwd: dir },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain("Invalid maxDepth: expected a base-10 integer, received");
+      expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -113,7 +104,7 @@ describe("find maxDepth validation", () => {
         { cwd: dir },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain("Invalid maxDepth: expected a base-10 integer, received 1.5.");
+      expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

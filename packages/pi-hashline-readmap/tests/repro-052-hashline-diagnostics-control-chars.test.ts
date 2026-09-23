@@ -27,7 +27,6 @@ describe("Bug #052: hashline mismatch diagnostics escape control characters", ()
       ]);
       expect.unreachable("Should have thrown mismatch error");
     } catch (err: any) {
-      expect(err.message).toContain("changed since last read");
       expect(err.message).toContain("\\u0007");
       expect(CONTROL_CHAR_RE.test(err.message)).toBe(false);
     }

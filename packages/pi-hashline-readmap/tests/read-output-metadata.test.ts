@@ -72,7 +72,6 @@ describe("buildReadOutput metadata", () => {
       appended: true,
     });
     expect(lastInput?.map?.text).toBe(mapText);
-    expect(built.text).toContain("File Map:");
     expect(getTextContent(result)).toBe(built.text);
     expect(result.details?.ptcValue).toEqual(built.ptcValue);
     expect(lastInput?.selectedLines).toEqual(selectedLines);
@@ -117,8 +116,7 @@ describe("buildReadOutput metadata", () => {
       outputBytes: result.details.truncation.outputBytes,
       totalBytes: result.details.truncation.totalBytes,
     });
-    expect(built.text.includes("[Output truncated:")).toBe(true);
-    expect(built.text).toContain("File Map:");
+    expect(built.ptcValue.truncation).not.toBeNull();
     expect(getTextContent(result)).toBe(built.text);
     expect(result.details?.ptcValue).toEqual(built.ptcValue);
   });
@@ -131,18 +129,8 @@ describe("buildReadOutput metadata", () => {
 
     const lastInput = spy.mock.calls.at(-1)?.[0];
     const built = spy.mock.results.at(-1)?.value;
-    expect(lastInput?.warnings).toEqual([
-      {
-        code: "bare-cr",
-        message:
-          "[Warning: file contains bare CR (\\r) line endings — line numbering may be inconsistent with grep and other tools]",
-      },
-    ]);
-    expect(
-      built.text.startsWith(
-        "[Warning: file contains bare CR (\\r) line endings — line numbering may be inconsistent with grep and other tools]",
-      ),
-    ).toBe(true);
+    expect(lastInput?.warnings).toMatchObject([{ code: "bare-cr" }]);
+    expect(built.text).toContain(lastInput?.warnings?.[0].message);
     expect(getTextContent(result)).toBe(built.text);
     expect(result.details?.ptcValue).toEqual(built.ptcValue);
   });

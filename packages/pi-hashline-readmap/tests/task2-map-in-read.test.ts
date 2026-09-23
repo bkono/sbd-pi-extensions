@@ -25,8 +25,7 @@ describe("Task 2: Map integration in read.ts", () => {
 
   it("truncated file without offset/limit appends structural map", async () => {
     const result = await callReadTool({ path: resolve(fixturesDir, "large.ts") });
-    const text = result.content[0].text;
-    expect(text).toContain("[Output truncated:");
-    expect(text).toContain("File Map:");
+    expect(result.details.ptcValue.truncation).not.toBeNull();
+    expect(result.details.ptcValue.map.appended).toBe(true);
   });
 });

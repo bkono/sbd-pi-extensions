@@ -1,6 +1,7 @@
 /* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { describe, expect, it } from "vitest";
 import init from "../index.js";
+import { formatDoomLoopMessage, makeToolFingerprint } from "../src/doom-loop.js";
 
 function createHarness() {
   const handlers: Record<string, Function> = {};
@@ -68,9 +69,13 @@ describe("doom loop warning content preservation", () => {
 
     expect(third).toBeDefined();
     const text = third.content[0].text as string;
-    expect(text.startsWith("⚠ REPEATED-CALL WARNING")).toBe(true);
-    expect(text).toContain("plain output");
-    expect(text).not.toContain("You appear to be stuck. Try a different approach.");
+    const warning = formatDoomLoopMessage({
+      kind: "identical-tail",
+      toolName: "read",
+      fingerprint: makeToolFingerprint("read", { path: "src/read.ts" }),
+    });
+    expect(text.startsWith(warning)).toBe(true);
+    expect(text.endsWith("plain output")).toBe(true);
     expect(third.content[1]).toEqual({ type: "image", source: "fixture.png" });
   });
 });

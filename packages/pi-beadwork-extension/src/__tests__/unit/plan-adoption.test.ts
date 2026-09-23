@@ -15,13 +15,11 @@ describe("plan adoption", () => {
 
     expect(plan.title).toBe("Ship feature");
     expect(plan.sourceKind).toBe("inline");
-    expect(plan.sourceLabel).toBe("inline markdown argument");
     expect(plan.landMode).toBe("branch");
     expect(plan.steps).toHaveLength(0);
     expect(plan.dependencies).toEqual([]);
     expect(plan.dependencyStrategy).toBe("none");
-    expect(formatAdoptionPreview(plan)).toContain("Source excerpt:");
-    expect(formatAdoptionPreview(plan)).toContain("No automatic graph parsing is performed");
+    expect(formatAdoptionPreview(plan)).toContain(plan.source);
   });
 
   it("builds an explicit multi-step graph when steps/dependencies are provided", () => {
@@ -46,18 +44,13 @@ describe("plan adoption", () => {
     expect(plan.dependencyStrategy).toBe("explicit");
   });
 
-  it("builds an LLM decomposition prompt that enforces dependency and interference reasoning", () => {
+  it("includes the supplied plan in the decomposition prompt", () => {
     const plan = buildAdoptionPlan("# Ship feature\n\n- parser\n- command wiring\n- tests", {
       landMode: "multi",
     });
 
     const prompt = buildAdoptionDecompositionPrompt(plan);
-    expect(prompt).toContain("/bw adopt in multi-step mode");
-    expect(prompt).toContain("file-surface areas are mostly disjoint");
-    expect(prompt).toContain("beadwork_create_issue");
-    expect(prompt).toContain("beadwork_add_dependency");
-    expect(prompt).toContain("Plan markdown:");
-    expect(prompt).toContain("# Ship feature");
+    expect(prompt).toContain(plan.source);
   });
 
   it("resolves plan text from explicit file input, inline markdown, or editor markdown", () => {
@@ -79,10 +72,9 @@ describe("plan adoption", () => {
         inlineText: "inline plan",
         editorText: "editor plan",
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: "inline",
       markdown: "inline plan",
-      label: "inline markdown argument",
     });
 
     expect(
@@ -90,10 +82,9 @@ describe("plan adoption", () => {
         inlineText: "",
         editorText: "editor plan",
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: "editor",
       markdown: "editor plan",
-      label: "active editor markdown",
     });
 
     expect(

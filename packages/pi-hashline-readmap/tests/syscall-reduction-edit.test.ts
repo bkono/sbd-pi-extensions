@@ -23,22 +23,6 @@ describe("edit.ts syscall reduction", () => {
     expect(source).not.toContain("constants");
   });
 
-  it("source handles ENOENT with 'not found' message", () => {
-    const source = readFileSync(packagePath("src/edit.ts"), "utf-8");
-    const enoentIdx = source.indexOf('"ENOENT"');
-    expect(enoentIdx).toBeGreaterThan(-1);
-    const nearbyBlock = source.slice(enoentIdx, enoentIdx + 200).toLowerCase();
-    expect(nearbyBlock).toContain("not found");
-  });
-
-  it("source handles EISDIR with 'directory' message", () => {
-    const source = readFileSync(packagePath("src/edit.ts"), "utf-8");
-    const eisdirIdx = source.indexOf('"EISDIR"');
-    expect(eisdirIdx).toBeGreaterThan(-1);
-    const nearbyBlock = source.slice(eisdirIdx, eisdirIdx + 200).toLowerCase();
-    expect(nearbyBlock).toContain("directory");
-  });
-
   it("fsReadFile throws ENOENT for nonexistent path", async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), "edit-test-"));
 

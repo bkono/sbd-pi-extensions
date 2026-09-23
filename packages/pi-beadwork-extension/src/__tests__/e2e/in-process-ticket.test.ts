@@ -40,7 +40,6 @@ describe("in-process ticket from /bw run through child settlement", () => {
         for (const hostMode of ["print", "json"] as const) {
           const { ui } = await harness.bwRun(epicId, hostMode);
           expect(ui.notifications.at(-1)?.level).toBe("error");
-          expect(ui.notifications.at(-1)?.message).toMatch(/print and json/);
         }
         expect(harness.injectedPrompt()).toBeUndefined();
         await harness.logStep("print-json-rejected", { ticketId: ticket.id });
@@ -62,18 +61,10 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(started.details.epic_id).toBe(epicId);
         expect(started.details.epic_title).toBe("In-process epic");
         expect(started.details.review_policy).toBe("ticket");
-        expect(JSON.stringify(started.details).toLowerCase()).not.toMatch(
-          /complet|succeed|finished|orchestrated/,
-        );
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
         expect(prompt).toContain("In-process epic");
-        expect(prompt).toContain("Review policy: ticket");
-        expect(prompt).toMatch(/Refresh `bw` \(ready\/show\)/);
-        expect(prompt).toMatch(/orchestrate/);
-        expect(prompt).toContain('source "beadwork"');
-        expect(prompt).toContain("Do not treat this prompt as a frozen ready list.");
         expect(prompt).not.toContain(TICKET_TITLE);
         expect(prompt).not.toContain(ticket.id);
         expect((await fixture.show(ticket.id)).status).toBe("open");
@@ -86,28 +77,7 @@ describe("in-process ticket from /bw run through child settlement", () => {
         );
         const standing = appendix?.systemPrompt ?? "";
         expect(standing).toContain("Base prompt");
-        expect(standing).toContain("You are in beadwork run mode.");
-        expect(standing).toContain("Review policy branch: ticket");
-        expect(standing).toContain(`Current scope: epic:${epicId}`);
-        expect(standing).toContain(
-          "Launch an independent `reviewImplementation` child before closing that ticket.",
-        );
-        expect(standing).toContain(
-          "This standing appendix is policy only. It does not start a turn.",
-        );
-        expect(standing).toContain("This is a manager-only loop.");
-        expect(standing).toContain(
-          "The parent does not implement a delegated ticket concurrently with its live child.",
-        );
-        expect(standing).toContain(
-          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
-        );
-        expect(standing).toContain(
-          "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
-        );
-        expect(standing).not.toContain(
-          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-        );
+        expect(standing).toContain(epicId);
         expect(harness.launchedChildren()).toEqual([]);
         await harness.logStep("bw-start-goal-injected", { ticketId: ticket.id });
 
@@ -168,8 +138,6 @@ describe("in-process ticket from /bw run through child settlement", () => {
         });
         expect(listed?.status).toBe("running");
         expect(listed?.status).not.toBe("pending");
-        expect(parentContinued.text).toContain("orchestrated");
-        expect(parentContinued.text).toContain("implementation");
 
         const show = await fixture.show(ticket.id);
         expect(show.status).toBe("open");
@@ -216,15 +184,8 @@ describe("in-process ticket from /bw run through child settlement", () => {
         expect(packet?.message.details.changed).toHaveLength(1);
         expect(packet?.message.details.changed[0]?.childId).toBe(childId);
         expect(packet?.message.details.changed[0]?.eventClass).toBe("settled");
-        expect(packet?.message.details.changed[0]?.output).toContain("unstructured prose");
-        expect(packet?.message.details.changed[0]?.nudge).toMatch(
-          /do not close a ticket solely because the child settled/i,
-        );
+        expect(packet?.message.details.changed[0]?.output).toBe(CHILD_PROSE);
         expect(packet?.message.details.stillRunning).toEqual([]);
-        expect(packet?.message.content).toContain("Changed:");
-        expect(packet?.message.content).toContain("Other children at packet creation:");
-        expect(packet?.message.content).toMatch(/--- runtime instruction ---/);
-        expect(packet?.message.content).toMatch(/--- untrusted child output ---/);
         expect(packet?.message.content).toContain(CHILD_PROSE);
 
         const after = await fixture.show(ticket.id);

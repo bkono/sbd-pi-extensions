@@ -79,9 +79,8 @@ describe("issue 144 — live-read hash-mismatch path is unchanged", () => {
 
     expect(result.isError).toBe(true);
     const text = getTextContent(result);
-    expect(text).toContain("changed since last read");
+    expect(result.details.ptcValue.error.code).toBe("hash-mismatch");
     expect(text).toContain(">>>");
-    expect(text).not.toContain("You must get fresh anchors");
     expect(readFileSync(filePath, "utf-8")).toBe(
       `${["alpha", "beta", "gamma", "delta", "epsilon"].join("\n")}\n`,
     );

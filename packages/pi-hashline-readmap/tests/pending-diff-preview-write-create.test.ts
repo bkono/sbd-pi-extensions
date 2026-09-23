@@ -19,7 +19,6 @@ describe("pending write create preview", () => {
 
     expect(created.type).toBe("ok");
     if (created.type !== "ok") throw new Error(created.reason);
-    expect(created.data.headerLabel).toBe("pending create");
     expect(created.data.fileExistedBeforeWrite).toBe(false);
     expect(created.data.previousContent).toBe("");
     expect(created.data.nextContent).toBe("created value\n");

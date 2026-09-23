@@ -174,7 +174,7 @@ describe("builtin agent resolution", () => {
     expect(started[0]?.config.name).toBe("investigate");
     expect(started[0]?.config.source).toBe("builtin");
     expect(started[0]?.config.thinking).toBe("high");
-    expect(started[0]?.config.systemPrompt).toMatch(/do not modify project files/i);
+    expect(started[0]?.config.systemPrompt).toBe(findAgent("investigate", cwd)?.systemPrompt);
   });
 
   it("rejects unknown spawn agents with list_agents guidance", async () => {

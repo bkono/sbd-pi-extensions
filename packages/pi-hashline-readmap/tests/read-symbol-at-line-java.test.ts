@@ -51,20 +51,10 @@ describe("read symbol with @line (Java)", () => {
       { cwd: dir },
     );
     expect(res.isError).toBeFalsy();
-    const bundle = (res.details as any)?.bundle ?? (res.details as any)?.ptcValue?.bundle;
-    if (bundle) {
-      expect(bundle.mode).toBe("local");
-      expect(bundle.applied).toBe(true);
-    }
+    expect(res.details.ptcValue.bundle).toMatchObject({ mode: "local", applied: true });
     const text = res.content?.[0]?.text ?? "";
     expect(text).toContain("System.out.println(n);");
-    // Primary symbol must be the line-5 overload — scope the no-arg-overload
-    // check to the `## Requested symbol` section (bundle: "local" intentionally
-    // pulls the sibling overload into `## Local support`).
-    const requestedIdx = text.indexOf("## Requested symbol");
-    const localIdx = text.indexOf("## Local support");
-    const requested =
-      requestedIdx >= 0 ? text.slice(requestedIdx, localIdx >= 0 ? localIdx : text.length) : text;
+    const requested = res.details.ptcValue.lines.map((line: any) => line.raw).join("\n");
     expect(requested).toContain("System.out.println(n);");
     expect(requested).not.toContain('System.out.println("a");');
   });

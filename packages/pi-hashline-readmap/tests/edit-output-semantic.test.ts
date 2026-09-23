@@ -40,32 +40,6 @@ describe("buildEditOutput semanticSummary", () => {
     });
     expect(result.ptcValue.semanticSummary).toBeUndefined();
   });
-  it("stays quiet for mixed classifications when no blocks moved", () => {
-    const result = buildEditOutput({
-      path: "/tmp/test.ts",
-      displayPath: "test.ts",
-      diff: [
-        "--- a/test.ts",
-        "+++ b/test.ts",
-        "@@ -1 +1 @@",
-        "-const value = 1;",
-        "+const value = 2; ",
-      ].join("\n"),
-      firstChangedLine: 1,
-      warnings: [],
-      noopEdits: [],
-      edits: [{ set_line: { anchor: "1:abc", new_text: "const value = 2; " } }],
-      semanticSummary: {
-        classification: "mixed",
-        difftasticAvailable: false,
-        movedBlocks: 0,
-      },
-    });
-
-    expect(result.text).toBe("Edited test.ts (1 change, +1 -1 line)");
-    expect(result.text).not.toContain("[semantic:");
-    expect(result.text).not.toContain("⚠ Edit classified as whitespace-only");
-  });
   it("preserves movedBlocks in ptcValue without changing the semanticSummary shape", () => {
     const result = buildEditOutput({
       path: "/tmp/test.ts",

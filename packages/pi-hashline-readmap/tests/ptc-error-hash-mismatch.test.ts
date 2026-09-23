@@ -43,7 +43,6 @@ describe("edit ptcValue.error — hash-mismatch with updatedAnchors", () => {
     expect(ptc?.ok).toBe(false);
     expect(ptc?.error?.code).toBe("hash-mismatch");
     expect(typeof ptc?.error?.message).toBe("string");
-    expect(ptc.error.message).toContain("changed since last read");
 
     const anchors = ptc.error.details?.updatedAnchors;
     expect(Array.isArray(anchors)).toBe(true);

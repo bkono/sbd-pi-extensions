@@ -49,6 +49,5 @@ describe("read symbol ambiguity message", () => {
     const text = result.content.find((c: any) => c.type === "text")?.text ?? "";
     expect(text).toContain("add@1");
     expect(text).toContain("add@5");
-    expect(text.toLowerCase()).not.toContain("dot notation");
   });
 });

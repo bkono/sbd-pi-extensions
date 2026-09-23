@@ -68,9 +68,6 @@ describe("edit renderCall pending diff preview", () => {
     const second = tool.renderCall(args, theme, { ...context, lastComponent: first });
     const rendered = textOf(second);
 
-    expect(rendered).toContain("pending edit");
-    expect(rendered).toContain("Ctrl+O to expand");
-    expect(rendered).not.toContain("↳ diff +1 -1");
     expect(rendered).not.toContain("▌+ 1");
   });
 
@@ -98,8 +95,6 @@ describe("edit renderCall pending diff preview", () => {
     const second = tool.renderCall(args, theme, { ...context, lastComponent: first });
     const rendered = textOf(second);
 
-    expect(rendered).toContain("pending edit");
-    expect(rendered).toContain("↳ diff +1 -1");
     expect(rendered).toContain("▌+ 1 │ const unique = 2;");
   });
 
@@ -127,8 +122,7 @@ describe("edit renderCall pending diff preview", () => {
     await Promise.resolve();
     const beforeSecond = tool.renderCall(args, theme, { ...before, lastComponent: beforeFirst });
     const beforeText = textOf(beforeSecond);
-    expect(beforeText).toContain("pending edit");
-    expect(beforeText).toContain("↳ diff +1 -1");
+    expect(beforeText).toContain("▌+ 1 │ const unique = 2;");
 
     // After execution starts: the call row drops the pending preview — renderResult will
     // carry the post-exec story (↳ edited +N -M with the same expandable diff).
@@ -143,8 +137,6 @@ describe("edit renderCall pending diff preview", () => {
     };
     const afterRendered = textOf(tool.renderCall(args, theme, after));
     expect(afterRendered).toContain("edit");
-    expect(afterRendered).not.toContain("pending");
-    expect(afterRendered).not.toContain("↳ diff +");
     expect(afterRendered).not.toContain("▌");
   });
 });

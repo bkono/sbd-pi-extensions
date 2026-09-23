@@ -80,9 +80,7 @@ describe("symbol read integration", () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(getTextContent(result)).toBe(
-      "Cannot combine symbol with offset/limit. Use one or the other.",
-    );
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 
   it("returns error when symbol is combined with limit", async () => {
@@ -93,9 +91,7 @@ describe("symbol read integration", () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(getTextContent(result)).toBe(
-      "Cannot combine symbol with offset/limit. Use one or the other.",
-    );
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 
   it("returns only rows from the matched symbol body", async () => {
@@ -184,9 +180,8 @@ describe("symbol read integration", () => {
       symbol: "HugeBlock",
     });
 
-    const text = getTextContent(result);
-    expect(text).toContain("[Output truncated:");
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.truncation).not.toBeNull();
+    expect(result.details.ptcValue.map.appended).toBe(false);
   });
 
   it("returns disambiguation text and no hashlines for ambiguous symbol query", async () => {
@@ -212,7 +207,6 @@ describe("symbol read integration", () => {
     });
 
     const text = getTextContent(result);
-    expect(text.toLowerCase()).toContain("ambiguous");
     expect(text).toContain("process (function)");
     expect(text).toContain("lines 1-10");
     expect(text).toContain("lines 20-30");
@@ -226,7 +220,12 @@ describe("symbol read integration", () => {
     });
 
     const text = getTextContent(result);
-    expect(text).toContain("[Warning: symbol 'doesNotExist' not found. Available symbols:");
+    const warning = result.details.ptcValue.warnings.find(
+      (item: any) => item.code === "symbol-warning",
+    );
+    expect(warning).toBeDefined();
+    expect(text.startsWith(warning.message)).toBe(true);
+    expect(warning.message).toContain("doesNotExist");
     expect(text).toContain("UserRecord");
 
     const rows = parseHashlineRows(text);
@@ -260,10 +259,7 @@ describe("symbol read integration", () => {
     });
 
     const text = getTextContent(result);
-    const match = text.match(/Available symbols: ([^\]]+)\]/);
-    expect(match).not.toBeNull();
-
-    const listed = match![1].split(", ");
+    const listed = text.match(/symbol\d{2}/g) ?? [];
     expect(listed.length).toBe(20);
     expect(listed).toContain("symbol01");
     expect(listed).toContain("symbol20");
@@ -280,8 +276,8 @@ describe("symbol read integration", () => {
     });
 
     const text = getTextContent(result);
-    expect(text).toContain(
-      "[Warning: symbol lookup not available for .txt files — showing full file]",
+    expect(result.details.ptcValue.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "symbol-warning" })]),
     );
 
     const rows = parseHashlineRows(text);

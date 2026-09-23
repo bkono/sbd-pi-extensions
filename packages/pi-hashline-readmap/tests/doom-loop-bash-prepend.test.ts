@@ -1,6 +1,7 @@
 /* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { describe, expect, it } from "vitest";
 import init from "../index.js";
+import { formatDoomLoopMessage, makeToolFingerprint } from "../src/doom-loop.js";
 
 function createHarness() {
   const handlers: Record<string, Function> = {};
@@ -18,6 +19,11 @@ describe("doom loop prepend — bash path", () => {
   it("prepends ⚠ REPEATED-CALL WARNING to bash tool_result after 3 identical bash calls", async () => {
     const handlers = createHarness();
     const command = "echo hi";
+    const warning = formatDoomLoopMessage({
+      kind: "identical-tail",
+      toolName: "bash",
+      fingerprint: makeToolFingerprint("bash", { command }),
+    });
 
     for (const id of ["bash-1", "bash-2"]) {
       await handlers.tool_call(
@@ -36,7 +42,7 @@ describe("doom loop prepend — bash path", () => {
         {},
       );
       expect(r).toBeDefined();
-      expect((r.content[0].text as string).startsWith("⚠")).toBe(false);
+      expect(r.content[0].text).not.toContain(warning);
     }
 
     await handlers.tool_call(
@@ -57,8 +63,7 @@ describe("doom loop prepend — bash path", () => {
 
     expect(third).toBeDefined();
     const text = third.content[0].text as string;
-    expect(text.startsWith("⚠ REPEATED-CALL WARNING")).toBe(true);
-    expect(text).toContain("hi");
-    expect(text).not.toContain("You appear to be stuck. Try a different approach.");
+    expect(text.startsWith(warning)).toBe(true);
+    expect(text.trimEnd().endsWith("hi")).toBe(true);
   });
 });

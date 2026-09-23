@@ -1,9 +1,11 @@
 /* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
+
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatDoomLoopMessage, makeToolFingerprint } from "../src/doom-loop.js";
 import * as gitModule from "../src/rtk/git.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -92,12 +94,13 @@ describe("bash context guard integration", () => {
       isError: false,
     });
 
-    expect(result.content[0].text).toContain("[Bash context guard: preview]");
-    expect(result.content[0].text).toContain("Preserved notices:");
-    expect(result.content[0].text).toContain("[RTK: compressed git output");
-    expect(result.content[0].text).toContain(
-      "⚠ REPEATED-CALL WARNING: This is the 3rd identical tool call.",
-    );
+    expect(result.details.bashContextGuard.preservedNoticeCount).toBeGreaterThan(0);
+    const warning = formatDoomLoopMessage({
+      kind: "identical-tail",
+      toolName: "bash",
+      fingerprint: makeToolFingerprint("bash", input),
+    });
+    expect(result.content[0].text).toContain(warning.split("\n")[0]);
     expect(result.content[0].text).toContain("post-4");
     expect(result.content[0].text).not.toContain("raw git diff");
     expect(result.content.slice(1)).toEqual([nonText]);
@@ -136,7 +139,6 @@ describe("bash context guard integration", () => {
       trimmed: true,
       trimWanted: true,
     });
-    expect(result.content[0].text).toContain("[Bash context guard: preview]");
   });
 
   it("feature flag disables original restoration and final guard trimming while preserving RTK", async () => {
@@ -207,6 +209,6 @@ describe("bash context guard integration", () => {
     });
     expect(result.details.bashOriginalOutput.originalPath).toEqual(expect.any(String));
     expect(result.details.bashOriginalOutput.snapshotPath).toEqual(expect.any(String));
-    expect(result.content[0].text).toContain("Original/pre-RTK output:");
+    expect(result.content[0].text).toContain(result.details.bashOriginalOutput.originalPath);
   });
 });

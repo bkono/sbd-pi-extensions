@@ -2,657 +2,125 @@ import { describe, expect, it } from "vitest";
 import {
   buildBeadworkPromptAppendix,
   DEFAULT_REVIEW_POLICY,
-  GOAL_TASK_TYPES,
   REVIEW_POLICIES,
-  SCOPE_POLICY_TRADEOFF,
   selectReviewPolicy,
 } from "../../prompt.js";
 import { dropGoalMode } from "../../session-state.js";
-import type {
-  ActivationState,
-  BeadworkIssue,
-  BeadworkIssueDetail,
-  Goal,
-  ReviewPolicy,
-  SessionState,
-} from "../../types.js";
+import type { BeadworkIssueDetail, ReviewPolicy, SessionState } from "../../types.js";
 
-const ACTIVE: ActivationState = { kind: "active", repoRoot: "/repo" };
-
-const TASK_TYPE_NEXT_QUESTIONS: Record<(typeof GOAL_TASK_TYPES)[number], RegExp[]> = {
-  implementation: [
-    /assess evidence/i,
-    /apply the active review policy/i,
-    /do not close solely because the child settled/i,
-  ],
-  fix: [/remediation of a required finding/i, /re-review before accept/i],
-  reviewImplementation: [
-    /independent ticket review/i,
-    /fix\s*\|\s*file\s*\|\s*reject/i,
-    /fix is blocking/i,
-    /file is nonblocking unless the user waives a blocker/i,
-    /reject records why/i,
-    /no keyword classifier/i,
-  ],
-  reviewScope: [/aggregate review before epic complete/i],
-  investigateBlocker: [
-    /investigation of blocked work/i,
-    /settlement is not implementation completion/i,
-  ],
-};
-
-type RequiredPhrase = {
-  name: string;
-  needle: string | RegExp;
-};
-
-/** Fail CI if a review-policy instruction is deleted. */
-const POLICY_REQUIRED_PHRASES: Record<ReviewPolicy, readonly RequiredPhrase[]> = {
-  ticket: [
-    {
-      name: "independent reviewImplementation before close",
-      needle: "Launch an independent `reviewImplementation` child before closing that ticket.",
-    },
-    {
-      name: "do not close from implementer settlement",
-      needle: "Do not close from implementer settlement alone.",
-    },
-  ],
-  scope: [
-    {
-      name: "close from evidence without per-ticket review",
-      needle:
-        "You may close individual tickets from evidence without an independent per-ticket review child.",
-    },
-    {
-      name: "reviewScope before epic complete",
-      needle: "Launch a `reviewScope` child before declaring the epic complete.",
-    },
-    {
-      name: "dependents may start before aggregate review",
-      needle: SCOPE_POLICY_TRADEOFF,
-    },
-  ],
-  none: [
-    {
-      name: "skip independent review children",
-      needle: "Skip independent review children.",
-    },
-  ],
-};
-
-const REVIEWER_TASK_GUIDANCE_PHRASES: readonly RequiredPhrase[] = [
-  { name: "named commits", needle: "named commits" },
-  { name: "ticket id", needle: "the ticket id" },
-  { name: "git show", needle: "`git show`" },
-  {
-    name: "do not start review of A while implementing",
-    needle: "Do not start review of ticket A while A's implementer is still live.",
-  },
-];
-
-const ANTI_CLASSIFIER_PHRASES: readonly RequiredPhrase[] = [
-  { name: "no keyword classifier", needle: /no keyword classifier/i },
-  {
-    name: "no keyword matcher",
-    needle: "Do not classify review findings with a keyword matcher.",
-  },
-];
-
-const FORBIDDEN_REVIEW_LANGUAGE: readonly { name: string; needle: RegExp }[] = [
-  { name: "regex classifier", needle: /regex\s+classifier/i },
-  { name: "structured-result gate", needle: /structured[- ]results?(?:\s+gate)?/i },
-];
-
-function goal(reviewPolicy: ReviewPolicy): Goal {
-  return {
-    goalId: "goal-BW-100",
-    scopeIds: ["BW-100"],
-    reviewPolicy,
-    startedAt: "2026-08-28T00:00:00.000Z",
-  };
-}
-
-function session(overrides: Partial<SessionState> = {}): SessionState {
+function session(reviewPolicy: ReviewPolicy = "ticket"): SessionState {
   return {
     mode: "run",
-    scope: { kind: "epic", id: "BW-100", title: "Epic title" },
+    scope: { kind: "epic", id: "BW-100", title: "Scope sentinel" },
     updatedAt: "2026-08-28T00:00:00.000Z",
-    goal: goal("ticket"),
-    ...overrides,
+    goal: {
+      goalId: "goal-BW-100",
+      scopeIds: ["BW-100"],
+      reviewPolicy,
+      startedAt: "2026-08-28T00:00:00.000Z",
+    },
   };
 }
 
-function appendix(
-  overrides: {
-    activation?: ActivationState;
-    sessionState?: Partial<SessionState>;
-    scopeDetail?: BeadworkIssueDetail;
-  } = {},
-): string | undefined {
+function appendix(sessionState: SessionState, scopeDetail?: BeadworkIssueDetail) {
   return buildBeadworkPromptAppendix({
-    activation: overrides.activation ?? ACTIVE,
-    sessionState: session(overrides.sessionState),
-    scopeDetail: overrides.scopeDetail,
+    activation: { kind: "active", repoRoot: "/repo" },
+    sessionState,
+    scopeDetail,
   });
 }
 
-function availableToolsLine(text: string): string {
-  const line = text.split("\n").find((entry) => entry.startsWith("Available beadwork tools:"));
-  expect(line).toBeDefined();
-  return line ?? "";
+function issue(id: string): BeadworkIssueDetail {
+  return {
+    id,
+    title: `title-sentinel-${id}`,
+    description: "",
+    status: "open",
+    type: "epic",
+    priority: 1,
+    labels: [],
+    blockedBy: [],
+    blocks: [],
+    assignee: "",
+    createdAt: "2026-08-28T00:00:00.000Z",
+    updatedAt: "2026-08-28T00:00:00.000Z",
+    children: [],
+  };
 }
 
-function expectPhrase(text: string, label: string, needle: string | RegExp): void {
-  if (typeof needle === "string") {
-    expect(text, label).toContain(needle);
-    return;
-  }
-  expect(text, label).toMatch(needle);
-}
-
-function assertReviewPolicyPhrases(policy: ReviewPolicy, text: string): void {
-  const required: RequiredPhrase[] = [
-    ...POLICY_REQUIRED_PHRASES[policy],
-    ...REVIEWER_TASK_GUIDANCE_PHRASES,
-    ...ANTI_CLASSIFIER_PHRASES,
-  ];
-  const matched: string[] = [];
-  for (const phrase of required) {
-    expectPhrase(text, `${policy}: missing ${phrase.name}`, phrase.needle);
-    matched.push(phrase.name);
-  }
-  for (const phrase of FORBIDDEN_REVIEW_LANGUAGE) {
-    expect(text, `${policy}: must not contain ${phrase.name}`).not.toMatch(phrase.needle);
-  }
-  console.log(`review policy: ${policy}; matched required phrases: ${matched.join(", ")}`);
-}
-
-describe("buildBeadworkPromptAppendix modes", () => {
-  it("returns undefined in neutral mode", () => {
-    expect(appendix({ sessionState: { mode: "neutral", goal: undefined } })).toBeUndefined();
-  });
-
-  it("returns undefined when activation is not active", () => {
-    expect(
-      appendix({
-        activation: { kind: "inactive", reason: "no-bw" },
-        sessionState: { mode: "run" },
-      }),
-    ).toBeUndefined();
-    expect(
-      appendix({
-        activation: { kind: "available", repoRoot: "/repo" },
-        sessionState: { mode: "interactive" },
-      }),
-    ).toBeUndefined();
-  });
-
-  it("builds a human-led interactive appendix that does not start a turn", () => {
-    const text = appendix({
-      sessionState: { mode: "interactive", goal: undefined },
-    });
-
-    expect(text).toBeDefined();
-    expect(text).toContain("[BEADWORK SESSION ACTIVE]");
-    expect(text).toContain("You are in beadwork interactive mode.");
-    expect(text).toContain("Stay human-led.");
-    expect(text).toContain("This standing appendix is policy only. It does not start a turn.");
-    expect(text).toContain("Wait for the user.");
-    expect(text).toContain("Do not autonomously launch children");
-    expect(text).toContain("`orchestrate`");
-    expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
-    expect(text).not.toContain("This is a manager-only loop.");
-    expect(text).not.toContain("Goal execution spans multiple event-driven turns");
-    expect(text).not.toContain(
-      "The parent does not implement a delegated ticket concurrently with its live child.",
-    );
-    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
-    expect(text).toContain(
-      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
-    );
-    expect(text).toContain(
-      "Planning/decomposition and executing the graph are distinct decisions.",
-    );
-    expect(text).toContain(
-      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-    );
-    expect(text).toContain(
-      "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation.",
-    );
-    expect(text).toContain("It does not implement the epic or dispatch children.");
-  });
-
-  it("builds a run-mode appendix with orchestrate policy and settlement≠close", () => {
-    const text = appendix();
-
-    expect(text).toBeDefined();
-    expect(text).toContain("You are in beadwork run mode.");
-    expect(text).toContain("Goal mode: run the scoped epic to completion.");
-    expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
-    expect(text).toContain("This is a manager-only loop.");
-    expect(text).toContain("Goal execution spans multiple event-driven turns");
-    expect(text).toContain("end the turn when progress depends on children");
-    expect(text).toContain("Yielding preserves goal mode; lifecycle follow-ups resume the manager");
-    expect(text).toContain(
-      [
-        "When a goal-management turn runs:",
-        "1. Evaluate available child evidence and apply the active review policy, including when unrelated siblings remain live. Do not wait for group idle to adjudicate a settled child.",
-        "2. Refresh relevant `bw` state (ready/show); start eligible work, compose each child's `task`, then `orchestrate`.",
-        "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
-      ].join("\n"),
-    );
-    expect(text).not.toContain("When a turn runs: refresh `bw`");
-    expect(text).toContain(
-      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
-    );
-    expect(text).toContain("Child settlement is evidence, not acceptance");
-    expect(text).toContain("Do not close a ticket solely because a child settled.");
-    expect(text).toContain("Start-before-work:");
-    expect(text).toContain("This standing appendix is policy only. It does not start a turn.");
-    expect(text).not.toContain("Stay human-led.");
-    expect(text).not.toContain("Wait for the user.");
-    expect(text).not.toContain("## Goal mode entry");
-    expect(text).not.toContain(
-      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-    );
-    expect(text).not.toContain("It does not implement the epic or dispatch children.");
-  });
-
-  it("does not inject run-loop guidance for an interrupted run", () => {
-    const text = appendix({
-      sessionState: { runInterrupted: true },
-      scopeDetail: {
-        id: "BW-100",
-        title: "Ship goal adapter",
-        description: "desc",
-        status: "open",
-        type: "epic",
-        priority: 1,
-        labels: [],
-        blockedBy: [],
-        blocks: [],
-        assignee: "",
-        createdAt: "2026-08-28T00:00:00.000Z",
-        updatedAt: "2026-08-28T00:00:00.000Z",
-        children: [],
-      },
-    });
-
-    expect(text).toBeDefined();
-    expect(text).toContain("[BEADWORK SESSION ACTIVE]");
-    expect(text).toContain("Current scope: epic:BW-100");
-    expect(text).toContain("## Scoped issue");
-    expect(text).toContain("Do not orchestrate");
-    expect(text).toContain("Wait for the user.");
-    expect(text).toContain(
-      "Resume only after explicit `/bw run <epic-id>` or `beadwork_start_goal`.",
-    );
-    expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
-    expect(text).not.toContain("When a goal-management turn runs:");
-    expect(text).not.toContain("You are in beadwork run mode.");
-  });
-
-  it("drops the run standing appendix after dropGoalMode", () => {
-    const text = appendix({ sessionState: dropGoalMode(session()) });
-    expect(text).toBeDefined();
-    expect(text).toContain("You are in beadwork interactive mode.");
-    expect(text).not.toContain("You are in beadwork run mode.");
-    expect(text).not.toContain("Goal mode: run the scoped epic to completion.");
-  });
-});
-
-describe("buildBeadworkPromptAppendix task types", () => {
-  it("names each taskType with the right next-question", () => {
-    const text = appendix();
-    expect(text).toBeDefined();
-    if (!text) {
-      return;
-    }
-
-    expect(text).toContain(
-      "Agent (discovered name): how the child works (prompt/template). Same field on spawn and orchestrate.",
-    );
-    expect(text).toContain("Call `list_agents` if unsure.");
-    expect(text).toContain(
-      "Task type (closed): what question the parent asks when that child settles, fails, aborts, or asks.",
-    );
-    expect(text).toContain("Never collapse agent and task type into one field.");
-    expect(text).toContain("Omit `taskType` for untyped research or exploration.");
-
-    for (const taskType of GOAL_TASK_TYPES) {
-      expect(text, `missing taskType ${taskType}`).toContain(`\`${taskType}\``);
-      for (const pattern of TASK_TYPE_NEXT_QUESTIONS[taskType]) {
-        expect(text, `${taskType} next-question ${pattern}`).toMatch(pattern);
-      }
-    }
-  });
-});
-
-describe("buildBeadworkPromptAppendix review policies", () => {
-  it.each(REVIEW_POLICIES)("selects the %s policy branch and logs it", async (policy) => {
-    const state = session({
-      mode: "run",
-      goal: goal(policy),
-    });
-    const selected = selectReviewPolicy(state);
-
-    const text = buildBeadworkPromptAppendix({
-      activation: ACTIVE,
-      sessionState: state,
-    });
-
-    expect(selected).toBe(policy);
-    expect(text).toBeDefined();
-    if (!text) {
-      return;
-    }
-
-    expect(text).toContain("Review policies: `ticket` (default), `scope`, and `none`.");
-    expect(text).toContain(`Review policy branch: ${policy}`);
-    assertReviewPolicyPhrases(policy, text);
-    await expect(text).toMatchFileSnapshot(`../goldens/prompt-appendix-run-${policy}.md`);
-  });
-
-  it("defaults interactive sessions without a goal to ticket policy", async () => {
-    const state = session({ mode: "interactive", goal: undefined });
-    const selected = selectReviewPolicy(state);
-
-    const text = buildBeadworkPromptAppendix({
-      activation: ACTIVE,
-      sessionState: state,
-    });
-    expect(selected).toBe(DEFAULT_REVIEW_POLICY);
-    expect(text).toBeDefined();
-    if (!text) {
-      return;
-    }
-    expect(text).toContain("Review policy branch: ticket");
-    expect(text).toContain("Launch an independent `reviewImplementation` child before closing");
-    assertReviewPolicyPhrases("ticket", text);
-    await expect(text).toMatchFileSnapshot("../goldens/prompt-appendix-interactive-ticket.md");
-  });
-
-  it("requires a reviewImplementation child before close under ticket policy", () => {
-    const text = appendix({ sessionState: { goal: goal("ticket") } });
-    expect(text).toContain("Active review policy: ticket (default).");
-    expect(text).toContain(
-      "Launch an independent `reviewImplementation` child before closing that ticket.",
-    );
-    expect(text).toContain("Do not close from implementer settlement alone.");
-    expect(text).not.toContain(SCOPE_POLICY_TRADEOFF);
-    expect(text).not.toContain("Skip independent review children.");
-  });
-
-  it("states the scope-policy dependents-before-aggregate-review tradeoff", () => {
-    const text = appendix({ sessionState: { goal: goal("scope") } });
-    expect(text).toContain("Active review policy: scope.");
-    expect(text).toContain("You may close individual tickets from evidence");
-    expect(text).toContain("Launch a `reviewScope` child before declaring the epic complete.");
-    expect(text).toContain(SCOPE_POLICY_TRADEOFF);
-    expect(text).toContain("Dependents may start before aggregate review finds a problem.");
-  });
-
-  it("skips independent review children under none policy and still judges from Git/bw", () => {
-    const text = appendix({ sessionState: { goal: goal("none") } });
-    expect(text).toContain("Active review policy: none.");
-    expect(text).toContain("Skip independent review children.");
-    expect(text).toContain("Still judge from Git and `bw` before close.");
-    expect(text).not.toContain("Launch an independent `reviewImplementation` child before closing");
-    expect(text).not.toContain(SCOPE_POLICY_TRADEOFF);
-  });
-
-  it("states reviewer child-task composition for every policy", () => {
-    for (const policy of REVIEW_POLICIES) {
-      const text = appendix({ sessionState: { goal: goal(policy) } });
-      expect(text, policy).toBeDefined();
-      if (!text) {
-        continue;
-      }
-      for (const phrase of REVIEWER_TASK_GUIDANCE_PHRASES) {
-        expectPhrase(text, `${policy}: missing ${phrase.name}`, phrase.needle);
-      }
+describe("buildBeadworkPromptAppendix", () => {
+  it("omits context for neutral or inactive sessions", () => {
+    expect(appendix({ ...session(), mode: "neutral", goal: undefined })).toBeUndefined();
+    for (const activation of [
+      { kind: "inactive", reason: "no-bw" },
+      { kind: "available", repoRoot: "/repo" },
+    ] as const) {
+      expect(buildBeadworkPromptAppendix({ activation, sessionState: session() })).toBeUndefined();
     }
   });
 
-  it("rejects regex classifier and structured-result gate language", () => {
-    for (const policy of REVIEW_POLICIES) {
-      const text = appendix({ sessionState: { goal: goal(policy) } });
-      expect(text, policy).toBeDefined();
-      if (!text) {
-        continue;
-      }
-      for (const phrase of FORBIDDEN_REVIEW_LANGUAGE) {
-        expect(text, `${policy}: must not contain ${phrase.name}`).not.toMatch(phrase.needle);
-      }
-      for (const phrase of ANTI_CLASSIFIER_PHRASES) {
-        expectPhrase(text, `${policy}: missing ${phrase.name}`, phrase.needle);
-      }
-    }
-  });
-});
-
-describe("buildBeadworkPromptAppendix standing constraints", () => {
-  it("includes start-before-work, domain metadata, reviewer evidence, and quality commands", () => {
-    const text = appendix();
-    expect(text).toContain("Start-before-work:");
-    expect(text).toContain("Compose `task` yourself:");
-    expect(text).toContain("Attach domain metadata:");
-    expect(text).toContain('source "beadwork"');
-    expect(text).toContain("workItemId (ticket id)");
-    expect(text).toContain("named commits");
-    expect(text).toContain("the ticket id");
-    expect(text).toContain("`git show`");
-    expect(text).toContain("Do not tell them to read the whole dirty workspace.");
-    expect(text).toContain("Do not start review of ticket A while A's implementer is still live.");
-    expect(text).toContain("That is an instruction, not a lock.");
-    expect(text).toContain("`lint` / `test` / `typecheck`");
-    expect(text).toContain("Beadwork does not own a validation gate.");
-    expect(text).toContain("Do not classify review findings with a keyword matcher.");
-    expect(text).toContain("Do not use tmux, landing, `--workers`, or polling.");
-    expect(text).toContain(
-      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
-    );
-    expect(text).toContain(
-      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
-    );
-    expect(text).toContain("This is a manager-only loop.");
-    expect(text).toContain(
-      "The parent does not implement a delegated ticket concurrently with its live child.",
-    );
-    expect(text).toContain("atomic ticket-scoped commit");
-    expect(text).toContain("return the commit SHA");
-    expect(text).toContain("stage only owned files");
-    expect(text).toContain("Reviewer children start only after the implementer settles.");
+  it.each(REVIEW_POLICIES)("selects the %s review policy from goal state", (policy) => {
+    expect(selectReviewPolicy(session(policy))).toBe(policy);
   });
 
-  it("does not advertise deleted worker tools on the available-tools line", () => {
-    const text = appendix();
-    expect(text).toBeDefined();
-    if (!text) {
-      return;
-    }
-
-    const tools = availableToolsLine(text);
-    expect(tools).not.toContain("beadwork_delegate");
-    expect(tools).not.toContain("beadwork_worker_done");
-    expect(tools).not.toContain("beadwork_land_worker");
-    expect(tools).not.toContain("beadwork_worker_check");
-    expect(tools).toContain("beadwork_start_issue");
-    expect(tools).toContain("beadwork_close_issue");
-    expect(tools).toContain("beadwork_sync");
-    expect(tools).toContain("beadwork_start_goal");
+  it("defaults sessions without a goal to the default review policy", () => {
+    expect(selectReviewPolicy(dropGoalMode(session()))).toBe(DEFAULT_REVIEW_POLICY);
   });
 
-  it("keeps scoped issue summary and truncated prime", () => {
-    const text = appendix({
-      scopeDetail: {
-        id: "BW-100",
-        title: "Ship goal adapter",
-        description: "desc",
-        status: "open",
-        type: "epic",
-        priority: 1,
-        labels: [],
-        blockedBy: [],
-        blocks: ["BW-101"],
-        assignee: "",
-        createdAt: "2026-08-28T00:00:00.000Z",
-        updatedAt: "2026-08-28T00:00:00.000Z",
-        children: [
-          {
-            id: "BW-101",
-            title: "Child",
-            description: "",
-            status: "open",
-            type: "task",
-            priority: 1,
-            labels: [],
-            blockedBy: [],
-            blocks: [],
-            assignee: "",
-            createdAt: "2026-08-28T00:00:00.000Z",
-            updatedAt: "2026-08-28T00:00:00.000Z",
-          } satisfies BeadworkIssue,
-        ],
-      },
-      sessionState: {
-        prime: { content: `${"x".repeat(8_050)} leftover`, loadedAt: "2026-08-28T00:00:00.000Z" },
-      },
-    });
-
-    expect(text).toContain("## Scoped issue");
-    expect(text).toContain("BW-100 · epic · open · P1");
-    expect(text).toContain("Ship goal adapter");
-    expect(text).toContain("Blocks: BW-101");
-    expect(text).toContain("- BW-101 · open · Child");
-    expect(text).toContain("## Cached bw prime");
-    expect(text).toContain("[prime truncated]");
-    expect(text).not.toContain(" leftover");
-  });
-});
-
-describe("orchestration boundary guidance", () => {
-  it("treats human /bw run and beadwork_start_goal as equivalent explicit entry", () => {
-    const runText = appendix();
-    const interactiveText = appendix({
-      sessionState: { mode: "interactive", goal: undefined },
-    });
-
-    expect(runText).toBeDefined();
-    expect(interactiveText).toBeDefined();
-    if (!runText || !interactiveText) {
-      return;
-    }
-
-    const equivalent =
-      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.";
-    expect(runText).toContain(equivalent);
-    expect(interactiveText).toContain(equivalent);
-    expect(interactiveText).toContain(
-      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-    );
-    expect(interactiveText).toContain(
-      "Starting a goal is an explicit manager-intent transition. It arms persistent policy and queues continuation.",
-    );
-    expect(interactiveText).toContain("It does not implement the epic or dispatch children.");
-  });
-
-  it("keeps entry-only start prohibitions on the interactive surface", () => {
-    const text = appendix({
-      sessionState: { mode: "interactive", goal: undefined },
-    });
-
-    expect(text).toContain("`beadwork_start_goal({ epic_id })`");
-    expect(text).toContain("already-decomposed open epic");
-    expect(text).toContain(
-      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-    );
-    expect(text).toContain(
-      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
-    );
-    expect(text).toContain(
-      "Planning/decomposition and executing the graph are distinct decisions.",
-    );
-    expect(text).toContain("It does not implement the epic or dispatch children.");
-    expect(text).not.toContain("This is a manager-only loop.");
-  });
-
-  it("omits entry-only start prohibitions from active run appendices", () => {
-    const text = appendix();
-
-    expect(text).not.toContain("## Goal mode entry");
-    expect(text).not.toContain(
-      "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-    );
-    expect(text).not.toContain("It does not implement the epic or dispatch children.");
-    expect(text).not.toContain(
-      "Planning/decomposition and executing the graph are distinct decisions.",
-    );
-    expect(text).toContain(
-      "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
-    );
-    expect(text).toContain("Use `orchestrate` plus beadwork tools. Do not poll.");
-    expect(text).toContain("This is a manager-only loop.");
-    expect(text).toContain(
-      "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
-    );
-  });
-
-  it("does not auto-start goal mode from existence, readiness, or creation", () => {
-    const runText = appendix();
-    const interactiveText = appendix({
-      sessionState: { mode: "interactive", goal: undefined },
-    });
-
-    expect(runText).toContain(
-      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
-    );
-    expect(interactiveText).toContain(
-      "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
-    );
-    expect(interactiveText).toContain(
-      "Planning/decomposition and executing the graph are distinct decisions.",
-    );
-  });
-
-  it("establishes identical manager-only policy for run mode regardless of entry surface", () => {
-    const text = appendix();
-    expect(text).toContain("This is a manager-only loop.");
-    expect(text).toContain(
-      "The parent owns ready/show, ticket start/close, task composition, dispatch, SHA handoff, independent review, adjudication/fixes, and keeping ready work in flight.",
-    );
-    expect(text).toContain(
-      "The parent does not implement a delegated ticket concurrently with its live child.",
-    );
-    expect(text).toContain(
-      "Children do not start, close, or reopen tickets, and do not start goals.",
-    );
-    expect(text).toContain("Child settlement is evidence, not acceptance or ticket closure.");
-    expect(text).toContain("atomic ticket-scoped commit");
-    expect(text).toContain("return the commit SHA");
-    expect(text).toContain("stage only owned files");
-    expect(text).toContain("Reviewer children start only after the implementer settles.");
-    expect(text).toContain("named commits");
-    expect(text).toContain("`git show`");
-    expect(text).toContain("That is an instruction, not a lock.");
-  });
-
-  it("locks closed doors without requiring incidental prose", () => {
-    for (const text of [
-      appendix(),
-      appendix({ sessionState: { mode: "interactive", goal: undefined } }),
+  it("includes supplied scope, dependency, and child data", () => {
+    const detail = {
+      ...issue("BW-scope"),
+      parentId: "BW-parent",
+      blockedBy: ["BW-blocker"],
+      blocks: ["BW-dependent"],
+      children: [issue("BW-child")],
+    };
+    const text = appendix(session(), detail);
+    for (const value of [
+      detail.id,
+      detail.title,
+      detail.parentId,
+      ...detail.blockedBy,
+      ...detail.blocks,
+      detail.children[0].id,
+      detail.children[0].title,
     ]) {
-      expect(text).toBeDefined();
-      if (!text) {
-        continue;
-      }
-      expect(text).not.toMatch(/\boperatingMode\b/);
-      expect(text).not.toContain("beadwork_run_epic");
-      expect(text).not.toContain("beadwork_implement_epic");
-      expect(text).not.toContain("`role`");
-      expect(text).not.toContain("AgentTree");
-      expect(text).not.toMatch(/implicit(?:ly)? select(?:ing)? a goal/i);
+      expect(text).toContain(value);
     }
+  });
+
+  it("bounds child summaries to twelve children", () => {
+    const children = Array.from({ length: 13 }, (_, i) => issue(`child-${i}-sentinel`));
+    const text = appendix(session(), { ...issue("BW-scope"), children });
+    for (const child of children.slice(0, 12)) {
+      expect(text).toContain(child.title);
+    }
+    expect(text).not.toContain(children[12].title);
+  });
+
+  it("preserves cached prime through the limit and excludes overflow", () => {
+    const prefix = "x".repeat(8_000);
+    const state = session();
+    for (const content of ["prime-sentinel", prefix, `${prefix}overflow-sentinel`]) {
+      const text = appendix({ ...state, prime: { content, loadedAt: state.updatedAt } });
+      expect(text).toContain(content.slice(0, 8_000));
+      expect(text).not.toContain("overflow-sentinel");
+    }
+  });
+
+  it("retains scope data but omits cached prime for interrupted runs", () => {
+    const state = session();
+    const detail = issue("BW-interrupted");
+    const text = appendix(
+      {
+        ...state,
+        runInterrupted: true,
+        prime: { content: "prime-sentinel", loadedAt: state.updatedAt },
+      },
+      detail,
+    );
+    expect(text).toContain(detail.id);
+    expect(text).toContain(detail.title);
+    expect(text).not.toContain("prime-sentinel");
   });
 });

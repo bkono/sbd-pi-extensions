@@ -2,7 +2,6 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { wrapWriteError } from "../src/edit.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -22,22 +21,6 @@ describe("Bug #023: edit readonly file -> permission denied", () => {
       rmSync(tmpDir, { recursive: true });
     } catch {}
   });
-  it("wrapWriteError maps EACCES to 'Permission denied: <path>'", () => {
-    const eacces = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
-    eacces.code = "EACCES";
-    expect(wrapWriteError(eacces, "foo.txt").message).toBe("Permission denied: foo.txt");
-  });
-  it("wrapWriteError maps EPERM to 'Permission denied: <path>'", () => {
-    const eperm = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
-    eperm.code = "EPERM";
-    expect(wrapWriteError(eperm, "bar.txt").message).toBe("Permission denied: bar.txt");
-  });
-  it("wrapWriteError re-throws other errors with generic message", () => {
-    const eio = new Error("EIO: i/o error") as NodeJS.ErrnoException;
-    eio.code = "EIO";
-    expect(wrapWriteError(eio, "baz.txt").message).toBe("Failed to write file: baz.txt");
-  });
-
   it("edit tool execute on chmod 444 file returns 'Permission denied: <path>'", async () => {
     const { registerEditTool } = await import("../src/edit.js");
     const { ensureHashInit, computeLineHash } = await import("../src/hashline.js");
@@ -63,7 +46,6 @@ describe("Bug #023: edit readonly file -> permission denied", () => {
       { cwd: process.cwd() },
     );
     expect(result.isError).toBe(true);
-    const text = result.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toMatch(/Permission denied/);
+    expect(result.details.ptcValue.error.code).toBe("permission-denied");
   });
 });

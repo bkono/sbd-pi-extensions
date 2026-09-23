@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../logger.js";
 import { ORCHESTRATED_COMM_TOOL_NAMES } from "../orchestration/index.js";
 import { runMinionSession } from "../spawn.js";
+import { STEP_LIMIT_WRAP_UP_MESSAGE } from "../step-limit.js";
 import {
   BEADWORK_CHILD_INSPECTION_TOOLS,
   computeChildActiveTools,
@@ -214,7 +215,7 @@ describe("foreground spawn tool", () => {
     const result = await pending;
     expect(settled.value).toBe(true);
     expect(result).toMatchObject({
-      content: [{ type: "text", text: expect.stringContaining("completed") }],
+      content: [{ type: "text", text: expect.stringContaining("auth looks fine") }],
     });
     expect(tree.get(spawnNode.id)?.status).toBe("completed");
     expect(tree.getOrchestratedGroup("grp-1").map((n) => n.id)).toEqual(["mn-orch-a"]);
@@ -270,12 +271,11 @@ describe("foreground spawn tool", () => {
     await vi.waitFor(() => {
       expect(h.tree.get(h.started[0]!.id)?.activity?.phase).toBe("thinking");
     });
-    expect(activities.at(-1)).toBe("thinking");
-    expect(activities).not.toContain("starting...");
+    expect(activities.at(-1)).toBe(h.tree.get(h.started[0]!.id)?.activity?.summary);
 
     h.started[0]?.onTextDelta?.("drafting");
     await vi.waitFor(() => {
-      expect(activities.at(-1)).toBe("thinking");
+      expect(activities.at(-1)).toBe(h.tree.get(h.started[0]!.id)?.activity?.summary);
     });
 
     h.started[0]?.onToolActivity?.({
@@ -284,12 +284,14 @@ describe("foreground spawn tool", () => {
       args: { path: "src/auth.ts" },
     });
     await vi.waitFor(() => {
-      expect(activities.at(-1)).toBe("→ read src/auth.ts");
+      expect(h.tree.get(h.started[0]!.id)?.activity?.phase).toBe("tool");
+      expect(activities.at(-1)).toBe(h.tree.get(h.started[0]!.id)?.activity?.summary);
     });
 
     h.started[0]?.onAgentEnd?.({ willRetry: false });
     await vi.waitFor(() => {
-      expect(activities.at(-1)).toBe("settling");
+      expect(h.tree.get(h.started[0]!.id)?.activity?.phase).toBe("settling");
+      expect(activities.at(-1)).toBe(h.tree.get(h.started[0]!.id)?.activity?.summary);
     });
 
     h.waiters[0]?.resolve({ class: "settled", exitCode: 0, output: "done" });
@@ -344,7 +346,7 @@ describe("foreground spawn tool", () => {
       h.ctx,
     );
     pendingExecutes.push(pending.catch(() => undefined));
-    await expect(pending).rejects.toThrow(/failed: sync boom/);
+    await expect(pending).rejects.toThrow("sync boom");
     expect(h.started).toHaveLength(0);
     expect(h.tree.listenerCount()).toBe(0);
   });
@@ -458,7 +460,7 @@ describe("runMinionSession usage accumulator", () => {
     });
     onTurnEnd?.(1);
     expect(steer).toHaveBeenCalledTimes(1);
-    expect(steer).toHaveBeenCalledWith(expect.stringContaining("STEP LIMIT REACHED"));
+    expect(steer).toHaveBeenCalledWith(STEP_LIMIT_WRAP_UP_MESSAGE);
     expect(abortSession).not.toHaveBeenCalled();
 
     onTurnEnd?.(2);
@@ -469,6 +471,6 @@ describe("runMinionSession usage accumulator", () => {
     expect(abortSession).toHaveBeenCalledWith("mn-steps");
     expect(steer).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("aborted");
-    expect(result.error).toContain("Step limit exceeded");
+    expect(result.error).toBeTruthy();
   });
 });

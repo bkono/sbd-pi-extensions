@@ -35,13 +35,12 @@ describe("guarded Bash preview protected notices", () => {
       },
     });
 
-    expect(result.text).toContain("Preserved notices:");
     expect(occurrences(result.text, rtkNotice)).toBe(1);
     expect(occurrences(result.text, exitNotice)).toBe(1);
     expect(result.text).not.toContain("Ran bash command");
-    expect(result.text).toContain(`Command: ${expectedCommand}`);
-    expect(result.text).toContain("Head:\nbody-1");
-    expect(result.text).toContain("Tail:\nbody-4");
+    expect(result.text).toContain(expectedCommand);
+    expect(result.text).toContain("body-1");
+    expect(result.text).toContain("body-4");
     expect(result.metadata.preservedNoticeCount).toBe(2);
   });
 
@@ -60,7 +59,6 @@ describe("guarded Bash preview protected notices", () => {
       },
     });
 
-    expect(result.text).toContain("Preserved notices:");
     expect(result.text).toContain(fullOutputNotice);
     expect(result.text).toContain(doomLoopNotice);
     expect(result.metadata.preservedNoticeCount).toBe(2);

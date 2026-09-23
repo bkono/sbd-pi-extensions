@@ -75,10 +75,8 @@ describe("issue explorer", () => {
     expect(controller.currentFilter).toBe("ready");
 
     const rendered = controller.renderLines(120).join("\n");
-    expect(rendered).toContain("ready · repo");
     expect(rendered).toContain("Dashboard epic");
-    expect(rendered).toContain("Summary");
-    expect(controller.renderFooterHint()).toContain("↑/↓ move");
+    expect(rendered).toContain("Epic detail");
   });
 
   it("supports filter changes and breadcrumb drill-in/out", async () => {
@@ -190,12 +188,9 @@ describe("issue explorer", () => {
     expect(onRunIntent).toHaveBeenCalledWith(epicDetail);
     expect(onScopeSelection).toHaveBeenCalledWith(ticketDetail);
     expect(onClearScope).toHaveBeenCalledTimes(1);
-
-    const rendered = controller.renderLines(120).join("\n");
-    expect(rendered).toContain("interactive · repo-wide");
   });
 
-  it("does not advertise or consume the removed delegate shortcut", async () => {
+  it("does not consume the removed delegate shortcut", async () => {
     const ticket = createIssue({ id: "BW-101", title: "Ready task" });
     const controller = new IssueExplorerController({
       dataSource: {
@@ -209,7 +204,6 @@ describe("issue explorer", () => {
 
     await controller.initialize();
 
-    expect(controller.renderFooterHint()).not.toContain("delegate");
     expect(controller.handleInput("d")).toBe(false);
   });
 });

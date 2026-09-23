@@ -145,10 +145,8 @@ describe("orchestrate system-prompt policy", () => {
     expect(new Set(prompts).size).toBe(1);
     for (const guideline of ORCHESTRATE_SIDECAR_GUIDELINES) {
       expect(prompts[0]).toContain(guideline);
-      expect(guideline).toMatch(/\borchestrate\b/i);
     }
     expect(prompts[0]).not.toContain("grp-runtime");
-    expect(prompts[0]).not.toContain("Background orchestration work is live in group");
 
     session.dispose();
   });

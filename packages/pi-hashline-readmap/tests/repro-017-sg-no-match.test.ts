@@ -23,10 +23,6 @@ async function getSgTool() {
   return captured;
 }
 
-function text(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 describe("Bug #017: sg exits code 1 on no-match", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -53,10 +49,7 @@ describe("Bug #017: sg exits code 1 on no-match", () => {
       { cwd: process.cwd() },
     );
 
-    // The bug: execFileText rejects on exit code 1, so the catch block fires.
-    // The catch block returns err.stderr (empty) || err.message ("Command failed:...")
-    // isError is true, and message is "Command failed: ..." instead of "No matches found"
-    expect(result.isError).toBeFalsy(); // BUG: this fails — isError is true
-    expect(text(result)).toBe("No matches found for pattern: console.log($$$ARGS)"); // BUG: shows "Command failed: sg run..."
+    expect(result.isError).toBeFalsy();
+    expect(result.details.ptcValue.files).toEqual([]);
   });
 });

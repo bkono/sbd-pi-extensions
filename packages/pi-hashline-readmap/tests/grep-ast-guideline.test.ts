@@ -19,7 +19,7 @@ function createMockPi() {
 describe("registerGrepTool with astSearchGuideline", () => {
   it("includes astSearchGuideline in promptGuidelines when provided", () => {
     const pi = createMockPi();
-    const guideline = "Use `ast_search` for structural code patterns.";
+    const guideline = "INJECTED_AST_GUIDELINE_SENTINEL";
     const tool = registerGrepTool(pi, { astSearchGuideline: guideline });
     expect((tool as any).promptGuidelines).toBeDefined();
     expect((tool as any).promptGuidelines).toContain(guideline);
@@ -27,7 +27,7 @@ describe("registerGrepTool with astSearchGuideline", () => {
 
   it("does not include the injected astSearchGuideline when option is not provided", () => {
     const pi = createMockPi();
-    const injected = "Use `ast_search` for structural code patterns.";
+    const injected = "INJECTED_AST_GUIDELINE_SENTINEL";
     const tool = registerGrepTool(pi);
     const guidelines = (tool as any).promptGuidelines;
     expect(guidelines).toBeDefined();

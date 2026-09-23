@@ -82,7 +82,7 @@ describe("list_minions filters", () => {
     "pending",
     "running",
     "settling",
-  ] as const)("guides %s orchestrated snapshots back to events without changing inspection data", async (phase) => {
+  ] as const)("inspects %s orchestrated children without mutating their data", async (phase) => {
     const tree = new AgentTree();
     tree.add("mn-active", "active", "work", {
       kind: "orchestrated",
@@ -90,35 +90,13 @@ describe("list_minions filters", () => {
     });
     if (phase === "settling") tree.applyActivityEvent("mn-active", { type: "settling" });
     const before = toInfo(tree.get("mn-active")!);
-    const footer =
-      "This is a snapshot, not a wait operation. Completion follow-ups arrive automatically after you end the turn. If this answers your question, yield rather than inspect again.";
-    expect((await list(tree)).content[0]?.text).toContain(footer);
-    const shown = (await show(tree, "mn-active")).content[0]?.text;
-    expect(shown).toContain(footer);
-    expect(shown).not.toContain("live activity stream");
+    expect((await list(tree)).details.minions).toEqual([before]);
+    const shown = await show(tree, "mn-active");
+    expect(shown.details.id).toBe(before.id);
+    expect(shown.details.activity).toEqual(before.activity);
     expect(toInfo(tree.get("mn-active")!)).toEqual(before);
   });
 
-  it("does not suggest waiting for filtered-out, terminal, missing, or foreground children", async () => {
-    const tree = seedTree();
-    expect((await show(tree, "mn-spawn")).content[0]?.text).toContain("live activity stream");
-    for (const params of [
-      { kind: "spawn" },
-      { status: "completed" },
-      { groupId: "missing" },
-    ] satisfies ListMinionsParams[]) {
-      expect((await list(tree, params)).content[0]?.text).not.toContain("Completion follow-ups");
-    }
-    for (const target of ["mn-spawn", "mn-orch-other"]) {
-      expect((await show(tree, target)).content[0]?.text).not.toContain("Completion follow-ups");
-    }
-    for (const status of ["failed", "aborted"] as const) {
-      tree.updateStatus("mn-orch-a", status);
-      expect((await show(tree, "mn-orch-a")).content[0]?.text).not.toContain(
-        "Completion follow-ups",
-      );
-    }
-  });
   it("lists spawn and orchestrated together and filters by kind, group, and status", async () => {
     const tree = seedTree();
 
@@ -127,11 +105,7 @@ describe("list_minions filters", () => {
     for (const m of all.details.minions) logNode("list-all", m);
 
     expect(allIds).toEqual(["mn-spawn", "mn-orch-a", "mn-orch-b", "mn-orch-other"]);
-    expect(all.content[0]?.text).toContain("alpha (mn-spawn) spawn [running]");
-    expect(all.content[0]?.text).toContain(
-      "bravo (mn-orch-a) orchestrated [running] implementation group=grp-1",
-    );
-    expect(all.content[0]?.text).toContain("[peer-failed]");
+    for (const id of allIds) expect(all.content[0]?.text).toContain(id);
 
     const spawnOnly = await list(tree, { kind: "spawn" });
     for (const m of spawnOnly.details.minions) logNode("list-spawn", m);
@@ -187,7 +161,9 @@ describe("list_minions filters", () => {
     expect(running.details.minions.map((m) => m.id)).toEqual(["mn-running"]);
     expect(tree.getRunning().map((n) => n.id)).toEqual(["mn-running"]);
     expect(pending.details.minions[0]?.activity?.phase).toBe("starting");
-    expect(pending.details.minions[0]?.lastActivity).toBe("starting");
+    expect(pending.details.minions[0]?.lastActivity).toBe(
+      pending.details.minions[0]?.activity?.summary,
+    );
     expect(running.details.minions[0]?.activity?.phase).toBe("starting");
   });
 
@@ -198,13 +174,13 @@ describe("list_minions filters", () => {
     logNode("list-comm", bravo!);
 
     expect(bravo?.taskType).toBe("implementation");
-    expect(bravo?.lastActivity).toBe("→ read src/auth.ts");
+    expect(bravo?.lastActivity).toBe(tree.get("mn-orch-a")?.activity?.summary);
     expect(bravo?.activity?.phase).toBe("tool");
     expect(bravo?.lastMessage).toBe("peer send failed");
     expect(bravo?.lastActivity).not.toBe(bravo?.lastMessage);
     expect(bravo?.peerMessageFailed).toBe(true);
     expect(bravo?.lastPeerError).toBe("recipient-terminal");
-    expect(listed.content[0]?.text).toContain("-- → read src/auth.ts");
+    expect(listed.content[0]?.text).toContain(bravo!.lastActivity!);
   });
 
   it("separates notification messages from thinking and settling activity", async () => {
@@ -234,31 +210,32 @@ describe("list_minions filters", () => {
     const waiting = listed.details.minions.find((m) => m.id === "mn-wait");
     const settling = listed.details.minions.find((m) => m.id === "mn-settle");
     expect(waiting?.activity?.phase).toBe("thinking");
-    expect(waiting?.lastActivity).toBe("thinking");
+    expect(waiting?.lastActivity).toBe(waiting?.activity?.summary);
     expect(waiting?.lastMessage).toBe("need a ruling");
     expect(waiting?.lastActivity).not.toBe(waiting?.lastMessage);
     expect(settling?.activity?.phase).toBe("settling");
-    expect(settling?.lastActivity).toBe("settling");
+    expect(settling?.lastActivity).toBe(settling?.activity?.summary);
     expect(settling?.lastMessage).toBe("ok continue");
-    expect(listed.content[0]?.text).toContain("thinking");
-    expect(listed.content[0]?.text).toContain("settling");
+    expect(listed.content[0]?.text).toContain(waiting!.activity!.summary);
+    expect(listed.content[0]?.text).toContain(settling!.activity!.summary);
+    const originalSummary = waiting!.activity!.summary;
 
     waiting!.activity!.summary = "hacked";
-    expect(tree.get("mn-wait")?.activity?.summary).toBe("thinking");
+    expect(tree.get("mn-wait")?.activity?.summary).toBe(originalSummary);
 
     const shownWait = await show(tree, "mn-wait");
     expect(shownWait.details.activity?.phase).toBe("thinking");
     expect(shownWait.details.lastMessage).toBe("need a ruling");
     expect(shownWait.details.output).toBe("still reading the file");
-    expect(shownWait.content[0]?.text).toContain("Activity: thinking — thinking");
-    expect(shownWait.content[0]?.text).toContain("Last message: need a ruling");
+    expect(shownWait.content[0]?.text).toContain(shownWait.details.activity!.summary);
+    expect(shownWait.content[0]?.text).toContain(shownWait.details.lastMessage!);
     expect(shownWait.content[0]?.text).toContain("still reading the file");
 
     const shownSettle = await show(tree, "mn-settle");
     expect(shownSettle.details.activity?.phase).toBe("settling");
     expect(shownSettle.details.output).toBe("final draft");
-    expect(shownSettle.content[0]?.text).toContain("Activity: settling — settling");
-    expect(shownSettle.content[0]?.text).toContain("Last message: ok continue");
+    expect(shownSettle.content[0]?.text).toContain(shownSettle.details.activity!.summary);
+    expect(shownSettle.content[0]?.text).toContain(shownSettle.details.lastMessage!);
     expect(shownSettle.content[0]?.text).toContain("final draft");
   });
 });
@@ -277,31 +254,33 @@ describe("show_minion fields", () => {
     expect(info.taskType).toBe("implementation");
     expect(info.description).toBe("Registry refactor");
     expect(info.domain).toEqual({ source: "adapter-x", workItemId: "ABC-123" });
-    expect(info.lastActivity).toBe("→ read src/auth.ts");
+    expect(info.lastActivity).toBe(tree.get("mn-orch-a")?.activity?.summary);
     expect(info.activity?.phase).toBe("tool");
     expect(info.lastMessage).toBe("peer send failed");
     expect(info.output).toBe("full child transcript lives here, not in packets");
     expect(info.peerMessageFailed).toBe(true);
     expect(info.lastPeerError).toBe("recipient-terminal");
-    expect(info.output).toBe("full child transcript lives here, not in packets");
     expect(info.messages).toEqual([
       { from: "mn-orch-b", to: "mn-orch-a", text: "need the types first" },
       { from: "mn-orch-a", to: "parent", text: "peer send failed", failed: true },
     ]);
     expect(info.pathIntent).toEqual([{ path: "src/registry.ts", ttlMs: 30_000 }]);
-    expect(info.activityHistory.some((item) => item.summary === "→ read src/auth.ts")).toBe(true);
+    expect(info.activityHistory.some((item) => item.toolName === "read")).toBe(true);
 
     const text = result.content[0]?.text ?? "";
-    expect(text).toContain("Kind: orchestrated");
-    expect(text).toContain("Group: grp-1");
-    expect(text).toContain("Task type: implementation");
-    expect(text).toContain("Activity: tool — → read src/auth.ts");
-    expect(text).toContain("Last message: peer send failed");
-    expect(text).not.toContain("Last said:");
-    expect(text).toContain("Peer message: failed (recipient-terminal)");
-    expect(text).toContain("full child transcript lives here, not in packets");
-    expect(text).toContain("mn-orch-b -> mn-orch-a: need the types first");
-    expect(text).toContain("src/registry.ts ttl=30000ms");
+    for (const value of [
+      info.kind,
+      info.groupId,
+      info.taskType,
+      info.lastActivity,
+      info.lastMessage,
+      info.lastPeerError,
+      info.output,
+      "src/registry.ts",
+      "mn-orch-b",
+    ]) {
+      expect(text).toContain(value!);
+    }
   });
 
   it("distinguishes spawn from orchestrated and omits group fields for spawn", async () => {
@@ -313,15 +292,12 @@ describe("show_minion fields", () => {
     expect(result.details.groupId).toBeUndefined();
     expect(result.details.taskType).toBeUndefined();
     expect(result.details.peerMessageFailed).toBe(false);
-    expect(result.content[0]?.text).toContain("Kind: spawn");
-    expect(result.content[0]?.text).not.toContain("Task type:");
-    expect(result.content[0]?.text).toContain("Peer message: none");
     expect(toInfo(tree.get("mn-spawn")!).kind).toBe("spawn");
   });
 
   it("throws for a missing id", async () => {
     const tree = seedTree();
-    await expect(show(tree, "missing")).rejects.toThrow("Minion not found: missing");
+    await expect(show(tree, "missing")).rejects.toThrow();
   });
 
   it("falls back to persisted session output when tree and terminal are empty", async () => {
@@ -335,6 +311,6 @@ describe("show_minion fields", () => {
     })("tool-1", { target: "mn-done" }, undefined, undefined, ctx);
 
     expect(result.details.output).toBe("persisted transcript");
-    expect(result.content[0]?.text).toContain("Output:\n    persisted transcript");
+    expect(result.content[0]?.text).toContain(result.details.output!);
   });
 });

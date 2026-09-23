@@ -65,10 +65,8 @@ describe("read — fuzzy symbol match (issue 099)", () => {
 
     const text = getTextContent(result);
 
-    expect(text).toContain("[Symbol 'get' not exact-matched");
     expect(text).toContain("initGetters");
-    expect(text).toContain("substring");
-    expect(text).toContain("[Symbol: initGetters (function)");
+    expect(result.details.ptcValue.warnings[0].tier).toBe("substring");
 
     const warnings = (result.details as any)?.ptcValue?.warnings ?? [];
     expect(warnings.some((w: any) => w.code === "fuzzy-symbol-match")).toBe(true);
@@ -97,10 +95,8 @@ describe("read — fuzzy symbol match (issue 099)", () => {
     });
 
     const text = getTextContent(result);
-    expect(text).toContain("[Symbol 'handler' not exact-matched");
     expect(text).toContain("getHandler");
-    expect(text).toContain("camelCase");
-    expect(text).toContain("[Symbol: getHandler (function)");
+    expect(result.details.ptcValue.warnings[0].tier).toBe("camelCase");
 
     const warnings = (result.details as any)?.ptcValue?.warnings ?? [];
     expect(warnings.some((w: any) => w.code === "fuzzy-symbol-match")).toBe(true);
@@ -125,8 +121,6 @@ describe("read — fuzzy symbol match (issue 099)", () => {
       symbol: "parseconfig",
     });
 
-    const text = getTextContent(result);
-    expect(text).not.toContain("not exact-matched");
     const warnings = (result.details as any)?.ptcValue?.warnings ?? [];
     expect(warnings.some((w: any) => w.code === "fuzzy-symbol-match")).toBe(false);
   });
@@ -155,17 +149,15 @@ describe("read — fuzzy symbol match (issue 099)", () => {
     });
 
     const text = getTextContent(result);
-    expect(text).toContain("Other candidates:");
     expect(text).toContain("myhandlerthing");
     expect(text).toContain("prehandlerX");
-    expect(text).toContain("To confirm:");
     expect(text).toContain("getHandler@10");
     const warnings = (result.details as any)?.ptcValue?.warnings ?? [];
     const fuzzyWarning = warnings.find((w: any) => w.code === "fuzzy-symbol-match");
-    expect(fuzzyWarning?.message).toContain("Other candidates: `myhandlerthing`, `prehandlerX`.");
-    expect(fuzzyWarning?.message).toContain(
-      'To confirm: read({ symbol: "getHandler" }) or getHandler@10',
-    );
+    expect(fuzzyWarning?.otherCandidates.map((candidate: any) => candidate.name)).toEqual([
+      "myhandlerthing",
+      "prehandlerX",
+    ]);
   });
 
   it("fuzzy warning exposes machine-readable tier and otherCandidates", async () => {

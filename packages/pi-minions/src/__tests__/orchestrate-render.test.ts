@@ -31,85 +31,61 @@ const partial: OrchestrateResult = {
 };
 
 describe("orchestrate renderer", () => {
-  it("directs accepted work to yield and partial acceptance to resolve rejections first", () => {
-    const accepted = formatOrchestrateText({ ...partial, rejected: [] });
-    expect(accepted).toContain("Otherwise end this turn now");
-    expect(accepted).toContain("follow-ups after you yield");
-    expect(accepted).toContain("You do not need to poll the subagents");
-    expect(accepted).not.toContain("Resolve rejected registrations");
-
-    const mixed = formatOrchestrateText(partial);
-    expect(mixed).toContain("Resolve rejected registrations");
-    expect(mixed).toContain("Otherwise end this turn now");
-
-    const rejected = formatOrchestrateText({ ...partial, accepted: [] });
-    expect(rejected).not.toContain("follow-ups after you yield");
-    expect(rejected).not.toContain("Otherwise end this turn now");
-  });
-  it("summarizes partial acceptance as starting and rejected, never completed", () => {
-    expect(summarizeOrchestrate(partial)).toBe("2 starting, 1 rejected");
+  it("projects accepted identities and rejected input into tool and UI output", () => {
     const text = formatOrchestrateText(partial);
-    expect(text).toContain("2 starting, 1 rejected");
-    expect(text).toContain("unknown taskType (validation)");
-    expect(text).not.toMatch(/\bcompleted\b/);
+    const rendered = textOf(
+      renderOrchestrateResult({ content: [], details: partial }, options, theme, {
+        isError: false,
+      }),
+    );
+    expect(text).toContain(partial.groupId);
+    for (const output of [text, rendered]) {
+      expect(output).toContain(summarizeOrchestrate(partial));
+      for (const child of partial.accepted) {
+        expect(output).toContain(child.childId);
+        expect(output).toContain(child.description);
+      }
+      for (const rejection of partial.rejected) {
+        expect(output).toContain(rejection.reason);
+        expect(output).toContain(rejection.value!);
+      }
+    }
+  });
+
+  it.each([false, true])("uses error styling for all-rejected results (isError=%s)", (isError) => {
+    const rejected: OrchestrateResult = { ...partial, accepted: [] };
+    const colors: string[] = [];
+    const recordingTheme = {
+      ...theme,
+      fg: (color: string, text: string) => {
+        colors.push(color);
+        return text;
+      },
+    } as Theme;
+    const rendered = textOf(
+      renderOrchestrateResult({ content: [], details: rejected }, options, recordingTheme, {
+        isError,
+      }),
+    );
+    expect(colors[0]).toBe("error");
+    expect(rendered).toContain(summarizeOrchestrate(rejected));
+    expect(rendered).toContain(rejected.rejected[0]!.reason);
+  });
+
+  it("previews the first task description in the call renderer", () => {
+    const description = "description-sentinel";
+    expect(
+      textOf(renderOrchestrateCall({ tasks: [{ task: "do work", description }] }, theme, {})),
+    ).toContain(description);
+  });
+
+  it.each([false, true])("passes through fallback text (isError=%s)", (isError) => {
+    const text = "fallback-sentinel";
     expect(
       textOf(
-        renderOrchestrateResult({ content: [], details: partial }, options, theme, {
-          isError: false,
-        }),
+        renderOrchestrateResult({ content: [{ type: "text", text }] }, options, theme, { isError }),
       ),
-    ).toContain("2 starting, 1 rejected");
-  });
-
-  it("renders all-rejected with error semantics and no completed label", () => {
-    const rejected: OrchestrateResult = {
-      groupId: "",
-      accepted: [],
-      rejected: [
-        { index: 0, reason: "missing description" },
-        { index: 1, reason: "unknown taskType", value: "validation" },
-      ],
-    };
-    const text = formatOrchestrateText(rejected);
-    expect(text).toContain("Orchestration rejected: 0 starting, 2 rejected.");
-    expect(text).not.toMatch(/\bcompleted\b/);
-    expect(
-      textOf(
-        renderOrchestrateResult(
-          { content: [{ type: "text", text }], details: rejected },
-          options,
-          theme,
-          {
-            isError: true,
-          },
-        ),
-      ),
-    ).toContain("0 starting, 2 rejected");
-  });
-
-  it("call renderer uses registered vocabulary", () => {
-    const text = textOf(
-      renderOrchestrateCall(
-        { tasks: [{ task: "do work", description: "Registry refactor" }] },
-        theme,
-        {},
-      ),
-    );
-    expect(text).toContain("orchestrate");
-    expect(text).toContain("registered");
-    expect(text).not.toMatch(/\bcompleted\b/);
-  });
-
-  it("does not label a successful fallback as completed", () => {
-    const text = textOf(
-      renderOrchestrateResult(
-        { content: [{ type: "text", text: "tool succeeded" }] },
-        options,
-        theme,
-        { isError: false },
-      ),
-    );
-    expect(text).not.toMatch(/\bcompleted\b/);
+    ).toBe(text);
   });
 });
 

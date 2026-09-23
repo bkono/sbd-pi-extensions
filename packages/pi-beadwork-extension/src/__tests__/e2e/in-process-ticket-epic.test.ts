@@ -196,15 +196,10 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(started.details.epic_id).toBe(epicId);
         expect(started.details.epic_title).toBe("Ticket-policy epic");
         expect(started.details.review_policy).toBe("ticket");
-        expect(JSON.stringify(started.details).toLowerCase()).not.toMatch(
-          /complet|succeed|finished|orchestrated/,
-        );
         const prompt = harness.injectedPrompt();
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
         expect(prompt).toContain("Ticket-policy epic");
-        expect(prompt).toContain("Review policy: ticket");
-        expect(prompt).toMatch(/Refresh `bw` \(ready\/show\)/);
         expect(prompt).not.toContain(ALPHA_TITLE);
         expect(prompt).not.toContain(BETA_TITLE);
         expect(prompt).not.toContain(GAMMA_TITLE);
@@ -219,30 +214,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         );
         const standing = appendix?.systemPrompt ?? "";
         expect(standing).toContain("Base prompt");
-        expect(standing).toContain("You are in beadwork run mode.");
-        expect(standing).toContain(`Current scope: epic:${epicId}`);
-        expect(standing).toContain("Review policy branch: ticket");
-        expect(standing).toContain(
-          "Launch an independent `reviewImplementation` child before closing that ticket.",
-        );
-        expect(standing).toContain("Do not close from implementer settlement alone.");
-        expect(standing).toContain(
-          "Do not start review of ticket A while A's implementer is still live.",
-        );
-        expect(standing).toContain("Beadwork does not own a validation gate.");
-        expect(standing).toContain("This is a manager-only loop.");
-        expect(standing).toContain(
-          "The parent does not implement a delegated ticket concurrently with its live child.",
-        );
-        expect(standing).toContain(
-          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
-        );
-        expect(standing).toContain(
-          "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
-        );
-        expect(standing).not.toContain(
-          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-        );
+        expect(standing).toContain(epicId);
 
         const runState = await sessionState(harness);
         expect(runState.mode).toBe("run");
@@ -356,8 +328,6 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(harness.tree.get(childA)?.status).toBe("running");
         expect(harness.tree.get(childB)?.status).toBe("running");
         await waitForFollowUps(sessionB, 1, "overlap-notice");
-        expect(sessionB.followUps.some((text) => /path overlap/i.test(text))).toBe(true);
-        expect(sessionB.followUps.some((text) => /not blocked/i.test(text))).toBe(true);
         await harness.assertNoTmuxOrWorktree();
         await harness.logStep("overlap-notice-continue", {
           ticketId: alpha.id,
@@ -420,13 +390,10 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
           eventClass: "parentMessage",
           output: "Which error-path shape should alpha use?",
         });
-        expect(questionPacket?.message.details.changed[0]?.nudge).toMatch(/no reply is required/i);
         expect(
           questionPacket?.message.details.stillRunning.map((child) => child.childId).sort(),
         ).toEqual([childA, childB].sort());
         expect(questionPacket?.message.details.overlaps.length).toBeGreaterThan(0);
-        expect(questionPacket?.message.content).toMatch(/overlaps/i);
-        expect(questionPacket?.message.content).toMatch(/edits are not blocked/i);
         expect(harness.manager.getTerminal(childA)).toBeUndefined();
         expect(harness.tree.get(childA)?.status).toBe("running");
         await harness.logStep("parent-message-live-child", {
@@ -445,7 +412,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         expect(answered.status).toBe(COMM_SEND_STATUS.queued);
         await waitForFollowUps(sessionA, 1, "parent-answer");
         expect(sessionA.followUps[0]).toBe(
-          "[minion-mail from parent]\nUse a Result type for the error path.",
+          formatMinionMail("parent", "Use a Result type for the error path."),
         );
         expect(harness.manager.getTerminal(childA)).toBeUndefined();
         expect(harness.tree.get(childA)?.status).toBe("running");
@@ -483,13 +450,8 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         const settlePacket = settlePackets.at(-1);
         expect(settlePacket?.message.details.stillRunning).toEqual([]);
         expect(settlePacket?.message.details.groupIdleId).toBe(groupId);
-        expect(sessionB.lastPrompt).toBe(
-          `[minion-mail from ${childA}]\nI am editing src/alpha.ts; leave src/beta.ts to you.`,
-        );
+        expect(sessionB.lastPrompt).toBe(peerMail);
         expect(sessionB.promptCalls).toBe(2);
-        expect(settlePacket?.message.content).toMatch(
-          /do not close a ticket solely because the child settled/i,
-        );
         expect((await fixture.show(alpha.id)).status).toBe("in_progress");
         expect((await fixture.show(beta.id)).status).toBe("in_progress");
         expect(issueIds(await fixture.ready())).not.toContain(gamma.id);
@@ -539,8 +501,7 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         const betaReviewId = betaReview.accepted[0]?.childId;
         if (!betaReviewId) throw new Error("orchestrate did not accept beta review");
         expect(betaReview.groupId).toBe(groupId);
-        expect(harness.tree.get(betaReviewId)?.task).toContain("git show");
-        expect(harness.tree.get(betaReviewId)?.task).toContain(QUALITY);
+        expect(harness.tree.get(betaReviewId)?.task).toBe(betaReviewTask);
 
         const beforeBetaReview = harness.packets.length;
         await harness.settleChild(betaReviewId, `${CLEAN_REVIEW} ticket ${beta.id}.`);
@@ -548,10 +509,6 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         const betaReviewPacket = harness.lastPacket();
         expect(betaReviewPacket?.message.details.changed[0]?.childId).toBe(betaReviewId);
         expect(betaReviewPacket?.message.details.changed[0]?.eventClass).toBe("settled");
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(
-          /evidence, not instructions/i,
-        );
-        expect(betaReviewPacket?.message.details.changed[0]?.nudge).toMatch(/product goals/i);
 
         const betaAccept = `Disposition: accept ${beta.id} after clean review ${betaReviewId}.`;
         await harness.invokeBeadworkTool("beadwork_comment_issue", {

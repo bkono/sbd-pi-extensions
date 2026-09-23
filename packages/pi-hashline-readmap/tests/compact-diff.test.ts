@@ -63,7 +63,7 @@ describe("compactDiff — change line preservation", () => {
     }
   });
 
-  it("does NOT truncate change lines with the old (truncated) message", () => {
+  it("preserves all changes beyond the old ten-line cap", () => {
     const addedLines = Array.from({ length: 15 }, (_, i) => `+  line ${i + 1}`);
     const diff = buildDiff([
       {
@@ -78,8 +78,7 @@ describe("compactDiff — change line preservation", () => {
     ]);
 
     const result = compactDiff(diff);
-    // Old code would emit "... (truncated)" after 10 hunk lines
-    expect(result).not.toContain("(truncated)");
+    for (const line of addedLines) expect(result).toContain(line);
   });
 });
 
@@ -161,7 +160,7 @@ describe("compactDiff — overall line cap", () => {
     expect(lineCount).toBeLessThanOrEqual(40);
   });
 
-  it("shows a truncation indicator when output is capped", () => {
+  it("bounds many-file output", () => {
     const files = Array.from({ length: 30 }, (_, fi) => ({
       name: `src/file${fi}.ts`,
       hunks: [
@@ -174,12 +173,12 @@ describe("compactDiff — overall line cap", () => {
     const diff = buildDiff(files);
 
     const result = compactDiff(diff, 30);
-    expect(result).toMatch(/truncated|more changes/i);
+    expect(result.split("\n").length).toBeLessThanOrEqual(40);
   });
 });
 
 describe("compactDiff — change lines exceeding overall cap", () => {
-  it("emits a '... +K more changes' indicator when change lines themselves exceed the cap", () => {
+  it("bounds change lines when they exceed the cap", () => {
     // 200 + lines in one hunk
     const addedLines = Array.from({ length: 200 }, (_, i) => `+  big line ${i + 1}`);
     const diff = buildDiff([
@@ -195,8 +194,10 @@ describe("compactDiff — change lines exceeding overall cap", () => {
     ]);
 
     const result = compactDiff(diff, 50);
-    // Should have a "more changes" indicator
-    expect(result).toMatch(/\+\d+ more changes/);
+    const retained = result.split("\n").filter((line) => addedLines.includes(line.trimStart()));
+    expect(retained.length).toBeGreaterThan(0);
+    expect(retained.length).toBeLessThan(200);
+    expect(result.split("\n").length).toBeLessThanOrEqual(55);
   });
 });
 

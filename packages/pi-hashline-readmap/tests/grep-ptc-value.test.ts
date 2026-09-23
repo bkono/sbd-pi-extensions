@@ -120,9 +120,7 @@ describe("grep ptcValue", () => {
   it("returns a minimal ptc payload for direct binary-file warnings", async () => {
     const filePath = makeBinaryFile();
     const result = await callGrepTool({ pattern: "abc", path: filePath, literal: true });
-    const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
-    expect(text).toContain("appears to be a binary file");
     expect(ptc).toEqual({
       tool: "grep",
       summary: false,

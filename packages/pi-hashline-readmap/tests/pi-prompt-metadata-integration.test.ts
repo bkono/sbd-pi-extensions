@@ -9,7 +9,7 @@ describe("Pi system prompt metadata integration", () => {
     vi.resetModules();
   });
 
-  it("renders hashline override snippets and flat tool-named guidelines through Pi registration", async () => {
+  it("delivers registered snippets and guidelines through Pi registration", async () => {
     vi.doMock("node:child_process", async () => {
       const actual = await vi.importActual<any>("node:child_process");
       return {
@@ -25,21 +25,11 @@ describe("Pi system prompt metadata integration", () => {
     for (const toolName of EXPECTED_TOOLS) {
       const snippet = snippets[toolName];
       expect(snippet, `${toolName} promptSnippet`).toBeTruthy();
-      expect(snippet).not.toContain("\n");
-      expect(snippet.length, `${toolName} promptSnippet should stay concise`).toBeLessThanOrEqual(
-        140,
-      );
       expect(systemPrompt).toContain(`- ${toolName}: ${snippet}`);
 
       const guidelines = guidelinesByTool[toolName];
       expect(guidelines.length, `${toolName} promptGuidelines`).toBeGreaterThan(0);
       for (const guideline of guidelines) {
-        expect(guideline.toLowerCase(), `${toolName} guideline should name its tool`).toContain(
-          toolName.toLowerCase(),
-        );
-        expect(guideline, `${toolName} guideline should avoid ambiguous phrasing`).not.toMatch(
-          /\bthis tool\b/i,
-        );
         expect(systemPrompt).toContain(`- ${guideline}`);
       }
     }

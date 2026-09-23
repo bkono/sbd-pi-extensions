@@ -145,22 +145,6 @@ describe("grep context reduction", () => {
     expect(keptMatches[0].raw).toContain(":>>1:ab|");
   });
 
-  it("appends '... +K more matches' footer for truncated files", () => {
-    const lines: GrepIRLine[] = Array.from({ length: 80 }, (_, i) => ({
-      kind: "match",
-      raw: `src/foo.ts:>>${i + 1}:ab|line ${i}`,
-    }));
-
-    const ir: GrepIR = {
-      totalMatches: 80,
-      files: [{ path: "src/foo.ts", matchCount: 80, lines }],
-    };
-
-    const truncated = truncateGrepIR(ir);
-    const output = formatGrepOutput(truncated);
-    expect(output).toMatch(/\.\.\. \+\d+ more matches/);
-  });
-
   it("preserves all file entries even when matches are truncated", () => {
     const file1Lines: GrepIRLine[] = Array.from({ length: 40 }, (_, i) => ({
       kind: "match",

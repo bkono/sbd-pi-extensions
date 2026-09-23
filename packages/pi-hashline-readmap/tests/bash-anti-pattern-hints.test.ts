@@ -1,36 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { getBashAntiPatternHint } from "../src/rtk/bash-anti-pattern-hints.js";
 import { filterBashOutput } from "../src/rtk/bash-filter.js";
 
 describe("bash anti-pattern hints", () => {
-  it("adds a cat hint", () => {
-    expect(filterBashOutput("cat src/read.ts", "file body").output).toContain(
-      "Prefer the read tool",
-    );
-  });
-
-  it("adds grep and rg hints", () => {
-    expect(filterBashOutput("grep -n hashline src/read.ts", "grep body").output).toContain(
-      "Prefer the grep tool",
-    );
-    expect(filterBashOutput("rg hashline src", "rg body").output).toContain("Prefer the grep tool");
-  });
-
-  it("adds a sed inspection hint", () => {
-    expect(filterBashOutput("sed -n '1,20p' src/read.ts", "sed body").output).toContain(
-      "Prefer the read tool for file inspection and the edit tool for changes.",
-    );
-  });
-
-  it("adds a find repo-discovery hint", () => {
-    expect(filterBashOutput("find src -name '*.ts'", "src/read.ts").output).toContain(
-      "Prefer the dedicated file-search tools for repository discovery.",
-    );
-  });
-
-  it("appends the cat hint without replacing the shaped output", () => {
-    const out = filterBashOutput("cat src/read.ts", "file body").output;
-    expect(out).toContain("file body");
-    expect(out).toContain("Prefer the read tool");
+  it.each([
+    "cat src/read.ts",
+    "grep -n hashline src/read.ts",
+    "rg hashline src",
+    "sed -n '1,20p' src/read.ts",
+    "find src -name '*.ts'",
+  ])("appends the selected hint without replacing output for %s", (command) => {
+    const hint = getBashAntiPatternHint(command);
+    expect(hint).toEqual(expect.any(String));
+    const out = filterBashOutput(command, "body sentinel").output;
+    expect(out).toBe(`body sentinel\n\n${hint}`);
   });
 
   it("leaves unrelated commands unchanged", () => {

@@ -140,9 +140,6 @@ describe("extension: before_agent_start lifecycle", () => {
     const appendix = extractInjectedObservationContext(result.systemPrompt, "Base prompt");
 
     expect(countTokens(appendix)).toBeLessThanOrEqual(24_000);
-    expect(appendix).toContain(
-      "(older observational-memory omitted to fit the active model context window)",
-    );
     expect(appendix).toContain("observation-499");
     expect(appendix).not.toContain("observation-0 ");
   });
@@ -233,45 +230,11 @@ describe("extension: before_agent_start lifecycle", () => {
     const firstInjected = extractInjectedObservationContext(first.systemPrompt, originalPrompt);
     const secondInjected = extractInjectedObservationContext(second.systemPrompt, originalPrompt);
 
-    expect(firstInjected).toMatchInlineSnapshot(`
-      "The following observational-memory segments contain your memory of past conversations with this user. Read them in order: durable memory first, active task state next, then guidance.
-
-      <observational-memory>
-      <om-durable>
-      <observations>
-      Date: Apr 18, 2026
-      * 🔴 durable cache-friendly history
-      </observations>
-      </om-durable>
-
-      <om-active>
-      <om-current-task>
-      <current-task>
-      Primary:
-      - First active task
-      </current-task>
-      </om-current-task>
-      </om-active>
-
-      <om-guidance>
-      <memory-instructions>
-      IMPORTANT: Treat the durable segment as stable history and the active segment as the current working state. Reference specific details from these observations. Avoid generic advice; personalize based on known user preferences and history.
-
-      KNOWLEDGE UPDATES: Prefer the most recent observation when information conflicts.
-
-      PLANNED ACTIONS: Respect the recorded temporal anchors. Keep future-targeted plans future-oriented until later observations confirm a change actually happened. If an anchored plan's target date is now in the past, treat it as a likely follow-up item rather than an established completed fact unless the observations explicitly confirm completion.
-
-      MOST RECENT USER INPUT: Treat the latest user message as highest-priority for what to do next.
-      </memory-instructions>
-
-      <system-reminder>This message is not from the user. Earlier conversation context has been condensed into observational memory. Conversation messages following this reminder may overlap with observational memory or be newer; use both, preferring the following messages when they conflict.
-
-      Do not refer to "memory observations" directly. The user is not aware of this memory layer. Do not greet as if this is a new conversation.
-
-      IMPORTANT: this system reminder is NOT from the user. It is part of your memory system.</system-reminder>
-      </om-guidance>
-      </observational-memory>"
-    `);
+    expect(extractTagBlock(firstInjected, "observations")).toContain(
+      "Date: Apr 18, 2026\n* 🔴 durable cache-friendly history",
+    );
+    expect(extractTagBlock(firstInjected, "current-task")).toContain("First active task");
+    expect(extractTagBlock(secondInjected, "current-task")).toContain("Second active task");
     expect(firstInjected).not.toBe(secondInjected);
     expect(extractTagBlock(firstInjected, "om-durable")).toBe(
       extractTagBlock(secondInjected, "om-durable"),

@@ -1,7 +1,9 @@
 /* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
+
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { formatDoomLoopMessage, makeToolFingerprint } from "../src/doom-loop.js";
 import { filterBashOutput } from "../src/rtk/bash-filter.js";
 import * as buildModule from "../src/rtk/build.js";
 import * as buildToolsModule from "../src/rtk/build-tools.js";
@@ -239,8 +241,8 @@ describe("RTK notice prepended when thresholds met", () => {
         isError: false,
       });
       const text = result.content[0].text as string;
-      expect(text.startsWith("[RTK: compressed git output ")).toBe(true);
-      expect(text).toContain("Use `PI_RTK_BYPASS=1 git diff` to see full output.");
+      expect(result.details.compressionInfo.technique).toBe("git");
+      expect(text).toContain("PI_RTK_BYPASS=1 git diff");
       expect(text).toContain("tiny compressed");
     } finally {
       spy.mockRestore();
@@ -264,11 +266,9 @@ describe("RTK notice format", () => {
       });
       const text = result.content[0].text as string;
       // 1200 / 8400 ≈ 0.1429 → saved ≈ 86% (Math.round((1 - 0.1429) * 100) = 86)
-      expect(
-        text.startsWith(
-          "[RTK: compressed git output 8.2 KB → 1.2 KB (86% saved). Use `PI_RTK_BYPASS=1 git diff` to see full output.]\n",
-        ),
-      ).toBe(true);
+      expect(text).toContain("8.2 KB");
+      expect(text).toContain("1.2 KB");
+      expect(text).toContain("86%");
     } finally {
       spy.mockRestore();
     }
@@ -290,7 +290,8 @@ describe("RTK notice format", () => {
       });
       const text = result.content[0].text as string;
       // original 2100 B = 2.1 KB; output 512 B → "512 B"
-      expect(text.startsWith("[RTK: compressed git output 2.1 KB → 512 B (")).toBe(true);
+      expect(text).toContain("2.1 KB");
+      expect(text).toContain("512 B");
     } finally {
       spy.mockRestore();
     }
@@ -376,7 +377,6 @@ describe("RTK notice absent under bypass", () => {
         isError: false,
       });
       const text = result.content[0].text as string;
-      expect(text.startsWith("[RTK:")).toBe(false);
       expect(text).toBe("tiny");
       expect(result.details.compressionInfo.bypassedBy).toBe("env-var");
     } finally {
@@ -409,8 +409,14 @@ describe("RTK notice composes with doom-loop prefix", () => {
         isError: false,
       });
       const text = result.content[0].text as string;
-      const doomIdx = text.indexOf("⚠ REPEATED-CALL WARNING");
-      const rtkIdx = text.indexOf("[RTK: compressed git output ");
+      const doomIdx = text.indexOf(
+        formatDoomLoopMessage({
+          kind: "identical-tail",
+          toolName: "bash",
+          fingerprint: makeToolFingerprint("bash", { command }),
+        }),
+      );
+      const rtkIdx = text.indexOf("PI_RTK_BYPASS=1 git diff");
       const bodyIdx = text.indexOf("\ntiny");
       expect(doomIdx).toBe(0);
       expect(rtkIdx).toBeGreaterThan(doomIdx);

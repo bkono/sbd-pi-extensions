@@ -43,20 +43,13 @@ describe("applyBashContextGuard trimming", () => {
       },
     ]);
     expect(result.text).not.toBe(text);
-    expect(result.text).toContain("[Bash context guard: preview]");
-    expect(result.text).toContain("Full post-RTK output: /tmp/hashline-bash-post-rtk-fixed-id.txt");
-    expect(result.text).toContain("Original/pre-RTK output: /tmp/original-output.txt");
-    expect(result.text).toContain("Original/pre-RTK: 10 lines, 300 bytes");
-    expect(result.text).toContain(`Post-RTK: 6 lines, ${Buffer.byteLength(text, "utf8")} bytes`);
-    expect(result.text).toContain("Trigger thresholds: 5 lines, 1024 bytes");
-    expect(result.text).not.toContain("Limits: 5 lines, 1024 bytes");
-    expect(result.text).toContain("Command: npm test -- --runInBand");
-    expect(result.text).toContain("Head:");
+    expect(result.text).toContain("/tmp/hashline-bash-post-rtk-fixed-id.txt");
+    expect(result.text).toContain("/tmp/original-output.txt");
+    expect(result.text).toContain("npm test -- --runInBand");
     expect(result.text).toContain("line-1\nline-2");
-    expect(result.text).toContain("... omitted 2 lines");
-    expect(result.text).toContain("Tail:");
+    expect(result.text).not.toContain("line-3");
+    expect(result.text).not.toContain("line-4");
     expect(result.text).toContain("line-5\nline-6");
-    expect(result.text).not.toContain("use tool");
     expect(result.metadata).toMatchObject({
       enabled: true,
       trimmed: true,
@@ -130,8 +123,7 @@ describe("applyBashContextGuard trimming", () => {
         options: { mode: 0o600, flag: "wx" },
       },
     ]);
-    expect(result.text).toContain("[Bash context guard: preview]");
-    expect(result.text).toContain("[truncated preview line: 10000 bytes total");
+    expect(result.metadata.trimmed).toBe(true);
     expect(result.text).not.toContain(text);
     expect(Buffer.byteLength(result.text, "utf8")).toBeLessThan(2_500);
   });

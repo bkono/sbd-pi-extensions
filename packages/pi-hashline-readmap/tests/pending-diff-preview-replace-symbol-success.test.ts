@@ -31,7 +31,6 @@ describe("pending replace_symbol edit preview", () => {
 
     expect(projected.type).toBe("ok");
     if (projected.type !== "ok") throw new Error(projected.reason);
-    expect(projected.data.headerLabel).toBe("pending edit");
     expect(projected.data.nextContent).toContain("return a + b + 1;");
     expect(projected.data.diff).toContain("-2   return a + b;");
     expect(projected.data.diff).toContain("+2   return a + b + 1;");

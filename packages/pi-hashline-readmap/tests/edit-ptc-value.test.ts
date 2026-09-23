@@ -51,7 +51,6 @@ describe("edit ptcValue", () => {
         { set_line: { anchor: anchor2, new_text: "const two = 22;" } },
       ],
     });
-    const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
     expect(ptc).toBeDefined();
     expect(ptc.ok).toBe(true);
@@ -68,7 +67,6 @@ describe("edit ptcValue", () => {
         currentContent: "const one = 1;",
       },
     ]);
-    expect(text.split("\n")[0]).toBe(`Edited ${filePath} (2 changes, +1 -1 line)`);
   });
 
   it("returns legacy normalization warning when using top-level oldText/newText", async () => {
@@ -84,8 +82,7 @@ describe("edit ptcValue", () => {
 
     expect(ptc).toBeDefined();
     expect(ptc.ok).toBe(true);
-    expect(ptc.warnings).toContain(
-      "Legacy top-level oldText/newText input was normalized to edits[0].replace. Prefer the edits[] format.",
-    );
+    expect(ptc.warnings).toEqual(expect.arrayContaining([expect.any(String)]));
+    for (const warning of ptc.warnings) expect(getTextContent(result)).toContain(warning);
   });
 });

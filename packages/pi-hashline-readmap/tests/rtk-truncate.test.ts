@@ -56,7 +56,7 @@ describe("truncateLines", () => {
     const text = lines.join("\n");
 
     const result = truncateLines(text, 10);
-    expect(result).toContain("lines omitted");
+    expect(result.split("\n").filter((line) => /^line \d+$/.test(line))).toHaveLength(10);
     // Should keep some from start and some from end
     expect(result).toContain("line 1");
     expect(result).toContain("line 20");

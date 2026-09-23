@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionStatePath } from "../../config.js";
+import * as format from "../../format.js";
 import piObservationalMemory from "../../index.js";
+import { loadSessionState } from "../../state.js";
 import {
   createExtensionTestHarness,
   createFakeCommandContext,
@@ -64,6 +66,7 @@ describe("extension: /om command", () => {
 
   afterEach(() => {
     __clearMockAgents();
+    vi.restoreAllMocks();
     temp.cleanup();
     for (const key of OM_ENV_KEYS) {
       if (savedEnv[key] === undefined) {
@@ -95,6 +98,7 @@ describe("extension: /om command", () => {
   });
 
   it("shows human-readable OM status by default", async () => {
+    const render = vi.spyOn(format, "formatStatusReport").mockReturnValue("status-sentinel");
     preloadState({
       observations: "* 🔴 user prefers concise answers",
       observationTokens: 42,
@@ -126,24 +130,24 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om", "", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).toContain(`Observational memory status · ${sessionId}`);
-    expect(message).toContain("Published observations: yes · 42 tokens");
-    expect(message).toContain("Staged draft: yes · 64 tokens");
-    expect(message).toContain(
-      "Staging trigger: 96,000 tokens / 48 messages / 32,000 tool-result tokens",
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        observationTokens: 42,
+        draftObservationTokens: 64,
+        draftLastObservedEntryId: "entry-125",
+        currentTask: "Finish the slash command",
+        suggestedResponse: "Summarize the command output clearly.",
+        observeTriggered: true,
+        publishTriggered: false,
+        reflectTriggered: false,
+      }),
     );
-    expect(message).toContain("Next chunk: 0 messages · 0 tokens · 0 tool results / 0 tokens");
-    expect(message).toContain("Cycle decisions: stage yes · publish no · reflect no");
-    expect(message).toContain("Staged through: entry entry-125 · 2023-11-14 22:13:30 UTC");
-    expect(message).toContain("Last cycle: turn_end · 2023-11-14 22:13:20 UTC");
-    expect(message).toContain("Current task:");
-    expect(message).toContain("Finish the slash command");
-    expect(message).toContain("Suggested response:");
-    expect(message).not.toContain("{\n");
+    expect(ui.notifications).toEqual([{ message: "status-sentinel", level: "info" }]);
   });
 
   it("shows effective thresholds for the active 200k model", async () => {
+    const render = vi.spyOn(format, "formatStatusReport").mockReturnValue("status-sentinel");
     preloadState({});
 
     const harness = await createExtensionTestHarness(piObservationalMemory);
@@ -157,17 +161,24 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om", "status", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).toContain(
-      "Staging trigger: 50,494 tokens / 48 messages / 20,197 tool-result tokens",
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stagingThreshold: 50_494,
+        stagingMessageCountThreshold: 48,
+        stagingToolResultTokenThreshold: 20_197,
+        publishThreshold: 100_988,
+        publishMessageCountThreshold: 96,
+        publishToolResultTokenThreshold: 50_494,
+        reflectionThreshold: 24_000,
+      }),
     );
-    expect(message).toContain(
-      "Publish trigger: 100,988 tokens / 96 messages / 50,494 tool-result tokens",
-    );
-    expect(message).toContain("Reflection trigger: 24,000 staged observation tokens");
+    expect(ui.notifications).toEqual([{ message: "status-sentinel", level: "info" }]);
   });
 
   it("shows formatted observations via /om observations", async () => {
+    const render = vi
+      .spyOn(format, "formatObservationsReport")
+      .mockReturnValue("observations-sentinel");
     preloadState({
       observations: "* 🔴 user likes tests\n* 🟡 worker is on formatting",
       currentTask: "Review OM output",
@@ -182,14 +193,16 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om", "observations", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).toContain(`Observational memory observations · ${sessionId}`);
-    expect(message).toContain("Stored observation tokens: 55");
-    expect(message).toContain("Current task:");
-    expect(message).toContain("Suggested response:");
-    expect(message).toContain("Observations:");
-    expect(message).toContain("🔴 user likes tests");
-    expect(message).not.toContain("<observations>");
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        observations: "* 🔴 user likes tests\n* 🟡 worker is on formatting",
+        currentTask: "Review OM output",
+        suggestedResponse: "Call out the key observation bullets.",
+        observationTokens: 55,
+      }),
+    );
+    expect(ui.notifications).toEqual([{ message: "observations-sentinel", level: "info" }]);
   });
 
   it("shows usage for unknown subcommands", async () => {
@@ -199,7 +212,7 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om", "wat", ctx);
 
-    expect(ui.notifications[0]?.message).toContain("Usage: /om [status|observations]");
+    expect(ui.notifications).toEqual([{ message: format.OM_COMMAND_USAGE, level: "info" }]);
   });
 
   it("registers the /om:toggle command", async () => {
@@ -216,9 +229,8 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om:toggle", "", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).toContain("\u23f8");
-    expect(message).toContain("paused");
+    const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+    expect(state.paused).toBe(true);
   });
 
   it("toggles back to resumed on second /om:toggle", async () => {
@@ -230,12 +242,12 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om:toggle", "", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).toContain("\u25b6");
-    expect(message).toContain("resumed");
+    const state = await loadSessionState(`${temp.stateDir}/.pi/om-state`, sessionId);
+    expect(state.paused).toBe(false);
   });
 
-  it("shows paused indicator in status when paused", async () => {
+  it("passes paused state to the status renderer", async () => {
+    const render = vi.spyOn(format, "formatStatusReport").mockReturnValue("paused-sentinel");
     preloadState({ paused: true });
 
     const harness = await createExtensionTestHarness(piObservationalMemory);
@@ -244,11 +256,12 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om", "status", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).toContain("\u23f8 PAUSED");
+    expect(render).toHaveBeenCalledWith(expect.objectContaining({ paused: true }));
+    expect(ui.notifications).toEqual([{ message: "paused-sentinel", level: "info" }]);
   });
 
-  it("does not show paused indicator in status when active", async () => {
+  it("passes active state to the status renderer", async () => {
+    const render = vi.spyOn(format, "formatStatusReport").mockReturnValue("active-sentinel");
     preloadState({});
 
     const harness = await createExtensionTestHarness(piObservationalMemory);
@@ -257,7 +270,7 @@ describe("extension: /om command", () => {
 
     await harness.invokeCommand("om", "status", ctx);
 
-    const message = ui.notifications[0]?.message ?? "";
-    expect(message).not.toContain("PAUSED");
+    expect(render).toHaveBeenCalledWith(expect.objectContaining({ paused: false }));
+    expect(ui.notifications).toEqual([{ message: "active-sentinel", level: "info" }]);
   });
 });

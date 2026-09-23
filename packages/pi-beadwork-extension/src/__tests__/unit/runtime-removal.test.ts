@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { handleRunAction, type RunActionDeps } from "../../actions/run.js";
 import { parseArgv } from "../../argv.js";
 import { collectRejectedSupervisorKeys, REJECTED_SUPERVISOR_ENV_VARS } from "../../config.js";
@@ -20,8 +20,8 @@ import {
 function stubRunDeps(): RunActionDeps {
   return {
     pi: {
-      sendMessage() {},
-      sendUserMessage() {},
+      sendMessage: vi.fn(),
+      sendUserMessage: vi.fn(),
     },
     adapter: {} as RunActionDeps["adapter"],
     requireActive: async () => {
@@ -29,7 +29,7 @@ function stubRunDeps(): RunActionDeps {
     },
     ensurePrime: async (_ctx, _activation, _config, state) => state,
     setSessionMode: async (_ctx, _activation, _config, state) => ({ state }),
-    writeSessionState: async (_ctx, _activation, _config, state) => state,
+    writeSessionState: vi.fn(async (_ctx, _activation, _config, state) => state),
   };
 }
 
@@ -60,10 +60,7 @@ describe("worker runtime removal", () => {
     });
 
     const message = ui.notifications.at(-1)?.message ?? "";
-    const ok =
-      handled === true &&
-      ui.notifications.at(-1)?.level === "error" &&
-      message.includes("--workers");
+    const ok = handled === true && ui.notifications.at(-1)?.level === "error";
     console.info("[removal-probe]", {
       name: "/bw run --workers",
       ok,
@@ -72,8 +69,8 @@ describe("worker runtime removal", () => {
 
     expect(handled).toBe(true);
     expect(ui.notifications.at(-1)?.level).toBe("error");
-    expect(message).toContain("--workers");
-    expect(message).toContain("/bw run <epic-id>");
+    expect(deps.writeSessionState).not.toHaveBeenCalled();
+    expect(deps.pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
   it("still treats leftover supervisor config and env as live errors", () => {

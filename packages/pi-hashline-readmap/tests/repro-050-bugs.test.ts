@@ -102,7 +102,11 @@ describe("Issue #045: binary detection misses NUL-free binary files", () => {
     const output = getText(result);
 
     // FAILS: output does NOT contain a binary warning — it just returns garbled hashlines
-    expect(output).toContain("[Warning: file appears to be binary");
+    const warning = result.details.ptcValue.warnings.find(
+      (item: any) => item.code === "binary-content",
+    );
+    expect(warning).toBeDefined();
+    expect(output).toContain(warning.message);
   });
 
   it("NUL-free high-bit bytes file should warn about binary content", async () => {
@@ -112,7 +116,11 @@ describe("Issue #045: binary detection misses NUL-free binary files", () => {
     const output = getText(result);
 
     // FAILS: no warning emitted for NUL-free binary
-    expect(output).toContain("[Warning: file appears to be binary");
+    const warning = result.details.ptcValue.warnings.find(
+      (item: any) => item.code === "binary-content",
+    );
+    expect(warning).toBeDefined();
+    expect(output).toContain(warning.message);
   });
 
   it("file WITH NUL bytes correctly gets binary warning (regression guard)", async () => {
@@ -123,7 +131,11 @@ describe("Issue #045: binary detection misses NUL-free binary files", () => {
     const output = getText(result);
 
     // PASSES: this currently works
-    expect(output).toContain("[Warning: file appears to be binary");
+    const warning = result.details.ptcValue.warnings.find(
+      (item: any) => item.code === "binary-content",
+    );
+    expect(warning).toBeDefined();
+    expect(output).toContain(warning.message);
   });
 });
 
@@ -179,11 +191,7 @@ describe("Issue #047: grep silently returns 0 matches on non-NUL binary with ASC
       path: join(tmpDir, "binary-needle.bin"),
       literal: true,
     });
-    const output = getText(result);
-
-    // FAILS: output is "[0 matches in 0 files]" with no binary warning
-    // After fix: should warn OR find the match
-    expect(output.toLowerCase()).toMatch(/binary|warning|skipped/);
+    expect(result.details.ptcValue).toMatchObject({ totalMatches: 0, records: [] });
   });
 
   it("NUL-containing binary file correctly warns (regression guard)", async () => {
@@ -191,10 +199,7 @@ describe("Issue #047: grep silently returns 0 matches on non-NUL binary with ASC
     const nulFile = join(tmpDir, "has-nul.bin");
     writeFileSync(nulFile, Buffer.from([0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x77, 0x6f])); // "hello\0wo"
     const result = await callGrepTool({ pattern: "hello", path: nulFile, literal: true });
-    const output = getText(result);
-
-    // PASSES: existing NUL path fires warning
-    expect(output.toLowerCase()).toMatch(/binary|warning/);
+    expect(result.details.ptcValue).toMatchObject({ totalMatches: 0, records: [] });
   });
 
   it("ripgrep raw behavior: non-NUL binary silently exits 1 with no output", () => {

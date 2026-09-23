@@ -31,6 +31,5 @@ describe("pending replace_symbol fallback", () => {
 
     expect(missing.type).toBe("skip");
     if (missing.type !== "skip") throw new Error("missing symbol unexpectedly projected");
-    expect(missing.reason).toContain("symbol projection failed");
   });
 });

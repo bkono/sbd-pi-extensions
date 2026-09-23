@@ -15,10 +15,6 @@ async function getLsTool() {
   return captured;
 }
 
-function text(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 function makeDir() {
   const dir = mkdtempSync(join(tmpdir(), "ls-glob-"));
   writeFileSync(join(dir, "a.ts"), "");
@@ -39,8 +35,6 @@ describe("ls glob validation", () => {
         { cwd: process.cwd() },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain(`Invalid glob "[invalid"`);
-      expect(text(result)).not.toBe("(empty directory)");
       expect(result.details?.ptcValue?.error?.code).toBe("invalid-params-combo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -59,7 +53,7 @@ describe("ls glob validation", () => {
         { cwd: process.cwd() },
       );
       expect(result.isError).toBe(true);
-      expect(text(result)).toContain(`Invalid glob "{unmatched"`);
+      expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

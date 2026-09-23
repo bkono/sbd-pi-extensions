@@ -6,10 +6,6 @@ import { describe, expect, it } from "vitest";
 import init from "../index.js";
 import { computeLineHash, ensureHashInit } from "../src/hashline.js";
 
-function getTextContent(result: any): string {
-  return result.content?.find((item: any) => item.type === "text")?.text ?? "";
-}
-
 function createHarness() {
   const tools: Record<string, any> = {};
   const handlers: Record<string, Function> = {};
@@ -178,7 +174,7 @@ describe("issue 144 — fresh re-read survives a subsequent context turn", () =>
     );
 
     expect(editResult2.isError).not.toBe(true);
-    expect(getTextContent(editResult2)).toContain(`Edited ${filePath}`);
+    expect(editResult2.isError).toBeFalsy();
     expect(readFileSync(filePath, "utf-8")).toBe(
       `${["a", "b", "uniqueLineV3", "d", "e"].join("\n")}\n`,
     );

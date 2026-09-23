@@ -80,7 +80,6 @@ describe("syntax-regression validator wired into edit (warn mode)", () => {
 
       expect(res.isError).toBe(true);
       expect(res.details?.ptcValue?.error?.code).toBe("syntax-regression");
-      expect(res.details?.ptcValue?.error?.message).toMatch(/lines \d+/);
       expect(readFileSync(fp, "utf8")).toBe(original);
     } finally {
       rmSync(dir, { recursive: true, force: true });

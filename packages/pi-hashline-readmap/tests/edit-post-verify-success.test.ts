@@ -67,7 +67,6 @@ describe("edit postEditVerify success", () => {
     expect(fsMock.readFile.mock.invocationCallOrder[1]).toBeGreaterThan(
       fsMock.writeFile.mock.invocationCallOrder[0],
     );
-    expect(result.content[0].text).toContain("Edited /tmp/post-edit-success.txt");
     expect(result.details.diff).toContain("alpha");
     expect(result.details.diffData).toEqual(result.details.ptcValue.diffData);
     expect(result.details.ptcValue.ok).toBe(true);

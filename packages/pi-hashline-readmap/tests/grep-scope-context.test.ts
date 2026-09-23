@@ -53,9 +53,7 @@ describe("grep scopeContext parameter", () => {
       scopeContext: "not-a-number",
     });
     expect(result.isError).toBe(true);
-    const text = getTextContent(result);
-    expect(text).toMatch(/scopeContext/);
-    expect(text).toMatch(/base-10 integer/);
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 
   it("rejects negative scopeContext with a non-negative-integer error", async () => {
@@ -68,9 +66,7 @@ describe("grep scopeContext parameter", () => {
       scopeContext: -1,
     });
     expect(result.isError).toBe(true);
-    expect(getTextContent(result)).toBe(
-      "Invalid scopeContext: expected a non-negative integer, received -1.",
-    );
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 
   it("rejects scopeContext when scope is not 'symbol' and points to 'context'", async () => {
@@ -83,10 +79,7 @@ describe("grep scopeContext parameter", () => {
       // no scope: "symbol"
     });
     expect(result.isError).toBe(true);
-    const text = getTextContent(result);
-    expect(text).toContain("scopeContext");
-    expect(text).toContain('scope: "symbol"');
-    expect(text).toContain("context");
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 
   it("renders symbol header with '±0 lines' suffix and only match lines when scopeContext is 0", async () => {
@@ -145,10 +138,7 @@ describe("grep scopeContext parameter", () => {
       scope: "symbol",
       scopeContext: 5,
     });
-    const text = getTextContent(result);
-
-    expect(text).not.toMatch(/clipped/i);
-    expect(text).not.toMatch(/\[Warning:.*boundary/);
+    expect(result.details.ptcValue.scopes.warnings).toEqual([]);
   });
 
   it("renders ±N context lines around match with the header suffix (end-to-end)", async () => {
@@ -211,9 +201,13 @@ describe("grep scopeContext parameter", () => {
     const textWithCtx = getTextContent(withCtx);
     const textWithoutCtx = getTextContent(withoutCtx);
 
-    expect(textWithCtx).toContain(`[Warning: symbol scoping unavailable for ${filePath}`);
+    expect(withCtx.details.ptcValue.scopes).toMatchObject({
+      groups: [],
+      warnings: [{ code: "unmappable-file", path: filePath }],
+    });
+    const normal = await callGrepTool({ pattern: "plain text", path: filePath, literal: true });
+    expect(withCtx.details.ptcValue.records).toEqual(normal.details.ptcValue.records);
     expect(textWithCtx).toBe(textWithoutCtx);
-    expect(textWithCtx).not.toContain("scoped to");
   });
 
   it("falls back unchanged for matches with no enclosing symbol; scopeContext has no effect", async () => {
@@ -240,9 +234,18 @@ describe("grep scopeContext parameter", () => {
     const textWithCtx = getTextContent(withCtx);
     const textWithoutCtx = getTextContent(withoutCtx);
 
-    expect(textWithCtx).toContain(`[Warning: no enclosing symbol for ${filePath}:1`);
+    expect(withCtx.details.ptcValue.scopes).toMatchObject({
+      groups: [],
+      warnings: [{ code: "no-enclosing-symbol", path: filePath, line: 1 }],
+    });
+    const normal = await callGrepTool({
+      pattern: "lonely",
+      path: filePath,
+      literal: true,
+      context: 1,
+    });
+    expect(withCtx.details.ptcValue.records).toEqual(normal.details.ptcValue.records);
     expect(textWithCtx).toBe(textWithoutCtx);
-    expect(textWithCtx).not.toContain("scoped to");
   });
 
   it("summary: true silently ignores scopeContext", async () => {
@@ -265,7 +268,6 @@ describe("grep scopeContext parameter", () => {
     expect(summary.isError).toBeUndefined();
     expect(getTextContent(summary)).toBe(getTextContent(baseline));
     expect((summary.details?.ptcValue as any).scopes).toBeUndefined();
-    expect(getTextContent(summary)).not.toContain("scoped to");
   });
 
   it("omitting scopeContext returns byte-identical full-body output (back-compat)", async () => {
@@ -276,9 +278,7 @@ describe("grep scopeContext parameter", () => {
       literal: true,
       scope: "symbol",
     });
-    const fullText = getTextContent(full);
 
-    expect(fullText).not.toContain("scoped to");
     expect((full.details?.ptcValue as any).scopes.groups[0].symbol).toBeDefined();
     expect((full.details?.ptcValue as any).scopes.groups[0].contextLines).toBeUndefined();
   });

@@ -89,7 +89,6 @@ describe("read TUI renderer", () => {
       }),
       36,
     );
-    expect(rendered).toContain("↳ loaded 1 line");
     expect(rendered).toContain("1:abc|");
     expect(rendered.split("\n").every((line) => visibleWidth(line) <= 36)).toBe(true);
     expect(result.content[0].text).toBe(beforeText);

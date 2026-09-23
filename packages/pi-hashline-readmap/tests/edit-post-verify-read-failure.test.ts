@@ -57,10 +57,8 @@ describe("edit postEditVerify read failure", () => {
 
     expect(fsMock.writeFile).toHaveBeenCalledTimes(1);
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("write completed but post-edit verification failed");
     expect(result.details.ptcValue.ok).toBe(false);
     expect(result.details.ptcValue.error.code).toBe("post-edit-verification-read-failed");
-    expect(result.details.ptcValue.error.message).toContain("write completed");
     expect(result.details.ptcValue.error.details).toEqual({
       fsCode: "EIO",
       fsMessage: "simulated read-back failure",

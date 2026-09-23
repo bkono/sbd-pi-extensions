@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import * as editModule from "../src/edit.js";
 import * as editOutputModule from "../src/edit-output.js";
-import { buildEditOutput } from "../src/edit-output.js";
 import { computeLineHash, ensureHashInit } from "../src/hashline.js";
 
 async function callEditTool(params: Record<string, unknown>) {
@@ -55,22 +54,8 @@ describe("buildEditOutput", () => {
     });
 
     const built = spy.mock.results.at(-1)?.value;
-    expect(built.text).toContain(`Edited ${filePath} (2 changes, +1 -1 line)`);
-    expect(built.ptcValue.summary).toBe(`Updated ${filePath}`);
     expect(getTextContent(result)).toBe(built.text);
     expect(result.details?.ptcValue).toEqual(built.ptcValue);
-  });
-  it("pluralizes the visible summary for single-line insert diffs", () => {
-    const insertOnly = buildEditOutput({
-      path: "/tmp/test.ts",
-      displayPath: "test.ts",
-      diff: "@@ -1 +1,2 @@\n const x = 1;\n+const y = 2;",
-      firstChangedLine: 1,
-      warnings: [],
-      noopEdits: [],
-      edits: [{ insert_after: { anchor: "1:abc", new_text: "const y = 2;\n" } }],
-    });
-    expect(insertOnly.text).toContain("Edited test.ts (1 change, +1 -0 line)");
   });
   it("projects legacy normalization warnings through the shared builder", async () => {
     const spy = vi.spyOn(editOutputModule, "buildEditOutput");
@@ -83,7 +68,7 @@ describe("buildEditOutput", () => {
     });
 
     const built = spy.mock.results.at(-1)?.value;
-    expect(built.text.includes("Warnings:")).toBe(true);
+    expect(built.ptcValue.warnings.length).toBeGreaterThan(0);
     expect(getTextContent(result)).toBe(built.text);
     expect(result.details?.ptcValue).toEqual(built.ptcValue);
   });

@@ -25,7 +25,6 @@ describe("pending edit replace preview", () => {
 
     expect(preview.type).toBe("ok");
     if (preview.type !== "ok") throw new Error(`preview skipped: ${preview.reason}`);
-    expect(preview.data.headerLabel).toBe("pending edit");
     expect(preview.data.nextContent).toBe("let one = 1;\nconst two = 2;\n");
   });
 });

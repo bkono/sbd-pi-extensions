@@ -1,6 +1,7 @@
 /* biome-ignore-all lint/complexity/noBannedTypes: test harnesses store opaque Pi event callbacks. */
 import { describe, expect, it } from "vitest";
 import init from "../index.js";
+import { formatDoomLoopMessage, makeToolFingerprint } from "../src/doom-loop.js";
 
 function createHarness() {
   const handlers: Record<string, Function> = {};
@@ -68,8 +69,13 @@ describe("doom loop detection — repeated subsequences", () => {
 
     expect(loopedResult).toBeDefined();
     const text = loopedResult.content[0].text as string;
-    expect(text.startsWith("⚠ ALTERNATING-CALL WARNING")).toBe(true);
-    expect(text).toContain("read-c");
-    expect(text).not.toContain("You appear to be stuck. Try a different approach.");
+    const warning = formatDoomLoopMessage({
+      kind: "repeated-subsequence",
+      toolName: "read",
+      fingerprint: makeToolFingerprint("read", { path: "src/edit.ts" }),
+      steps: sequence,
+    });
+    expect(text.startsWith(warning)).toBe(true);
+    expect(text.endsWith("read-c")).toBe(true);
   });
 });

@@ -44,13 +44,10 @@ describe("read ptcValue — metadata cases", () => {
     const filePath = resolve(fixturesDir, "large.ts");
     const result = await callReadTool({ path: filePath });
     const ptc = result.details?.ptcValue;
-    const text = getTextContent(result);
 
     expect(ptc).toBeDefined();
     expect(ptc.truncation).not.toBeNull();
     expect(ptc.map).toEqual({ requested: false, appended: true });
-    expect(text).toContain("[Output truncated:");
-    expect(text).toContain("File Map:");
   });
 
   it("captures symbol metadata for symbol reads", async () => {
@@ -77,10 +74,8 @@ describe("read ptcValue — metadata cases", () => {
     const filePath = resolve(fixturesDir, "small.ts");
     const result = await callReadTool({ path: filePath, map: true });
     const ptc = result.details?.ptcValue;
-    const text = getTextContent(result);
 
     expect(ptc.map).toEqual({ requested: true, appended: true });
-    expect(text).toContain("File Map:");
   });
 
   it("captures bare-CR warnings as structured warnings without changing warning text", async () => {
@@ -89,15 +84,8 @@ describe("read ptcValue — metadata cases", () => {
     const ptc = result.details?.ptcValue;
     const text = getTextContent(result);
 
-    expect(ptc.warnings).toContainEqual({
-      code: "bare-cr",
-      message:
-        "[Warning: file contains bare CR (\\r) line endings — line numbering may be inconsistent with grep and other tools]",
-    });
-    expect(
-      text.startsWith(
-        "[Warning: file contains bare CR (\\r) line endings — line numbering may be inconsistent with grep and other tools]",
-      ),
-    ).toBe(true);
+    const warning = ptc.warnings.find((warning: any) => warning.code === "bare-cr");
+    expect(warning).toBeDefined();
+    expect(text).toContain(warning.message);
   });
 });

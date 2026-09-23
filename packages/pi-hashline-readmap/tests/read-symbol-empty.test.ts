@@ -36,7 +36,6 @@ describe("read symbol validation", () => {
       { cwd: process.cwd() },
     );
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain("Invalid symbol: expected a non-empty string.");
     expect(result.details?.ptcValue?.ok).toBe(false);
     expect(result.details?.ptcValue?.error?.code).toBe("invalid-params-combo");
   });
@@ -63,6 +62,6 @@ describe("read symbol validation", () => {
       () => {},
       { cwd: process.cwd() },
     );
-    expect(textOf(result)).not.toContain("Invalid symbol: expected a non-empty string.");
+    expect(result.details.ptcValue.error?.code).not.toBe("invalid-params-combo");
   });
 });

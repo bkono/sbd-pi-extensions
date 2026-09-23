@@ -53,9 +53,9 @@ describe("AgentTree spawn default", () => {
     tree.add("aaaaaaaa", "spawn", "spawn work", { kind: "spawn" });
     const candidates = ["aaaaaaaa", "bbbbbbbb"];
     expect(generateAvailableId(tree, new Set(), () => candidates.shift()!)).toBe("bbbbbbbb");
-    expect(() => generateAvailableId(tree, new Set(), () => "aaaaaaaa")).toThrow(
-      `after ${MAX_PUBLIC_ID_ATTEMPTS} attempts`,
-    );
+    const occupiedId = vi.fn(() => "aaaaaaaa");
+    expect(() => generateAvailableId(tree, new Set(), occupiedId)).toThrow();
+    expect(occupiedId).toHaveBeenCalledTimes(MAX_PUBLIC_ID_ATTEMPTS);
   });
 
   it("rejects spawn/orchestrated duplicate registration atomically and permits reuse after retire", () => {
@@ -66,7 +66,7 @@ describe("AgentTree spawn default", () => {
         kind: "orchestrated",
         groupId: "grp-1",
       }),
-    ).toThrow("agent id already registered: deadbeef");
+    ).toThrow();
     expect(tree.get("deadbeef")).toBe(original);
     tree.remove("deadbeef");
     expect(

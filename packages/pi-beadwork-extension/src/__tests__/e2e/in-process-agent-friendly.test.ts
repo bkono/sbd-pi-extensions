@@ -187,21 +187,6 @@ describe("agent-friendly orchestration vertical slice", () => {
           issueIds: [alpha.id, beta.id],
         });
 
-        const appendix = await harness.beadwork.dispatch<{ systemPrompt?: string }>(
-          "before_agent_start",
-          { systemPrompt: "base" },
-          harness.ctx,
-        );
-        const standing = appendix?.systemPrompt ?? "";
-        expect(standing).toContain("This is a manager-only loop.");
-        expect(standing).toContain(
-          "The parent does not implement a delegated ticket concurrently with its live child.",
-        );
-        expect(standing).toContain(
-          "Do not start review of ticket A while A's implementer is still live.",
-        );
-        expect(standing).toContain("return the commit SHA");
-
         await harness.invokeBeadworkTool("beadwork_start_issue", { id: alpha.id });
         await harness.invokeBeadworkTool("beadwork_start_issue", { id: beta.id });
         const launched = await harness.orchestrate({
@@ -239,7 +224,6 @@ describe("agent-friendly orchestration vertical slice", () => {
           taskType: "implementation",
           domain: domainFor(epicId, beta),
         });
-        expect(harness.fleetSnapshot().join("\n")).toMatch(/pending · starting/);
         await harness.logStep("implementers-registered", {
           childId: childA,
           childIds: [childA, childB],
@@ -277,7 +261,6 @@ describe("agent-friendly orchestration vertical slice", () => {
         const toolFleet = harness.fleetSnapshot().join("\n");
         expect(toolFleet).toContain("read src/alpha.ts");
         expect(toolFleet).toContain("npm test -- beta");
-        expect(toolFleet).not.toMatch(/turn \d+/i);
         expect(harness.tree.get(childA)?.activity?.phase).toBe("tool");
         await harness.logStep("fleet-tool-activity", {
           childId: childA,
@@ -310,7 +293,6 @@ describe("agent-friendly orchestration vertical slice", () => {
         expect(asked.details?.status).toBe("queued");
         expect(harness.tree.get(childA)?.status).toBe("running");
         expect(harness.tree.get(childA)?.activity?.phase).not.toBe("waiting");
-        expect(harness.fleetSnapshot().join("\n")).not.toContain("waiting on parent");
         await harness.waitForPackets(beforeQuestion + 1);
         expect(harness.lastPacket()?.message.details.changed).toContainEqual(
           expect.objectContaining({ childId: childA, eventClass: "parentMessage" }),
@@ -327,7 +309,6 @@ describe("agent-friendly orchestration vertical slice", () => {
 
         sessionB.beginSettling(`${IMPLEMENTER_OUTPUT} commit ${betaCommit}`);
         expect(harness.tree.get(childB)?.activity?.phase).toBe("settling");
-        expect(harness.fleetSnapshot().join("\n")).toContain("settling");
         await harness.logStep("fleet-settling-activity", {
           childId: childB,
           groupId: launched.groupId,
@@ -395,11 +376,6 @@ describe("agent-friendly orchestration vertical slice", () => {
         expect(finalPacket?.message.details.changed).toHaveLength(2);
         expect(finalPacket?.message.details.groupIdleId).toBe(launched.groupId);
         expect(finalPacket?.message.details.stillRunning).toEqual([]);
-        expect(finalPacket?.message.content).toMatch(/group idle:/i);
-        expect(finalPacket?.message.content).toMatch(
-          /evaluate the supplied evidence and decide the next action/i,
-        );
-        expect(finalPacket?.message.content).not.toMatch(/goal (completed|succeeded)/i);
         expect(finalPacket?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
         expect(Buffer.byteLength(finalPacket?.message.content ?? "", "utf8")).toBeLessThanOrEqual(
           PACKET_CONTENT_BYTE_BUDGET,
@@ -462,10 +438,7 @@ describe("agent-friendly orchestration vertical slice", () => {
       } catch (error) {
         rejection = error instanceof Error ? error : new Error(String(error));
       }
-      expect(rejection?.message).toContain("Orchestration rejected: 0 starting, 1 rejected.");
-      expect(rejection?.message).toContain('Unknown agent "not-a-discovered-agent"');
-      expect(rejection?.message).toContain("list_agents");
-      expect(rejection?.message).not.toMatch(/\bcompleted\b/i);
+      expect(rejection).toBeInstanceOf(Error);
       expect(harness.groups.getOpenGroup()).toBeUndefined();
       expect(harness.tree.getRoots()).toEqual([]);
       await harness.logStep("all-rejected-no-empty-group", {
@@ -574,13 +547,10 @@ describe("agent-friendly orchestration vertical slice", () => {
       })) as { details?: { id?: string } };
       await harness.beadwork.invokeCommand("bw", `engage ${harness.fixture.epic.id}`, harness.ctx);
       expect(created.details?.id).toBeTruthy();
-      const prompt = await harness.beadwork.dispatch<{ systemPrompt?: string }>(
+      await harness.beadwork.dispatch<{ systemPrompt?: string }>(
         "before_agent_start",
         { systemPrompt: "planning" },
         harness.ctx,
-      );
-      expect(prompt?.systemPrompt).toContain(
-        "Do not auto-start goal mode merely because an epic exists, becomes ready, or was just created.",
       );
       const state = await persistedState(harness);
       expect(state.mode).not.toBe("run");

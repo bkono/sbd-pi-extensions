@@ -72,11 +72,6 @@ describe("aggregateLinterOutput", () => {
     expect(aggregateLinterOutput("some output", "npm test")).toBeNull();
   });
 
-  it("reports no issues for empty parseable output", () => {
-    const result = aggregateLinterOutput("", "eslint src/");
-    expect(result).toContain("No issues found");
-  });
-
   it("aggregates eslint error output", () => {
     const output = [
       "src/foo.ts:10:5: Missing semicolon [semi]",

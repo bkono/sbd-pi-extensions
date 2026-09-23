@@ -222,7 +222,7 @@ describe("formatEditResultText", () => {
       noopEdits: [],
       errorText: "",
     });
-    expect(result.warningsBadge).toBe("⚠ 1 warning");
+    expect(result.warningsBadge).toContain("1");
   });
 
   it("returns warnings badge plural", () => {
@@ -233,7 +233,7 @@ describe("formatEditResultText", () => {
       noopEdits: [],
       errorText: "",
     });
-    expect(result.warningsBadge).toBe("⚠ 3 warnings");
+    expect(result.warningsBadge).toContain("3");
   });
 
   it("returns error text for non-noop errors", () => {

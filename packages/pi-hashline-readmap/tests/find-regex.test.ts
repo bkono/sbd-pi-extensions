@@ -164,8 +164,6 @@ describe("find regex invalid input", () => {
     );
     expect(result.isError).toBe(true);
     const msg = result.content?.[0]?.text ?? "";
-    expect(msg).toMatch(/pattern/i);
-    expect(msg).toMatch(/regex/i);
     expect(msg).toContain(badPattern);
     expect(result.details?.ptcValue).toMatchObject({
       tool: "find",

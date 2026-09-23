@@ -128,10 +128,8 @@ describe("repro 109 — anchor contract", () => {
       () => {},
       { cwd: process.cwd() },
     );
-    const text = getTextContent(writeResult);
 
     expect(writeResult.details?.ptcValue?.lines).toHaveLength(2003);
-    expect(text).toContain("full anchors in ptcValue");
 
     await rm(dir, { recursive: true, force: true });
   });

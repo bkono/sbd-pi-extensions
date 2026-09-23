@@ -94,7 +94,6 @@ describe("findSymbol @line grammar", () => {
     };
     const r = findSymbol(m, "Foo.baz@5");
     expect(r.type).toBe("not-found");
-    expect((r as any).message).toContain("Candidates: ");
     expect((r as any).message).toMatch(/baz@\d+/);
     expect(((r as any).candidates ?? []).length).toBeGreaterThan(0);
     expect((r as any).candidates.some((c: any) => c.name === "baz" && c.startLine === 80)).toBe(

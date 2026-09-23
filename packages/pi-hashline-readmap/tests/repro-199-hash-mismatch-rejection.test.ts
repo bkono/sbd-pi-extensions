@@ -26,11 +26,6 @@ describe("repro 199 — hash-mismatch message leads with explicit rejection", ()
     }
     expect(caught).toBeInstanceOf(HashlineMismatchError);
     const message = (caught as HashlineMismatchError).message;
-    expect(message.startsWith("Edit rejected")).toBe(true);
-    expect(message).toContain("nothing was written");
-    expect(message).toContain("anchor hash did not match");
-    // Backward-compatible: existing churn phrasing and >>> markers remain.
-    expect(message).toContain("changed since last read");
     expect(message).toContain(">>>");
   });
 });

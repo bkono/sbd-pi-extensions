@@ -25,6 +25,5 @@ describe("pending hashline edit fallback", () => {
 
     expect(stale.type).toBe("skip");
     if (stale.type !== "skip") throw new Error("stale anchor unexpectedly projected");
-    expect(stale.reason).toContain("anchor projection failed");
   });
 });

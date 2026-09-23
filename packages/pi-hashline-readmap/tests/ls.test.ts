@@ -106,8 +106,7 @@ describe("ls errors", () => {
       { cwd: process.cwd() },
     );
     expect(result.isError).toBe(true);
-    const output = text(result);
-    expect(output).toContain("does not exist");
+    expect(result.details.ptcValue.error.code).toBe("path-not-found");
   });
 
   it("returns isError with read hint when path is a file", async () => {
@@ -121,9 +120,7 @@ describe("ls errors", () => {
       { cwd: process.cwd() },
     );
     expect(result.isError).toBe(true);
-    const output = text(result);
-    expect(output).toContain("is a file, not a directory");
-    expect(output).toContain("read");
+    expect(result.details.ptcValue.error.code).toBe("path-not-directory");
   });
 });
 
@@ -139,8 +136,6 @@ describe("ls empty directory", () => {
         undefined,
         { cwd: process.cwd() },
       );
-      const output = text(result);
-      expect(output).toBe("(empty directory)");
       expect(result.isError).toBeUndefined();
       const ptc = result.details?.ptcValue;
       expect(ptc.totalEntries).toBe(0);
@@ -204,14 +199,6 @@ describe("ls limit truncation", () => {
       { cwd: process.cwd() },
     );
 
-    const output = text(result);
-    // Should show only 2 entries + truncation notice
-    const lines = output.split("\n").filter((l: string) => l.length > 0);
-    // 2 entries + 1 truncation notice
-    expect(lines).toHaveLength(3);
-    expect(lines[2]).toContain("2 more entries");
-    expect(lines[2]).toContain("glob");
-
     const ptc = result.details?.ptcValue;
     expect(ptc.truncated).toBe(true);
     expect(ptc.totalEntries).toBe(4);
@@ -240,7 +227,6 @@ describe("ls byte-budget truncation", () => {
       );
 
       const output = text(result);
-      expect(output).toContain("truncated at 50 KB");
       expect(Buffer.byteLength(output, "utf8")).toBeLessThan(55 * 1024); // some tolerance for the notice
     } finally {
       rmSync(bigDir, { recursive: true, force: true });

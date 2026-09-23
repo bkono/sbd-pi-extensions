@@ -120,7 +120,6 @@ describe("aggregateTestOutput — fail case (full output preserved)", () => {
 
     const result = aggregateTestOutput(bigOutput, "vitest");
     expect(result).not.toBeNull();
-    expect(result).toContain("... (output truncated");
     // The failure details at the tail must be preserved
     expect(result).toContain("AssertionError: expected false to be true");
     expect(result).toContain("bar.test.ts:5:3");

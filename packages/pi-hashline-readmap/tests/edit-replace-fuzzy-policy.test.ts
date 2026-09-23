@@ -45,9 +45,7 @@ describe("edit replace fuzzy policy", () => {
 
     expect(result.isError).toBe(true);
     expect(result.details?.ptcValue?.error?.code).toBe("text-not-found");
-    expect(getTextContent(result)).toContain("Could not find exact text to replace");
-    expect(result.details?.ptcValue?.error?.hint).toContain("Re-read the file");
-    expect(result.details?.ptcValue?.error?.hint).toContain("set_line/replace_lines/insert_after");
+    expect(result.details?.ptcValue?.error?.hint).toEqual(expect.any(String));
     expect(readFileSync(filePath, "utf-8")).toBe(current);
   });
 
@@ -64,12 +62,9 @@ describe("edit replace fuzzy policy", () => {
     expect(result.isError).not.toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe("alpha\n");
     const text = getTextContent(result);
-    expect(text).toContain("Warnings:");
-    expect(text).toContain("replace used fuzzy matching because exact old_text was not found");
-    expect(text).toContain("prefer set_line/replace_lines/insert_after");
-    expect(result.details?.ptcValue?.warnings).toContain(
-      "replace used fuzzy matching because exact old_text was not found; re-read the file and prefer set_line/replace_lines/insert_after for hash-verified edits.",
-    );
+    const warnings = result.details?.ptcValue?.warnings;
+    expect(warnings).toEqual(expect.arrayContaining([expect.any(String)]));
+    for (const warning of warnings) expect(text).toContain(warning);
   });
 
   it("allows explicit fuzzy all:true replace and emits a fuzzy warning", async () => {
@@ -92,10 +87,8 @@ describe("edit replace fuzzy policy", () => {
     expect(result.isError).not.toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe("alpha\n\nalpha\n");
     const text = getTextContent(result);
-    expect(text).toContain("Warnings:");
-    expect(text).toContain("replace used fuzzy matching because exact old_text was not found");
-    expect(result.details?.ptcValue?.warnings).toContain(
-      "replace used fuzzy matching because exact old_text was not found; re-read the file and prefer set_line/replace_lines/insert_after for hash-verified edits.",
-    );
+    const warnings = result.details?.ptcValue?.warnings;
+    expect(warnings).toEqual(expect.arrayContaining([expect.any(String)]));
+    for (const warning of warnings) expect(text).toContain(warning);
   });
 });

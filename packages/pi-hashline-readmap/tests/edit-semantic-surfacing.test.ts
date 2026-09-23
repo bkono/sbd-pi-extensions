@@ -24,9 +24,6 @@ function makeFixture(content: string): string {
   writeFileSync(filePath, content, "utf-8");
   return filePath;
 }
-function getTextContent(result: any): string {
-  return result.content.find((c: any) => c.type === "text")?.text ?? "";
-}
 describe("edit semantic surfacing", () => {
   beforeAll(async () => {
     await ensureHashInit();
@@ -42,12 +39,9 @@ describe("edit semantic surfacing", () => {
       edits: [{ set_line: { anchor, new_text: "    const value = 1;" } }],
     });
 
-    const text = getTextContent(result);
     expect(result.isError).not.toBe(true);
-    expect(text.split("\n")[0]).toBe(`Edited ${filePath} (1 change, +1 -1 line)`);
-    expect(text.split("\n")[1]).toBe(
-      "⚠ Edit classified as whitespace-only — if you intended a behavior change, re-read to verify.",
-    );
+    expect(readFileSync(filePath, "utf-8")).toBe("    const value = 1;\n");
+    expect(result.details.ptcValue.semanticSummary.classification).toBe("whitespace-only");
   });
   it("does not warn when every new_text is whitespace-only", async () => {
     const filePath = makeFixture("  \n");
@@ -57,9 +51,8 @@ describe("edit semantic surfacing", () => {
       edits: [{ set_line: { anchor, new_text: "    " } }],
     });
 
-    const text = getTextContent(result);
     expect(result.isError).not.toBe(true);
-    expect(text).toBe(`Edited ${filePath} (1 change, +1 -1 line)`);
+    expect(readFileSync(filePath, "utf-8")).toBe("    \n");
   });
   it("stays quiet for plain semantic edits", async () => {
     const filePath = makeFixture("const a = 1;\n");
@@ -69,11 +62,8 @@ describe("edit semantic surfacing", () => {
       edits: [{ set_line: { anchor, new_text: "const a = 2;" } }],
     });
 
-    const text = getTextContent(result);
     expect(result.isError).not.toBe(true);
-    expect(text).toBe(`Edited ${filePath} (1 change, +1 -1 line)`);
-    expect(text).not.toContain("[semantic:");
-    expect(text).not.toContain("⚠ Edit classified as whitespace-only");
+    expect(readFileSync(filePath, "utf-8")).toBe("const a = 2;\n");
   });
   it("mentions moved blocks inline when semanticSummary reports moves", async () => {
     vi.spyOn(classifyModule, "isDifftAvailable").mockResolvedValue(true);
@@ -98,11 +88,11 @@ describe("edit semantic surfacing", () => {
       ],
     });
 
-    const text = getTextContent(result);
     expect(result.isError).not.toBe(true);
-    expect(text).toBe(
-      `Edited ${filePath} (1 change, +1 -1 line) [semantic: mixed, 2 blocks moved]`,
-    );
-    expect(text).not.toContain("difftastic");
+    expect(result.details.ptcValue.semanticSummary).toMatchObject({
+      classification: "mixed",
+      movedBlocks: 2,
+    });
+    expect(readFileSync(filePath, "utf-8")).toBe("const b = 2;\nconst a = 1;\n");
   });
 });

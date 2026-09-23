@@ -91,7 +91,7 @@ describe("resolveHashlineJsonSettings", () => {
 
     const result = resolveHashlineJsonSettings();
     expect(result.settings.grep?.maxLines).toBe(10);
-    expect(result.warnings[0].message).toContain("Invalid JSON");
+    expect(result.warnings).toHaveLength(1);
   });
 
   it("ignores invalid field values without discarding valid fields", async () => {
@@ -251,7 +251,7 @@ describe("resolveHashlineJsonSettings", () => {
 
     const result = resolveHashlineJsonSettings();
     expect(result.settings.grep?.maxLines).toBe(10);
-    expect(result.warnings[0].message).toContain("Invalid JSON");
+    expect(result.warnings).toHaveLength(1);
   });
 
   it("accepts boolean gdscript.enabled settings", async () => {

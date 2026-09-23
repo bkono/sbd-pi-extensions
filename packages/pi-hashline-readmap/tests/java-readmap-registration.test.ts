@@ -132,8 +132,6 @@ describe("Java readmap registration and workflow integration", () => {
       symbol: "KafkaConsumerConfiguration.consumerFactory",
       bundle: "local",
     });
-    expect(text(bundleRead)).toContain("## Requested symbol");
-    expect(text(bundleRead)).toContain("## Local support");
     expect(text(bundleRead)).toContain("private String helperName()");
 
     const grep = await grepTool({

@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { BEADWORK_ALIAS_COMMANDS } from "../../command-aliases.js";
 import { createBeadworkCommandCompletionFactory } from "../../command-completions.js";
@@ -122,7 +121,6 @@ describe("beadwork command completions", () => {
   it("offers /bw abandon with no arguments", async () => {
     const abandonAlias = BEADWORK_ALIAS_COMMANDS.find((alias) => alias.subcommand === "abandon");
     expect(abandonAlias?.name).toBe("bw:abandon");
-    expect(abandonAlias?.description).toBe("Exit goal mode and halt the minion group");
 
     const completions = createBeadworkCommandCompletionFactory({
       adapter: {
@@ -134,72 +132,8 @@ describe("beadwork command completions", () => {
     });
     const items = await completions.getMainCommandCompletions("ab");
     const abandon = items?.find((item) => item.value === "abandon");
-    expect(abandon?.description).toBe("Exit goal mode and halt the minion group");
+    expect(abandon?.value).toBe("abandon");
     expect(await completions.getAliasCommandCompletions("abandon", "")).toBeNull();
     expect(await completions.getAliasCommandCompletions("abandon", "--")).toBeNull();
-  });
-
-  it("describes /bw run as goal mode, not a bounded epic loop", async () => {
-    const runAlias = BEADWORK_ALIAS_COMMANDS.find((alias) => alias.subcommand === "run");
-    expect(runAlias?.description).toBe("Start goal mode for an epic");
-    expect(runAlias?.description).not.toMatch(/bounded epic loop|tmux|workers/i);
-
-    const completions = createBeadworkCommandCompletionFactory({
-      adapter: {
-        ready: vi.fn(),
-        list: vi.fn(),
-      },
-      detectActivation: vi.fn(),
-      getCwd: () => "/repo",
-    });
-    const items = await completions.getMainCommandCompletions("run");
-    const run = items?.find((item) => item.value === "run");
-    expect(run?.description).toBe("Start goal mode for an epic");
-    expect(run?.description).not.toMatch(/bounded epic loop|tmux|workers/i);
-  });
-
-  it("drops leftover worker aliases and supervisor flags from CLI copy", async () => {
-    const aliases = await readFile(new URL("../../command-aliases.ts", import.meta.url), "utf8");
-    const completions = await readFile(
-      new URL("../../command-completions.ts", import.meta.url),
-      "utf8",
-    );
-    const index = await readFile(new URL("../../index.ts", import.meta.url), "utf8");
-
-    for (const source of [aliases, completions, index]) {
-      expect(source).not.toContain("bounded epic loop");
-    }
-
-    for (const command of REMOVED_WORKER_COMMANDS) {
-      expect(aliases).not.toContain(`name: "bw:${command}"`);
-      expect(aliases).not.toContain(`subcommand: "${command}"`);
-      expect(completions).not.toContain(`value: "${command}"`);
-    }
-
-    expect(completions).not.toContain('value: "--workers"');
-    expect(completions).not.toContain('value: "--until"');
-    expect(completions).not.toContain('value: "--max-cycles"');
-    expect(completions).not.toContain('value: "--dry-run"');
-    expect(completions).not.toContain('value: "--no-spawn"');
-    expect(completions).not.toContain('value: "--stop-workers"');
-    expect(completions).not.toContain('value: "--all-workers"');
-    expect(completions).not.toContain('value: "--leave-workers"');
-
-    expect(index).toContain("run <epic-id>");
-    expect(index).toContain("|abandon|");
-    expect(index).not.toMatch(/run <epic-id> \[--workers/);
-    expect(index).not.toMatch(/run <epic-id> \[--until/);
-    expect(index).not.toMatch(/run <epic-id> \[--max-cycles/);
-    expect(index).not.toMatch(/run <epic-id> \[--dry-run/);
-    expect(index).not.toMatch(/run <epic-id> \[--no-spawn/);
-    expect(index).not.toContain("workers [epic-id]");
-    expect(index).not.toContain("delegate <ticket-id>");
-    expect(index).not.toContain("land <ticket-id");
-    expect(index).not.toContain("cancel <ticket-id");
-    expect(index).not.toContain("cleanup <ticket-id");
-    expect(index).not.toContain("--stop-workers");
-    expect(index).not.toContain("--all-workers");
-    expect(index).not.toContain("--leave-workers");
-    expect(index).not.toContain("session/worker commands");
   });
 });

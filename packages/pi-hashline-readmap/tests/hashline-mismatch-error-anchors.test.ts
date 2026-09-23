@@ -26,7 +26,6 @@ describe("HashlineMismatchError exposes updatedAnchors", () => {
 
     expect(caught).toBeInstanceOf(HashlineMismatchError);
     const err = caught as HashlineMismatchError;
-    expect(err.message).toContain("changed since last read");
     expect(Array.isArray(err.updatedAnchors)).toBe(true);
     expect(err.updatedAnchors.length).toBeGreaterThan(0);
     const changed = err.updatedAnchors.find((a) => a.line === 2);

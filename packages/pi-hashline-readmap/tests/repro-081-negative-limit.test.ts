@@ -14,10 +14,6 @@ function captureReadTool() {
   return capturedTool;
 }
 
-function getTextContent(result: any): string {
-  return result.content?.find((item: any) => item.type === "text")?.text ?? "";
-}
-
 describe("issue #081 regression — negative limit", () => {
   it("returns a clear error instead of a garbled range for the exact reproduction steps", async () => {
     const tool = captureReadTool();
@@ -35,16 +31,12 @@ describe("issue #081 regression — negative limit", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(getTextContent(result)).toBe(
-        "Invalid limit: expected a positive integer, received -10.",
-      );
       expect(result.details?.ptcValue).toMatchObject({
         tool: "read",
         ok: false,
         path: filePath,
         error: {
           code: "invalid-limit",
-          message: "Invalid limit: expected a positive integer, received -10.",
         },
       });
     } finally {

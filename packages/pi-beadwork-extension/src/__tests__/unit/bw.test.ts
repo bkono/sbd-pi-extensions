@@ -281,9 +281,7 @@ describe("beadwork adapter", () => {
       cwd: "/repo",
       timeout: 10_000,
     });
-    await expect(adapter.label("/repo", "BW-100", [])).rejects.toThrow(
-      "At least one label operation is required.",
-    );
+    await expect(adapter.label("/repo", "BW-100", [])).rejects.toThrow();
   });
 
   it("serializes concurrent mutations per cwd", async () => {

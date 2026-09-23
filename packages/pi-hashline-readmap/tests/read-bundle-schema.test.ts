@@ -47,14 +47,11 @@ describe("read bundle schema validation", () => {
     expect(getTextContent(baseline)).toMatch(
       /^\[Symbol: createDemoDirectory \(function\), lines 45-49 of 50\]/,
     );
-    expect(getTextContent(baseline)).not.toContain("## Requested symbol");
     expect((baseline.details?.ptcValue as any).bundle).toBeUndefined();
 
     const withoutSymbol = await callReadTool({ path: filePath, bundle: "local" });
     expect(withoutSymbol.isError).toBe(true);
-    expect(getTextContent(withoutSymbol)).toBe(
-      'Cannot use bundle without symbol. Use read({ path, symbol, bundle: "local" }).',
-    );
+    expect(withoutSymbol.details.ptcValue.error.code).toBe("invalid-params-combo");
 
     const withMap = await callReadTool({
       path: filePath,
@@ -63,7 +60,7 @@ describe("read bundle schema validation", () => {
       map: true,
     });
     expect(withMap.isError).toBe(true);
-    expect(getTextContent(withMap)).toBe("Cannot combine bundle with map. Use one or the other.");
+    expect(withMap.details.ptcValue.error.code).toBe("invalid-params-combo");
 
     const withOffset = await callReadTool({
       path: filePath,
@@ -72,8 +69,6 @@ describe("read bundle schema validation", () => {
       offset: 1,
     });
     expect(withOffset.isError).toBe(true);
-    expect(getTextContent(withOffset)).toBe(
-      "Cannot combine symbol with offset/limit. Use one or the other.",
-    );
+    expect(withOffset.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 });

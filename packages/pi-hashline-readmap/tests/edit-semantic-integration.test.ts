@@ -69,9 +69,7 @@ describe("edit semantic classification integration", () => {
       path: filePath,
       edits: [{ set_line: { anchor, new_text: "const a = 2;" } }],
     });
-    const text = result.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text.split("\n")[0]).toBe(`Edited ${filePath} (1 change, +1 -1 line)`);
-    expect(text).not.toContain("[semantic:");
-    expect(text).not.toContain("⚠ Edit classified as whitespace-only");
+    expect(result.isError).not.toBe(true);
+    expect(readFileSync(filePath, "utf-8")).toBe("const a = 2;\n");
   });
 });

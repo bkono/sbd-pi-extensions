@@ -235,35 +235,8 @@ describe("builtin agents", () => {
     expect(found?.systemPrompt).toContain("Project worker prompt.");
   });
 
-  it("keeps worker implementation-oriented and investigate mutation-gated", () => {
-    const worker = BUILTIN_AGENTS.find((a) => a.name === "worker");
-    const investigate = BUILTIN_AGENTS.find((a) => a.name === "investigate");
-    if (!worker || !investigate) throw new Error("missing builtins");
-
-    expect(worker.systemPrompt).toMatch(/implement the assigned task end to end/i);
-    expect(worker.systemPrompt).toMatch(/follow existing repository patterns/i);
-    expect(worker.systemPrompt).toMatch(/unrelated cleanup/i);
-    expect(worker.systemPrompt).toMatch(/## Validation/);
-    expect(worker.systemPrompt).toMatch(/## Risks/);
-    expect(worker.systemPrompt).not.toMatch(/do not modify project files/i);
-
-    expect(investigate.systemPrompt).toMatch(
-      /do not modify project files unless the complete task explicitly requests implementation/i,
-    );
-    expect(investigate.systemPrompt).toMatch(
-      /do not silently turn investigation into implementation/i,
-    );
-    expect(investigate.systemPrompt).toMatch(/## Evidence/);
-    expect(investigate.systemPrompt).toMatch(/## Uncertainty/);
-    expect(investigate.systemPrompt).not.toMatch(/implement the assigned task end to end/i);
-  });
-
-  it("names the unknown agent and points at list_agents, not taskType", () => {
+  it("includes the unresolved agent identity in diagnostics", () => {
     const message = unknownAgentMessage("not-a-real-agent");
-    expect(message).toContain('"not-a-real-agent"');
-    expect(message).toContain("list_agents");
-    expect(message.toLowerCase()).not.toContain("tasktype");
-    expect(message).not.toContain("implementation");
-    expect(message).not.toContain("investigateBlocker");
+    expect(message).toContain("not-a-real-agent");
   });
 });

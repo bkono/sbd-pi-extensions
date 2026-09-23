@@ -17,8 +17,7 @@ describe("duplicate single-target hashline warnings", () => {
     ]);
 
     expect(result.content).toBe(["const a = 1;", "const b = 20;", "const c = 3;"].join("\n"));
-    expect(result.warnings).toContain(
-      `Warning: multiple edits target the same anchor ${anchor} — only the last will apply`,
-    );
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings?.[0]).toContain(anchor);
   });
 });

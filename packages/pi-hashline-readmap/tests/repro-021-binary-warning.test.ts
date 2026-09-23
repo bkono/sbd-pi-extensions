@@ -47,11 +47,6 @@ function text(result: any): string {
   return result.content?.find((c: any) => c.type === "text")?.text ?? "";
 }
 
-function hasBinaryWarning(output: string): boolean {
-  const lowered = output.toLowerCase();
-  return lowered.includes("binary") || lowered.includes("warning");
-}
-
 describe("Bug #021: binary files read/grepped without warning", () => {
   beforeAll(async () => {
     await writeFile(BINARY_FILE, BINARY_CONTENT);
@@ -72,9 +67,9 @@ describe("Bug #021: binary files read/grepped without warning", () => {
       { cwd: process.cwd() },
     );
 
-    const output = text(result);
-
-    expect(hasBinaryWarning(output)).toBe(true); // RED: currently fails, no warning prefix
+    expect(result.details.ptcValue.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "binary-content" })]),
+    );
     expect(result.isError).toBeFalsy();
   });
 
@@ -89,10 +84,7 @@ describe("Bug #021: binary files read/grepped without warning", () => {
       { cwd: process.cwd() },
     );
 
-    const output = text(result);
-    const hasAnchoredMatches = output.includes(":>>");
-
-    expect(hasBinaryWarning(output) || !hasAnchoredMatches).toBe(true);
+    expect(result.details.ptcValue).toMatchObject({ totalMatches: 0, records: [] });
     expect(result.isError).toBeFalsy();
   });
 
@@ -107,7 +99,7 @@ describe("Bug #021: binary files read/grepped without warning", () => {
     );
 
     const readOutput = text(readResult);
-    expect(hasBinaryWarning(readOutput)).toBe(false);
+    expect(readResult.details.ptcValue.warnings).toEqual([]);
     expect(readOutput).toMatch(/^1:[0-9a-f]{3}\|/m);
   });
 });

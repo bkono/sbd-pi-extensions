@@ -548,10 +548,7 @@ export async function createInProcessHarness(
       });
       const message = sent?.message as { content?: string } | undefined;
       if (message?.content) return message.content;
-      const user = beadwork.sentUserMessages.find(
-        (entry) =>
-          typeof entry.content === "string" && entry.content.includes("Beadwork goal mode"),
-      );
+      const user = beadwork.sentUserMessages[0];
       return typeof user?.content === "string" ? user.content : undefined;
     },
     async orchestrate(input) {

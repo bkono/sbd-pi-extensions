@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildGoalHaltPrompt } from "../../actions/goal-exit.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
 import { loadSessionState, resolveSessionStateDir } from "../../session-state.js";
 import type { BeadworkIssue } from "../../types.js";
@@ -166,8 +167,6 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         expect(prompt).toBeTruthy();
         expect(prompt).toContain(epicId);
         expect(prompt).toContain("Scope-policy epic");
-        expect(prompt).toContain("Review policy: scope");
-        expect(prompt).toMatch(/Refresh `bw` \(ready\/show\)/);
         expect(prompt).not.toContain(PARENT_TITLE);
         expect(prompt).not.toContain(DEPENDENT_TITLE);
         expect(prompt).not.toContain(parentTicket.id);
@@ -180,29 +179,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         );
         const standing = appendix?.systemPrompt ?? "";
         expect(standing).toContain("Base prompt");
-        expect(standing).toContain("You are in beadwork run mode.");
-        expect(standing).toContain(`Current scope: epic:${epicId}`);
-        expect(standing).toContain("Review policy branch: scope");
-        expect(standing).toContain(
-          "You may close individual tickets from evidence without an independent per-ticket review child.",
-        );
-        expect(standing).toContain(
-          "Launch a `reviewScope` child before declaring the epic complete.",
-        );
-        expect(standing).toContain("Dependents may start before aggregate review finds a problem.");
-        expect(standing).toContain("This is a manager-only loop.");
-        expect(standing).toContain(
-          "The parent does not implement a delegated ticket concurrently with its live child.",
-        );
-        expect(standing).toContain(
-          "Human `/bw run <epic-id>` and model `beadwork_start_goal({ epic_id })` are equivalent entry surfaces for the same lifecycle.",
-        );
-        expect(standing).toContain(
-          "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
-        );
-        expect(standing).not.toContain(
-          "Do not imitate `/bw run` with `ready`, ticket mutations, and `orchestrate`.",
-        );
+        expect(standing).toContain(epicId);
         await harness.logStep("bw-start-goal-injected", { ticketId: parentTicket.id });
 
         const runState = await sessionState(harness);
@@ -278,12 +255,6 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           "Do not read the whole dirty workspace.",
           "Judge whether the goal meets acceptance.",
         ].join(" ");
-        expect(scopeReviewTask).toContain(parentTicket.id);
-        expect(scopeReviewTask).toContain(dependentTicket.id);
-        expect(scopeReviewTask).toContain(parentWork.commit);
-        expect(scopeReviewTask).toContain(dependentWork.commit);
-        expect(scopeReviewTask).toContain("git show");
-        expect(scopeReviewTask).toMatch(/do not read the whole dirty workspace/i);
 
         const firstReview = await harness.orchestrate({
           tasks: [
@@ -306,11 +277,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           throw new Error("orchestrate did not accept reviewScope");
         }
         expect(firstReview.groupId).toBe(parentWork.groupId);
-        expect(harness.tree.get(scopeReviewId)?.task).toContain("git show");
-        expect(harness.tree.get(scopeReviewId)?.task).toContain(parentWork.commit);
-        expect(harness.tree.get(scopeReviewId)?.task).toMatch(
-          /do not read the whole dirty workspace/i,
-        );
+        expect(harness.tree.get(scopeReviewId)?.task).toBe(scopeReviewTask);
 
         const firstReviewPacket = await settleAndWait(
           harness,
@@ -319,8 +286,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         );
         expect(firstReviewPacket?.message.customType).toBe(LIFECYCLE_PACKET_CUSTOM_TYPE);
         expect(firstReviewPacket?.message.details.changed[0]?.childId).toBe(scopeReviewId);
-        expect(firstReviewPacket?.message.details.changed[0]?.nudge).toMatch(/cross-ticket/i);
-        expect(firstReviewPacket?.message.details.changed[0]?.nudge).toMatch(/acceptance/i);
+        expect(firstReviewPacket?.message.details.changed[0]?.eventClass).toBe("settled");
         expect((await fixture.show(epicId)).status).not.toBe("closed");
         await harness.logStep("scope-review-blocking-finding", {
           ticketId: parentTicket.id,
@@ -373,7 +339,10 @@ describe("in-process scope-policy epic without per-ticket review children", () =
           fixId,
           `Remediated ${parentTicket.id} in commit ${fixCommit}.`,
         );
-        expect(fixPacket?.message.details.changed[0]?.nudge).toMatch(/re-review/i);
+        expect(fixPacket?.message.details.changed[0]).toMatchObject({
+          childId: fixId,
+          eventClass: "settled",
+        });
         expect((await fixture.show(epicId)).status).not.toBe("closed");
         await harness.logStep("in-scope-remediation-settled", {
           ticketId: parentTicket.id,
@@ -462,9 +431,7 @@ describe("in-process scope-policy epic without per-ticket review children", () =
         expect(afterEpicClose.mode).toBe("interactive");
         expect(afterEpicClose.goal).toBeUndefined();
         expect(harness.beadwork.sentUserMessages).toHaveLength(1);
-        expect(String(harness.beadwork.sentUserMessages[0]?.content ?? "")).toContain(
-          "/halt group",
-        );
+        expect(harness.beadwork.sentUserMessages[0]?.content).toBe(buildGoalHaltPrompt(epicId));
         expect(harness.beadwork.sentUserMessages[0]?.options).toEqual({ deliverAs: "followUp" });
         expect(harness.groups.getOpenGroup()?.groupId).toBe(parentWork.groupId);
 

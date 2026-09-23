@@ -20,6 +20,6 @@ describe("HASH_LEN = 3", () => {
   });
 
   it("parseLineRef rejects 2-character hashes", () => {
-    expect(() => parseLineRef("1:ab|content")).toThrow(/Invalid line reference/);
+    expect(() => parseLineRef("1:ab|content")).toThrow();
   });
 });

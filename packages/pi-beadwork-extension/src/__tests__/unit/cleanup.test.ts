@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleCleanupAction } from "../../actions/cleanup.js";
+import { buildGoalHaltPrompt } from "../../actions/goal-exit.js";
 import { parseArgv } from "../../argv.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
 import type { SessionState } from "../../types.js";
@@ -68,14 +69,13 @@ describe("handleCleanupAction", () => {
     expect(handled).toBe(true);
     expect(stored.mode).toBe("neutral");
     expect(stored.scope).toEqual({ kind: "none" });
-    expect(pi.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("/halt group"), {
+    expect(pi.sendUserMessage).toHaveBeenCalledWith(buildGoalHaltPrompt("BW-100"), {
       deliverAs: "followUp",
     });
-    expect(String(pi.sendUserMessage.mock.calls[0]?.[0])).toContain("epic BW-100");
     expect(order).toEqual(["reset"]);
     expect(order[0]).toBe("reset");
     expect(pi.sendUserMessage).toHaveBeenCalled();
-    expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
+    expect(ui.notifications.at(-1)?.level).toBe("info");
   });
 
   it("queues halt with a fallback label when no scoped epic id is present", async () => {
@@ -109,11 +109,10 @@ describe("handleCleanupAction", () => {
     expect(stored.mode).toBe("neutral");
     expect(pi.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("epic current goal"),
+        content: buildGoalHaltPrompt("current goal"),
       }),
       { triggerTurn: true },
     );
-    expect(String(pi.sendMessage.mock.calls[0]?.[0]?.content ?? "")).toContain("/halt group");
   });
 
   it("off from interactive does not queue halt", async () => {
@@ -143,7 +142,7 @@ describe("handleCleanupAction", () => {
     expect(stored.mode).toBe("neutral");
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
     expect(pi.sendMessage).not.toHaveBeenCalled();
-    expect(ui.notifications.some((entry) => entry.message.includes("reset to neutral"))).toBe(true);
+    expect(ui.notifications.at(-1)?.level).toBe("info");
   });
 
   it("off from already-neutral does not queue halt", async () => {

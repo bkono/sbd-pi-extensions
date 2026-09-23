@@ -25,7 +25,6 @@ describe("pending edit replace preview", () => {
 
     expect(projected.type).toBe("ok");
     if (projected.type !== "ok") throw new Error(projected.reason);
-    expect(projected.data.headerLabel).toBe("pending edit");
     expect(projected.data.previousContent).toContain("const value = 1;");
     expect(projected.data.nextContent).toContain("const value = 10;");
     expect(projected.data.diff).toContain("-1 const value = 1;");

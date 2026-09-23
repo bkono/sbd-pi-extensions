@@ -39,6 +39,7 @@ describe("F2 — replace_symbol probe-pass error precedence", () => {
     const dir = mkdtempSync(join(tmpdir(), "edit-f2-nf-"));
     const fp = join(dir, "x.ts");
     writeFileSync(fp, FIXTURE);
+    const mapSpy = vi.spyOn(mapperModule, "generateMapFromContent");
 
     const { pi, tools } = makeFakePi();
     registerEditTool(pi, { wasReadInSession: () => true });
@@ -75,9 +76,7 @@ describe("F2 — replace_symbol probe-pass error precedence", () => {
 
     expect(res.isError).toBe(true);
     expect(res.details?.ptcValue?.error?.code).toBe("invalid-edit-variant");
-    const msg: string = res.details?.ptcValue?.error?.message ?? res.content?.[0]?.text ?? "";
-    expect(msg).toMatch(/symbol 'nonexistent' not found/i);
-    expect(msg).not.toMatch(/inside.*replace_symbol/i);
+    expect(mapSpy).toHaveBeenCalledTimes(1);
     // No write occurred
     expect(readFileSync(fp, "utf-8")).toBe(FIXTURE);
   });
@@ -86,6 +85,7 @@ describe("F2 — replace_symbol probe-pass error precedence", () => {
     const dir = mkdtempSync(join(tmpdir(), "edit-f2-amb-"));
     const fp = join(dir, "x.ts");
     writeFileSync(fp, FIXTURE);
+    const mapSpy = vi.spyOn(mapperModule, "generateMapFromContent");
 
     const { pi, tools } = makeFakePi();
     registerEditTool(pi, { wasReadInSession: () => true });
@@ -120,9 +120,7 @@ describe("F2 — replace_symbol probe-pass error precedence", () => {
 
     expect(res.isError).toBe(true);
     expect(res.details?.ptcValue?.error?.code).toBe("invalid-edit-variant");
-    const msg: string = res.details?.ptcValue?.error?.message ?? res.content?.[0]?.text ?? "";
-    expect(msg).toMatch(/is ambiguous/i);
-    expect(msg).not.toMatch(/inside.*replace_symbol/i);
+    expect(mapSpy).toHaveBeenCalledTimes(1);
     expect(readFileSync(fp, "utf-8")).toBe(FIXTURE);
   });
 
@@ -218,7 +216,6 @@ describe("F2 — replace_symbol probe-pass error precedence", () => {
 
     expect(res.isError).toBe(true);
     expect(res.details?.ptcValue?.error?.code).toBe("invalid-edit-variant");
-    expect(res.details?.ptcValue?.error?.message ?? "").toMatch(/overlap|duplicate/i);
     expect(readFileSync(fp, "utf-8")).toBe(
       ["export function add() {", "  return 1;", "}", ""].join("\n"),
     );
@@ -265,7 +262,6 @@ describe("F2 — replace_symbol probe-pass error precedence", () => {
 
     expect(res.isError).toBe(true);
     expect(res.details?.ptcValue?.error?.code).toBe("invalid-edit-variant");
-    expect(res.details?.ptcValue?.error?.message ?? "").toMatch(/overlap|inside|replace_symbol/i);
     expect(readFileSync(fp, "utf-8")).toBe(content);
   });
 });

@@ -130,15 +130,11 @@ describe("grep scope=symbol integration", () => {
     const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
 
-    expect(text).toContain(
-      `[Warning: no enclosing symbol for ${filePath}:1 — showing normal grep lines for this match]`,
-    );
     expect(text).toContain("--- no-symbol.ts (1 matches) ---");
     expect(text).not.toContain(":: function");
-    expect(ptc.scopes.warnings).toEqual([
+    expect(ptc.scopes.warnings).toMatchObject([
       {
         code: "no-enclosing-symbol",
-        message: `[Warning: no enclosing symbol for ${filePath}:1 — showing normal grep lines for this match]`,
         path: filePath,
         line: 1,
       },
@@ -156,15 +152,11 @@ describe("grep scope=symbol integration", () => {
     const text = getTextContent(result);
     const ptc = result.details?.ptcValue;
 
-    expect(text).toContain(
-      `[Warning: symbol scoping unavailable for ${filePath} — showing normal grep lines for this file]`,
-    );
     expect(text).toContain("--- plain.txt (1 matches) ---");
     expect(ptc.records.length).toBeGreaterThan(0);
-    expect(ptc.scopes.warnings).toEqual([
+    expect(ptc.scopes.warnings).toMatchObject([
       {
         code: "unmappable-file",
-        message: `[Warning: symbol scoping unavailable for ${filePath} — showing normal grep lines for this file]`,
         path: filePath,
       },
     ]);

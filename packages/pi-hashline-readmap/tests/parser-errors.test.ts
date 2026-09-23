@@ -28,7 +28,7 @@ describe("parser error reporter", () => {
     reportParserError("load:rust", new Error("boom again"), { context: "failed rust" });
     reportParserError("load:java", "plain", { context: "failed java" });
     expect(error).toHaveBeenCalledTimes(2);
-    expect(String(error.mock.calls[0]?.[0])).toContain("[hashline-readmap] failed rust: boom");
-    expect(String(error.mock.calls[1]?.[0])).toContain("[hashline-readmap] failed java: plain");
+    expect(String(error.mock.calls[0]?.[0])).toContain("boom");
+    expect(String(error.mock.calls[1]?.[0])).toContain("plain");
   });
 });

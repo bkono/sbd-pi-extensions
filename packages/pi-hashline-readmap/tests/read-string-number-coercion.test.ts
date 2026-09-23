@@ -58,9 +58,7 @@ describe("read numeric-string coercion", () => {
     );
 
     expect(invalid.isError).toBe(true);
-    expect(getTextContent(invalid)).toBe(
-      'Invalid offset: expected a base-10 integer, received "2x".',
-    );
+    expect(invalid.details.ptcValue.error.code).toBe("invalid-offset");
   });
 
   it("keeps the truncation notice in the body text for truncated reads", async () => {
@@ -73,6 +71,6 @@ describe("read numeric-string coercion", () => {
       { cwd: process.cwd() },
     );
 
-    expect(getTextContent(truncated)).toContain("[Output truncated:");
+    expect(truncated.details.ptcValue.truncation).not.toBeNull();
   });
 });

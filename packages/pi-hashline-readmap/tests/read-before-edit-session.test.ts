@@ -6,10 +6,6 @@ import { describe, expect, it } from "vitest";
 import init from "../index.js";
 import { computeLineHash, ensureHashInit } from "../src/hashline.js";
 
-function getTextContent(result: any): string {
-  return result.content?.find((item: any) => item.type === "text")?.text ?? "";
-}
-
 function createHarness() {
   const tools: Record<string, any> = {};
   const handlers: Record<string, Function> = {};
@@ -75,7 +71,7 @@ describe("extension-scoped read tracking", () => {
     );
 
     expect(editResult.isError).not.toBe(true);
-    expect(getTextContent(editResult)).toContain(`Edited ${filePath} (1 change, +1 -1 line)`);
+    expect(editResult.isError).toBeFalsy();
     expect(readFileSync(filePath, "utf-8")).toBe("const value = 2;\n");
   });
 });

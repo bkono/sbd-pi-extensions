@@ -62,13 +62,14 @@ describe("write TUI renderer", () => {
     const before = JSON.stringify(created.details);
 
     const createdCollapsed = textOf(t.renderResult(created, {}, theme, {}), 80);
-    expect(createdCollapsed).toBe("↳ created • Ctrl+O to expand");
+    expect(createdCollapsed).not.toContain("one");
+    expect(createdCollapsed).not.toContain("two");
+    expect(createdCollapsed).not.toContain("three");
 
     const createdExpanded = textOf(
       t.renderResult(created, { expanded: true, width: 80 }, theme, { expanded: true, width: 80 }),
       80,
     );
-    expect(createdExpanded.split("\n")[0]).toBe("↳ created");
     expect(createdExpanded).toContain("  1 │ one");
     expect(createdExpanded).toContain("  2 │ two");
     expect(createdExpanded).toContain("  3 │ three");
@@ -100,7 +101,6 @@ describe("write TUI renderer", () => {
       }),
       80,
     );
-    expect(overwrittenRendered.split("\n")[0]).toBe("↳ overwritten");
     expect(overwrittenRendered).toContain("↳ diff +1 -1 • 1 hunk • 1 file • unified");
     expect(overwrittenRendered).toContain("▌- 1 │ old");
     expect(overwrittenRendered).toContain("▌+ 1 │ new");
@@ -109,9 +109,9 @@ describe("write TUI renderer", () => {
       content: created.content,
       details: { ...created.details, writeState: "overwritten", diffData: overwrittenDiffData },
     };
-    expect(textOf(t.renderResult(collapsed, {}, theme, {}))).toBe(
-      "↳ overwritten • Ctrl+O to expand",
-    );
+    const collapsedText = textOf(t.renderResult(collapsed, {}, theme, {}));
+    expect(collapsedText).not.toContain("▌- 1 │ old");
+    expect(collapsedText).not.toContain("▌+ 1 │ new");
   });
 
   it("wraps the write path title in an OSC 8 hyperlink when supported", () => {
@@ -158,7 +158,6 @@ describe("write TUI renderer", () => {
       lastComponent: first,
     });
     const createdText = textOf(second);
-    expect(createdText).toContain("↳ pending create");
     expect(createdText).toContain("  1 │ one");
     expect(createdText).toContain("  2 │ two");
     expect(createdText).not.toContain("diff +");
@@ -172,7 +171,6 @@ describe("write TUI renderer", () => {
       lastComponent: third,
     });
     const overwriteText = textOf(fourth);
-    expect(overwriteText).toContain("↳ pending overwrite");
     expect(overwriteText).toContain("↳ diff +1 -0");
   });
 
@@ -194,7 +192,7 @@ describe("write TUI renderer", () => {
     const beforeCreateText = textOf(
       t.renderCall({ path: "new.txt", content: "one\ntwo" }, theme, beforeCreate),
     );
-    expect(beforeCreateText).toContain("↳ pending create");
+    expect(beforeCreateText).toContain("1 │ one");
 
     const beforeOverwrite: any = {
       cwd,
@@ -207,7 +205,7 @@ describe("write TUI renderer", () => {
     const beforeOverwriteText = textOf(
       t.renderCall({ path: "old.txt", content: "old\nnew" }, theme, beforeOverwrite),
     );
-    expect(beforeOverwriteText).toContain("↳ pending overwrite");
+    expect(beforeOverwriteText).toContain("▌+ 2 │ new");
 
     // After execution starts: the call row drops the pending preview entirely.
     // renderResult is responsible for the post-exec story (↳ created / ↳ overwritten).
@@ -223,8 +221,7 @@ describe("write TUI renderer", () => {
       t.renderCall({ path: "new.txt", content: "one\ntwo" }, theme, afterCreate),
     );
     expect(afterCreateText).toBe("write new.txt (2 lines • 7 B)");
-    expect(afterCreateText).not.toContain("pending");
-    expect(afterCreateText).not.toContain("  one");
+    expect(afterCreateText).not.toContain("1 │ one");
 
     const afterOverwrite: any = {
       cwd,
@@ -238,7 +235,7 @@ describe("write TUI renderer", () => {
       t.renderCall({ path: "old.txt", content: "old\nnew" }, theme, afterOverwrite),
     );
     expect(afterOverwriteText).toBe("write old.txt (2 lines • 7 B)");
-    expect(afterOverwriteText).not.toContain("pending");
+    expect(afterOverwriteText).not.toContain("▌+ 2 │ new");
     expect(afterOverwriteText).not.toContain("diff +");
   });
 
@@ -278,7 +275,6 @@ describe("write TUI renderer", () => {
       });
     }).not.toThrow();
     const out = textOf(rendered, 80);
-    expect(out).toContain("↳ created");
     expect(out).toContain("[dim]1 │ [/dim]one");
     expect(out).toContain("[dim]2 │ [/dim]two");
   });

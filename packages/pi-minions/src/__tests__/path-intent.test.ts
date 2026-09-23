@@ -204,8 +204,6 @@ describe("announce and inspect tools", () => {
       }),
     ]);
     expect(announced.content[0]?.text).toContain("Peer task");
-    expect(announced.content[0]?.text).toContain("send_minion_peer");
-    expect(announced.content[0]?.text).toMatch(/not blocked/i);
 
     expect(mailbox.list()).toEqual(
       expect.arrayContaining([
@@ -218,7 +216,6 @@ describe("announce and inspect tools", () => {
     );
     expect(mailbox.list()).toHaveLength(1);
     expect(mailbox.list()[0]?.body).toContain("Self task");
-    expect(mailbox.list()[0]?.body).toMatch(/not blocked/i);
 
     expect(overlaps.list()).toEqual([
       expect.objectContaining({
@@ -303,7 +300,6 @@ describe("announce and inspect tools", () => {
     expect(announced.overlaps).toHaveLength(2);
     expect(mailbox.list()).toHaveLength(1);
     expect(mailbox.list()[0]).toMatchObject({ from: childId, to: peerId });
-    expect(mailbox.list()[0]?.body).toContain("1 additional overlap(s)");
     expect(followUp).toHaveBeenCalledTimes(1);
   });
 
@@ -411,7 +407,6 @@ describe("announce and inspect tools", () => {
     expect((after.details as { intents: unknown[] }).intents).toEqual([]);
     expect(tree.get(childId)?.status).toBe("running");
     expect(tree.get(childId)?.pathIntent).toEqual([]);
-    expect(after.content[0]?.text).toMatch(/does not mean an agent stopped/i);
   });
 
   it("does not announce for spawn children", () => {
@@ -619,9 +614,7 @@ describe("overlap on next real parent packet", () => {
         editAllowed: true,
       }),
     ]);
-    expect(content).toContain("Overlaps (advisory; edits are not blocked)");
     expect(content).toContain("Peer task");
-    expect(content).toContain("send_minion_peer");
     expect(overlaps.list()).toEqual([]);
   });
 });

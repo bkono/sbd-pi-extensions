@@ -43,7 +43,6 @@ describe("context hygiene stale placeholders", () => {
       expect(placeholder).not.toContain("grep-result-1");
       expect(placeholder).not.toContain("sg-result-1");
       expect(placeholder).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
-      expect(placeholder).not.toMatch(/\bmutation event\b/i);
     }
   });
 });

@@ -48,7 +48,7 @@ describe("edit tool diffData", () => {
     );
     expect(result.details.firstChangedLine).toBe(1);
     expect(result.details.ptcValue.diff).toBe(result.details.diff);
-    expect(result.content[0].text).toContain("Edited");
+    expect(result.isError).toBeFalsy();
     expect(result.details.diffData).toEqual(result.details.ptcValue.diffData);
     expect(result.details.diffData.version).toBe(1);
     expect(result.details.diffData.entries).toEqual([

@@ -129,9 +129,8 @@ describe("buildGrepOutput", () => {
       records: [{ path: "/tmp/foo.ts", kind: "match", ...line3 }],
       scopeMode: "symbol",
     });
-    expect(out.text).toContain(
-      "--- foo.ts :: function alpha (1-10, 1 matches, scoped to ±3 lines) ---",
-    );
+    expect(out.text).toContain("alpha");
+    expect(out.text).toContain("±3");
   });
 
   it("renders '±0' when scope.contextLines is 0", async () => {
@@ -156,7 +155,7 @@ describe("buildGrepOutput", () => {
       records: [{ path: "/tmp/foo.ts", kind: "match", ...line3 }],
       scopeMode: "symbol",
     });
-    expect(out.text).toContain("scoped to ±0 lines");
+    expect(out.text).toContain("±0");
   });
 
   it("omits the '±N lines' suffix when scope.contextLines is unset", async () => {
@@ -181,6 +180,6 @@ describe("buildGrepOutput", () => {
       scopeMode: "symbol",
     });
     expect(out.text).toContain("--- foo.ts :: function alpha (1-10, 1 matches) ---");
-    expect(out.text).not.toContain("scoped to");
+    expect(out.ptcValue.scopes?.groups[0].symbol.name).toBe("alpha");
   });
 });

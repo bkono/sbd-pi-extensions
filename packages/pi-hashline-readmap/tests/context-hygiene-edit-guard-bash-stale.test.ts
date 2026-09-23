@@ -102,7 +102,9 @@ describe("edit guard after bash shell-file mutation", () => {
       ok: false,
       error: { code: "file-not-read" },
     });
-    expect(immediateEdit.content?.[0]?.text).toContain("You must get fresh anchors");
+    expect(immediateEdit.content?.[0]?.text).toContain(
+      immediateEdit.details.ptcValue.error.message,
+    );
 
     await recordRead(tools, handlers, filePath, "read-after-bash");
     const editAfterFreshRead = await tools.get("edit").execute(

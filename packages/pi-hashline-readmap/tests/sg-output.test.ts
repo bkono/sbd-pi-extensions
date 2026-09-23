@@ -89,9 +89,9 @@ describe("buildSgOutput", () => {
   });
 
   it("projects no-match responses through the shared sg builder", async () => {
-    expect(sgOutputModule.buildSgOutput({ pattern: "does-not-match", files: [] }).text).toBe(
-      "No matches found for pattern: does-not-match",
-    );
+    expect(
+      sgOutputModule.buildSgOutput({ pattern: "does-not-match", files: [] }).ptcValue.files,
+    ).toEqual([]);
 
     const spy = vi.spyOn(sgOutputModule, "buildSgOutput");
     const tool = await getSgTool();

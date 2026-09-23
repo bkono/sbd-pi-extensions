@@ -58,7 +58,6 @@ describe("edit postEditVerify default", () => {
       "utf-8",
     );
     expect(fsMock.readFile).toHaveBeenCalledTimes(1);
-    expect(result.content[0].text).toContain("Edited /tmp/post-edit-default.txt");
     expect(result.details.diff).toContain("alpha");
     expect(result.details.diffData).toEqual(result.details.ptcValue.diffData);
     expect(result.details.ptcValue.ok).toBe(true);

@@ -50,12 +50,10 @@ describe("issue #082 reproduction — duplicate anchors in one edit batch", () =
       );
 
       expect(readFileSync(filePath, "utf8")).toContain("const c = 300;");
-      expect(result.details?.ptcValue?.warnings).toContain(
-        `Warning: multiple edits target the same anchor ${anchor} — only the last will apply`,
-      );
-      expect(getTextContent(result)).toContain(
-        `Warning: multiple edits target the same anchor ${anchor} — only the last will apply`,
-      );
+      const warnings = result.details.ptcValue.warnings;
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(anchor);
+      expect(getTextContent(result)).toContain(warnings[0]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

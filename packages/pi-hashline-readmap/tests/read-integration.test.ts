@@ -62,8 +62,8 @@ describe("read integration — combined output", () => {
     const text = getTextContent(result);
 
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
-    expect(text).not.toContain("[Output truncated:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
+    expect(result.details.ptcValue.truncation).toBeNull();
   });
 
   it("large TypeScript file returns hashlines and appended map", async () => {
@@ -71,8 +71,8 @@ describe("read integration — combined output", () => {
     const text = getTextContent(result);
 
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).toContain("[Output truncated:");
-    expect(text).toContain("File Map:");
+    expect(result.details.ptcValue.truncation).not.toBeNull();
+    expect(result.details.ptcValue.map.appended).toBe(true);
     expect(text).toContain("EventEmitter");
     expect(text).toContain("parseConfig");
     expect(text).toContain("DatabaseConnection");
@@ -89,7 +89,7 @@ describe("read integration — combined output", () => {
     const text = getTextContent(result);
 
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
   });
 
   it("large TypeScript file with limit returns hashlines only (no map)", async () => {
@@ -100,7 +100,7 @@ describe("read integration — combined output", () => {
     const text = getTextContent(result);
 
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
   });
 
   it("small Python file returns hashlines only", async () => {
@@ -108,8 +108,8 @@ describe("read integration — combined output", () => {
     const text = getTextContent(result);
 
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
-    expect(text).not.toContain("[Output truncated:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
+    expect(result.details.ptcValue.truncation).toBeNull();
   });
 
   it("plain text file returns hashlines only", async () => {
@@ -117,8 +117,8 @@ describe("read integration — combined output", () => {
     const text = getTextContent(result);
 
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
-    expect(text).not.toContain("[Output truncated:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
+    expect(result.details.ptcValue.truncation).toBeNull();
   });
 
   it("extensionless PNG files return stock pi image attachments", async () => {
@@ -135,8 +135,7 @@ describe("read integration — combined output", () => {
 
       const result = await callReadTool({ path: imagePath });
 
-      expect(getTextContent(result)).toContain("Read image file [image/png]");
-      expect(getTextContent(result)).not.toContain("LINE:HASH");
+      expect(getTextContent(result)).toContain("image/png");
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -153,7 +152,7 @@ describe("read integration — combined output", () => {
 
     expect(result.isError).not.toBe(true);
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
   });
 });
 describe("read integration — hashline format", () => {

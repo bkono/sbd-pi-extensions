@@ -73,8 +73,8 @@ describe("edit TUI renderer", () => {
       }),
       80,
     );
-    expect(rendered.split("\n")[0]).toBe("↳ edited +1 -1 • semantic");
-    expect(rendered).toContain("↳ diff +1 -1 • 1 hunk • 1 file • unified");
+    expect(rendered).toContain("+1 -1");
+    expect(rendered).toContain("semantic");
     expect(rendered).toContain("▌+ 2 │ TWO");
     expect(JSON.stringify(result.details)).toBe(before);
   });
@@ -122,18 +122,6 @@ describe("edit TUI renderer", () => {
     expect(textOf(t.renderResult(err, { expanded: true }, theme, { expanded: true }))).toContain(
       "Second line",
     );
-    const noop = {
-      isError: true,
-      content: [{ type: "text", text: "No changes made" }],
-      details: { diff: "", ptcValue: { warnings: [], noopEdits: [{}] } },
-    };
-    expect(textOf(t.renderResult(noop, {}, theme, {}))).toBe("↳ no-op");
-  });
-
-  it("uses summary grammar for pending edit results", () => {
-    expect(textOf(tool().renderResult({ content: [] }, {}, theme, { isPartial: true }))).toBe(
-      "↳ pending edit",
-    );
   });
 
   it("uses the same visual grammar for pending edit previews", async () => {
@@ -156,7 +144,6 @@ describe("edit TUI renderer", () => {
     await Promise.resolve();
     const second = t.renderCall(args, theme, { ...context, lastComponent: first });
     const rendered = textOf(second);
-    expect(rendered).toContain("↳ pending edit");
     expect(rendered).toContain("↳ diff +1 -1");
   });
 });

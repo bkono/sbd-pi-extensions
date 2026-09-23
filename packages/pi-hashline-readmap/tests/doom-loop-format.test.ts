@@ -1,8 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type DoomLoopWarning, formatDoomLoopMessage } from "../src/doom-loop.js";
+import { GENERIC_SUGGESTION, SUGGESTIONS } from "../src/doom-loop-suggestions.js";
+
+vi.mock("../src/doom-loop-suggestions.js", () => ({
+  GENERIC_SUGGESTION: "GENERIC_SENTINEL",
+  SUGGESTIONS: {
+    grep: ["GREP_SENTINEL_A", "GREP_SENTINEL_B"],
+    read: ["READ_SENTINEL"],
+  },
+}));
 
 describe("formatDoomLoopMessage — identical-tail", () => {
-  it("emits the stable marker, a repeat-count phrase, a compact fingerprint, and a grep-specific suggestion", () => {
+  it("includes the compact fingerprint and selected tool suggestions", () => {
     const warning: DoomLoopWarning = {
       kind: "identical-tail",
       toolName: "grep",
@@ -11,10 +20,9 @@ describe("formatDoomLoopMessage — identical-tail", () => {
 
     const out = formatDoomLoopMessage(warning);
 
-    expect(out).toMatch(/^⚠ REPEATED-CALL WARNING/);
-    expect(out).toContain("3rd identical tool call");
-    expect(out).toContain("grep");
-    expect(out).toMatch(/ignoreCase|ast_search|literal|narrower|summary/);
+    expect(out).toContain("addRoute");
+    for (const suggestion of SUGGESTIONS.grep) expect(out).toContain(suggestion);
+    expect(out).not.toContain(GENERIC_SUGGESTION);
   });
 
   it("keeps each rendered step under 80 characters", () => {
@@ -42,7 +50,7 @@ describe("formatDoomLoopMessage — identical-tail", () => {
       fingerprint: "weirdtool:{}",
     };
     const out = formatDoomLoopMessage(warning);
-    expect(out.toLowerCase()).toContain("different approach");
+    expect(out).toContain(GENERIC_SUGGESTION);
   });
 });
 
@@ -58,15 +66,12 @@ describe("formatDoomLoopMessage — repeated-subsequence", () => {
       ],
     });
 
-    expect(out).toMatch(/^⚠ ALTERNATING-CALL WARNING/);
-    expect(out.toLowerCase()).toMatch(/neither call|not producing new information/);
-
     const stepLines = out.split("\n").filter((line) => /^\s*[→•-]\s*(grep|read)\b/.test(line));
     expect(stepLines.length).toBeGreaterThanOrEqual(2);
     for (const line of stepLines) expect(line.length).toBeLessThanOrEqual(80);
 
-    const grepIdx = out.indexOf("For grep:");
-    const readIdx = out.indexOf("For read:");
+    const grepIdx = out.indexOf(SUGGESTIONS.grep[0]);
+    const readIdx = out.indexOf(SUGGESTIONS.read[0]);
     expect(grepIdx).toBeGreaterThan(-1);
     expect(readIdx).toBeGreaterThan(-1);
     expect(grepIdx).toBeLessThan(readIdx);
@@ -84,8 +89,7 @@ describe("formatDoomLoopMessage — repeated-subsequence", () => {
       ],
     });
 
-    expect((out.match(/For read:/g) ?? []).length).toBe(1);
-    expect(out).toContain("For weirdtool:");
-    expect(out.toLowerCase()).toContain("different approach");
+    expect(out.split(SUGGESTIONS.read[0])).toHaveLength(2);
+    expect(out).toContain(GENERIC_SUGGESTION);
   });
 });

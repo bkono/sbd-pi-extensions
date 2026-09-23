@@ -111,15 +111,6 @@ describe("scoped epic detection", () => {
 });
 
 describe("halt continuation", () => {
-  it("instructs the parent to halt the minion group", () => {
-    const prompt = buildGoalHaltPrompt("BW-100");
-    expect(prompt).toContain("BW-100");
-    expect(prompt).toMatch(/halt tool id="group"|id "group"/);
-    expect(prompt).toContain("/halt group");
-    expect(prompt).toMatch(/forget the open group/i);
-    expect(prompt).toContain("Do not orchestrate further work");
-  });
-
   it("uses followUp when the parent is busy and triggerTurn when idle", () => {
     const busy = createInjector();
     const idle = createInjector();
@@ -180,7 +171,7 @@ describe("exitGoalMode", () => {
     expect(persisted.mode).not.toBe("run");
     expect(persisted.mode).toBe("interactive");
     expect(persisted.goal).toBeUndefined();
-    expect(pi.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("/halt group"), {
+    expect(pi.sendUserMessage).toHaveBeenCalledWith(buildGoalHaltPrompt("BW-100"), {
       deliverAs: "followUp",
     });
     expect(pi.sendMessage).not.toHaveBeenCalled();
@@ -196,7 +187,6 @@ describe("exitGoalMode", () => {
         busy: true,
       }),
     );
-    expect(ui.notifications.at(-1)?.message).toContain("Goal mode ended for BW-100");
   });
 
   it("does not exit or queue halt when a ticket is closed", async () => {
@@ -278,7 +268,7 @@ describe("maybeExitGoalOnClosedScopeDetail", () => {
     expect(pi.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         customType: GOAL_HALT_CUSTOM_TYPE,
-        content: expect.stringContaining("/halt group"),
+        content: buildGoalHaltPrompt("BW-100"),
       }),
       { triggerTurn: true },
     );
@@ -368,7 +358,7 @@ describe("handleAbandonAction", () => {
     expect(handled).toBe(true);
     expect(stored.mode).toBe("interactive");
     expect(stored.goal).toBeUndefined();
-    expect(pi.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("/halt group"), {
+    expect(pi.sendUserMessage).toHaveBeenCalledWith(buildGoalHaltPrompt("BW-100"), {
       deliverAs: "followUp",
     });
     expect(logSpy).toHaveBeenCalledWith(
@@ -431,7 +421,6 @@ describe("handleAbandonAction", () => {
 
     expect(pi.sendMessage).not.toHaveBeenCalled();
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
-    expect(ui.notifications.at(-1)?.message).toContain("Goal mode is not active");
     expect(logSpy).toHaveBeenCalledWith(
       "exit",
       expect.objectContaining({

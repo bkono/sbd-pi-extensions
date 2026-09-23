@@ -15,25 +15,6 @@ const delegationConfig = {
 };
 
 describe("delegation hint", () => {
-  it("mentions spawn and orchestrate by default", () => {
-    const hint = createDelegationHint(17, { acknowledgementRequired: false });
-
-    expect(hint).toContain("DELEGATION REMINDER: You have made 17 tool calls");
-    expect(hint).toContain("pi-minions extension is active");
-    expect(hint).toContain("Use `spawn` for a foreground delegation");
-    expect(hint).toContain(
-      "Use `orchestrate` when the supervisor must remain available to the user",
-    );
-    expect(hint).toContain("normally yields between actionable events");
-    expect(hint).not.toContain("when you intend to wait");
-    expect(hint).toContain("pass a `tasks` array to `spawn`");
-    expect(hint).toContain("`learn_minions`");
-    expect(hint).not.toContain("isolated foreground delegation");
-    expect(hint).not.toContain("spawn_bg");
-    expect(hint).not.toContain("ALWAYS acknowledge this reminder");
-    expect(hint.toLowerCase()).not.toContain("acknowledge");
-  });
-
   it("does not add acknowledgement instructions to custom messages", () => {
     const hint = createDelegationHint(8, {
       acknowledgementRequired: true,

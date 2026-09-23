@@ -52,9 +52,8 @@ describe("read map on demand", () => {
       map: true,
       symbol: "UserDirectory",
     });
-    const text = result.content[0].text;
     expect(result.isError).toBe(true);
-    expect(text).toBe("Cannot combine map with symbol. Use one or the other.");
+    expect(result.details.ptcValue.error.code).toBe("invalid-params-combo");
   });
 
   it("map: true on a small file appends structural map after hashlines", async () => {
@@ -66,9 +65,9 @@ describe("read map on demand", () => {
     // Should have hashlines
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
     // Should NOT have truncation message (file is small)
-    expect(text).not.toContain("[Output truncated:");
+    expect(result.details.ptcValue.truncation).toBeNull();
     // Should have structural map appended
-    expect(text).toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(true);
     // Map should contain symbols from small.ts
     expect(text).toContain("UserDirectory");
     expect(text).toContain("UserRecord");
@@ -81,9 +80,9 @@ describe("read map on demand", () => {
     });
     const text = result.content[0].text;
     // File is large enough to be truncated
-    expect(text).toContain("[Output truncated:");
+    expect(result.details.ptcValue.truncation).not.toBeNull();
     // Map still appended even when truncated
-    expect(text).toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(true);
     // Map appears exactly once (no double-append)
     expect(text.match(/File Map:/g)?.length).toBe(1);
   });
@@ -102,7 +101,7 @@ describe("read map on demand", () => {
     const hashlineRows = text.split("\n").filter((l: string) => /^\d+:[0-9a-f]{3}\|/.test(l));
     expect(hashlineRows.length).toBe(5);
     // Should still have the structural map appended
-    expect(text).toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(true);
     expect(text).toContain("UserDirectory");
   });
 
@@ -115,7 +114,7 @@ describe("read map on demand", () => {
     // Should have hashlines
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
     // Should NOT have a map (plain.txt is unmappable)
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
     // Should NOT be an error
     expect(result.isError).toBeUndefined();
   });
@@ -128,7 +127,7 @@ describe("read map on demand", () => {
     // Should have hashlines
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
     // Should NOT have structural map (file is small, map not requested)
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
   });
 
   it("map: false explicitly: small file does not include structural map", async () => {
@@ -138,6 +137,6 @@ describe("read map on demand", () => {
     });
     const text = result.content[0].text;
     expect(text).toMatch(/^\d+:[0-9a-f]{3}\|/m);
-    expect(text).not.toContain("File Map:");
+    expect(result.details.ptcValue.map.appended).toBe(false);
   });
 });

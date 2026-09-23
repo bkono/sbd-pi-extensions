@@ -155,7 +155,7 @@ describe("normalizeSurfaceLines", () => {
   it("truncates with sentinel when exceeding height", () => {
     const result = normalizeSurfaceLines(["a", "b", "c", "d", "e"], 20, 3);
     expect(result).toHaveLength(3);
-    expect(result[2]).toContain("… 3 more lines");
+    expect(result.slice(0, 2).map((line) => line.trim())).toEqual(["a", "b"]);
   });
 });
 
@@ -231,12 +231,11 @@ describe("renderSurface", () => {
   it("applies bodyHeight truncation", () => {
     const lines = renderSurface(theme, 40, {
       title: "Test",
-      subtitle: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+      subtitle: Array.from({ length: 10 }, (_, i) => `row-${i}-sentinel`),
       bodyHeight: 5,
     });
-    const content = lines.join("\n");
-    expect(content).toContain("… ");
-    expect(content).toContain("more lines");
+    expect(lines.join("\n")).toContain("row-0-sentinel");
+    expect(lines.join("\n")).not.toContain("row-9-sentinel");
   });
 });
 

@@ -16,10 +16,6 @@ function captureReadTool() {
   return capturedTool;
 }
 
-function getTextContent(result: any): string {
-  return result.content?.find((item: any) => item.type === "text")?.text ?? "";
-}
-
 describe("issue #081 regression — zero limit", () => {
   it("treats numeric and string zero limits as invalid instead of as 'no limit'", async () => {
     const tool = captureReadTool();
@@ -34,16 +30,12 @@ describe("issue #081 regression — zero limit", () => {
     );
 
     expect(numericZero.isError).toBe(true);
-    expect(getTextContent(numericZero)).toBe(
-      "Invalid limit: expected a positive integer, received 0.",
-    );
     expect(numericZero.details?.ptcValue).toMatchObject({
       tool: "read",
       ok: false,
       path: filePath,
       error: {
         code: "invalid-limit",
-        message: "Invalid limit: expected a positive integer, received 0.",
       },
     });
 
@@ -56,16 +48,12 @@ describe("issue #081 regression — zero limit", () => {
     );
 
     expect(stringZero.isError).toBe(true);
-    expect(getTextContent(stringZero)).toBe(
-      "Invalid limit: expected a positive integer, received 0.",
-    );
     expect(stringZero.details?.ptcValue).toMatchObject({
       tool: "read",
       ok: false,
       path: filePath,
       error: {
         code: "invalid-limit",
-        message: "Invalid limit: expected a positive integer, received 0.",
       },
     });
   });

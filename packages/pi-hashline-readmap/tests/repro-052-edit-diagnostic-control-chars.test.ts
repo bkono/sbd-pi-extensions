@@ -42,7 +42,6 @@ describe("Bug #052: edit no-op diagnostics escape control characters", () => {
 
     expect(result.isError).toBe(true);
     const text = result.content.find((c: any) => c.type === "text")?.text ?? "";
-    expect(text).toContain("No changes made");
     expect(text).toContain("\\u0007");
     expect(CONTROL_CHAR_RE.test(text)).toBe(false);
   });

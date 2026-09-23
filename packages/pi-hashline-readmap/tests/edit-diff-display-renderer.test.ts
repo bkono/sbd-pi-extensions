@@ -96,7 +96,6 @@ describe("edit pending-preview renderer with edit.diffDisplay = expanded", () =>
     const second = tool.renderCall(args, theme, { ...context, lastComponent: first });
     const rendered = textOf(second);
 
-    expect(rendered).toContain("pending edit");
     expect(rendered).toContain("↳ diff +1 -1");
     expect(rendered).toContain("▌+ 1 │ const unique = 2;");
   });

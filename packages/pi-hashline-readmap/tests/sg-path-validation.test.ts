@@ -18,10 +18,6 @@ async function getSgTool() {
   return captured;
 }
 
-function text(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 describe("ast_search path validation", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -44,7 +40,6 @@ describe("ast_search path validation", () => {
       { cwd: process.cwd() },
     );
     expect(result.isError).toBe(true);
-    expect(text(result)).toBe("Error: path '/this/path/definitely/does/not/exist' does not exist");
     expect(result.details?.ptcValue?.ok).toBe(false);
     expect(result.details?.ptcValue?.error?.code).toBe("path-not-found");
     expect(execFileSpy).not.toHaveBeenCalled();

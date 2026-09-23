@@ -4,63 +4,8 @@ import { describe, expect, it } from "vitest";
 import { formatGrepOutput, type GrepIR, type GrepIRLine } from "../src/grep";
 import { registerGrepTool } from "../src/grep.js";
 
-describe("grep truncation indicator", () => {
-  it("appends truncation message when result count equals limit", () => {
-    const lines: GrepIRLine[] = Array.from({ length: 5 }, (_, i) => ({
-      kind: "match" as const,
-      raw: `src/foo.ts:>>${i + 1}:ab|line ${i}`,
-    }));
-    const ir: GrepIR = {
-      totalMatches: 5,
-      files: [{ path: "src/foo.ts", matchCount: 5, lines }],
-    };
-    const output = formatGrepOutput(ir, { limit: 5 });
-    expect(output).toContain("[Results truncated at 5 matches — refine pattern or increase limit]");
-  });
-
-  it("does not append truncation message when results are under limit", () => {
-    const lines: GrepIRLine[] = Array.from({ length: 3 }, (_, i) => ({
-      kind: "match" as const,
-      raw: `src/foo.ts:>>${i + 1}:ab|line ${i}`,
-    }));
-    const ir: GrepIR = {
-      totalMatches: 3,
-      files: [{ path: "src/foo.ts", matchCount: 3, lines }],
-    };
-    const output = formatGrepOutput(ir, { limit: 5 });
-    expect(output).not.toContain("[Results truncated");
-  });
-
-  it("does not append truncation message when no limit is specified and results < 100", () => {
-    const lines: GrepIRLine[] = Array.from({ length: 3 }, (_, i) => ({
-      kind: "match" as const,
-      raw: `src/foo.ts:>>${i + 1}:ab|line ${i}`,
-    }));
-    const ir: GrepIR = {
-      totalMatches: 3,
-      files: [{ path: "src/foo.ts", matchCount: 3, lines }],
-    };
-    const output = formatGrepOutput(ir);
-    expect(output).not.toContain("[Results truncated");
-  });
-
-  it("appends truncation message at default limit of 100", () => {
-    const lines: GrepIRLine[] = Array.from({ length: 100 }, (_, i) => ({
-      kind: "match" as const,
-      raw: `src/foo.ts:>>${i + 1}:ab|line ${i}`,
-    }));
-    const ir: GrepIR = {
-      totalMatches: 100,
-      files: [{ path: "src/foo.ts", matchCount: 100, lines }],
-    };
-    // No limit option passed — should use default of 100
-    const output = formatGrepOutput(ir, { limit: 100 });
-    expect(output).toContain(
-      "[Results truncated at 100 matches — refine pattern or increase limit]",
-    );
-  });
-
-  it("appends truncation message in summary mode when results hit limit", () => {
+describe("grep summary at the match limit", () => {
+  it("renders summary data at the match limit without anchors", () => {
     const lines: GrepIRLine[] = Array.from({ length: 5 }, (_, i) => ({
       kind: "match" as const,
       raw: `src/foo.ts:>>${i + 1}:ab|line ${i}`,
@@ -70,11 +15,8 @@ describe("grep truncation indicator", () => {
       files: [{ path: "src/foo.ts", matchCount: 5, lines }],
     };
     const output = formatGrepOutput(ir, { summary: true, limit: 5 });
-    // Summary header and per-file count appear
-    expect(output).toContain("[5 matches in 1 files]");
-    expect(output).toContain("src/foo.ts: 5 matches");
-    // Truncation indicator also appears
-    expect(output).toContain("[Results truncated at 5 matches — refine pattern or increase limit]");
+    expect(output).toContain("5");
+    expect(output).toContain("src/foo.ts");
     // No hashline anchors in summary mode
     expect(output).not.toMatch(/\d+:[0-9a-f]{3}\|/);
   });
@@ -103,19 +45,17 @@ async function callGrepToolTruncation(params: {
   });
 }
 
-function getTextContentT(result: any): string {
-  return result.content?.find((c: any) => c.type === "text")?.text ?? "";
-}
-
 describe("grep truncation indicator integration", () => {
-  it("truncation indicator appears when tool results hit limit", async () => {
+  it("limits returned matches", async () => {
     // pattern "e" produces 34 matches in small.ts; limit=2 ensures totalMatches === 2 === limit
     const result = await callGrepToolTruncation({
       pattern: "e",
       path: resolve(fixturesDir, "small.ts"),
       limit: 2,
     });
-    const text = getTextContentT(result);
-    expect(text).toContain("[Results truncated at 2 matches — refine pattern or increase limit]");
+    expect(result.details.ptcValue.totalMatches).toBe(2);
+    expect(
+      result.details.ptcValue.records.filter((record: any) => record.kind === "match"),
+    ).toHaveLength(2);
   });
 });

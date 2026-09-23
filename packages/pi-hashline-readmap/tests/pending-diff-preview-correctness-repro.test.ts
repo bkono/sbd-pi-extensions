@@ -25,7 +25,7 @@ describe("pending diff preview correctness regression", () => {
     const preview = buildPendingWritePreviewData({ path: outsideFile, content: "after\n" }, cwd);
 
     expectOk(preview);
-    expect(preview.data.headerLabel).toBe("pending overwrite");
+    expect(preview.data.fileExistedBeforeWrite).toBe(true);
     expect(preview.data.filePath).toBe(realOutsideFile);
     expect(preview.data.nextContent).toBe("after\n");
   });
@@ -38,7 +38,6 @@ describe("pending diff preview correctness regression", () => {
     const preview = buildPendingWritePreviewData({ path: outsideFile, content: "created\n" }, cwd);
 
     expectOk(preview);
-    expect(preview.data.headerLabel).toBe("pending create");
     expect(preview.data.fileExistedBeforeWrite).toBe(false);
     expect(preview.data.filePath).toBe(outsideFile);
     expect(preview.data.previousContent).toBe("");

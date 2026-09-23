@@ -61,7 +61,7 @@ describe("grep output budget env vars", () => {
     const dir = makeFixture();
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
-    expect(text).not.toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)).toHaveLength(120);
   });
 
   it("truncates earlier when PI_HASHLINE_GREP_MAX_LINES is small", async () => {
@@ -69,8 +69,8 @@ describe("grep output budget env vars", () => {
     process.env.PI_HASHLINE_GREP_MAX_LINES = "10";
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
-    expect(text).toContain("[Output truncated:");
-    expect(text).toContain("Refine pattern or increase limit.]");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeGreaterThan(0);
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeLessThan(120);
   });
 
   it("truncates earlier when PI_HASHLINE_GREP_MAX_BYTES is small", async () => {
@@ -78,7 +78,8 @@ describe("grep output budget env vars", () => {
     process.env.PI_HASHLINE_GREP_MAX_BYTES = "1024";
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
-    expect(text).toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeGreaterThan(0);
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeLessThan(120);
   });
 
   it.each([
@@ -97,7 +98,7 @@ describe("grep output budget env vars", () => {
     process.env.PI_HASHLINE_GREP_MAX_BYTES = raw;
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
-    expect(text).not.toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)).toHaveLength(120);
   });
 
   it("clamps above-default lines/bytes to defaults (no expansion)", async () => {
@@ -107,7 +108,7 @@ describe("grep output budget env vars", () => {
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
     // Same as "no env" baseline on this fixture: not truncated.
-    expect(text).not.toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)).toHaveLength(120);
   });
 
   it("accepts whitespace-padded values", async () => {
@@ -115,7 +116,8 @@ describe("grep output budget env vars", () => {
     process.env.PI_HASHLINE_GREP_MAX_LINES = " 10 ";
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
-    expect(text).toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeGreaterThan(0);
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeLessThan(120);
   });
 
   it("treats the two env vars independently when only lines is set", async () => {
@@ -124,6 +126,7 @@ describe("grep output budget env vars", () => {
     // bytes left unset
     const result = await callGrep({ pattern: "needle", path: dir, literal: true, limit: 200 });
     const text = getText(result);
-    expect(text).toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeGreaterThan(0);
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeLessThan(120);
   });
 });

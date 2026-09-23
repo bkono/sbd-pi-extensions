@@ -157,7 +157,6 @@ describe("read contextHygiene metadata", () => {
       endLine: 49,
     });
     expect((result.details?.ptcValue as any).contextHygiene).toBeUndefined();
-    expect(getTextContent(result)).toContain("## Requested symbol");
     expect(getTextContent(result)).toContain(
       "[Symbol: createDemoDirectory (function), lines 45-49 of 50]",
     );

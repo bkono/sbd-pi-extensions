@@ -38,12 +38,6 @@ describe("bash renderer wrapper", () => {
     ).resolves.toMatchObject({ details: { delegated: true } });
     expect(createBuiltIn).toHaveBeenCalledWith("/tmp/work");
     expect(execute).toHaveBeenCalledWith("call-1", { command: "npm test" }, undefined, undefined);
-    expect(
-      textOf(registered.renderResult({ content: [{ type: "text", text: "ok\n" }] }, {}, theme, {})),
-    ).toBe("↳ 1 line returned • Ctrl+O to expand");
-    expect(
-      textOf(registered.renderResult({ content: [{ type: "text", text: "" }] }, {}, theme, {})),
-    ).toBe("↳ command completed (no output)");
   });
 
   it("keeps renderResult diagnostics clean for intentionally unused theme", () => {
@@ -73,19 +67,10 @@ describe("bash renderer wrapper", () => {
       } as any,
       { createBuiltInBashTool: () => builtIn, cwd: "/tmp/work" },
     );
-    expect(registered.description).toBe(
-      "Run tests, builds, git, package managers, and external CLIs; do not use for repo file reading/searching/listing/editing (use read, grep, find, ls, edit, or write).",
-    );
-    expect(registered.promptSnippet).toBe(
-      "Bash only for tests/builds/git/pkg/external CLIs. Don't use cat/head/tail, grep/rg, find/ls/tree, sed/awk/perl/python rewrites, or > heredocs/tee for repo files; use read/grep/find/ls/edit/write.",
-    );
-    expect(registered.promptGuidelines).toEqual([
-      "Use bash for tests, builds, git, package managers, and external CLIs.",
-      "Do not use bash cat/head/tail/grep/rg/find/ls/tree/sed/awk for repo files.",
-      "Use read/grep/find/ls/edit/write for repo file operations.",
-    ]);
-    expect(registered.parameters.properties.command.description).toBe(
-      "Test/build/git/pkg/external command; not repo file read/search/list/edit.",
-    );
+    expect(registered.description).toEqual(expect.any(String));
+    expect(registered.description).not.toBe(builtIn.description);
+    expect(registered.parameters).not.toBe(params);
+    expect(registered.parameters.properties.command.type).toBe("string");
+    expect(registered.parameters.required).toContain("command");
   });
 });

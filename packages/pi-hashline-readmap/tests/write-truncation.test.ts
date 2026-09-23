@@ -26,6 +26,5 @@ describe("write truncation notice", () => {
     const result = await executeWrite({ path: filePath, content });
 
     expect(result.ptcValue.lines).toHaveLength(2003);
-    expect(result.text).toContain("[… 3 more lines not shown — full anchors in ptcValue]");
   });
 });

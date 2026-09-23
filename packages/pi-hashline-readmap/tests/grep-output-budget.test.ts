@@ -44,7 +44,7 @@ describe("grep post-transform budgeting", () => {
     });
 
     const text = getText(result);
-    expect(text).toContain("[Output truncated:");
+    expect(text.match(/:>>\d+:[0-9a-f]{3}\|/g)?.length).toBeLessThan(120);
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(100_000);
   });
 });

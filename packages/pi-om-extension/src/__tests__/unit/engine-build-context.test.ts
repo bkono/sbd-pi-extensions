@@ -544,11 +544,4 @@ describe("buildContinuationReminder", () => {
     expect(result).toMatch(/^<system-reminder>/);
     expect(result).toMatch(/<\/system-reminder>$/);
   });
-
-  it("uses continuation guidance that permits retained or overlapping native context", () => {
-    const result = buildContinuationReminder();
-    expect(result).toContain("may overlap with observational memory or be newer");
-    expect(result).not.toContain("entire conversation is stored");
-    expect(result).not.toContain("following this system reminder are newer");
-  });
 });

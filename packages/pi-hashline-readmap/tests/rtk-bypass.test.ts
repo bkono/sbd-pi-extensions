@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getBashAntiPatternHint } from "../src/rtk/bash-anti-pattern-hints.ts";
 import { filterBashOutput } from "../src/rtk/bash-filter.ts";
 import * as linterModule from "../src/rtk/linter.ts";
 
@@ -44,7 +45,9 @@ describe("PI_RTK_BYPASS non-matching variants", () => {
 describe("PI_RTK_BYPASS=1 with anti-pattern hint", () => {
   it("still appends the cat hint under bypass", () => {
     const result = filterBashOutput("PI_RTK_BYPASS=1 cat README.md", "line1\nline2\n");
-    expect(result.output).toBe("line1\nline2\n\n\n[Hint: Prefer the read tool for file contents.]");
+    expect(result.output).toBe(
+      `line1\nline2\n\n\n${getBashAntiPatternHint("PI_RTK_BYPASS=1 cat README.md")}`,
+    );
     expect(result.info.bypassedBy).toBe("env-var");
     expect(result.info.technique).toBe("none");
   });

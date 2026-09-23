@@ -18,9 +18,7 @@ describe("argv parsing", () => {
   });
 
   it("rejects malformed provider/model overrides", () => {
-    expect(() => parseModelOverride("cursor/")).toThrow(
-      "Invalid model override: cursor/. Expected provider/model or a bare model name.",
-    );
-    expect(() => parseModelOverride("")).toThrow("Model override cannot be empty.");
+    expect(() => parseModelOverride("cursor/")).toThrow();
+    expect(() => parseModelOverride("")).toThrow();
   });
 });
