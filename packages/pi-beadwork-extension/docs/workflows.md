@@ -130,8 +130,9 @@ When a goal-management turn runs:
 4. compose each child’s complete `task` (beadwork does not wrap it), requiring an atomic
    ticket-scoped commit and returned commit SHA; stage only owned files
 5. `orchestrate` with domain `{ source: "beadwork", scopeId, workItemId, title }` and a `taskType`
-6. after handling available evidence and dispatching eligible work, end the turn without another tool
-   call when progress depends on children. Do not repeat the sweep to wait for results
+6. finish registering the selected workers, then end this turn. Do not transition into parent-side
+   preparation or implementation. Any continued tool sequence postpones completion and failure
+   follow-ups—not just polling
 
 Yielding preserves goal mode; lifecycle follow-ups resume the manager. Settlement is evidence, not
 acceptance or ticket closure. `orchestrate` `accepted` means starting, not liveness. Do not poll.

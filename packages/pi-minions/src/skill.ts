@@ -2,14 +2,14 @@ export const SPAWN_GUIDELINE =
   "Use `spawn` for a foreground delegation whose result should return inside this turn. The tool blocks until the minion completes.";
 
 export const ORCHESTRATE_GUIDELINE =
-  "Use `orchestrate` when the supervisor must remain available to the user or manage an ongoing workflow. An orchestrated supervisor normally yields between actionable events; it does not need to keep working while children run.";
+  "Use `orchestrate` when the supervisor must remain available to the user or manage an ongoing workflow. Dispatch, then yield; resume on child events or user messages.";
 
 export const ORCHESTRATE_SIDECAR_GUIDELINES = [
-  "Delegate independent slices with orchestrate; keep any continuing parent work outside their scope.",
+  "Delegate independent slices with orchestrate. Do not edit a delegated scope while its child remains live; message or halt the child instead. Active domain restrictions such as a manager-only role still apply.",
   "After orchestrate registers background work, treat delegated work as live until terminal lifecycle evidence, explicit inspection, or halt proves otherwise.",
-  "After orchestrate dispatch, finish any already-identified, independent parent work, then end the turn. Children continue running, and their follow-ups resume supervision automatically. Ending the turn is yielding, not abandoning or completing the task. Yielding is token-efficient: it preserves context and avoids spending model calls on waiting.",
-  "For orchestrate, yield by ending the assistant turn without another tool call. Completion follow-ups intentionally wait until the current tool sequence ends; polling postpones the events you are waiting for. Wait for the event instead of polling an active child's status.",
-  "While orchestrate work is live, answer user questions normally; inspect for a specific question, message to coordinate, or halt when appropriate. Do not edit the delegated scope or invent work to keep the turn alive. Active domain restrictions such as a manager-only role still apply.",
+  "After dispatch, stop. Once orchestrate accepts work, end the assistant turn. Do not continue implementation, test-harness preparation, research, or validation—even if that work is independent or previously planned. Complete prerequisites before dispatch, delegate independent work, or defer it until results arrive.",
+  "Child completion and failure follow-ups wait until your tool sequence ends. Any continued tool sequence can postpone them—not just polling. Yielding is part of supervision, not idle time or abandonment.",
+  "Resume on a delivered child event or user message. Handle the actionable evidence, perform necessary coordination, dispatch follow-on work, then yield again. A user request remains actionable while workers run.",
   "Never claim orchestrate-delegated work or the orchestration goal complete while any child remains live.",
   "Treat orchestrate path intent and overlap notices as advisory, not locks.",
 ] as const;
@@ -33,12 +33,12 @@ Dispatch → yield → receive follow-up → evaluate and decide → dispatch or
 
 **Yield** means end the assistant turn without another tool call. A brief pending-status response is enough when useful. Children continue running in the same Pi process, and follow-ups resume supervision automatically. Do not ask the user to say “continue.” Do not sleep, poll, or invent work to keep the turn alive. Yielding saves tokens and preserves context for decisions instead of spending it on repeated status checks.
 
-Follow-ups intentionally wait until the current tool sequence ends so child completions do not interrupt the active user conversation. Repeated status checks postpone the notifications you are waiting for. Ending the turn is neither task completion nor process shutdown.
+Follow-ups intentionally wait until the current tool sequence ends so child completions do not interrupt the active user conversation. Any continued tool sequence postpones delivery, including useful preparation. Ending the turn is neither task completion nor process shutdown.
 
 | Situation | Supervisor action |
 | --- | --- |
-| Children running; no already-identified independent work | Yield; wait for the event. |
-| Independent parent work remains | Finish that bounded slice, then yield. Respect active domain roles, including manager-only restrictions. |
+| Selected workers still need registration | Finish registering them, then end this turn. |
+| Dispatch complete; parent preparation or implementation remains | Yield. Delegate that work or defer it until results arrive. |
 | User asks a question | Answer it; inspect only if needed for that question. |
 | Child result arrives | Evaluate the supplied evidence; retrieve missing details selectively. |
 | Result handled; siblings still running | Dispatch eligible follow-on work, otherwise yield. |

@@ -308,7 +308,7 @@ export function formatLifecyclePacket(
 
   lines.push(
     "",
-    "Address new actionable evidence in this update. After the resulting decision or dispatch, yield if further progress depends on children. Background status alone requires no action.",
+    "Address new actionable evidence in this update. Handle necessary coordination and finish registering selected follow-on workers, then yield. Do not transition into parent-side preparation or implementation. Background status alone requires no action.",
     "If this evidence was already evaluated and decided, do not repeat the work or publish a separate 'already handled' acknowledgment. New findings still require evaluation.",
     "Additional evidence, if needed: show_minion <id>",
   );

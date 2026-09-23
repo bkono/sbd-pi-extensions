@@ -40,7 +40,7 @@ export function formatOrchestrateText(result: OrchestrateResult): string {
     const rejectionStep = result.rejected.length > 0 ? "Resolve rejected registrations. " : "";
     lines.push(
       "",
-      `Next: ${rejectionStep}Finish only already-planned independent work. Otherwise end this turn now. ` +
+      `Next: ${rejectionStep}Finish registering the selected workers, then end this turn. Do not transition into parent-side preparation or implementation. ` +
         "Children continue in the background; results arrive as follow-ups after you yield. " +
         "You do not need to poll the subagents; wait for the event instead.",
     );

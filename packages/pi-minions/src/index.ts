@@ -173,7 +173,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Register background minion work and return handles immediately. " +
       "Children start in the session's one open group and report later; this tool does not wait. " +
-      "Yield after dispatch unless already-identified independent work remains; results arrive as follow-ups after you end the turn. " +
+      "Finish registering the selected workers, then end this turn. Do not transition into parent-side preparation or implementation. Results arrive as follow-ups after you yield. " +
       "Each task requires a short description. Persistent hosts only (tui/rpc).",
     promptSnippet: "Dispatch background minions; yield between actionable events",
     promptGuidelines: [...orchestratePromptGuidelines],

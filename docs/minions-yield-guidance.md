@@ -34,15 +34,15 @@ npm run typecheck
 git diff --check
 ```
 
-Regression coverage must exercise dispatch branches, active/pending/settling versus terminal/spawn inspection, emitted lifecycle instructions and bounded packet size, static prompt delivery across follow-ups, and Beadwork run versus interactive/interrupted guidance. Keep existing tests of `followUp` delivery and lifecycle acceptance semantics.
+Regression coverage exercises dispatch branches, lifecycle delivery, registration failures, packet bounds, prompt composition across follow-ups, and Beadwork mode selection. Preserve lifecycle acceptance semantics. Guidance prose, headings, and nudge wording are not test contracts.
 
-Deterministic tests establish what the tools teach, not whether a model follows it. Fresh-context model trials should cover: dispatch then yield; finite independent work then yield; a user question during child execution; one completed child with siblings live; an explicit status question; recovery after compaction; and duplicate evidence without repeated work or user-facing acknowledgment. No claim of reduced polling/token use until such behavior is observed.
+Deterministic tests establish delivery and composition behavior, not whether a model follows guidance. Fresh-context model trials should cover: dispatch then yield with an unfinished acceptance harness available; sequential worker registration; prompt handling of a worker failure; a user question during child execution; one completed child with siblings live; an explicit status question; recovery after compaction; and duplicate evidence without repeated work or user-facing acknowledgment. No claim of reduced polling/token use until such behavior is observed.
 
 ## Results
 
 Implemented and independently reviewed (foreground reviewer `86f83e56`: approve, no blockers). The only review note was to finish this validation record.
 
-- Red phase: five expected failures established missing dispatch/inspection guidance and the stale “Still running” label before implementation.
+- Historical red phase: five expected text mismatches, not reproduction of a supervision failure. The copy-locking assertions described here are superseded by the cleanup below.
 - `npm run test -w @solvedbydev/pi-minions`: **339 tests / 25 files passed**.
 - `npm run lint`: **690 files checked, clean**.
 - `npm run test -- --silent`: **2,389 tests / 444 files passed**, including Beadwork in-process integration and all three prompt policy goldens.
@@ -66,3 +66,37 @@ Approved scope: findings 1 and 2 only. Replace the unconditional Beadwork turn r
 - [x] Validate: inspection suite **12/12 passed**; `npm run lint` **690 files clean**; `npm run test -- --silent` **2,389 tests / 444 files passed**; `npm run typecheck` **all workspaces passed**; `git diff --check` **passed**.
 
 Verified zero diff against `58d5f13` for partial-acceptance renderer/tests, human `/minions` commands and observability implementation, and lifecycle packet implementation. Foreground inspection retains its tip (regression assertion). Fresh-model behavioral trials remain unrun; these checks validate emitted instructions and preserved behavior, not a measured reduction in model polling.
+
+## Mandatory dispatch boundary (2026-09-23, `sbdpi-gw1`)
+
+The user observed a supervisor continuously preparing an acceptance harness after dispatch, postponing worker failures until explicit intervention. The independent-work exception permitted this failure despite no-polling guidance.
+
+- **Decision:** use the user's approved three-paragraph mandatory dispatch boundary verbatim in injected guidance and `learn_minions`; use the approved sequential-registration instruction in the dispatch result.
+- **Deprecated:** the independent-parent-work exception and conditional yielding. **Replacement:** dispatch then stop; prepare prerequisites before dispatch, delegate work, or defer it. **Status:** remove now.
+- **Invariants:** selected workers may be registered sequentially; user requests and event-driven coordination remain actionable; preserve non-preemptive delivery, registration failure handling, scope ownership, and acceptance policy.
+- **Closed doors / Do not:** no runtime enforcement, steering, scheduler, or delivery/acknowledgment changes. Do not describe static wording tests as behavioral proof.
+- [x] Replace contradictory guidance across runtime text, docs, and global AGENTS.
+- [x] Remove wording-specific tests and guidance goldens; run lint/tests/typecheck and inspect the diff.
+- [x] Commit, close the issue, and record validation. Cleanup committed as `965df58`; guidance changes committed separately. Fresh-model behavioral trials remain separate and unrun.
+
+## Copy-independent tests (`sbdpi-gw1`)
+
+User requirement: nudges and guidance must be freely editable without updating tests.
+
+- **Decision:** remove prose assertions and guidance snapshots across the repository, including duplicated integration checks. Retain tests of actual state, routing, delivery, injection, and composition.
+- **Rejected / Do not:** no canonical prose golden, keyword/regex proxies, or incidental render-length assertions as replacements for copy locks.
+- **Invariant:** machine-readable contracts, parser fixtures, intentional user data, and lifecycle behavior remain covered. Production behavior is unchanged by this test cleanup.
+- **Deprecated:** guidance goldens and wording-only test suites. **Replacement:** behavioral assertions or deletion when no behavior was tested. **Status:** deleted.
+- [x] Review cleanup and residual assertions.
+- [x] Run repository lint, tests, typecheck, and explicit Beadwork E2E tests.
+
+### Cleanup validation
+
+- Removed all four Beadwork prompt goldens, 13 prose-only test files, and wording assertions across minions, Beadwork, hashline, and OM. Residual diagnostic/renderer checks use structured codes, supplied data, state changes, or formatter sentinels instead of product wording.
+- Preserved parser snapshots, machine-readable formats, truncation bounds, user-provided fixture content, security checks, and lifecycle/registration behavior. These are not guidance-copy contracts.
+- `npm run lint`: **677 files, clean**.
+- `npm run test`: **2,289 tests / 431 files passed**.
+- `npm run typecheck`: **all workspaces passed**.
+- `cd packages/pi-beadwork-extension && npx vitest run --config vitest.config.ts src/__tests__/e2e`: **8 tests / 4 files passed** (explicit suite, separate from the root run).
+- `git diff --check` and `git diff --cached --check`: **passed**.
+- Fresh-model behavioral trials remain unrun; passing these tests is not evidence that a model will obey the guidance.

@@ -36,8 +36,7 @@ Slash commands: `/spawn`, `/minions`, `/halt`.
 
 Use `spawn` for foreground delegation whose result should return inside the current turn.
 Use `orchestrate` when the supervisor must remain available to the user or manage an ongoing workflow.
-An orchestrated supervisor normally yields between actionable events; it does not need to keep working
-while children run.
+After dispatch, the supervisor yields and resumes on child events or user messages.
 
 Read `learn_minions` before first delegation or when recovering unclear orchestration state after
 compaction. It teaches the supervisor loop and the fix/file/reject judgment: correctness, approved
@@ -47,24 +46,30 @@ scope, project goals, and the quality bar remain the supervisor's responsibility
 
 ### Cooperative sidecar
 
-Delegate independent slices with `orchestrate`; keep any continuing parent work outside their scope.
+Delegate independent slices with `orchestrate`; finish registering the selected workers, then yield.
 Once scope is delegated, the parent must not edit it while the child is live; message or halt the child
 instead. Path intent and overlap notices are advisory, not locks.
 
-After dispatch, finish any already-identified independent parent work, then **yield**: end the assistant
-turn without another tool call. Children continue running, and their follow-ups resume supervision
-automatically. Yielding is token-efficient and preserves context for decisions. It is not abandonment,
-task completion, or process shutdown; do not claim delegated work complete while children remain live.
+**After dispatch, stop.** Once orchestrate accepts work, end the assistant turn. Do not continue
+implementation, test-harness preparation, research, or validation—even if that work is independent
+or previously planned. Complete prerequisites before dispatch, delegate independent work, or defer
+it until results arrive.
 
-Follow-ups intentionally wait until the current tool sequence ends, preserving the active user
-conversation. Polling an active child's status postpones the events the supervisor is waiting for.
-Wait for the event instead. Do not sleep, ask the user to say “continue,” or invent work to keep a turn
-alive. Answer user questions normally; use inspection for a specific status/evidence question, concrete
-problem, or recovery after compaction. Inspection does not acknowledge queued follow-ups.
+Child completion and failure follow-ups wait until your tool sequence ends. Any continued tool
+sequence can postpone them—not just polling. Yielding is part of supervision, not idle time or
+abandonment.
+
+Resume on a delivered child event or user message. Handle the actionable evidence, perform necessary
+coordination, dispatch follow-on work, then yield again. A user request remains actionable while
+workers run.
+
+Children continue running after you yield; do not claim delegated work complete while children remain
+live. Use inspection for a specific status/evidence question, concrete problem, or recovery after
+compaction. Inspection does not acknowledge queued follow-ups.
 
 The loop is **dispatch → yield → receive follow-up → evaluate and decide → dispatch or yield**.
 Evaluate supplied evidence first and retrieve missing details only if needed. After the resulting
-decision or dispatch, yield if further progress depends on children. New findings require evaluation;
+decision and any follow-on dispatch, yield. New findings require evaluation;
 already-decided evidence does not require repeated work or a separate “already handled” acknowledgment.
 
 Each orchestrated task needs:
@@ -201,12 +206,16 @@ Beadwork injects a manager-only goal prompt. The parent should `orchestrate` rea
 domain metadata and must not implement a delegated ticket concurrently with its live child.
 Do not use tmux, `/bw delegate`, or `spawn` as the epic runtime. `spawn` remains valid for
 foreground one-off waits outside that loop.
-Goal execution spans multiple event-driven turns: yielding when progress depends on children preserves
+Goal execution spans multiple event-driven turns: yielding after dispatch preserves
 goal mode, and lifecycle follow-ups resume the manager. General sidecar guidance does not authorize
 parent implementation in a manager-only role.
 
 ## Changelog
 
+- **2026-09-23:** Require yielding after dispatch, removing the independent-parent-work exception
+  that allowed acceptance preparation to postpone worker failures. Sequential worker registration
+  remains supported. Delivery behavior is unchanged. See the
+  [decision ledger](../../docs/minions-yield-guidance.md#mandatory-dispatch-boundary-2026-09-23-sbdpi-gw1).
 - **2026-09-22:** Teach token/context-preserving supervisor yielding at selection, dispatch,
   inspection, and lifecycle-result boundaries; expand `learn_minions` with the supervisor loop and
   fix/file/reject judgment. Non-preemptive delivery is unchanged. See the

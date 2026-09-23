@@ -17,7 +17,7 @@ export const REVIEW_POLICIES = ["ticket", "scope", "none"] as const;
 
 export const DEFAULT_REVIEW_POLICY: ReviewPolicy = "ticket";
 
-/** Locked scope-policy copy. Goldens fail if this tradeoff sentence is dropped. */
+/** Shared explanation of the scope review policy's tradeoff. */
 export const SCOPE_POLICY_TRADEOFF =
   "Dependents may start before aggregate review finds a problem.";
 
@@ -125,7 +125,7 @@ function renderModeGuidance(mode: "interactive" | "run"): string[] {
     "When a goal-management turn runs:",
     "1. Evaluate available child evidence and apply the active review policy, including when unrelated siblings remain live. Do not wait for group idle to adjudicate a settled child.",
     "2. Refresh relevant `bw` state (ready/show); start eligible work, compose each child's `task`, then `orchestrate`.",
-    "3. After handling available evidence and dispatching eligible work, end the turn when progress depends on children, without another tool call. Do not repeat the sweep to wait for results.",
+    "3. Finish registering the selected workers, then end this turn. Do not transition into parent-side preparation or implementation. Any continued tool sequence postpones completion and failure follow-ups—not just polling.",
     "This standing appendix is policy only. It does not start a turn.",
   ];
 }
