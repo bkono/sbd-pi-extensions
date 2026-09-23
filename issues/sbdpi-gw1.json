@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-23T16:58:01Z",
+  "description": "Apply user-approved mandatory dispatch boundary text and sequential-registration dispatch result. Remove independent-parent-work exceptions across guidance, align tests/docs/global AGENTS. Preserve followUp delivery and registration failure handling; no runtime enforcement or claimed behavioral proof.",
+  "id": "sbdpi-gw1",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "fix: require supervisor yielding after dispatch",
+  "type": "task",
+  "updated_at": "2026-09-23T16:58:01Z"
+}
