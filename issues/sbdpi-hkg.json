@@ -10,11 +10,15 @@
     {
       "text": "Handoff: Research only; manifests and source unchanged. Baseline npm run lint and npm run typecheck pass. npm run test passes outside sandbox: 431 files, 2289 tests. Sandbox failures: minions paths.ts hardcodes ~/.pi/agent/sessions and ignores PI_CODING_AGENT_DIR. npm audit baseline: 13 findings (1 critical, 7 high, 4 moderate, 1 low); compare after upgrade without expanding scope to unrelated tooling. Required migrations: discriminate user/custom before reading before_agent_start.prompt; update provider test fixture to TranscriptContext/getCurrentSystemPrompt. Invariants: preserve child delivery, settlement/retry/abort, OM context pruning, aligned and externalized Pi packages. Rejected: blind version-only bump and unrelated dependency sweep. No deprecated code removed. Next: approach approval, implement upgrade and regressions, quality gates/build/audit, commit and close.",
       "timestamp": "2026-10-21T20:42:41Z"
+    },
+    {
+      "text": "Completed in 01985d2. Handoff: four Pi pins now 1.3.0; TypeBox 1.3.27; local ignored lockfile regenerated. Minions skips delegation hints for custom starts while preserving user hint count/interval; shared Beadwork goal start uses ExtensionContext without command-only casts; provider test reads normalized transcript prompt/tools; OM verification records user starts only. Regression reproduced undefined prompt.length before fix and passes afterward. Validation: npm run lint, npm run test (432 files / 2290 tests), npm run typecheck, npm run build all pass; scoped Beadwork build rerun after final type adjustment. npm ls confirms aligned deduped packages. Audit 13 -\u003e 7 (4 high, 2 moderate, 1 low), no new advisory IDs; existing tooling findings remain out of scope. Invariants/rejected alternatives/deprecated access patterns and exact commands are in UPGRADE_LOG.md. No implementation work remains.",
+      "timestamp": "2026-10-21T21:10:21Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Upgrade Pi from 0.84.3 to 1.3.0",
   "type": "task",
-  "updated_at": "2026-10-21T21:05:58Z"
+  "updated_at": "2026-10-21T21:10:21Z"
 }
