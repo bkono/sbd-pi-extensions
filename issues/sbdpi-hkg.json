@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-21T20:41:19Z",
+  "description": "Research complete: npm latest for pi-ai, pi-agent-core, pi-coding-agent, and pi-tui is 1.3.0 (2026-10-15). Proposed scope: upgrade the four root exact pins together and align TypeBox override/devDependency with upstream 1.3.27; regenerate lockfile; migrate affected before_agent_start user/custom event handling and provider transcript test adapters; preserve child messaging, settlement, prompt persistence, and externalized runtime packages. Add behavioral regression coverage; run lint, full tests, typecheck, build, and audit. No unrelated dependency updates or orchestration redesign. Awaiting implementation approach approval under user Iteration Protocol. Changelog: https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/CHANGELOG.md",
+  "id": "sbdpi-hkg",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Upgrade Pi from 0.84.3 to 1.3.0",
+  "type": "task",
+  "updated_at": "2026-10-21T20:41:19Z"
+}
