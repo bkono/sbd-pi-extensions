@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ParsedArgv } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { showPrime, showStatus } from "../commands.js";
@@ -28,14 +28,14 @@ export type StatusActionDeps = {
     state: SessionState;
   } | null>;
   ensurePrime: (
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
     force?: boolean,
   ) => Promise<SessionState>;
   setSessionMode: (
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
@@ -43,7 +43,7 @@ export type StatusActionDeps = {
     scope?: SessionState["scope"],
   ) => Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }>;
   writeSessionState: (
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,

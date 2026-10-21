@@ -324,6 +324,8 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", (event, ctx) => {
+    if (event.messageType !== "user") return;
+
     const config = getConfig(ctx);
     if (!config.delegation.enabled) return;
 

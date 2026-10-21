@@ -1002,7 +1002,10 @@ describe("extension registration", () => {
     expect(registrationCounts.get("orchestrate")).toBe(1);
     for (const handler of handlers.get("before_agent_start") ?? []) {
       expect(
-        await handler({ systemPrompt: "cache-stable base", prompt: "continue" }, ctx),
+        await handler(
+          { messageType: "user", systemPrompt: "cache-stable base", prompt: "continue" },
+          ctx,
+        ),
       ).toBeUndefined();
     }
 

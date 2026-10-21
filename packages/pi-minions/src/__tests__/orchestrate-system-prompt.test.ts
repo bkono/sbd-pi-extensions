@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import {
   type AssistantMessage,
-  type Context,
   createAssistantMessageEventStream,
+  getCurrentSystemPrompt,
+  getCurrentTools,
   type Model,
+  type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import {
   AgentSession,
@@ -18,7 +20,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import { ORCHESTRATE_SIDECAR_GUIDELINES } from "../skill.js";
 
 const dirs: string[] = [];
 
@@ -66,7 +67,9 @@ describe("orchestrate system-prompt policy", () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-static-prompt-"));
     const agentDir = join(cwd, ".pi-agent");
     dirs.push(cwd);
-    const contexts: Context[] = [];
+    const contexts: TranscriptContext[] = [];
+    const starts: string[] = [];
+    const idleDuringStart: boolean[] = [];
     let registrations = 0;
 
     const extension = (pi: ExtensionAPI): void => {
@@ -75,11 +78,16 @@ describe("orchestrate system-prompt policy", () => {
         name: "orchestrate",
         label: "Orchestrate",
         description: "Register background work.",
-        promptGuidelines: [...ORCHESTRATE_SIDECAR_GUIDELINES],
+        promptGuidelines: ["fixture-tool-guideline"],
         parameters: Type.Object({}),
         async execute() {
           return { content: [{ type: "text" as const, text: "ok" }], details: undefined };
         },
+      });
+      pi.on("before_agent_start", (event, ctx) => {
+        starts.push(event.messageType);
+        idleDuringStart.push(ctx.isIdle());
+        return { systemPrompt: `${event.systemPrompt}\nfixture-start-context` };
       });
     };
 
@@ -141,12 +149,16 @@ describe("orchestrate system-prompt policy", () => {
 
     expect(registrations).toBe(1);
     expect(contexts).toHaveLength(3);
-    const prompts = contexts.map((context) => context.systemPrompt);
+    expect(starts).toEqual(["custom", "custom", "user"]);
+    expect(idleDuringStart).toEqual([false, false, false]);
+    const prompts = contexts.map((context) => getCurrentSystemPrompt(context.messages));
     expect(new Set(prompts).size).toBe(1);
-    for (const guideline of ORCHESTRATE_SIDECAR_GUIDELINES) {
-      expect(prompts[0]).toContain(guideline);
-    }
+    expect(prompts[0]).toContain("fixture-tool-guideline");
+    expect(prompts[0]).toContain("fixture-start-context");
     expect(prompts[0]).not.toContain("grp-runtime");
+    expect(
+      contexts.map((context) => getCurrentTools(context.messages)?.map((tool) => tool.name)),
+    ).toEqual([["orchestrate"], ["orchestrate"], ["orchestrate"]]);
 
     session.dispose();
   });

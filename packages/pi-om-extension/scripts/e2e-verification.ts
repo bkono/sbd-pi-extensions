@@ -42,6 +42,7 @@ export function createVerificationExtension(record: VerificationRecord) {
     });
 
     pi.on("before_agent_start", async (event, _ctx) => {
+      if (event.messageType !== "user") return;
       record.hookOrder.push("before_agent_start");
       // By the time this runs, the OM extension has already (potentially)
       // modified event.systemPrompt. The runner mutates the event between

@@ -378,7 +378,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
   }
 
   async function setSessionMode(
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
@@ -1192,7 +1192,7 @@ export default function piBeadworkExtension(pi: ExtensionAPI): void {
       const activation = await detectActivation(ctx.cwd);
       const state = await readSessionState(ctx, activation, config);
       const result = await startGoal({
-        ctx: ctx as ExtensionCommandContext,
+        ctx,
         deps: {
           pi,
           adapter,

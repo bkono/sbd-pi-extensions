@@ -1,4 +1,8 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type { ParsedArgv } from "../argv.js";
 import type { BeadworkAdapter } from "../bw.js";
 import { assertGoalModeConfig, SupervisorConfigError } from "../config.js";
@@ -41,14 +45,14 @@ export type RunActionDeps = {
     state: SessionState;
   } | null>;
   ensurePrime: (
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
     force?: boolean,
   ) => Promise<SessionState>;
   setSessionMode: (
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
@@ -56,7 +60,7 @@ export type RunActionDeps = {
     scope?: SessionScope,
   ) => Promise<{ state: SessionState; scopeDetail?: BeadworkIssueDetail }>;
   writeSessionState: (
-    ctx: ExtensionCommandContext,
+    ctx: ExtensionContext,
     activation: ActivationState,
     config: BeadworkConfig,
     state: SessionState,
@@ -240,7 +244,7 @@ function presentGoalStartError(ctx: ExtensionCommandContext, error: GoalStartErr
 }
 
 export async function startGoal(input: {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   deps: RunActionDeps;
   epicId: string;
   session: GoalStartSession;
