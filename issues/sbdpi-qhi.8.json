@@ -7,9 +7,15 @@
   "id": "sbdpi-qhi.8",
   "labels": [],
   "parent": "sbdpi-qhi",
+  "comments": [
+    {
+      "text": "More follow-ups from review round 3 (all low): #4 OM-set session title counts as user-named after /tree (getSessionName reads whole file, omTitles from branch only); #7 retry history lost on degenerate-output retries; #8 gap markers and the continuation reminder create consecutive user messages (Bedrock Converse strict alternation unverified); #9 reflection provenance collapses to one kind=reflection group (same as Mastra), recall on it returns the oldest ~20k only; package-version test in pi-hashline-readmap reads gitignored package-lock.json, so it fails in worktrees.",
+      "timestamp": "2026-11-11T21:27:03Z"
+    }
+  ],
   "priority": 3,
   "status": "open",
   "title": "pi-om v2 follow-ups: activation order after stale chunk, revived stale chunk, /om stale count, no-progress compaction",
   "type": "task",
-  "updated_at": "2026-11-11T19:21:00Z"
+  "updated_at": "2026-11-11T21:27:03Z"
 }
