@@ -156,6 +156,11 @@ describe("observer prompt", () => {
 
 describe("models", () => {
   it("prefers Codex, then Anthropic, filtered by configured auth", () => {
+    const withTerra = fakeRegistry(["openai-codex/gpt-6.1-terra", "openai-codex/gpt-6-luna"]);
+    expect(resolveModelCandidates(withTerra).map((m) => m.id)).toEqual([
+      "gpt-6.1-terra",
+      "gpt-6-luna",
+    ]);
     const both = fakeRegistry(["openai-codex/gpt-6-luna", "anthropic/claude-haiku-5-5"]);
     expect(resolveModelCandidates(both).map((m) => `${m.provider}/${m.id}`)).toEqual([
       "openai-codex/gpt-6-luna",

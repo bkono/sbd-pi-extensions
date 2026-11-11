@@ -6,6 +6,10 @@ import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-a
  * disables itself instead of guessing.
  */
 export const AUTO_MODEL_CHAIN: ReadonlyArray<readonly [provider: string, modelId: string]> = [
+  // Measured 2026-11-11 on a 42-page exact-count task: terra at medium scored 100/100 with
+  // no re-reads in 4/4 runs (Mastra Code with terra: 3/3); luna at medium averaged lower.
+  // Absent from Pi's catalog before 1.5, where the chain falls through to luna.
+  ["openai-codex", "gpt-6.1-terra"],
   ["openai-codex", "gpt-6-luna"],
   ["openai-codex", "gpt-5.6-luna"],
   ["anthropic", "claude-haiku-5-5"],

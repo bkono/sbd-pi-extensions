@@ -384,3 +384,18 @@ Next levers:
 2. Agent behavior that writes intermediate results into its own messages from the start.
 
 This benchmark is adversarial: exact aggregation over raw data, with an agent that writes no text. On ordinary coding continuity (paths, decisions, specific values), fidelity was 28/28, and recall answers were exact.
+
+### Observer model (2026-11-11, Pi 1.5.2)
+
+| Observer | System | Runs | Totals | Wrong files | Duplicate reads |
+|---|---|---|---|---|---|
+| `gpt-6.1-terra` (medium) | v2 | 4 | 100 ×4 | 0 | 0 |
+| `gpt-6.1-terra` (medium) | Mastra Code | 3 | 100 ×3 | 0 | 0 |
+| `gpt-6-luna` (medium) | v2 | 5 | 94–100 | 0–3 | 0–36 |
+| `gpt-6-luna` (medium) | Mastra Code | 3 | 86, 97, 100 | 0–4 | 0–43 |
+
+The accuracy cap was the observer model, not the implementation. The two implementations behave identically per model.
+
+Terra was also faster in the background: about 4s at p50 per buffer, against 7–8s for luna. It is now the first auto candidate. Pi releases whose catalog lacks it fall through to luna.
+
+Mastra Code's own auto pick is luna. Bryan uses terra in Mastra Code.

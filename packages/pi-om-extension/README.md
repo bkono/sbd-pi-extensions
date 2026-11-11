@@ -25,10 +25,13 @@ Nothing is written outside the session. OM state is `om.chunk`, `om.activation` 
 
 There are no config files. The observer and reflector use the first model that has auth:
 
-1. `openai-codex/gpt-6-luna`
-2. `openai-codex/gpt-5.6-luna`
-3. `anthropic/claude-haiku-5-5`
-4. `anthropic/claude-haiku-4-5`
+1. `openai-codex/gpt-6.1-terra` (Pi 1.5+)
+2. `openai-codex/gpt-6-luna`
+3. `openai-codex/gpt-5.6-luna`
+4. `anthropic/claude-haiku-5-5`
+5. `anthropic/claude-haiku-4-5`
+
+Codex observers run at reasoning `medium`, the effort Mastra Code uses.
 
 A failed call falls through to the next model. With none available, OM turns itself off and the footer says why.
 
