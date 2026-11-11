@@ -340,8 +340,8 @@ export class SessionOM {
     this.record("compaction", startedAt, host);
     return {
       firstKeptEntryId: keep.entryId,
-      summary:
-        "Earlier conversation in this session is preserved in observational memory (the observational-memory system section). Raw messages remain available through om_recall.",
+      // Unique per compaction: Pi finds the new compaction entry by its summary text.
+      summary: `Earlier conversation in this session (before entry ${keep.entryId}) is preserved in observational memory, generation ${state.generation}, ${state.activated.length} activated chunks (the observational-memory system section). Raw messages remain available through om_recall.`,
     };
   }
 

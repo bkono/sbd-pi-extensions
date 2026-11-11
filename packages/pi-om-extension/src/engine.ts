@@ -96,7 +96,8 @@ export function computeStatus(
   const unobserved = units.filter(
     (unit) => unit.observable && !state.observedEntryIds.has(unit.entryId),
   );
-  const unbuffered = unobserved.filter((unit) => !state.bufferedEntryIds.has(unit.entryId));
+  const liveBuffered = new Set(liveBufferedChunks(state, units).flatMap((chunk) => chunk.entryIds));
+  const unbuffered = unobserved.filter((unit) => !liveBuffered.has(unit.entryId));
   const pendingTokens = sum(unobserved);
   const unbufferedTokens = sum(unbuffered);
   const threshold = config.messageTokens;
@@ -156,18 +157,24 @@ export function selectSafePrefix(units: readonly ContextUnit[]): ContextUnit[] {
   return units.slice(0, safeLength);
 }
 
-/** Buffered chunks, in order, up to the first one that covers an unread entry. */
+/**
+ * Buffered chunks still valid for this context: every entry they cover is in context and
+ * observable. A chunk that lost an entry (Pi omitted a retried error response, another
+ * extension edited it out, a compaction cut through it, or it was computed on another
+ * branch) is stale. Its remaining entries count as unbuffered again and get re-observed,
+ * so nothing is stranded.
+ */
+export function liveBufferedChunks(state: OMState, units: readonly ContextUnit[]): ChunkData[] {
+  const observable = new Set(units.filter((unit) => unit.observable).map((unit) => unit.entryId));
+  return state.buffered.filter((chunk) => chunk.entryIds.every((id) => observable.has(id)));
+}
+
+/** Live buffered chunks, in order, up to the first one that covers an unread entry. */
 export function activatableChunks(state: OMState, units: readonly ContextUnit[]): ChunkData[] {
-  // A chunk activates only if every entry it covers is in the current context, editable,
-  // and already read. That also rejects chunks computed on another branch.
-  const byId = new Map(units.map((unit) => [unit.entryId, unit]));
+  const unread = new Set(units.filter((unit) => !unit.read).map((unit) => unit.entryId));
   const ready: ChunkData[] = [];
-  for (const chunk of state.buffered) {
-    const covered = chunk.entryIds.map((id) => byId.get(id));
-    // Not in this context at all (another branch, or compacted away): skip it.
-    if (covered.some((unit) => !unit?.observable)) continue;
-    // Unread content: stop, so activation stays in order.
-    if (covered.some((unit) => !unit!.read)) break;
+  for (const chunk of liveBufferedChunks(state, units)) {
+    if (chunk.entryIds.some((id) => unread.has(id))) break;
     ready.push(chunk);
   }
   return ready;

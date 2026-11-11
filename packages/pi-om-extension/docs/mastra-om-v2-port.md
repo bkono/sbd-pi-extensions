@@ -252,6 +252,13 @@ Last activity is the latest assistant message or `usage` entry of kind `cache_wa
 | 8 | Blocking failures re-ran the whole model chain every turn. | Exponential backoff (60s up to 15m) on the buffer, block and sync-reflect paths. |
 | 9-10 | messageKey collisions, stale token counts, section cache key. | Keys map to ordered id queues. The token cache is keyed by message object. The section cache is keyed by activated chunk ids. |
 
+Verifier round 2 (on 5c10237): FAIL on a regression introduced by the fix for finding 4.
+
+| # | Finding | Fix |
+|---|---|---|
+| R1 | Skipping a chunk with an out-of-context entry stranded its other entries. Pi's auto-retry `_omitRecoveryAttempt` triggers it. | A buffered chunk is live only while every entry it covers is in context. Otherwise it is stale, and its remaining entries are re-buffered. A regression test reproduces the retry sequence (red on 5c10237, green after). |
+| R2 | A constant compaction summary made Pi's `session_compact` report the oldest compaction entry. | The summary includes the keep entry id, the generation and the activation count. |
+
 Known and accepted:
 
 - Pi's projected-token compaction estimate does not count the request-time OM section. It undercounts by at most the observation tokens (under 44k), against a fallback threshold that OM keeps unreachable.

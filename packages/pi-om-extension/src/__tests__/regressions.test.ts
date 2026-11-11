@@ -213,4 +213,67 @@ describe("review regressions", () => {
     expect(registry.calls.length).toBe(callsAfterFirst);
     expect(om.snapshot(host).lastError).toMatch(/provider down/);
   });
+
+  it("R1: Pi auto-retry omitting a buffered error response does not strand its chunk", async () => {
+    await request(om, session, host);
+    // Pi persists the failed attempt, OM buffers it at turn_end, then Pi's
+    // _omitRecoveryAttempt edits it out of context before retrying.
+    const failed = append(session, {
+      ...(assistantText("partial") as object),
+      stopReason: "error",
+      errorMessage: "429",
+    } as AgentMessage);
+    for (let step = 0; step < 2; step += 1) {
+      await toolStep(om, session, host, 4_000);
+      await om.settled();
+    }
+    commit(
+      session,
+      om.onSettle({ contextEntries: session.buildSessionProjection().entries }, host),
+    );
+    await om.settled();
+    commit(
+      session,
+      om.onSettle({ contextEntries: session.buildSessionProjection().entries }, host),
+    );
+    const before = replayState(session.getBranch());
+    expect([...before.chunks.values()].some((chunk) => chunk.entryIds.includes(failed))).toBe(true);
+    session.appendContextEdit(failed, null);
+
+    for (let step = 0; step < 10; step += 1) {
+      await toolStep(om, session, host, 6_000);
+      await om.settled();
+    }
+    // every in-context entry the stale chunk covered was re-observed and activated
+    const state = replayState(session.getBranch());
+    const stale = [...before.chunks.values()].find((chunk) => chunk.entryIds.includes(failed))!;
+    const projected = new Set(
+      session
+        .buildSessionProjection()
+        .entries.filter((e) => e.messages.length > 0)
+        .map((e) => e.sourceEntry.id),
+    );
+    for (const id of stale.entryIds) {
+      if (id === failed) continue;
+      expect(projected.has(id) && !state.observedEntryIds.has(id)).toBe(false);
+    }
+    expect(om.snapshot(host).status.pendingTokens).toBeLessThan(30_000);
+  });
+
+  it("R2: each OM compaction summary is unique", async () => {
+    const summaries: string[] = [];
+    for (let round = 0; round < 2; round += 1) {
+      for (let step = 0; step < 4; step += 1) {
+        await toolStep(om, session, host, 6_000);
+        await om.settled();
+      }
+      await request(om, session, host);
+      const result = await om.onCompact(host);
+      expect(result).toBeDefined();
+      summaries.push(result!.summary);
+      session.appendCompaction(result!.summary, result!.firstKeptEntryId, 0);
+      om.onCompacted(host);
+    }
+    expect(new Set(summaries).size).toBe(2);
+  });
 });
