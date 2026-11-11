@@ -52,7 +52,8 @@ export interface ResolvedOMConfig {
   /** Explicit `provider/model` from `PI_OM_MODEL`, tried before the automatic chain. */
   modelOverride?: string;
   disabled: boolean;
-  debug: boolean;
+  /** Append every OM event as a JSON line to this file (`PI_OM_TRACE`). */
+  tracePath?: string;
 }
 
 export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedOMConfig {
@@ -75,6 +76,6 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedOMC
     modelCallTimeoutMs: 120_000,
     modelOverride: env.PI_OM_MODEL?.trim() || undefined,
     disabled: env.PI_OM_DISABLE === "1",
-    debug: env.PI_OM_DEBUG === "1",
+    tracePath: env.PI_OM_TRACE?.trim() || undefined,
   };
 }

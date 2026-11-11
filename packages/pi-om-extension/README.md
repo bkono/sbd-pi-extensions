@@ -38,6 +38,7 @@ A failed call falls through to the next model. With none available, OM turns its
 |---|---|
 | `PI_OM_MODEL=provider/model` | try this model first |
 | `PI_OM_DISABLE=1` | turn OM off |
+| `PI_OM_TRACE=/path/file.jsonl` | append every OM event (buffer, activate, block, reflect, hook timings) as JSON lines |
 | `PI_CACHE_RETENTION=long` | use the long prompt-cache lifetime for TTL activation (Pi's own setting) |
 
 ## Visibility

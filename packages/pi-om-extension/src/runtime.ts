@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
@@ -845,8 +846,19 @@ export class SessionOM {
   }
 
   private record(kind: OMEventKind, startedAt: number, host: Host, detail?: string): void {
-    this.events.push({ kind, at: startedAt, ms: host.now() - startedAt, detail });
+    const event: OMEvent = { kind, at: startedAt, ms: host.now() - startedAt, detail };
+    this.events.push(event);
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
+    if (this.config.tracePath) {
+      try {
+        appendFileSync(
+          this.config.tracePath,
+          `${JSON.stringify({ session: this.sessionId, ...event })}\n`,
+        );
+      } catch {
+        // Tracing is diagnostic only.
+      }
+    }
   }
 
   private refreshStatus(): void {
