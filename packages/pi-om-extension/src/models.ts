@@ -129,10 +129,9 @@ export async function completeWithFailover(
       );
       let failure: string;
       try {
-        const reasoning = model.reasoning ? ("low" as const) : undefined;
-        const message = await registry
-          .streamSimple(model, modelContext, { signal, reasoning })
-          .result();
+        // Provider-default reasoning, like Mastra Code. Forcing "low" was measured to cost
+        // observation fidelity: progress and counts went missing and the agent re-read pages.
+        const message = await registry.streamSimple(model, modelContext, { signal }).result();
         if (message.stopReason === "error" || message.stopReason === "aborted") {
           failure = message.errorMessage ?? message.stopReason;
         } else {

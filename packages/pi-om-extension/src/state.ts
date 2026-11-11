@@ -222,3 +222,18 @@ export function renderActiveObservations(state: OMState): string {
 export function hasActiveMemory(state: OMState): boolean {
   return Boolean(state.reflection?.observations.trim()) || state.activeChunks.length > 0;
 }
+
+/**
+ * Mastra async-buffer `prepare` (combineObservationsForBuffering): a buffered observer sees
+ * active memory plus every buffered chunk still pending activation, so the chain of task,
+ * progress and counts survives until activation.
+ */
+export function renderObserverContext(state: OMState, buffered: boolean): string {
+  const active = renderActiveObservations(state);
+  if (!buffered || state.buffered.length === 0) return active;
+  const pending = state.buffered
+    .map((chunk) => wrapInObservationGroup(chunk.observations, chunk.range, chunk.id))
+    .join("\n\n");
+  if (!active) return pending;
+  return `${active}\n\n--- BUFFERED (pending activation) ---\n\n${pending}`;
+}

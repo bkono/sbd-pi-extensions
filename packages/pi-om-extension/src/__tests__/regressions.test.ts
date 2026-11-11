@@ -337,4 +337,16 @@ describe("review regressions", () => {
     await toolStep(om, session, host, 500);
     expect(projectedIds().has(request)).toBe(false);
   });
+
+  it("a buffered observer sees earlier buffered chunks as previous observations (Mastra async-buffer prepare)", async () => {
+    let n = 0;
+    registry.respond = () =>
+      `<observations>\nDate: Nov 11, 2026\n* 🔴 (10:00) counted page ${++n}: 3 matches so far\n</observations>`;
+    await toolStep(om, session, host, 7_000);
+    await om.settled();
+    await toolStep(om, session, host, 7_000);
+    await om.settled();
+    expect(replayState(session.getBranch(), []).activated).toHaveLength(0);
+    expect(registry.calls[1]?.user).toContain("counted page 1: 3 matches so far");
+  });
 });

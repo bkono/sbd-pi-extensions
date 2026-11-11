@@ -36,6 +36,7 @@ import {
   type OMState,
   type ReflectionData,
   renderActiveObservations,
+  renderObserverContext,
   replayState,
 } from "./state.js";
 import { MessageTokenCache } from "./tokens.js";
@@ -693,7 +694,7 @@ export class SessionOM {
       candidates,
       {
         messages: units.flatMap((unit) => unit.messages),
-        activeObservations: renderActiveObservations(state),
+        activeObservations: renderObserverContext(state, options.buffered),
         priorCurrentTask: state.latestTask ?? state.currentTask,
         priorSuggestedResponse: state.latestSuggestion ?? state.suggestedResponse,
         priorThreadTitle: host.getSessionName?.(),
