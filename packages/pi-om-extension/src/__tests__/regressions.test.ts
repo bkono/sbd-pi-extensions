@@ -384,4 +384,38 @@ describe("review regressions", () => {
     expect(replayState(session.getBranch(), []).activated).toHaveLength(0);
     expect(registry.calls[1]?.user).toContain("counted page 1: 3 matches so far");
   });
+
+  it("A2: a run-start activation changes the prefix once, not on two consecutive requests", async () => {
+    for (let step = 0; step < 7; step += 1) {
+      await toolStep(om, session, host, 6_000);
+      await om.settled();
+    }
+    // a second run whose request is observed and deferred, then buffered chunks and a TTL gap
+    append(session, user("second task"));
+    om.startRun(host);
+    for (let step = 0; step < 3; step += 1) {
+      await toolStep(om, session, host, 6_000);
+      await om.settled();
+    }
+    append(session, assistantText("paused", { timestamp: Date.now() - 2 * 3_600_000 }));
+    commit(
+      session,
+      await om.onTurnEnd({ contextEntries: session.buildSessionProjection().entries }, host),
+    );
+    append(session, user("third task"));
+    om.startRun(host);
+    const activationRequest = await request_(om);
+    expect(om.events.some((e) => e.kind === "activate" && e.detail?.includes("ttl"))).toBe(true);
+    const id = "after-activation";
+    append(session, assistantToolCall(id, "read", { path: "x.ts" }));
+    append(session, toolResult(id, "read", "small"));
+    commit(
+      session,
+      await om.onTurnEnd({ contextEntries: session.buildSessionProjection().entries }, host),
+    );
+    const next = await request_(om);
+    expect(JSON.stringify(next.slice(0, activationRequest.length))).toBe(
+      JSON.stringify(activationRequest),
+    );
+  });
 });

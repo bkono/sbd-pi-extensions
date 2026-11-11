@@ -200,6 +200,8 @@ export class SessionOM {
   private lastHost: Host | undefined;
   private lastError: string | undefined;
   private lastFailover: string | undefined;
+  /** Set by a landed compaction so the next boundary commits any stranded edits. */
+  private sweepDue = false;
   private blocking: string | undefined;
   private sectionCache: { key: string; section: string | undefined } | undefined;
   private readonly backoff = new Map<BackoffKind, { until: number; ms: number }>();
@@ -235,6 +237,7 @@ export class SessionOM {
     this.epoch += 1;
     this.pending = [];
     this.pendingEdits.clear();
+    this.sweepDue = false;
     this.bufferedReflection = undefined;
     this.sectionCache = undefined;
     this.firstRequestOfRun = true;
@@ -285,6 +288,9 @@ export class SessionOM {
     // protected request of an earlier run): it stays raw until the next activation commits
     // its edit, so a new run's first request never changes the cached prefix.
     const committed = replayState(host.branch()).observedEntryIds;
+    // When this request already carries a model-visible change, omit everything the next
+    // boundary's sweep will edit, so the change lands on one request instead of two.
+    const sweeping = this.sweepPending();
     let omitted = 0;
     let markers = 0;
     const rest: AgentMessage[] = [];
@@ -295,7 +301,7 @@ export class SessionOM {
           entryId &&
           entryId !== keepRaw &&
           state.observedEntryIds.has(entryId) &&
-          !committed.has(entryId)
+          (sweeping || !committed.has(entryId))
         ) {
           omitted += 1;
           continue;
@@ -437,6 +443,7 @@ export class SessionOM {
   onCompacted(host: Host): void {
     if (this.disposed) return;
     this.appendPending(host, { includeActivations: true });
+    this.sweepDue = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -1047,9 +1054,8 @@ export class SessionOM {
     // so the cached prefix moves only then. Every observed entry still in context gets its
     // edit at that point, except the protected run request; that also commits edits
     // deferred while an entry was protected.
-    const visibleChange = this.pending.some(
-      (draft) => draft.customType === OM_ACTIVATION || draft.customType === OM_REFLECTION,
-    );
+    const visibleChange = this.sweepPending();
+    this.sweepDue = false;
     const state = this.state(host);
     const keepRaw = protectedRequestId(entries);
     for (const unit of visibleChange ? this.units(entries) : []) {
@@ -1072,6 +1078,19 @@ export class SessionOM {
       else host.appendEntry(draft.customType, draft.data);
     }
     this.pending = keep;
+  }
+
+  /**
+   * Whether the next boundary sweeps deferred edits: an activation or reflection is pending,
+   * or a compaction just moved the cached prefix anyway.
+   */
+  private sweepPending(): boolean {
+    return (
+      this.sweepDue ||
+      this.pending.some(
+        (draft) => draft.customType === OM_ACTIVATION || draft.customType === OM_REFLECTION,
+      )
+    );
   }
 
   /** The branch message right before `entryId`, for the observer's gap line. */
