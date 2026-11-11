@@ -263,3 +263,60 @@ Known and accepted:
 
 - Pi's projected-token compaction estimate does not count the request-time OM section. It undercounts by at most the observation tokens (under 44k), against a fallback threshold that OM keeps unreachable.
 - A `!cmd` bash entry stays raw in context permanently.
+
+## 12. Parity audit against Mastra Code (2026-11-11, after the review rounds)
+
+Sources:
+
+- Mastra Code config: `@mastra/code-sdk@1.18.0` `agents/memory.ts`.
+- Mastra defaults and runtime: `@mastra/memory@1.41.0`.
+
+Evidence key: **L** = verified in a live Pi run; **T** = unit or regression test only.
+
+### "Why Mastra Code works", item by item
+
+| Claim | Status |
+|---|---|
+| 30k observe, 40k reflect, 6k buffer (3k near threshold), 60k block | L (buffers and threshold activations live), T (all thresholds) |
+| Activation is free, keeps ~2k raw, never drops unread messages | L (activation 0ms), T (retention boundary math, structural read rule) |
+| Timed for the cache: threshold, TTL, provider change | L (TTL on a backdated session), T (provider change) |
+| Observations carry paths and line ranges | L (paths, offset and limit in tool args) |
+| Observations group repeated tool calls and mark ✅ completions | Prompt verbatim; not specifically observed live |
+| Recall instead of re-reading | L (`om_recall` answered two pruned-detail questions; 0 re-reads) |
+| No competing summarizer | T plus reviewer probes; the live runs never reached compaction |
+| Visible progress | L (Pi 1.3 TUI footer and `◆ memory` transcript entries) |
+
+### Gaps found in this audit and closed (commits 79858d4, 0191d1f, fe9702b)
+
+- **Extractor prompt.** Mastra Code's observer prompt comes from composed extractor sections (current-task, suggested-response, thread-title), not the legacy text. Vendored verbatim; the drift check passes 17/17.
+- **temporalMarkers.** A `<system-reminder>` with gap text goes before any user message that follows 10 or more minutes of silence, and the observer transcript shows the same line. Derived from branch timestamps instead of persisted, so the request stays cache-stable (L).
+- **threadTitle.** The observer's title becomes the Pi session name, unless the user named the session (L).
+- **Reflection provenance.** `reconcileObservationGroupsFromReflection`, so recall ranges survive reflection (T).
+- **Transient retries.** Same-model retries (1s, 4s) before failing over (T).
+- **observeAttachments.** Images go to observers whose model accepts them, up to 8 per call (T).
+- **Failover visibility.** A `failover` event plus a footer warning; it was silent before (L).
+- **Pi version gate.** OM refuses to run on Pi below 0.87, where it would activate chunks without their edits (L on Pi 0.80.2).
+
+### Intentional divergences
+
+- **Model order.** Codex, then Anthropic, then `PI_OM_MODEL` first when set (Bryan, D4). Mastra Code uses Gemini first, then the main provider's cheap model.
+- **Failure handling.** Short retries, then failover, then backoff; a failure never fails the user's turn. Mastra makes 8 retries over about 4 minutes, then aborts the turn (`failurePolicy` defaults to `abort`).
+- **Blocking observation.** Parallel batches of about 12k, 4 at a time. Mastra makes one sync call.
+- **Buffer interval.** Measured on unbuffered tokens, so no boundary needs persisting. Mastra persists a token boundary.
+- **Buffered reflection slicing.** By whole chunks. Mastra slices by line count.
+- **Recall.** Group range plus substring search. No vector search, no threads mode, no observation paging.
+- **Compaction.** OM replaces Pi's compaction. Mastra Code has no compaction to replace.
+- **Not ported:** tool-argument outline formatter (simplified), observer temperature (reasoning `low` instead), `generateTitle` on the first message, caveman mode, per-thread threshold overrides. There is no config by design.
+
+### Cache evidence (L, Codex gpt-6.1-sol)
+
+- **Append-only between activations.** A prefix probe on every provider request showed `instructions` and `tools` byte-identical and the input array strictly extending the previous one, on every non-activation request.
+- **Activation is the only change.** Only the activation request changes `instructions` (the OM section) and the input (pruned, with the reminder).
+- **Reuse.** Cache reuse of the previous request was 95-100% everywhere except the activation request.
+- **Sporadic misses.** An A/B (3 runs with OM on, 3 with OM disabled) showed sporadic single-request misses only with OM on. One of them came before OM had done any work. They are attributed to Codex-side variance; this is inferred.
+- **Anthropic.** Not measured.
+
+### Still open
+
+- **Re-read A/B against Mastra Code is inconclusive.** Mastra Code's `view` tool caps reads at about 2k tokens, so the same task never crossed its threshold. The local Mastra Code OM is configured for Gemini and returns 402 on every observation.
+- **Not exercised live:** reflection and the OM compaction path (tests and reviewer probes only).
