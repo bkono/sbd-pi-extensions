@@ -10,7 +10,17 @@ import {
   shouldBuffer,
 } from "../engine.js";
 import { completeWithFailover, resolveModelCandidates } from "../models.js";
-import { buildObserverUserMessage, parseObserverResponse } from "../observer.js";
+import {
+  buildObserverUserMessage,
+  PI_OBSERVER_INSTRUCTION,
+  parseObserverResponse,
+} from "../observer.js";
+import { buildObserverSystemPrompt } from "../upstream/prompts";
+
+function registryPromptForTest(): string {
+  return buildObserverSystemPrompt(PI_OBSERVER_INSTRUCTION);
+}
+
 import { type ChunkData, replayState } from "../state.js";
 import { formatTranscript } from "../transcript.js";
 import {
@@ -112,6 +122,11 @@ describe("observer prompt", () => {
     const previous = message.split("## New Message History to Observe")[0]!;
     expect(previous.length / 4).toBeLessThan(1_400);
     expect(message).toContain("Previous observations were truncated");
+  });
+
+  it("guards current-task against describing the observer's own job (0.3 lesson)", () => {
+    const system = registryPromptForTest();
+    expect(system).toContain("Never describe your own observation or extraction work there.");
   });
 
   it("parses observations, current task and suggested response", () => {

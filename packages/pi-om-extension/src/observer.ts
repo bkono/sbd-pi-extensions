@@ -18,8 +18,9 @@ import { truncateObservationsToTokenBudget } from "./upstream/truncate";
  * DYNAMIC_AGENTS_MD_INSTRUCTION: transcript entries injected by extensions are labelled
  * `Custom <type>` and may be ephemeral.
  */
-export const PI_OBSERVER_INSTRUCTION =
-  'Lines labelled "Custom <type>" are messages injected by Pi extensions. Observe what they tell the assistant, but do not record ephemeral guidance or reminders that are re-sent on every turn.';
+export const PI_OBSERVER_INSTRUCTION = `Lines labelled "Custom <type>" are messages injected by Pi extensions. Observe what they tell the assistant, but do not record ephemeral guidance or reminders that are re-sent on every turn.
+
+<current-task> and <suggested-response> describe the primary assistant's work for the user. Never describe your own observation or extraction work there.`;
 
 export interface ObserveInput {
   messages: AgentMessage[];
