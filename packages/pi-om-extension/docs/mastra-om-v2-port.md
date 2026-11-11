@@ -346,3 +346,41 @@ Truth: 100. Mastra Code answered 97: its observer miscounted `cache.ts` (2 again
 ### Not equivalent between the two
 
 Mastra Code's `view` tool caps a read at about 2k tokens. That tool-layer cap, separate from OM, makes Mastra Code's context grow more slowly. Pi's analogue is `pi-hashline-readmap`.
+
+## 14. Accuracy on exact-aggregation work (2026-11-11)
+
+Task: count the `acc * 7` step functions over 42 pages, about 62k tokens. Truth is 100. Main model `gpt-6.1-sol`; observer `gpt-6-luna` at medium on both systems.
+
+### Where the errors come from
+
+Every per-file error traces to an observation:
+
+- The observer withholds a value because it reads the user's "do not answer until…" as a rule for itself.
+- It labels a partial page count as the file total.
+- It miscounts within a page.
+
+The main model keeps no tally of its own, so after pruning the observer is the only counter. Errors cluster on early files, which are observed first and split across chunk boundaries.
+
+### Measurements
+
+| Config | Totals | Wrong files per run | Duplicate reads |
+|---|---|---|---|
+| OM off | 100 | 0 | 0 |
+| v2 at c5c0ffc (Mastra-parity prompts) | 100, 95, 100, 100, 94 | 0-3 | 0-36 |
+| Mastra Code | 97, 100, 86 | 1, 0, 4 | 0, 43, 6 |
+| + observer guard (record per-page values) | 99, 98, 95, 101 | 5, 2, 4, 3 | 0-2 |
+| + "verify exact values with om_recall" | 100, 99, 99, 95 | 0, 1, 1, 2 | 39-48 |
+| + "state running tallies in your replies" | 95, 94, 83, 102 | 3, 2, 6, 2 | 3-31 |
+
+### Conclusion
+
+There is a tradeoff inherent to OM, and Mastra Code has it too. When observations carry values, the agent trusts them and inherits observer error. When they don't, the agent re-reads and counts correctly.
+
+No prompt-level remedy improved both accuracy and re-reads, so all three were reverted and the code stays at Mastra parity.
+
+Next levers:
+
+1. A stronger observer, for example `gpt-6.1-terra` at medium. Bryan reports good results with it in Mastra Code.
+2. Agent behavior that writes intermediate results into its own messages from the start.
+
+This benchmark is adversarial: exact aggregation over raw data, with an agent that writes no text. On ordinary coding continuity (paths, decisions, specific values), fidelity was 28/28, and recall answers were exact.
