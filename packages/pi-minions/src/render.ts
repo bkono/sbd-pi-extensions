@@ -1,5 +1,6 @@
 import type {
   AgentToolResult,
+  MessageRenderOptions,
   Theme,
   ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
@@ -99,6 +100,9 @@ export function renderResult(
   theme: Theme,
   ctx: {
     isError: boolean;
+    /** Keybinding hints from Pi's tool render context (Pi 1.5+). */
+    keyText?: MessageRenderOptions["keyText"];
+    keyHint?: MessageRenderOptions["keyHint"];
     state?: {
       cachedName?: string;
       cachedId?: string;
@@ -169,7 +173,17 @@ export function renderResult(
     } as SpawnToolDetails;
   }
 
-  const rendered = minionSpawnRenderer({ details }, { expanded, outputPad: 0 }, theme);
+  // Pi 1.5 render options carry keybinding hints; forward the tool render context's.
+  const rendered = minionSpawnRenderer(
+    { details },
+    {
+      expanded,
+      outputPad: 0,
+      keyText: (keybinding) => ctx.keyText?.(keybinding) ?? "",
+      keyHint: (keybinding, description) => ctx.keyHint?.(keybinding, description) ?? description,
+    },
+    theme,
+  );
 
   if (!rendered) {
     return new Text(theme.fg("error", "Failed to render spawn result"), 0, 0);

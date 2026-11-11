@@ -20,7 +20,8 @@ describe("Pi system prompt metadata integration", () => {
 
     const { systemPrompt, snippets, guidelinesByTool, activeToolNames } =
       await collectHashlineSystemPromptMetadata([...EXPECTED_TOOLS]);
-    expect(activeToolNames).toEqual([...EXPECTED_TOOLS]);
+    // Pi owns the order of active tools (it changed in 1.5); membership is the contract.
+    expect([...activeToolNames].sort()).toEqual([...EXPECTED_TOOLS].sort());
 
     for (const toolName of EXPECTED_TOOLS) {
       const snippet = snippets[toolName];

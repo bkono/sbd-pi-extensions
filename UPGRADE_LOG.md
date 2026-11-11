@@ -1,5 +1,49 @@
 # Dependency Upgrade Log
 
+## 2026-11-11 — Pi 1.5.2 (sbdpi-jpz)
+
+### Summary
+
+- Updated the root exact pins for `@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent` and `pi-tui` from `1.3.0` to `1.5.2`. Dev and test runs now match the installed Pi, and its catalog includes `openai-codex/gpt-6.1-terra`, which pi-om's auto chain now prefers.
+- TypeBox stays at `1.3.27`, which is Pi 1.5.2's own dependency.
+- Adapted two contract changes:
+  - pi-minions: `MessageRenderOptions` now extends `KeybindingHints`.
+  - pi-hashline-readmap: the builtin grep keeps lone CRs in match lines.
+
+### Decisions made
+
+- **Release unit.** Upgrade the four Pi packages together, as with 1.3.0. `npm ls` confirms every workspace resolves 1.5.2.
+- **pi-minions.** `renderResult` forwards `keyText` and `keyHint` from Pi's tool render context into the spawn renderer's options. When a caller passes none (tests), it falls back to an empty key and a bare description. It does not fabricate keybindings.
+- **pi-hashline-readmap, grep parsing.** The match and context regexes take `[^\n]*` for the text group, because `.` does not match `\r`. Without this, every bare-CR match line failed to parse, and hashline passed Pi's raw output through with no anchors. The bare-CR remap already re-reads the file, so it is unaffected.
+- **pi-hashline-readmap, prompt-metadata test.** The test compares active tool names as a set. Pi 1.5 orders active tools itself, and the test's subject is snippet and guideline delivery, which order does not affect.
+
+### Closed doors / Do Not
+
+- Do not mix Pi release versions. Do not change the TypeBox pin away from Pi's dependency.
+- Do not reintroduce `.` for grep text groups.
+
+### Validation
+
+From the repository root:
+
+- `npm run lint`, `npm run typecheck`, `npm run build`: pass.
+- `npm run test`: 410 test files, 2137 tests pass.
+- `npm ls @earendil-works/pi-agent-core @earendil-works/pi-ai @earendil-works/pi-coding-agent @earendil-works/pi-tui typebox --all`: one version everywhere (1.5.2; typebox 1.3.27).
+- `npm audit`: 13 findings (7 high, 5 moderate, 1 low).
+  - **Removed by this upgrade:** Pi's `minimatch` finding. `pi-coding-agent` 1.3.0 pinned `minimatch@10.2.6`; 1.5.2 uses `11.0.3`.
+  - **Not introduced by this upgrade:** the `zod` finding comes through `openai@7.19.0`, which `pi-ai` pins in both 1.3.0 and 1.5.2.
+  - **The rest** are Vite, Vitest, esbuild and postcss tooling, `exa-js`, and `ts-morph`. They sit outside this upgrade's scope.
+- Live: pi-om v2 ran on Pi 1.5.2 with a gpt-6.1-terra observer (doc §14 of pi-om).
+
+### Risks / Open questions
+
+- Lockfiles remain untracked, so transitive resolutions may differ on a fresh install.
+- `pi-hashline-readmap`'s package-version test reads the gitignored `package-lock.json`, so it fails in fresh worktrees.
+
+### Sources
+
+- [Pi coding-agent changelog](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/CHANGELOG.md) (1.4.0–1.5.2 entries; read from the installed package).
+
 ## 2026-10-21 — Pi 1.3.0 (sbdpi-hkg)
 
 ### Summary

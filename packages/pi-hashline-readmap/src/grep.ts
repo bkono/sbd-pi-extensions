@@ -82,8 +82,10 @@ interface GrepParams {
   scopeContext?: number | string;
 }
 
-const MATCH_LINE_RE = /^(.*):(\d+): (.*)$/;
-const CONTEXT_LINE_RE = /^(.*)-(\d+)- (.*)$/;
+// The text group uses [^\n]* rather than .*: since Pi 1.5 the builtin grep keeps lone
+// carriage returns inside match lines, and `.` does not match \r.
+const MATCH_LINE_RE = /^(.*):(\d+): ([^\n]*)$/;
+const CONTEXT_LINE_RE = /^(.*)-(\d+)- ([^\n]*)$/;
 
 function parseGrepOutputLine(
   line: string,
@@ -519,10 +521,9 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
         const absolute = toAbsolutePath(parsed.displayPath);
         const fileLines = await getFileLines(absolute);
         if (fileLines === undefined) continue;
-        // Bare-CR remapping: rg treats the entire bare-CR file as line 1, and the
-        // builtin grep tool may strip \r before this code sees the output. So
-        // parsed.text is just the first CR-separated fragment and parsed.lineNumber
-        // is always 1 — both are wrong for match lines. Only remap when
+        // Bare-CR remapping: rg treats the entire bare-CR file as line 1. Older Pi
+        // stripped \r so parsed.text was the first fragment; Pi 1.5+ keeps the CRs.
+        // Either way parsed.lineNumber is 1 and wrong for match lines. Only remap when
         // parsed.kind === "match"; context lines are irrelevant here (rg won’t
         // produce them for bare-CR files in any meaningful way).
         if (parsed.kind === "match" && bareCRFiles.has(absolute)) {
