@@ -2,14 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-11-11T19:20:59Z",
   "created": "2026-11-11T18:28:47Z",
   "description": "",
   "id": "sbdpi-qhi.1",
   "labels": [],
   "parent": "sbdpi-qhi",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Engine core: thresholds, status, buffer/activate state machine",
   "type": "task",
-  "updated_at": "2026-11-11T18:28:47Z"
+  "updated_at": "2026-11-11T19:20:59Z"
 }
