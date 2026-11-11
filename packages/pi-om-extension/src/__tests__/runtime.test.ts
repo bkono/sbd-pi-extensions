@@ -2,7 +2,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OM_SECTION } from "../context.js";
-import { type Host, SessionOM } from "../runtime.js";
+import { type Host, protectedRequestId, SessionOM } from "../runtime.js";
 import { OM_ACTIVATION, OM_CHUNK, OM_REFLECTION, replayState } from "../state.js";
 import {
   append,
@@ -93,7 +93,10 @@ describe("SessionOM", () => {
         .entries.filter((e) => e.messages.length > 0)
         .map((e) => e.sourceEntry.id),
     );
-    for (const entryId of state.observedEntryIds) expect(projected.has(entryId)).toBe(false);
+    const keepRaw = protectedRequestId(session.buildSessionProjection().entries);
+    for (const entryId of state.observedEntryIds) {
+      if (entryId !== keepRaw) expect(projected.has(entryId)).toBe(false);
+    }
     // the latest tool result was never read by the model, so it is still in context
     expect(projected.has(resultIds.at(-1)!)).toBe(true);
     // the observer saw tool arguments

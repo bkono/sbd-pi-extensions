@@ -3,7 +3,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OM_SECTION } from "../context.js";
-import { SessionOM } from "../runtime.js";
+import { protectedRequestId, SessionOM } from "../runtime.js";
 import { OM_ACTIVATION, replayState } from "../state.js";
 import {
   append,
@@ -25,6 +25,12 @@ import {
   user,
 } from "./helpers.js";
 
+async function request_(om: SessionOM): Promise<AgentMessage[]> {
+  return request(om, sessionRef!, hostRef!);
+}
+let sessionRef: SessionManager | undefined;
+let hostRef: ReturnType<typeof makeHost> | undefined;
+
 /** Regressions from the fresh-eyes review of the v2 rewrite (findings 1-8). */
 describe("review regressions", () => {
   let session: SessionManager;
@@ -37,6 +43,8 @@ describe("review regressions", () => {
     registry = fakeRegistry();
     host = makeHost(session, registry);
     om = new SessionOM(session.getSessionId(), config());
+    sessionRef = session;
+    hostRef = host;
     append(session, user("start"));
     om.startRun(host);
   });
@@ -168,7 +176,9 @@ describe("review regressions", () => {
         .entries.filter((e) => e.messages.length > 0)
         .map((e) => e.sourceEntry.id),
     );
-    for (const id of state.observedEntryIds) expect(projected.has(id)).toBe(false);
+    const keepRaw = protectedRequestId(session.buildSessionProjection().entries);
+    for (const id of state.observedEntryIds)
+      if (id !== keepRaw) expect(projected.has(id)).toBe(false);
   });
 
   it("7: tool results the model never saw are not activated at the next run start", async () => {
@@ -300,5 +310,30 @@ describe("review regressions", () => {
     const after = replayState(session.getBranch(), []);
     expect(after.activated.length).toBeGreaterThan(0);
     expect(after.currentTask).toBe(after.latestTask);
+  });
+
+  it("the run's request stays raw through activation, and is edited once a newer request exists", async () => {
+    const request = session.getBranch().find((e) => e.type === "message")!.id;
+    for (let step = 0; step < 7; step += 1) {
+      await toolStep(om, session, host, 6_000);
+      await om.settled();
+    }
+    const state = replayState(session.getBranch());
+    expect(state.observedEntryIds.has(request)).toBe(true);
+    const projectedIds = () =>
+      new Set(
+        session
+          .buildSessionProjection()
+          .entries.filter((e) => e.messages.length > 0)
+          .map((e) => e.sourceEntry.id),
+      );
+    expect(projectedIds().has(request)).toBe(true);
+    const sent = await request_(om);
+    expect(sent.some((m) => JSON.stringify(m).includes("start"))).toBe(true);
+    // a new run: the old request is no longer protected, so its deferred edit lands
+    append(session, user("next task"));
+    om.startRun(host);
+    await toolStep(om, session, host, 500);
+    expect(projectedIds().has(request)).toBe(false);
   });
 });

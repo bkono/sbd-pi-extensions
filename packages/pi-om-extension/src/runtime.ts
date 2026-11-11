@@ -138,6 +138,23 @@ function temporalGaps(branch: readonly SessionEntry[]): Map<string, string> {
   return gaps;
 }
 
+/**
+ * The user message that started the current (or last) run. It stays raw in context while
+ * newer work happens, even once observed: with it pruned mid-task the model only has the
+ * continuation hint ("respond to the latest message") and a tool result, and it stops.
+ * Measured in a live A/B: both this port and Mastra Code stopped right after activation
+ * on a 43-step task that completes with OM off.
+ */
+export function protectedRequestId(entries: readonly ProjectedSessionEntry[]): string | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    if (entry.messages.some((message) => (message as { role?: string }).role === "user")) {
+      return entry.sourceEntry.id;
+    }
+  }
+  return undefined;
+}
+
 function formatK(tokens: number): string {
   return tokens < 1_000 ? `${tokens}` : `${(tokens / 1_000).toFixed(1)}k`;
 }
@@ -260,13 +277,14 @@ export class SessionOM {
       }
     }
     const gaps = temporalGaps(host.branch());
+    const keepRaw = protectedRequestId(projection);
     let omitted = 0;
     let markers = 0;
     const rest: AgentMessage[] = [];
     for (const message of messages.slice(1)) {
       if ((message as { role?: string }).role !== "system") {
         const entryId = idsByKey.get(messageKey(message))?.shift();
-        if (entryId && state.observedEntryIds.has(entryId)) {
+        if (entryId && entryId !== keepRaw && state.observedEntryIds.has(entryId)) {
           omitted += 1;
           continue;
         }
@@ -336,7 +354,7 @@ export class SessionOM {
     await this.maybeReflect(host, candidates);
     this.updateStatus(host, input.contextEntries, this.state(host));
     this.record("turn_end", startedAt, host, `pending ${formatK(status.pendingTokens)}`);
-    return this.flushDrafts(input.contextEntries);
+    return this.flushDrafts(input.contextEntries, host);
   }
 
   /** `agent_before_settle`: commit what is pending and keep buffering while idle. */
@@ -349,7 +367,7 @@ export class SessionOM {
     this.maybeStartBuffer(status, state, host, this.models(host));
     this.updateStatus(host, input.contextEntries, state);
     this.record("settle", startedAt, host);
-    return this.flushDrafts(input.contextEntries);
+    return this.flushDrafts(input.contextEntries, host);
   }
 
   /**
@@ -376,12 +394,30 @@ export class SessionOM {
       (unit) => unit.observable && !state.observedEntryIds.has(unit.entryId),
     );
     const keep = firstUnobserved ?? units.at(-1);
+    // The protected run request must survive compaction: carry it verbatim in the summary
+    // when the kept range starts after it.
+    const requestId = protectedRequestId(projection);
+    const requestIndex = units.findIndex((unit) => unit.entryId === requestId);
+    const request =
+      requestIndex >= 0 && keep && requestIndex < units.indexOf(keep)
+        ? units[requestIndex]!.messages.map((message) => {
+            const content = (message as { content?: unknown }).content;
+            return typeof content === "string"
+              ? content
+              : Array.isArray(content)
+                ? content
+                    .filter((b): b is { type: "text"; text: string } => b?.type === "text")
+                    .map((b) => b.text)
+                    .join("\n")
+                : "";
+          }).join("\n")
+        : undefined;
     if (!keep) return undefined;
     this.record("compaction", startedAt, host);
     return {
       firstKeptEntryId: keep.entryId,
       // Unique per compaction: Pi finds the new compaction entry by its summary text.
-      summary: `Earlier conversation in this session (before entry ${keep.entryId}) is preserved in observational memory, generation ${state.generation}, ${state.activated.length} activated chunks (the observational-memory system section). Raw messages remain available through om_recall.`,
+      summary: `Earlier conversation in this session (before entry ${keep.entryId}) is preserved in observational memory, generation ${state.generation}, ${state.activated.length} activated chunks (the observational-memory system section). Raw messages remain available through om_recall.${request ? `\n\nThe user's current request, verbatim:\n<current-request>\n${request}\n</current-request>` : ""}`,
     };
   }
 
@@ -966,20 +1002,24 @@ export class SessionOM {
    * Boundary drafts: OM entries first, then context edits for entries Pi can still edit.
    * Every edit target must be a projected, editable entry or Pi rejects the whole boundary.
    */
-  private flushDrafts(entries: readonly ProjectedSessionEntry[]): SessionBoundaryDraft[] {
+  private flushDrafts(
+    entries: readonly ProjectedSessionEntry[],
+    host: Host,
+  ): SessionBoundaryDraft[] {
     const drafts: SessionBoundaryDraft[] = this.pending.map((draft) => ({
       type: "custom" as const,
       customType: draft.customType,
       data: draft.data,
     }));
-    const editable = new Set(
-      this.units(entries)
-        .filter((unit) => unit.observable)
-        .map((unit) => unit.entryId),
-    );
-    for (const entryId of this.pendingEdits) {
-      if (editable.has(entryId))
-        drafts.push({ type: "context_edit", targetId: entryId, replacement: null });
+    // Every observed entry that is still in context gets its edit, except the protected
+    // run request. That also commits edits deferred while an entry was protected.
+    const state = this.state(host);
+    const keepRaw = protectedRequestId(entries);
+    for (const unit of this.units(entries)) {
+      if (!unit.observable || unit.entryId === keepRaw) continue;
+      if (state.observedEntryIds.has(unit.entryId) || this.pendingEdits.has(unit.entryId)) {
+        drafts.push({ type: "context_edit", targetId: unit.entryId, replacement: null });
+      }
     }
     this.pending = [];
     this.pendingEdits.clear();
