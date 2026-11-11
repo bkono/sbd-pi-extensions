@@ -22,11 +22,15 @@
     {
       "text": "Verifier PASS on c5c0ffc (round 4; 58 tests; 4-path prompt parity byte-exact vs Mastra builders). Live on c5c0ffc: 42-page counting task 45 calls / 3 dup / 2 activations; prefix probe shows exactly 2 prefix changes in 46 requests, both at activations. A/B vs Mastra Code (pinned openai/gpt-6-luna): Mastra 42 calls / 0 dup / 97 of 100; v2 after fixes 42-45 calls / 0-3 dup in 4 of 5 runs, one run 36 end-of-task verification re-reads; totals 82-100. Open: sbdpi-qhi.8.",
       "timestamp": "2026-11-11T21:32:08Z"
+    },
+    {
+      "text": "Observer model A/B (Pi 1.5.2): gpt-6.1-terra medium gives 100/100, 0 re-reads in 4/4 v2 and 3/3 Mastra Code runs; luna medium varied 86-100 on both. Terra now first in auto chain (4b4f58f); verified live default picks terra, 0 failovers. Accuracy cap was the observer model; implementations match per model.",
+      "timestamp": "2026-11-11T22:41:25Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "pi-om v2: Mastra-parity OM rewrite (1.0.0)",
   "type": "epic",
-  "updated_at": "2026-11-11T21:32:08Z"
+  "updated_at": "2026-11-11T22:41:25Z"
 }
