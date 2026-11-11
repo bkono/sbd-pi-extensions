@@ -1,308 +1,57 @@
 # @solvedbydev/pi-om-extension
 
-A [pi coding-agent](https://github.com/badlogic/pi-mono) extension implementing [Mastra-inspired observational memory](https://mastra.ai/docs/memory/observational-memory). Compresses raw conversation history into dense observations via an observer/reflector pattern, letting agents maintain continuity across long-running sessions and compaction boundaries with zero vector DBs or knowledge graphs.
+Observational memory for Pi, ported from Mastra Code's OM (`@mastra/memory@1.41.0`, Apache-2.0).
 
-This is a port of [`@solvedbydev/opencode-observational-memory`](https://github.com/bkono/opencode-observational-memory) to pi's extension system. See [Differences from the OpenCode version](#differences-from-the-opencode-version) for what changed and why.
+Long sessions stay small and continuous. Background observer calls compress the conversation into dated observations. Finished observations swap into context without waiting on a model. The prompt cache only breaks when it would anyway.
 
-## Quick Start
+## Behavior
 
-### Install (monorepo workspace)
+| What | When |
+|---|---|
+| Background observation | every ~6k new message tokens (3k near the threshold), never on the critical path |
+| Activation (swap observations in, drop covered messages) | at 30k pending tokens, mid-run or at run start; keeps ~2k raw |
+| Cache-timed activation | at run start when idle time exceeds the model's prompt-cache lifetime, or the provider changed |
+| Blocking observation | only at 60k pending tokens (the backstop) |
+| Background reflection | from 20k observation tokens, swapped in at 40k, blocking only at 44k |
+| Compaction | OM replaces Pi's summarizer; the native one runs only if OM is off |
 
-This package is part of the sbd-pi-extensions workspace. To use it from another package in the workspace:
+The model sees memory as the `observational-memory` section of the system prompt. It can page raw history behind any observation group with the `om_recall` tool, instead of re-reading files.
 
-```json
-// your-package/package.json
-{
-  "dependencies": {
-    "@solvedbydev/pi-om-extension": "*"
-  }
-}
+## State
+
+Nothing is written outside the session. OM state is `om.chunk`, `om.activation` and `om.reflection` custom entries on the active branch. Activations commit `context_edit` entries that omit the covered messages from model context. Raw history stays intact for `/tree`, export and recall. `/tree` and fork carry a consistent memory state.
+
+## Models
+
+There are no config files. The observer and reflector use the first model that has auth:
+
+1. `openai-codex/gpt-6-luna`
+2. `openai-codex/gpt-5.6-luna`
+3. `anthropic/claude-haiku-5-5`
+4. `anthropic/claude-haiku-4-5`
+
+A failed call falls through to the next model. With none available, OM turns itself off and the footer says why.
+
+## Environment
+
+| Variable | Effect |
+|---|---|
+| `PI_OM_MODEL=provider/model` | try this model first |
+| `PI_OM_DISABLE=1` | turn OM off |
+| `PI_CACHE_RETENTION=long` | use the long prompt-cache lifetime for TTL activation (Pi's own setting) |
+
+## Visibility
+
+- **Footer.** Shows `OM 12.3k/30k · mem 8.1k/40k`, plus `observing…`, `reflecting…` or `⏳ …` while something blocks.
+- **Transcript.** Each activation or reflection renders a one-line `◆ memory` / `◆ reflection` entry. Expand it to see the observations.
+- **`/om`.** Status, models, cache TTL, and recent events with durations. `/om observations` prints active memory.
+
+## Upstream sync
+
+`src/upstream/` holds files vendored verbatim from `@mastra/memory`. To check the prompt text for drift against a newer release:
+
+```sh
+node scripts/upstream-diff.mjs <mastra>/packages/memory/src/processors/observational-memory
 ```
 
-### Register with pi
-
-Load via pi's extension system. Two options:
-
-**(a) Inline factory** (programmatic, e.g. when using the pi SDK directly):
-
-```ts
-import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
-import piObservationalMemory from "@solvedbydev/pi-om-extension";
-
-const resourceLoader = new DefaultResourceLoader({
-  cwd: process.cwd(),
-  extensionFactories: [piObservationalMemory],
-});
-await resourceLoader.reload();
-
-const { session } = await createAgentSession({ resourceLoader /* ... */ });
-await session.bindExtensions({});
-```
-
-**(b) From a file path** via `~/.pi/agent/settings.json`:
-
-```json
-{
-  "extensions": ["/path/to/sbd-pi-extensions/packages/pi-om-extension/src/index.ts"]
-}
-```
-
-### Auth
-
-The observer and reflector use pi's standard auth chain. Configure credentials for your chosen provider in `~/.pi/agent/auth.json` (via `pi` CLI's `/login` flow) or via environment variables. No separate API key env var is needed — whatever pi's own agent uses, the extension uses.
-
-That's it. The extension runs automatically once loaded.
-
-## How It Works
-
-The extension hooks into pi's lifecycle to maintain a persistent memory layer:
-
-1. **Stage observations** — During long agent loops and again after the loop finishes, if unobserved message tokens since the staged cursor exceed the staging threshold (default: 96k), an observer agent extracts key facts, decisions, and context into a staged draft. Mid-loop staging never advances the published prune cursor.
-2. **Publish observations** — If the staged-but-unpublished raw message window also exceeds the publish threshold (default: 192k), that draft becomes the public observation block injected on the next turn. Publish is what moves the prune cursor; staging alone does not drop raw history.
-3. **Reflect** — If staged observation tokens exceed a third threshold (default: 120k), a reflector agent consolidates observations, removing redundancy while preserving meaning.
-4. **Inject** — On the next user prompt, only the published observations are appended to the system prompt. Before native compaction, raw message history is pruned to the unpublished tail. After native compaction, Pi's summary and retained tail form a stable context floor while OM prunes only later observed messages.
-
-On models with smaller context windows, token thresholds are treated as upper bounds and are clamped at runtime using Pi's 16,384-token default compaction reserve, plus conservative headroom for the retained message tail and system prompt. These limits do not replace Pi's actual compaction decision: `session_before_compact` always forces observation/publication regardless of configured Pi reserve. The configured OM values are never raised or mutated, so switching back to a larger model restores the original thresholds. The injected OM appendix is also capped to 12% of the active context window; if that fallback omits older observations, cursor pruning is disabled so omitted facts remain represented in Pi's normal conversation context.
-
-```
-agent_end
-  |
-  +-- unobserved tokens since staged cursor >= staging threshold?
-  |     yes -> Observer updates staged draft
-  |             |
-  |             +-- staged observation tokens >= reflection threshold?
-  |             |     yes -> Reflector consolidates staged draft
-  |             |
-  |             +-- staged-but-unpublished tokens >= publish threshold?
-  |                   yes -> Publish staged draft
-  |
-  +-- state persisted to disk
-
-next turn: before_agent_start
-  |
-  +-- deterministic OM block appended to system prompt
-  +-- durable / active / guidance segments remain logically separated inside one string
-
-next turn: context
-  |
-  +-- Pi compaction floor retained; later messages pruned to unobserved window
-```
-
-### Observer / Reflector Pattern
-
-Two specialized LLM agents coordinate memory:
-
-- **Observer** — Reads new message history plus existing observations. Extracts discrete facts, decisions, preferences, and working context. Tracks `currentTask` and `suggestedResponse` for session continuity.
-- **Reflector** — Takes the full observation log when it grows too large. Compresses it by removing duplication, merging related items, and prioritizing recent/actionable information.
-
-Both agents use configurable models (default: `openai-codex/gpt-5.6-luna`) and support per-section custom instructions for domain-specific extraction. Each call goes through pi's `ModelRegistry` for auth resolution, so OAuth refresh and provider failover work the same way they do for the main agent.
-
-## Configuration
-
-Configuration merges from multiple sources (highest precedence first):
-
-1. **Environment variables**
-2. **Project config** — `<cwd>/.pi/om-config.json`
-3. **Global config** — `~/.pi/om-config.json`
-4. **Built-in defaults**
-
-### Example Config
-
-```json
-{
-  "observation": {
-    "stageMessageTokens": 96000,
-    "publishMessageTokens": 192000,
-    "stageMessageCount": 48,
-    "publishMessageCount": 96,
-    "stageToolResultTokens": 32000,
-    "publishToolResultTokens": 96000,
-    "maxChunkMessageTokens": 32000,
-    "maxChunkMessages": 32,
-    "provider": "openai-codex",
-    "modelId": "gpt-5.6-luna",
-    "customInstruction": "Focus on architectural decisions and rejected alternatives."
-  },
-  "reflection": {
-    "observationTokens": 120000,
-    "provider": "openai-codex",
-    "modelId": "gpt-5.6-luna"
-  },
-  "storage": {
-    "stateDir": "/custom/state/dir"
-  },
-  "debug": false
-}
-```
-
-### Config Reference
-
-| Key | Default | Env Override | Description |
-|-----|---------|--------------|-------------|
-| `observation.stageMessageTokens` | `96000` | `OM_OBSERVATION_STAGE_MESSAGE_TOKENS` | Unobserved-message-token threshold that triggers staged observation work |
-| `observation.publishMessageTokens` | `192000` | `OM_OBSERVATION_PUBLISH_MESSAGE_TOKENS` | Staged-but-unpublished message-token threshold that promotes the draft into published memory (this is the prune cursor) |
-| `observation.stageMessageCount` | `48` | `OM_OBSERVATION_STAGE_MESSAGE_COUNT` | Earlier staging heuristic based on unobserved message count |
-| `observation.publishMessageCount` | `96` | `OM_OBSERVATION_PUBLISH_MESSAGE_COUNT` | Earlier publish heuristic based on staged-but-unpublished message count |
-| `observation.stageToolResultTokens` | `32000` | `OM_OBSERVATION_STAGE_TOOL_RESULT_TOKENS` | Earlier staging heuristic based on accumulated tool-result weight |
-| `observation.publishToolResultTokens` | `96000` | `OM_OBSERVATION_PUBLISH_TOOL_RESULT_TOKENS` | Earlier publish heuristic based on staged-but-unpublished tool-result weight |
-| `observation.maxChunkMessageTokens` | `32000` | `OM_OBSERVATION_MAX_CHUNK_MESSAGE_TOKENS` | Maximum unobserved message tokens sent in a single observe pass once staging begins |
-| `observation.maxChunkMessages` | `32` | `OM_OBSERVATION_MAX_CHUNK_MESSAGES` | Maximum messages sent in a single observe pass once staging begins |
-| `observation.messageTokens` | legacy alias | `OM_OBSERVATION_MESSAGE_TOKENS` | Backwards-compatible alias that sets both observation token thresholds together |
-| `observation.provider` | `openai-codex` | `OM_OBSERVATION_PROVIDER` | pi-ai provider for the observer agent |
-| `observation.modelId` | `gpt-5.6-luna` | `OM_OBSERVATION_MODEL` | Model ID for the observer agent |
-| `observation.temperature` | unset | `OM_OBSERVATION_TEMPERATURE` | Temperature for observer calls. Leave unset for reasoning models that reject the parameter (GPT-5.x, etc.). |
-| `observation.customInstruction` | — | — | Additional instruction injected into observer prompt |
-| `reflection.observationTokens` | `120000` | `OM_REFLECTION_OBSERVATION_TOKENS` | Staged-observation-token threshold that triggers reflection |
-| `reflection.provider` | `openai-codex` | `OM_REFLECTION_PROVIDER` | pi-ai provider for the reflector agent |
-| `reflection.modelId` | `gpt-5.6-luna` | `OM_REFLECTION_MODEL` | Model ID for the reflector agent |
-| `reflection.temperature` | unset | `OM_REFLECTION_TEMPERATURE` | Temperature for reflector calls |
-| `reflection.customInstruction` | — | — | Additional instruction injected into reflector prompt |
-| `storage.stateDir` | `<cwd>/.pi/om-state` | — | Directory for session state JSON files |
-| `debug` | `false` | `OM_DEBUG=1` | Verbose logging to stderr |
-
-These token settings are configured maxima. For an active 200k-token model, the defaults are effectively clamped to 50,494 staged message tokens, 100,988 publish message tokens, 20,197/50,494 staged/publish tool-result tokens, and 24,000 reflection/injection tokens. A 1M-token model retains the configured defaults.
-
-### Temperature Note
-
-Reasoning models (GPT-5.x, some Opus 4.6 variants) reject the `temperature` parameter entirely. The default is **unset** so the extension works with any model out of the box. If your observer/reflector model supports temperature and you want deterministic output, set `observation.temperature: 0.2` and/or `reflection.temperature: 0.2` (matching the opencode reference's behavior).
-
-### Debug Mode
-
-Set `OM_DEBUG=1` for verbose logging to stderr covering observation cycles, token counts, state persistence, and hook firing.
-
-## Slash Commands
-
-The extension registers user-facing slash commands so OM data is visible and controllable without LLM tool use:
-
-### `/om`
-
-- `/om` or `/om status` — show a human-readable summary of the current session's published vs staged observational-memory state, including token counts, message-count/tool-output heuristics, chunk limits, unobserved/unpublished windows, and diagnostic current task / suggested response fields.
-- `/om observations` — show the published observations for the current session in a human-friendly layout.
-
-### `/om:toggle`
-
-Pause or resume observational memory for the current session. When paused:
-
-- No observation cycles run (no observer/reflector LLM calls)
-- No message pruning occurs — full conversation history is retained
-- Existing published observations still inject into the system prompt
-- `/om status` shows a `⏸ PAUSED` indicator
-
-Toggle again to resume. On resume, the stale cursor means all messages accumulated while paused will be observed on the next active turn.
-
-Useful for planning phases where you want the full raw context visible to the LLM, then re-enabling memory for implementation/coordination work.
-
-### `om_status`
-
-Returns current session memory metrics as JSON: published and staged observation token counts, token/message/tool-result thresholds, next-chunk limits, cursor/window details, cycle history, current task, and diagnostic suggested response. Accepts an optional `session_id` parameter to query any session (defaults to the current one).
-
-### `om_observations`
-
-Returns the stored observation block for the current session as XML-wrapped text, organized into `<observational-memory>`, `<om-durable>`, and `<om-active>` segments with nested `<observations>`, `<current-task>`, and diagnostic `<suggested-response>` sections when present. Suggested-response is not injected into the assistant system prompt.
-
-## Lifecycle Hooks
-
-| Hook | Trigger | Action |
-|------|---------|--------|
-| `session_start` | Session created (fires on `bindExtensions`) | Initialize/load session state from disk |
-| `before_agent_start` | Before each agent loop | Append one segmented observation block (durable / active / guidance) to the system prompt |
-| `context` | Before each LLM call | Preserve Pi's native compaction summary/tail and prune later messages to the unobserved window (skipped when paused) |
-| `agent_end` | After agent loop finishes | Run staged observation/publish evaluation if thresholds are met; trigger reflection if needed (skipped when paused) |
-| `session_before_compact` | Before context compaction | Force a final observation/publish pass, then return `undefined` so Pi performs its native LLM summarization and retains its normal tail (observation pass skipped when paused) |
-| `session_shutdown` | Process exit | Persist final state |
-
-### Important: Observation Timing Deviation
-
-Unlike the opencode reference, draft observations may stage during a long agent loop, but publication and prune-cursor advancement occur only at the turn boundary in `agent_end`. System prompt injection happens once per agent loop in `before_agent_start`. This keeps the published prompt and pruning cursor stable throughout the loop.
-
-**Full rationale and mitigations**: see [`docs/observation-timing-deviation.md`](docs/observation-timing-deviation.md).
-
-## Testing
-
-The package ships with a layered test harness:
-
-```bash
-npm test            # Layers 1-3 (unit + state machine + extension wiring), ~2s, no LLM calls
-npm run test:watch  # Dev loop
-npm run smoke       # Layer 4: real pi session + real LLM, scripted file-reading workflow
-```
-
-### Layer 1-3 (automated)
-
-180+ vitest tests covering:
-- Pure functions: prompt parsing, token counting, cursor math, append semantics, config loading, state persistence
-- State machine: observation cycle thresholds, reflection cascade, cursor advancement, inflight deduplication
-- Extension wiring: all lifecycle hooks + both tools via a fake `ExtensionAPI` dispatcher
-
-### Layer 4: e2e smoke script
-
-`npm run smoke` runs a real pi session with the extension loaded, low OM thresholds, and a scripted two-prompt file-reading workflow. Uses a companion verification extension to capture hook firing order, system prompts, and message pruning. Requires a working pi config (`~/.pi/agent/settings.json`) and auth.
-
-Override the agent model via env vars:
-
-```bash
-PI_SMOKE_PROVIDER=openai-codex PI_SMOKE_MODEL=gpt-5.6-luna npm run smoke
-```
-
-## Differences from the OpenCode version
-
-| Area | OpenCode | pi port |
-|------|----------|---------|
-| **LLM client** | Direct OpenAI SDK with `baseURL`/`apiKey` | pi-ai's `completeSimple` via pi's `ModelRegistry` auth chain |
-| **Config shape** | `api.baseURL` + `api.apiKey` + `model` string | `provider` + `modelId` (pi-ai registry) |
-| **Auth** | `OM_API_KEY` / `OPENAI_API_KEY` env vars | `~/.pi/agent/auth.json` + env vars + OAuth refresh (via `ctx.modelRegistry`) |
-| **Config path** | `.opencode/om-config.json`, `~/.config/opencode/om-config.json` | `.pi/om-config.json`, `~/.pi/om-config.json` |
-| **Temperature** | Hard-coded `0.2` | Configurable per section, defaults unset (for GPT-5.x reasoning models) |
-| **Agent filtering** | `agents` config restricts OM to specific agent names | Removed — pi sessions are single-agent |
-| **Observation trigger** | On `session.idle` and before every LLM call (`messages.transform`) | Stage during threshold-crossing `context` calls; final catch-up and publication in `agent_end` |
-| **System prompt injection** | Per-call via `system.transform` hook | Once per agent loop via `before_agent_start` |
-| **Compaction behavior** | Pushes observations into the default compaction's context | Forces a final observation/publish pass, then defers to Pi's native LLM compaction; OM remains injected separately on the next turn |
-| **Tool output** | `om_observations` writes to a temp file and returns the path | Returns inline content (better for pi's tool model) |
-
-The **core OM engine** — observer/reflector prompts, token thresholds, cursor modes, append semantics, XML output parsing, `currentTask` / `suggestedResponse` tracking — is preserved character-for-character from the opencode reference.
-
-## Why Observational Memory?
-
-Even models with large context windows degrade as the window fills. More raw history means more noise, worse adherence to instructions, and wasted tokens on content the agent no longer needs. Mastra calls these **context rot** and **context waste**, and [their observational memory system](https://mastra.ai/docs/memory/observational-memory) addresses both.
-
-The idea mirrors how human memory works: you don't remember every word of every conversation. You observe what happened, then your brain reflects by reorganizing, combining, and condensing into long-term memory. OM works the same way, compressing raw context into dense observations (typically 5–40x compression) that keep the agent on task over arbitrarily long sessions.
-
-The result is a context window with three tiers:
-
-1. **Recent messages** — exact conversation history since the last observation cycle
-2. **Observations** — a dense log of what the observer has extracted, injected into the system prompt
-3. **Reflections** — condensed observations when the log itself grows too large
-
-For deeper background, see [Mastra's observational memory docs](https://mastra.ai/docs/memory/observational-memory) and their [announcement post](https://mastra.ai/blog/observational-memory) covering the design rationale and LongMemEval benchmark results.
-
-## Source Layout
-
-```
-src/
-  index.ts         Extension entry point, event handlers, tool registration
-  engine.ts        Core OM engine (cursor, observation cycle, context building)
-  agents.ts        Observer/reflector LLM agents + output parsing + auth resolver
-  config.ts        Configuration loading and merging
-  prompts.ts       Prompt templates for observer/reflector
-  state.ts         Session state persistence (JSON files)
-  tokens.ts        Token counting (js-tiktoken, o200k_base)
-  types.ts         TypeScript interfaces
-  __tests__/       Layered test suite (unit, integration, extension)
-scripts/
-  e2e-smoke.ts     End-to-end smoke test against real pi + real LLM
-  e2e-verification.ts  Companion extension for capturing hook state
-docs/
-  observation-timing-deviation.md  Rationale for the per-loop vs per-call observation model
-```
-
-## Dependencies
-
-**Runtime**: `js-tiktoken` (token counting, `o200k_base` encoding)
-
-**Peer**: `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `typebox`
-
-**Dev**: `vitest`, `tsx`, `typescript`
-
-## License
-
-MIT (inherits from the sbd-pi-extensions monorepo)
+Design and decisions: [docs/mastra-om-v2-port.md](docs/mastra-om-v2-port.md).

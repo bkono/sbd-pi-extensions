@@ -1,0 +1,117 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
+
+import { completeWithFailover, type ModelAccess, modelLabel } from "./models.js";
+import { countTokens, estimateTokens } from "./tokens.js";
+import { formatTranscript } from "./transcript.js";
+import {
+  detectDegenerateRepetition,
+  parseMemorySectionXml,
+  sanitizeObservationLines,
+  sortObservationsByTime,
+} from "./upstream/parse";
+import { buildObserverSystemPrompt } from "./upstream/prompts";
+import { truncateObservationsToTokenBudget } from "./upstream/truncate";
+
+/**
+ * Pi-specific observer instruction, the analogue of Mastra Code's
+ * DYNAMIC_AGENTS_MD_INSTRUCTION: transcript entries injected by extensions are labelled
+ * `Custom <type>` and may be ephemeral.
+ */
+export const PI_OBSERVER_INSTRUCTION =
+  'Lines labelled "Custom <type>" are messages injected by Pi extensions. Observe what they tell the assistant, but do not record ephemeral guidance or reminders that are re-sent on every turn.';
+
+export interface ObserveInput {
+  messages: AgentMessage[];
+  activeObservations: string;
+  priorCurrentTask?: string;
+  priorSuggestedResponse?: string;
+  previousObserverTokens: number;
+  toolResultMaxTokens: number;
+}
+
+export interface ObserveOutput {
+  observations: string;
+  observationTokens: number;
+  currentTask?: string;
+  suggestedResponse?: string;
+  model: string;
+}
+
+/** Mastra's single observer request: prior memory, then the history, then the task. */
+export function buildObserverUserMessage(input: ObserveInput): string {
+  let prompt = "";
+  let previous = input.activeObservations.trim();
+  let truncated = false;
+  if (previous && estimateTokens(previous) > input.previousObserverTokens) {
+    previous = truncateObservationsToTokenBudget(
+      previous,
+      input.previousObserverTokens,
+      estimateTokens,
+    );
+    truncated = true;
+  }
+  if (previous) {
+    prompt += `## Previous Observations\n\n${previous}\n\n---\n\n`;
+    prompt +=
+      "Do not repeat these existing observations. Your new observations will be appended to the existing observations.\n\n";
+  }
+  if (truncated) {
+    prompt +=
+      "Previous observations were truncated for context budget reasons.\nThe main agent still has full memory context outside this observer window.\n\n";
+  }
+  const prior: string[] = [];
+  if (input.priorCurrentTask) prior.push(`- prior current-task: ${input.priorCurrentTask}`);
+  if (input.priorSuggestedResponse)
+    prior.push(`- prior suggested-response: ${input.priorSuggestedResponse}`);
+  if (prior.length > 0) {
+    prompt += `## Prior Thread Metadata\n\n${prior.join("\n")}\n\n`;
+    prompt +=
+      "Use the prior current-task, suggested-response as continuity hints, then update them based on the new messages.\n\n---\n\n";
+  }
+  prompt += `## New Message History to Observe\n\n${formatTranscript(input.messages, {
+    toolResultMaxTokens: input.toolResultMaxTokens,
+  })}`;
+  prompt +=
+    "\n\n---\n\n## Your Task\n\nExtract new observations from the message history above. Do not repeat observations that are already in the previous observations. Add your new observations in the format specified in your instructions.";
+  return prompt;
+}
+
+export function parseObserverResponse(text: string): Omit<ObserveOutput, "model"> | undefined {
+  if (detectDegenerateRepetition(sanitizeObservationLines(text))) return undefined;
+  const parsed = parseMemorySectionXml(text);
+  const observations = sortObservationsByTime(sanitizeObservationLines(parsed.observations || ""));
+  if (!observations.trim()) return undefined;
+  return {
+    observations,
+    observationTokens: countTokens(observations),
+    currentTask: parsed.currentTask || undefined,
+    suggestedResponse: parsed.suggestedResponse || undefined,
+  };
+}
+
+export async function observe(
+  registry: ModelAccess,
+  candidates: readonly Model<Api>[],
+  input: ObserveInput,
+  options: { signal?: AbortSignal; timeoutMs: number },
+): Promise<ObserveOutput> {
+  const systemPrompt = buildObserverSystemPrompt(PI_OBSERVER_INSTRUCTION);
+  const user = buildObserverUserMessage(input);
+  // A degenerate or empty parse moves on to the next model, like a model error does.
+  let remaining = [...candidates];
+  const failures: string[] = [];
+  while (remaining.length > 0) {
+    const result = await completeWithFailover(
+      registry,
+      remaining,
+      { systemPrompt, messages: [{ role: "user", content: user, timestamp: Date.now() }] },
+      options,
+    );
+    const parsed = parseObserverResponse(result.text);
+    if (parsed) return { ...parsed, model: modelLabel(result.model) };
+    failures.push(`${modelLabel(result.model)}: unparseable or degenerate output`);
+    remaining = remaining.slice(remaining.indexOf(result.model) + 1);
+  }
+  throw new Error(`observer failed: ${failures.join("; ")}`);
+}

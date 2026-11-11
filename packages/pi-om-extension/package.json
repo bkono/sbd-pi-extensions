@@ -1,7 +1,7 @@
 {
   "name": "@solvedbydev/pi-om-extension",
   "type": "module",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
   "files": [
@@ -15,11 +15,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx scripts/e2e-smoke.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format .",
-    "format:fix": "biome format --write ."
+    "format:fix": "biome format --write .",
+    "upstream:diff": "node scripts/upstream-diff.mjs"
   },
   "exports": {
     ".": {
@@ -33,8 +33,10 @@
     ]
   },
   "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "dependencies": {
@@ -47,6 +49,9 @@
     "tsdown": "^0.21.7",
     "tsx": "4.21.0",
     "typescript": "^6",
-    "vitest": "^4"
-  }
+    "vitest": "^4",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "description": "Observational memory for Pi, ported from Mastra Code's OM: background buffering, cache-timed activation, buffered reflection."
 }

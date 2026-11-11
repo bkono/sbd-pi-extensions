@@ -1,315 +1,206 @@
-import { readFile, writeFile } from "node:fs/promises";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { ensureParentDirectory, sessionStatePath } from "./config.js";
-import type {
-  CursorMode,
-  ObservationEntry,
-  SessionState,
-  TemporalAnchor,
-  TemporalAnchorPrecision,
-  TemporalAnchorRelation,
-} from "./types.js";
+import { wrapInObservationGroup } from "./upstream/observation-groups";
 
-function debugLog(message: string, details?: Record<string, unknown>): void {
-  if (process.env.OM_DEBUG !== "1") return;
-  const payload = details ? ` ${JSON.stringify(details)}` : "";
-  console.error(`[om:state] ${message}${payload}`);
+/**
+ * OM state lives in the Pi session as custom entries on the active branch:
+ *
+ * - `om.chunk`: one observer result covering a contiguous run of entries.
+ * - `om.activation`: chunks swapped into active memory. The same boundary also commits
+ *   one `context_edit` per covered entry, so Pi omits them from future requests.
+ * - `om.reflection`: a new memory generation that folds a set of activated chunks.
+ *
+ * Active memory = latest reflection + chunks activated after it. Everything is
+ * branch-relative, so `/tree` and fork carry a consistent OM state.
+ */
+export const OM_CHUNK = "om.chunk";
+export const OM_ACTIVATION = "om.activation";
+export const OM_REFLECTION = "om.reflection";
+
+export type ActivationTrigger = "threshold" | "ttl" | "provider_change" | "block" | "compaction";
+
+export interface ChunkData {
+  v: 1;
+  id: string;
+  observations: string;
+  observationTokens: number;
+  /** Message tokens of the covered entries when the chunk was observed. */
+  messageTokens: number;
+  entryIds: string[];
+  /** `firstEntryId:lastEntryId`, used by recall. */
+  range: string;
+  createdAt: number;
+  model: string;
+  currentTask?: string;
+  suggestedResponse?: string;
 }
 
-const VALID_CURSOR_MODES: ReadonlySet<CursorMode> = new Set([
-  "none",
-  "id",
-  "timestamp",
-  "fallback-latest",
-]);
-
-const VALID_TEMPORAL_PRECISIONS: ReadonlySet<TemporalAnchorPrecision> = new Set([
-  "exact",
-  "day",
-  "week",
-  "month",
-  "approximate",
-]);
-
-const VALID_TEMPORAL_RELATIONS: ReadonlySet<TemporalAnchorRelation> = new Set([
-  "past",
-  "current",
-  "future",
-  "ongoing",
-]);
-
-export function createDefaultState(sessionId: string): SessionState {
-  return {
-    sessionId,
-    observations: "",
-    observationTokens: 0,
-    draftObservations: "",
-    draftObservationTokens: 0,
-    updatedAt: Date.now(),
-  };
+export interface ActivationData {
+  v: 1;
+  chunkIds: string[];
+  trigger: ActivationTrigger;
+  at: number;
+  /** Message tokens removed from context by this activation. */
+  messageTokens: number;
 }
 
-function cloneTemporalAnchor(anchor: TemporalAnchor): TemporalAnchor {
-  return { ...anchor };
+export interface ReflectionData {
+  v: 1;
+  id: string;
+  generation: number;
+  observations: string;
+  observationTokens: number;
+  /** Activated chunks whose content this reflection replaces. */
+  foldedChunkIds: string[];
+  at: number;
+  model: string;
+  currentTask?: string;
+  suggestedResponse?: string;
 }
 
-function cloneObservationEntry(entry: ObservationEntry): ObservationEntry {
-  return {
-    ...entry,
-    temporalAnchors: entry.temporalAnchors?.map(cloneTemporalAnchor),
-  };
+export type OMEntryDraft =
+  | { customType: typeof OM_CHUNK; data: ChunkData }
+  | { customType: typeof OM_ACTIVATION; data: ActivationData }
+  | { customType: typeof OM_REFLECTION; data: ReflectionData };
+
+export interface OMState {
+  chunks: Map<string, ChunkData>;
+  /** Activated chunk ids, in activation order. */
+  activated: string[];
+  reflection?: ReflectionData;
+  /** Activated chunks not folded into the latest reflection, in activation order. */
+  activeChunks: ChunkData[];
+  /** Buffered chunks that are not activated yet, in creation order. */
+  buffered: ChunkData[];
+  /** Entries covered by any activated chunk (folded or not). */
+  observedEntryIds: Set<string>;
+  /** Entries covered by buffered chunks. */
+  bufferedEntryIds: Set<string>;
+  observationTokens: number;
+  generation: number;
+  currentTask?: string;
+  suggestedResponse?: string;
+  /** Last OM write that changed what the model sees (activation or reflection). */
+  lastActivationAt?: number;
 }
 
-function parseTemporalAnchor(raw: unknown): TemporalAnchor | undefined {
-  if (raw === null || typeof raw !== "object") {
-    return undefined;
-  }
-
-  const obj = raw as Record<string, unknown>;
-  const recordedAt = typeof obj.recordedAt === "string" ? obj.recordedAt.trim() : "";
-  const originalPhrase = typeof obj.originalPhrase === "string" ? obj.originalPhrase.trim() : "";
-  const referencedStart =
-    typeof obj.referencedStart === "string" ? obj.referencedStart.trim() : undefined;
-  const referencedEnd =
-    typeof obj.referencedEnd === "string" ? obj.referencedEnd.trim() : undefined;
-  const precision =
-    typeof obj.precision === "string" &&
-    VALID_TEMPORAL_PRECISIONS.has(obj.precision as TemporalAnchorPrecision)
-      ? (obj.precision as TemporalAnchorPrecision)
-      : undefined;
-  const relation =
-    typeof obj.relation === "string" &&
-    VALID_TEMPORAL_RELATIONS.has(obj.relation as TemporalAnchorRelation)
-      ? (obj.relation as TemporalAnchorRelation)
-      : undefined;
-
-  if (!recordedAt || !originalPhrase || !precision || !relation) {
-    return undefined;
-  }
-
-  return {
-    recordedAt,
-    originalPhrase,
-    referencedStart: referencedStart || undefined,
-    referencedEnd: referencedEnd || undefined,
-    precision,
-    relation,
-  };
+function isOMCustomEntry(
+  entry: SessionEntry,
+): entry is SessionEntry & { type: "custom"; customType: string; data: unknown } {
+  return (
+    entry.type === "custom" &&
+    typeof (entry as { customType?: unknown }).customType === "string" &&
+    (entry as { customType: string }).customType.startsWith("om.")
+  );
 }
 
-function parseObservationEntries(raw: unknown): ObservationEntry[] | undefined {
-  if (!Array.isArray(raw)) {
-    return undefined;
-  }
-
-  const entries = raw
-    .map((entry): ObservationEntry | undefined => {
-      if (entry === null || typeof entry !== "object") {
-        return undefined;
-      }
-
-      const obj = entry as Record<string, unknown>;
-      const date = typeof obj.date === "string" ? obj.date.trim() : "";
-      const line = typeof obj.line === "string" ? obj.line.replace(/\r\n/g, "\n").trim() : "";
-      const temporalAnchors = Array.isArray(obj.temporalAnchors)
-        ? obj.temporalAnchors
-            .map(parseTemporalAnchor)
-            .filter((anchor): anchor is TemporalAnchor => !!anchor)
-        : undefined;
-
-      if (!date || !line) {
-        return undefined;
-      }
-
-      return {
-        date,
-        line,
-        temporalAnchors: temporalAnchors?.length ? temporalAnchors : undefined,
-      };
-    })
-    .filter((entry): entry is ObservationEntry => !!entry);
-
-  return entries.map(cloneObservationEntry);
-}
-
-function validateState(raw: unknown, sessionId: string): SessionState {
-  const state = createDefaultState(sessionId);
-
-  if (raw === null || typeof raw !== "object") {
-    return state;
-  }
-
-  const obj = raw as Record<string, unknown>;
-
-  // sessionId — always use the requested one, ignore whatever is on disk
-  state.sessionId = sessionId;
-
-  if (typeof obj.observations === "string") {
-    state.observations = obj.observations;
-  }
-
-  const observationEntries = parseObservationEntries(obj.observationEntries);
-  if (observationEntries) {
-    state.observationEntries = observationEntries;
-  }
-
-  if (typeof obj.observationTokens === "number" && Number.isFinite(obj.observationTokens)) {
-    state.observationTokens = obj.observationTokens;
-  }
-
-  if (typeof obj.lastObservedEntryId === "string") {
-    state.lastObservedEntryId = obj.lastObservedEntryId;
-  }
-
-  if (typeof obj.lastObservedTimestamp === "number" && Number.isFinite(obj.lastObservedTimestamp)) {
-    state.lastObservedTimestamp = obj.lastObservedTimestamp;
-  }
-
-  if (typeof obj.currentTask === "string") {
-    state.currentTask = obj.currentTask;
-  }
-
-  if (typeof obj.suggestedResponse === "string") {
-    state.suggestedResponse = obj.suggestedResponse;
-  }
-
-  if (typeof obj.draftObservations === "string") {
-    state.draftObservations = obj.draftObservations;
-  } else {
-    state.draftObservations = state.observations;
-  }
-
-  const draftObservationEntries = parseObservationEntries(obj.draftObservationEntries);
-  if (draftObservationEntries) {
-    state.draftObservationEntries = draftObservationEntries;
-  } else if (state.observationEntries) {
-    state.draftObservationEntries = state.observationEntries.map(cloneObservationEntry);
-  }
-
-  if (
-    typeof obj.draftObservationTokens === "number" &&
-    Number.isFinite(obj.draftObservationTokens)
-  ) {
-    state.draftObservationTokens = obj.draftObservationTokens;
-  } else {
-    state.draftObservationTokens = state.observationTokens;
-  }
-
-  if (typeof obj.draftLastObservedEntryId === "string") {
-    state.draftLastObservedEntryId = obj.draftLastObservedEntryId;
-  } else if (typeof state.lastObservedEntryId === "string") {
-    state.draftLastObservedEntryId = state.lastObservedEntryId;
-  }
-
-  if (
-    typeof obj.draftLastObservedTimestamp === "number" &&
-    Number.isFinite(obj.draftLastObservedTimestamp)
-  ) {
-    state.draftLastObservedTimestamp = obj.draftLastObservedTimestamp;
-  } else if (typeof state.lastObservedTimestamp === "number") {
-    state.draftLastObservedTimestamp = state.lastObservedTimestamp;
-  }
-
-  if (typeof obj.draftCurrentTask === "string") {
-    state.draftCurrentTask = obj.draftCurrentTask;
-  } else if (typeof state.currentTask === "string") {
-    state.draftCurrentTask = state.currentTask;
-  }
-
-  if (typeof obj.draftSuggestedResponse === "string") {
-    state.draftSuggestedResponse = obj.draftSuggestedResponse;
-  } else if (typeof state.suggestedResponse === "string") {
-    state.draftSuggestedResponse = state.suggestedResponse;
-  }
-
-  if (typeof obj.lastCycleAt === "number" && Number.isFinite(obj.lastCycleAt)) {
-    state.lastCycleAt = obj.lastCycleAt;
-  }
-
-  if (typeof obj.lastCycleReason === "string") {
-    state.lastCycleReason = obj.lastCycleReason;
-  }
-
-  if (
-    typeof obj.lastCursorMode === "string" &&
-    VALID_CURSOR_MODES.has(obj.lastCursorMode as CursorMode)
-  ) {
-    state.lastCursorMode = obj.lastCursorMode as CursorMode;
-  }
-
-  if (
-    typeof obj.tailEntriesBeforePrune === "number" &&
-    Number.isFinite(obj.tailEntriesBeforePrune)
-  ) {
-    state.tailEntriesBeforePrune = obj.tailEntriesBeforePrune;
-  }
-
-  if (typeof obj.tailTokensBeforePrune === "number" && Number.isFinite(obj.tailTokensBeforePrune)) {
-    state.tailTokensBeforePrune = obj.tailTokensBeforePrune;
-  }
-
-  if (typeof obj.tailEntriesAfterPrune === "number" && Number.isFinite(obj.tailEntriesAfterPrune)) {
-    state.tailEntriesAfterPrune = obj.tailEntriesAfterPrune;
-  }
-
-  if (typeof obj.tailTokensAfterPrune === "number" && Number.isFinite(obj.tailTokensAfterPrune)) {
-    state.tailTokensAfterPrune = obj.tailTokensAfterPrune;
-  }
-
-  if (typeof obj.observeTriggered === "boolean") {
-    state.observeTriggered = obj.observeTriggered;
-  }
-
-  if (typeof obj.publishTriggered === "boolean") {
-    state.publishTriggered = obj.publishTriggered;
-  }
-
-  if (typeof obj.reflectTriggered === "boolean") {
-    state.reflectTriggered = obj.reflectTriggered;
-  }
-
-  if (typeof obj.prunedEntriesCount === "number" && Number.isFinite(obj.prunedEntriesCount)) {
-    state.prunedEntriesCount = obj.prunedEntriesCount;
-  }
-
-  if (typeof obj.paused === "boolean") {
-    state.paused = obj.paused;
-  }
-
-  if (typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt)) {
-    state.updatedAt = obj.updatedAt;
-  }
-
-  return state;
-}
-
-export async function loadSessionState(stateDir: string, sessionId: string): Promise<SessionState> {
-  const path = sessionStatePath(stateDir, sessionId);
-
-  try {
-    const raw = await readFile(path, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    const state = validateState(parsed, sessionId);
-    debugLog("loaded session state", { sessionId, path });
-    return state;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      debugLog("failed to load session state, using defaults", {
-        sessionId,
-        path,
-        error: String(err),
-      });
+/** Replays OM state from branch entries plus drafts not yet committed. */
+export function replayState(
+  entries: readonly SessionEntry[],
+  pending: readonly OMEntryDraft[] = [],
+): OMState {
+  const drafts: OMEntryDraft[] = [];
+  for (const entry of entries) {
+    if (!isOMCustomEntry(entry)) continue;
+    const data = entry.data as { v?: number } | undefined;
+    if (!data || data.v !== 1) continue;
+    if (
+      entry.customType === OM_CHUNK ||
+      entry.customType === OM_ACTIVATION ||
+      entry.customType === OM_REFLECTION
+    ) {
+      drafts.push({ customType: entry.customType, data } as OMEntryDraft);
     }
-    return createDefaultState(sessionId);
   }
+  drafts.push(...pending);
+
+  const chunks = new Map<string, ChunkData>();
+  const chunkOrder: string[] = [];
+  const activated: string[] = [];
+  const activatedSet = new Set<string>();
+  let reflection: ReflectionData | undefined;
+  let currentTask: string | undefined;
+  let suggestedResponse: string | undefined;
+  let lastActivationAt: number | undefined;
+
+  for (const draft of drafts) {
+    switch (draft.customType) {
+      case OM_CHUNK:
+        if (!chunks.has(draft.data.id)) chunkOrder.push(draft.data.id);
+        chunks.set(draft.data.id, draft.data);
+        break;
+      case OM_ACTIVATION:
+        for (const id of draft.data.chunkIds) {
+          const chunk = chunks.get(id);
+          if (!chunk || activatedSet.has(id)) continue;
+          activatedSet.add(id);
+          activated.push(id);
+          if (chunk.currentTask) currentTask = chunk.currentTask;
+          if (chunk.suggestedResponse) suggestedResponse = chunk.suggestedResponse;
+        }
+        lastActivationAt = draft.data.at;
+        break;
+      case OM_REFLECTION:
+        reflection = draft.data;
+        if (draft.data.currentTask) currentTask = draft.data.currentTask;
+        if (draft.data.suggestedResponse) suggestedResponse = draft.data.suggestedResponse;
+        lastActivationAt = draft.data.at;
+        break;
+    }
+  }
+
+  const folded = new Set(reflection?.foldedChunkIds ?? []);
+  const activeChunks = activated
+    .filter((id) => !folded.has(id))
+    .map((id) => chunks.get(id))
+    .filter((chunk): chunk is ChunkData => chunk !== undefined);
+
+  const observedEntryIds = new Set<string>();
+  for (const id of activated)
+    for (const entryId of chunks.get(id)?.entryIds ?? []) observedEntryIds.add(entryId);
+
+  const buffered: ChunkData[] = [];
+  const bufferedEntryIds = new Set<string>();
+  for (const id of chunkOrder) {
+    if (activatedSet.has(id)) continue;
+    const chunk = chunks.get(id)!;
+    // A chunk that overlaps observed entries is stale (a sync pass covered them first).
+    if (chunk.entryIds.some((entryId) => observedEntryIds.has(entryId))) continue;
+    buffered.push(chunk);
+    for (const entryId of chunk.entryIds) bufferedEntryIds.add(entryId);
+  }
+
+  const observationTokens =
+    (reflection?.observationTokens ?? 0) +
+    activeChunks.reduce((sum, chunk) => sum + chunk.observationTokens, 0);
+
+  return {
+    chunks,
+    activated,
+    reflection,
+    activeChunks,
+    buffered,
+    observedEntryIds,
+    bufferedEntryIds,
+    observationTokens,
+    generation: reflection?.generation ?? 0,
+    currentTask,
+    suggestedResponse,
+    lastActivationAt,
+  };
 }
 
-export async function saveSessionState(stateDir: string, state: SessionState): Promise<void> {
-  state.updatedAt = Date.now();
+/** Active memory text: reflection, then each active chunk as an observation group. */
+export function renderActiveObservations(state: OMState): string {
+  const parts: string[] = [];
+  if (state.reflection?.observations.trim()) parts.push(state.reflection.observations.trim());
+  for (const chunk of state.activeChunks) {
+    if (!chunk.observations.trim()) continue;
+    parts.push(wrapInObservationGroup(chunk.observations, chunk.range, chunk.id));
+  }
+  return parts.join("\n\n");
+}
 
-  const path = sessionStatePath(stateDir, state.sessionId);
-  await ensureParentDirectory(path);
-  await writeFile(path, JSON.stringify(state, null, 2), "utf-8");
-  debugLog("saved session state", { sessionId: state.sessionId, path });
+export function hasActiveMemory(state: OMState): boolean {
+  return Boolean(state.reflection?.observations.trim()) || state.activeChunks.length > 0;
 }

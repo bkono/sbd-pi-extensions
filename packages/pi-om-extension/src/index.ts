@@ -1,571 +1,160 @@
-import { isDeepStrictEqual } from "node:util";
-import type { Message } from "@earendil-works/pi-ai";
-import {
-  type ExtensionAPI,
-  type ExtensionContext,
-  type SessionEntry,
-  sessionEntryToContextMessages,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { AuthResolver } from "./agents.js";
-import { ObservationAgents } from "./agents.js";
-import { loadConfig, sessionStatePath } from "./config.js";
-import {
-  buildObservationContext,
-  buildStoredObservationBlock,
-  capPublishedObservationState,
-  ensureToolCallPairing,
-  evaluateObservationTrigger,
-  getMessagesBetweenCursors,
-  getObservationChunk,
-  getObservationTriggerThresholds,
-  getPublishedObservationState,
-  getUnobservedMessages,
-  preservePreviousAssistantResponse,
-  runObservationCycle,
-} from "./engine.js";
-import {
-  formatObservationsReport,
-  formatStatusReport,
-  OM_COMMAND_USAGE,
-  type OMStatusReport,
-} from "./format.js";
-import { loadSessionState, saveSessionState } from "./state.js";
-import { countMessageTokens, summarizeMessageWindow } from "./tokens.js";
-import type { OMConfig } from "./types.js";
-import { clampConfigToContextWindow, contextWindowBudget } from "./window-budget.js";
+
+import { resolveConfig } from "./config.js";
+import type { ModelAccess } from "./models.js";
+import { recallRange, recallSearch } from "./recall.js";
+import { type Host, SessionOM } from "./runtime.js";
+import { type ChunkData, renderActiveObservations } from "./state.js";
+import { formatStatusReport, registerRenderers } from "./ui.js";
+
+export { resolveConfig } from "./config.js";
+export { SessionOM } from "./runtime.js";
+
+const STATUS_KEY = "om";
 
 /**
- * Load the merged OM config for a given cwd. Exposed so host runtimes
- * (e.g. a host runtime) can log the resolved config at
- * startup to verify env vars and JSON overrides landed as expected.
- * Same resolution chain the extension itself uses at session_start.
+ * Observational memory for Pi, ported from Mastra Code's OM (`@mastra/memory@1.41.0`).
+ * All state lives in the session as `om.*` custom entries plus context edits.
  */
-export { loadConfig } from "./config.js";
-export type { CursorMode, CycleReason, ObserverResult, OMConfig, SessionState } from "./types.js";
+export default function piObservationalMemory(pi: ExtensionAPI): void {
+  const config = resolveConfig();
+  const sessions = new Map<string, SessionOM>();
+  const chunkIndex = new Map<string, ChunkData>();
 
-function debugLog(config: OMConfig, message: string, details?: Record<string, unknown>): void {
-  if (!config.debug) return;
-  const payload = details ? ` ${JSON.stringify(details)}` : "";
-  console.error(`[om:ext] ${message}${payload}`);
-}
-
-function preserveNativeCompactionFloor(
-  allMessages: Message[],
-  boundedMessages: Message[],
-  branchEntries: SessionEntry[],
-): Message[] {
-  let compactionIndex = -1;
-  for (let index = branchEntries.length - 1; index >= 0; index -= 1) {
-    if (branchEntries[index]?.type === "compaction") {
-      compactionIndex = index;
-      break;
+  function session(ctx: ExtensionContext): SessionOM {
+    const id = ctx.sessionManager.getSessionId();
+    let om = sessions.get(id);
+    if (!om) {
+      for (const [otherId, other] of sessions) {
+        other.dispose();
+        sessions.delete(otherId);
+      }
+      om = new SessionOM(id, config);
+      sessions.set(id, om);
     }
-  }
-  if (compactionIndex < 0) return boundedMessages;
-
-  const compaction = branchEntries[compactionIndex]!;
-  if (compaction.type !== "compaction") return boundedMessages;
-
-  const firstKeptIndex = branchEntries.findIndex(
-    (entry) => entry.id === compaction.firstKeptEntryId,
-  );
-  if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) return boundedMessages;
-
-  const summaryIndex = allMessages.findIndex((message) => {
-    const candidate = message as unknown as {
-      role?: unknown;
-      summary?: unknown;
-      tokensBefore?: unknown;
-    };
-    return (
-      candidate.role === "compactionSummary" &&
-      candidate.summary === compaction.summary &&
-      candidate.tokensBefore === compaction.tokensBefore
-    );
-  });
-  if (summaryIndex < 0) return boundedMessages;
-
-  const retainedMessages = branchEntries
-    .slice(firstKeptIndex, compactionIndex)
-    .flatMap(sessionEntryToContextMessages);
-  const floor = [allMessages[summaryIndex]!];
-  for (const message of allMessages.slice(summaryIndex + 1)) {
-    const retainedIndex = retainedMessages.findIndex((retained) =>
-      isDeepStrictEqual(retained, message),
-    );
-    if (retainedIndex < 0) continue;
-    floor.push(message);
-    retainedMessages.splice(retainedIndex, 1);
+    return om;
   }
 
-  const selected = new Set([...floor, ...boundedMessages]);
-  return allMessages.filter((message) => selected.has(message));
-}
-
-/**
- * Pi coding-agent extension for observational memory.
- *
- * Hooks into the agent lifecycle to:
- * 1. Observe conversation history and extract dense observations via LLM
- * 2. Reflect/consolidate when observations grow too large
- * 3. Prune raw message history and inject observation context before each LLM call
- * 4. Force a final observation pass before compaction
- */
-export default function piObservationalMemory(pi: ExtensionAPI) {
-  let config: OMConfig | undefined;
-  let agents: ObservationAgents | undefined;
-
-  // Instance-scoped deduplication map for concurrent observation cycles
-  const inflight = new Map<string, Promise<void>>();
-
-  function ensureInitialized(ctx: ExtensionContext): {
-    config: OMConfig;
-    agents: ObservationAgents;
-  } {
-    if (!config || !agents) {
-      config = loadConfig(ctx.cwd);
-      // Use pi's ModelRegistry as our auth resolver — this gives the observer
-      // and reflector access to the same auth.json / env var resolution chain
-      // that the agent itself uses, including OAuth refresh.
-      const resolver: AuthResolver = {
-        getApiKeyAndHeaders: (model) => ctx.modelRegistry.getApiKeyAndHeaders(model),
-      };
-      agents = new ObservationAgents(config, resolver);
-    }
-    return { config, agents };
-  }
-
-  function ensureRuntime(ctx: ExtensionContext): {
-    config: OMConfig;
-    agents: ObservationAgents;
-  } {
-    const initialized = ensureInitialized(ctx);
+  function host(ctx: ExtensionContext): Host {
     return {
-      ...initialized,
-      config: clampConfigToContextWindow(initialized.config, ctx.model?.contextWindow),
+      registry: ctx.modelRegistry as unknown as ModelAccess,
+      model: ctx.model,
+      branch: () => ctx.sessionManager.getBranch(),
+      projection: () => ctx.sessionManager.buildSessionProjection().entries,
+      isIdle: () => ctx.isIdle(),
+      appendEntry: (customType, data) => pi.appendEntry(customType, data),
+      setStatus: (text) => ctx.ui.setStatus(STATUS_KEY, text),
+      now: () => Date.now(),
     };
   }
 
-  // -------------------------------------------------------------------------
-  // session_start — initialize/load state
-  // -------------------------------------------------------------------------
-  pi.on("session_start", async (_event, ctx) => {
-    const { config: cfg } = ensureRuntime(ctx);
-    const sessionId = ctx.sessionManager.getSessionId();
-
-    debugLog(cfg, "session_start", { sessionId });
-
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    await saveSessionState(cfg.storage.stateDir, state);
-  });
-
-  // -------------------------------------------------------------------------
-  // before_agent_start — inject observation context into system prompt
-  // -------------------------------------------------------------------------
-  pi.on("before_agent_start", async (event, ctx) => {
-    const { config: cfg } = ensureRuntime(ctx);
-    const sessionId = ctx.sessionManager.getSessionId();
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-
-    const publishedState = getPublishedObservationState(state, getBranchMessages(ctx));
-    const budget = contextWindowBudget(ctx.model?.contextWindow);
-    const injectedState = budget
-      ? capPublishedObservationState(publishedState, budget.maxInjectedObservationTokens)
-      : publishedState;
-    const observationContext = buildObservationContext(injectedState);
-    if (!observationContext) return;
-
-    // Append the segmented observation context to the system prompt. The chaining
-    // in pi's extension runner means we receive the current system prompt and
-    // return the modified version. Subsequent extensions (if any) will see our
-    // modifications.
-    debugLog(cfg, "before_agent_start: injecting observations into system prompt", {
-      sessionId,
-      observationTokens: state.observationTokens,
-      capped: injectedState !== publishedState,
-    });
-
-    return { systemPrompt: `${event.systemPrompt}\n\n${observationContext}` };
-  });
-
-  // -------------------------------------------------------------------------
-  // context — prune messages to unobserved window before each LLM call
-  // -------------------------------------------------------------------------
-  pi.on("context", async (event, ctx) => {
-    const { config: cfg, agents: agts } = ensureRuntime(ctx);
-    const sessionId = ctx.sessionManager.getSessionId();
-    const allMessages = [...event.messages] as Message[];
-
-    debugLog(cfg, "context", {
-      sessionId,
-      messageCount: allMessages.length,
-    });
-
-    // When paused, skip observation and pruning — retain full message history
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    if (state.paused) {
-      debugLog(cfg, "context: paused, skipping observation and pruning", { sessionId });
-      return;
-    }
-
-    // Stage observations incrementally during long runs, but keep the public
-    // injected block and pruning cursor frozen until the turn ends. We observe
-    // against the full branch so resumed sessions and long tool loops can keep
-    // accumulating draft state without mutating the published prompt snapshot.
-    await runObservationCycle(cfg, agts, sessionId, getBranchMessages(ctx), inflight, {
-      reason: "context",
-      publishDraft: false,
-      excludeLatestMessage: true,
-    });
-
-    // Pruning still uses the published cursor only. Draft observations must never
-    // outrun what the model can see in the injected system prompt this turn.
-    // Re-load state after observation cycle may have mutated it.
-    const postCycleState = await loadSessionState(cfg.storage.stateDir, sessionId);
-    const publishedState = getPublishedObservationState(postCycleState, getBranchMessages(ctx));
-    const budget = contextWindowBudget(ctx.model?.contextWindow);
-    if (
-      budget &&
-      capPublishedObservationState(publishedState, budget.maxInjectedObservationTokens) !==
-        publishedState
-    ) {
-      // The prompt contains only a bounded subset of OM in this fallback state.
-      // Keep Pi's full context so the published cursor cannot hide omitted history.
-      debugLog(cfg, "context: capped observations, skipping cursor pruning", {
-        sessionId,
-        maxInjectedObservationTokens: budget.maxInjectedObservationTokens,
-      });
-      return;
-    }
-
-    // Compute the unobserved window
-    const unobservedWindow = getUnobservedMessages(
-      allMessages,
-      postCycleState.lastObservedEntryId,
-      postCycleState.lastObservedTimestamp,
-    );
-
-    let boundedMessages = unobservedWindow.messages;
-    let cursorMode = unobservedWindow.mode;
-    if (boundedMessages.length === 0) {
-      const latest = allMessages.at(-1);
-      if (latest) {
-        boundedMessages = [latest];
-        cursorMode = "fallback-latest";
+  function indexChunks(ctx: ExtensionContext): void {
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "custom" && entry.customType === "om.chunk") {
+        const data = entry.data as ChunkData | undefined;
+        if (data?.id) chunkIndex.set(data.id, data);
       }
     }
+  }
 
-    boundedMessages = preservePreviousAssistantResponse(allMessages, boundedMessages);
-    boundedMessages = ensureToolCallPairing(allMessages, boundedMessages);
-    boundedMessages = preserveNativeCompactionFloor(
-      allMessages,
-      boundedMessages,
-      ctx.sessionManager.getBranch(),
-    );
+  registerRenderers(pi, (id) => chunkIndex.get(id));
 
-    // Track pruning metrics
-    await saveSessionState(cfg.storage.stateDir, {
-      ...postCycleState,
-      lastCycleAt: Date.now(),
-      lastCycleReason: "context",
-      lastCursorMode: cursorMode,
-      tailEntriesBeforePrune: allMessages.length,
-      tailTokensBeforePrune: countMessageTokens(allMessages),
-      tailEntriesAfterPrune: boundedMessages.length,
-      tailTokensAfterPrune: countMessageTokens(boundedMessages),
-      prunedEntriesCount: Math.max(0, allMessages.length - boundedMessages.length),
-    });
-
-    debugLog(cfg, "context pruned", {
-      sessionId,
-      before: allMessages.length,
-      after: boundedMessages.length,
-    });
-
-    return { messages: boundedMessages };
+  pi.on("session_start", (_event, ctx) => {
+    session(ctx);
+    indexChunks(ctx);
   });
 
-  // -------------------------------------------------------------------------
-  // agent_end — finish the turn with a final observation pass and publish draft state
-  // -------------------------------------------------------------------------
-  pi.on("agent_end", async (event, ctx) => {
-    const { config: cfg, agents: agts } = ensureRuntime(ctx);
-    const sessionId = ctx.sessionManager.getSessionId();
-
-    // When paused, skip observation entirely
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    if (state.paused) {
-      debugLog(cfg, "agent_end: paused, skipping observation", { sessionId });
-      return;
-    }
-
-    // IMPORTANT: do NOT use `event.messages` here. pi-agent-core's
-    // agent_end event is TURN-SCOPED — its `messages` field contains
-    // only the messages produced during the current run (user prompt +
-    // assistant response + tool calls for this turn). For a resumed
-    // session with existing history, that list is always small and
-    // never crosses the observation threshold on its own, even when
-    // the cumulative session is massively over.
-    const messages = getBranchMessages(ctx);
-
-    debugLog(cfg, "agent_end", {
-      sessionId,
-      messageCount: messages.length,
-      turnMessageCount: event.messages.length,
-    });
-
-    await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
-      reason: "turn_end",
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // session_before_compact — force observation, then defer to Pi compaction
-  // -------------------------------------------------------------------------
-  pi.on("session_before_compact", async (event, ctx) => {
-    const { config: cfg, agents: agts } = ensureRuntime(ctx);
-    const sessionId = ctx.sessionManager.getSessionId();
-
-    debugLog(cfg, "session_before_compact", { sessionId });
-
-    // Extract messages from the branch entries
-    const entries = event.branchEntries;
-    const messages: Message[] = [];
-    for (const entry of entries) {
-      if (entry.type === "message") {
-        messages.push(entry.message as Message);
-      }
-    }
-
-    // When paused, skip forced observation. Otherwise force the final staged
-    // observation pass and publish it before Pi starts its native compaction.
-    const preState = await loadSessionState(cfg.storage.stateDir, sessionId);
-    if (!preState.paused) {
-      await runObservationCycle(cfg, agts, sessionId, messages, inflight, {
-        forceObserve: true,
-        reason: "compacting",
-      });
-    }
-
-    // Do not provide a custom CompactionResult. Returning undefined lets Pi
-    // summarize the real history, retain its normal tail, and update prior
-    // summaries without embedding another copy of OM into the summary.
-    return undefined;
-  });
-
-  // -------------------------------------------------------------------------
-  // session_shutdown — final state persistence
-  // -------------------------------------------------------------------------
   pi.on("session_shutdown", async (_event, ctx) => {
-    if (!config) return;
-    const sessionId = ctx.sessionManager.getSessionId();
-    const state = await loadSessionState(config.storage.stateDir, sessionId);
-    await saveSessionState(config.storage.stateDir, state);
-    debugLog(config, "session_shutdown", { sessionId });
+    const om = sessions.get(ctx.sessionManager.getSessionId());
+    if (!om) return;
+    om.dispose();
+    sessions.delete(om.sessionId);
   });
 
-  function getBranchMessages(ctx: ExtensionContext): Message[] {
-    const entries = ctx.sessionManager.getBranch();
-    const messages: Message[] = [];
+  pi.on("agent_start", (_event, ctx) => {
+    session(ctx).startRun(host(ctx));
+  });
 
-    for (const entry of entries) {
-      if (entry.type === "message") {
-        messages.push(entry.message as Message);
-      }
-    }
+  pi.on("context", async (event, ctx) => {
+    const messages = await session(ctx).onContext(event.messages as AgentMessage[], host(ctx));
+    return messages ? { messages } : undefined;
+  });
 
-    return messages;
-  }
+  pi.on("context_with_system", (event, ctx) => {
+    const messages = session(ctx).onSystem(event.messages as AgentMessage[], host(ctx));
+    return messages ? { messages } : undefined;
+  });
 
-  async function buildStatusSnapshot(
-    ctx: ExtensionContext,
-    sessionId: string,
-  ): Promise<OMStatusReport> {
-    const { config: cfg } = ensureRuntime(ctx);
-    const statePath = sessionStatePath(cfg.storage.stateDir, sessionId);
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-    const messages = getBranchMessages(ctx);
-    const stageThresholds = getObservationTriggerThresholds(cfg, "stage");
-    const publishThresholds = getObservationTriggerThresholds(cfg, "publish");
-    const unobservedWindow = getUnobservedMessages(
-      messages,
-      state.draftLastObservedEntryId,
-      state.draftLastObservedTimestamp,
+  pi.on("turn_end", async (event, ctx) => {
+    const drafts = await session(ctx).onTurnEnd(
+      { contextEntries: event.context.contextEntries, messageEntryId: event.messageEntryId },
+      host(ctx),
     );
-    const unpublishedWindow = getMessagesBetweenCursors(
-      messages,
-      state.lastObservedEntryId,
-      state.lastObservedTimestamp,
-      state.draftLastObservedEntryId,
-      state.draftLastObservedTimestamp,
+    indexChunks(ctx);
+    if (drafts.length === 0) return undefined;
+    return { entries: [...event.entries, ...drafts] };
+  });
+
+  pi.on("agent_before_settle", (event, ctx) => {
+    const drafts = session(ctx).onSettle(
+      { contextEntries: event.context.contextEntries },
+      host(ctx),
     );
-    const unobservedStats = summarizeMessageWindow(unobservedWindow.messages);
-    const unpublishedStats = summarizeMessageWindow(unpublishedWindow.messages);
-    const nextChunkMessages = getObservationChunk(cfg, unobservedWindow.messages);
-    const nextChunkStats = summarizeMessageWindow(nextChunkMessages);
-    const stageDecision = evaluateObservationTrigger(unobservedStats, stageThresholds);
-    const publishDecision = evaluateObservationTrigger(unpublishedStats, publishThresholds);
+    if (drafts.length === 0) return undefined;
+    return { entries: [...event.entries, ...drafts] };
+  });
+
+  pi.on("session_before_compact", async (event, ctx) => {
+    const result = await session(ctx).onCompact(host(ctx));
+    indexChunks(ctx);
+    if (!result) return undefined;
     return {
-      sessionId,
-      stateDir: cfg.storage.stateDir,
-      statePath,
-      observationTokens: state.observationTokens,
-      draftObservationTokens: state.draftObservationTokens,
-      stagingThreshold: cfg.observation.stageMessageTokens,
-      stagingMessageCountThreshold: cfg.observation.stageMessageCount,
-      stagingToolResultTokenThreshold: cfg.observation.stageToolResultTokens,
-      publishThreshold: cfg.observation.publishMessageTokens,
-      publishMessageCountThreshold: cfg.observation.publishMessageCount,
-      publishToolResultTokenThreshold: cfg.observation.publishToolResultTokens,
-      chunkMessageTokenLimit: cfg.observation.maxChunkMessageTokens,
-      chunkMessageLimit: cfg.observation.maxChunkMessages,
-      observationModel: `${cfg.observation.provider}/${cfg.observation.modelId}`,
-      reflectionThreshold: cfg.reflection.observationTokens,
-      reflectionModel: `${cfg.reflection.provider}/${cfg.reflection.modelId}`,
-      observationsPresent: Boolean(state.observations.trim()),
-      draftObservationsPresent: Boolean(state.draftObservations.trim()),
-      lastObservedEntryId: state.lastObservedEntryId ?? null,
-      lastObservedTimestamp: state.lastObservedTimestamp
-        ? new Date(state.lastObservedTimestamp).toISOString()
-        : null,
-      draftLastObservedEntryId: state.draftLastObservedEntryId ?? null,
-      draftLastObservedTimestamp: state.draftLastObservedTimestamp
-        ? new Date(state.draftLastObservedTimestamp).toISOString()
-        : null,
-      cursorModeForCurrentWindow: unobservedWindow.mode,
-      unpublishedCursorModeForCurrentWindow: unpublishedWindow.mode,
-      unobservedMessages: unobservedStats.messageCount,
-      unobservedMessageTokens: unobservedStats.messageTokens,
-      unobservedToolResultCount: unobservedStats.toolResultCount,
-      unobservedToolResultTokens: unobservedStats.toolResultTokens,
-      unpublishedMessages: unpublishedStats.messageCount,
-      unpublishedMessageTokens: unpublishedStats.messageTokens,
-      unpublishedToolResultCount: unpublishedStats.toolResultCount,
-      unpublishedToolResultTokens: unpublishedStats.toolResultTokens,
-      nextChunkMessages: nextChunkStats.messageCount,
-      nextChunkMessageTokens: nextChunkStats.messageTokens,
-      nextChunkToolResultCount: nextChunkStats.toolResultCount,
-      nextChunkToolResultTokens: nextChunkStats.toolResultTokens,
-      stagingReasons: [...stageDecision.reasons],
-      publishReasons: [...publishDecision.reasons],
-      lastCycleAt: state.lastCycleAt ? new Date(state.lastCycleAt).toISOString() : null,
-      lastCycleReason: state.lastCycleReason ?? null,
-      lastCursorMode: state.lastCursorMode ?? null,
-      observeTriggered: state.observeTriggered ?? null,
-      publishTriggered: state.publishTriggered ?? null,
-      reflectTriggered: state.reflectTriggered ?? null,
-      tailEntriesBeforePrune: state.tailEntriesBeforePrune ?? null,
-      tailTokensBeforePrune: state.tailTokensBeforePrune ?? null,
-      tailEntriesAfterPrune: state.tailEntriesAfterPrune ?? null,
-      tailTokensAfterPrune: state.tailTokensAfterPrune ?? null,
-      prunedEntriesCount: state.prunedEntriesCount ?? null,
-      currentTask: state.currentTask ?? null,
-      suggestedResponse: state.suggestedResponse ?? null,
-      updatedAt: new Date(state.updatedAt).toISOString(),
-      paused: state.paused ?? false,
+      compaction: {
+        summary: result.summary,
+        firstKeptEntryId: result.firstKeptEntryId,
+        tokensBefore: event.preparation.tokensBefore,
+        details: { observationalMemory: true },
+      },
     };
-  }
-
-  async function buildObservationSections(ctx: ExtensionContext): Promise<string[]> {
-    const { config: cfg } = ensureRuntime(ctx);
-    const sessionId = ctx.sessionManager.getSessionId();
-    const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-
-    const storedBlock = buildStoredObservationBlock(getPublishedObservationState(state));
-    if (!storedBlock) {
-      return ["(no observations stored)"];
-    }
-
-    return [`<session>${sessionId}</session>`, "", storedBlock];
-  }
-
-  // -------------------------------------------------------------------------
-  // Slash command
-  // -------------------------------------------------------------------------
+  });
 
   pi.registerCommand("om", {
-    description: "Inspect observational memory status and stored observations",
+    description: "Show observational memory status, or `/om observations` for active memory",
     handler: async (args, ctx) => {
-      const parts = args.trim().split(/\s+/).filter(Boolean);
-      const subcommand = parts[0]?.toLowerCase() ?? "status";
-
-      if (parts.length > 1) {
-        ctx.ui.notify(OM_COMMAND_USAGE, "info");
+      const om = session(ctx);
+      const h = host(ctx);
+      if (args.trim() === "observations") {
+        const text = renderActiveObservations(om.snapshot(h).state);
+        ctx.ui.notify(text || "(no active observations yet)", "info");
         return;
       }
-
-      if (subcommand === "status") {
-        const sessionId = ctx.sessionManager.getSessionId();
-        const status = await buildStatusSnapshot(ctx, sessionId);
-        ctx.ui.notify(formatStatusReport(status), "info");
-        return;
-      }
-
-      if (subcommand === "observations") {
-        const { config: cfg } = ensureRuntime(ctx);
-        const sessionId = ctx.sessionManager.getSessionId();
-        const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-        ctx.ui.notify(formatObservationsReport(state), "info");
-        return;
-      }
-
-      ctx.ui.notify(OM_COMMAND_USAGE, "info");
+      ctx.ui.notify(formatStatusReport(om.snapshot(h), om.events, om.cacheTtlMs(h)), "info");
     },
   });
-
-  pi.registerCommand("om:toggle", {
-    description: "Pause or resume observational memory for this session",
-    handler: async (_args, ctx) => {
-      const { config: cfg } = ensureRuntime(ctx);
-      const sessionId = ctx.sessionManager.getSessionId();
-      const state = await loadSessionState(cfg.storage.stateDir, sessionId);
-      const nowPaused = !state.paused;
-      await saveSessionState(cfg.storage.stateDir, { ...state, paused: nowPaused });
-      const label = nowPaused
-        ? "⏸ Observational memory paused — full context retained, no observation cycles"
-        : "▶ Observational memory resumed — observation and pruning active";
-      ctx.ui.notify(label, "info");
-    },
-  });
-
-  // -------------------------------------------------------------------------
-  // Tools
-  // -------------------------------------------------------------------------
 
   pi.registerTool({
-    name: "om_status",
-    label: "OM Status",
+    name: "om_recall",
+    label: "Recall history",
     description:
-      "Show observational memory status for a session, including published vs staged state, thresholds, and cycle history.",
+      "Read raw messages from earlier in this session that observational memory has summarized. Pass an observation group `range` (`first:last` entry ids) or a search `query`.",
     parameters: Type.Object({
-      session_id: Type.Optional(
-        Type.String({ description: "Session ID to query. Defaults to current session." }),
+      range: Type.Optional(
+        Type.String({ description: "Observation group range, `firstEntryId:lastEntryId`." }),
+      ),
+      query: Type.Optional(
+        Type.String({ description: "Case-insensitive text to search for in raw history." }),
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const sessionId = params.session_id ?? ctx.sessionManager.getSessionId();
-      const status = await buildStatusSnapshot(ctx, sessionId);
-
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
-        details: undefined,
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "om_observations",
-    label: "OM Observations",
-    description: "Return the stored observational memory block for the current session.",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const sections = await buildObservationSections(ctx);
-
-      return {
-        content: [{ type: "text" as const, text: sections.join("\n") }],
-        details: undefined,
-      };
+      const branch = ctx.sessionManager.getBranch();
+      const text = params.range
+        ? recallRange(branch, params.range)
+        : params.query
+          ? recallSearch(branch, params.query)
+          : "Pass a `range` from an observation group or a `query`.";
+      return { content: [{ type: "text" as const, text }], details: undefined };
     },
   });
 }
