@@ -80,8 +80,16 @@ export interface OMState {
   bufferedEntryIds: Set<string>;
   observationTokens: number;
   generation: number;
+  /** Task and suggestion shown to the model: as of the last activation or reflection. */
   currentTask?: string;
   suggestedResponse?: string;
+  /**
+   * Latest task and suggestion from any observation, buffered or not. Mastra persists
+   * these at buffer time and feeds them to the next observer call as prior hints; the
+   * section only picks them up at activation, so it stays cache-stable in between.
+   */
+  latestTask?: string;
+  latestSuggestion?: string;
   /** Last OM write that changed what the model sees (activation or reflection). */
   lastActivationAt?: number;
 }
@@ -123,6 +131,8 @@ export function replayState(
   let reflection: ReflectionData | undefined;
   let currentTask: string | undefined;
   let suggestedResponse: string | undefined;
+  let latestTask: string | undefined;
+  let latestSuggestion: string | undefined;
   let lastActivationAt: number | undefined;
 
   for (const draft of drafts) {
@@ -130,6 +140,8 @@ export function replayState(
       case OM_CHUNK:
         if (!chunks.has(draft.data.id)) chunkOrder.push(draft.data.id);
         chunks.set(draft.data.id, draft.data);
+        if (draft.data.currentTask) latestTask = draft.data.currentTask;
+        if (draft.data.suggestedResponse) latestSuggestion = draft.data.suggestedResponse;
         break;
       case OM_ACTIVATION:
         for (const id of draft.data.chunkIds) {
@@ -137,15 +149,17 @@ export function replayState(
           if (!chunk || activatedSet.has(id)) continue;
           activatedSet.add(id);
           activated.push(id);
-          if (chunk.currentTask) currentTask = chunk.currentTask;
-          if (chunk.suggestedResponse) suggestedResponse = chunk.suggestedResponse;
         }
+        currentTask = latestTask ?? currentTask;
+        suggestedResponse = latestSuggestion ?? suggestedResponse;
         lastActivationAt = draft.data.at;
         break;
       case OM_REFLECTION:
         reflection = draft.data;
-        if (draft.data.currentTask) currentTask = draft.data.currentTask;
-        if (draft.data.suggestedResponse) suggestedResponse = draft.data.suggestedResponse;
+        if (draft.data.currentTask) currentTask = latestTask = draft.data.currentTask;
+        if (draft.data.suggestedResponse) {
+          suggestedResponse = latestSuggestion = draft.data.suggestedResponse;
+        }
         lastActivationAt = draft.data.at;
         break;
     }
@@ -188,6 +202,8 @@ export function replayState(
     generation: reflection?.generation ?? 0,
     currentTask,
     suggestedResponse,
+    latestTask,
+    latestSuggestion,
     lastActivationAt,
   };
 }

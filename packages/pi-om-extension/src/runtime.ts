@@ -657,8 +657,8 @@ export class SessionOM {
       {
         messages: units.flatMap((unit) => unit.messages),
         activeObservations: renderActiveObservations(state),
-        priorCurrentTask: state.currentTask,
-        priorSuggestedResponse: state.suggestedResponse,
+        priorCurrentTask: state.latestTask ?? state.currentTask,
+        priorSuggestedResponse: state.latestSuggestion ?? state.suggestedResponse,
         priorThreadTitle: host.getSessionName?.(),
         previousObserverTokens: this.config.previousObserverTokens,
         toolResultMaxTokens: this.config.observerToolResultMaxTokens,

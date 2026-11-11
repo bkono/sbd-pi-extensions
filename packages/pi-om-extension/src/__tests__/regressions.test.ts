@@ -276,4 +276,29 @@ describe("review regressions", () => {
     }
     expect(new Set(summaries).size).toBe(2);
   });
+
+  it("task chain: the next observer sees the latest buffered task; the section updates only at activation", async () => {
+    let n = 0;
+    registry.respond = () =>
+      `<observations>\nDate: Nov 11, 2026\n* 🔴 (10:00) step ${++n}\n</observations>\n\n<current-task>\nPrimary: read every file, task v${n}\n</current-task>`;
+    await toolStep(om, session, host, 7_000);
+    await om.settled();
+    await toolStep(om, session, host, 7_000);
+    await om.settled();
+    // the second observer call got the first (still unactivated) chunk's task as its prior
+    expect(registry.calls[1]?.user).toContain(
+      "prior current-task: Primary: read every file, task v1",
+    );
+    const state = om.snapshot(host).state; // includes the chunk awaiting its boundary
+    expect(state.activated).toHaveLength(0);
+    expect(state.currentTask).toBeUndefined();
+    expect(state.latestTask).toContain("task v2");
+    for (let step = 0; step < 4; step += 1) {
+      await toolStep(om, session, host, 6_000);
+      await om.settled();
+    }
+    const after = replayState(session.getBranch(), []);
+    expect(after.activated.length).toBeGreaterThan(0);
+    expect(after.currentTask).toBe(after.latestTask);
+  });
 });
