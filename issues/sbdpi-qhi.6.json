@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-11T18:28:48Z",
+  "description": "",
+  "id": "sbdpi-qhi.6",
+  "labels": [],
+  "parent": "sbdpi-qhi",
+  "priority": 1,
+  "status": "open",
+  "title": "Recall tool and TUI status/entry renderers",
+  "type": "task",
+  "updated_at": "2026-11-11T18:28:48Z"
+}
