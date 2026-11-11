@@ -85,12 +85,22 @@ function maskRetiredToolResultMessage<T extends ContextToolResultMessage>(
   };
 }
 
-export function applyContextHygieneStaleContext<T extends ContextToolResultMessage>(
+/** Masks for one provider request, keyed by the original tool result id. */
+export interface ContextHygieneMasks {
+  stale: ReadonlyMap<string, ContextHygieneStaleRecord>;
+  retired: ReadonlyMap<string, ContextHygieneRetiredRecord>;
+}
+
+/** Every mask the tracker's report calls for right now. */
+export function selectContextHygieneMasks(report: ContextHygieneReport): ContextHygieneMasks {
+  return { stale: staleRecordsByResultId(report), retired: retiredRecordsByResultId(report) };
+}
+
+export function applyContextHygieneMasks<T extends ContextToolResultMessage>(
   messages: readonly T[],
-  report: ContextHygieneReport,
+  masks: ContextHygieneMasks,
 ): T[] {
-  const staleByResultId = staleRecordsByResultId(report);
-  const retiredByResultId = retiredRecordsByResultId(report);
+  const { stale: staleByResultId, retired: retiredByResultId } = masks;
   if (staleByResultId.size === 0 && retiredByResultId.size === 0) return messages as T[];
 
   let changed = false;
@@ -112,4 +122,11 @@ export function applyContextHygieneStaleContext<T extends ContextToolResultMessa
   });
 
   return changed ? nextMessages : (messages as T[]);
+}
+
+export function applyContextHygieneStaleContext<T extends ContextToolResultMessage>(
+  messages: readonly T[],
+  report: ContextHygieneReport,
+): T[] {
+  return applyContextHygieneMasks(messages, selectContextHygieneMasks(report));
 }

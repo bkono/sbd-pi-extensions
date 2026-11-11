@@ -1,8 +1,12 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: Pi extension lifecycle events are intentionally dynamic at runtime. */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, VERSION } from "@earendil-works/pi-coding-agent";
 import { buildBashCommandState } from "./bash-command-state.js";
 import { registerBashRendererTool } from "./bash-renderer.js";
-import { applyContextHygieneStaleContext } from "./context-application.js";
+import {
+  applyContextHygieneMasks,
+  applyContextHygieneStaleContext,
+  selectContextHygieneMasks,
+} from "./context-application.js";
 import {
   buildCommandResource,
   buildContextHygieneMetadata,
@@ -39,6 +43,7 @@ import {
 } from "./rtk/bash-original-output.js";
 import { buildRtkCompaction } from "./rtk/rtk-compaction.js";
 import { isSgAvailable, registerSgTool } from "./sg.js";
+import { PREFIX_SIGNAL_CHANNEL, StaleMaskGate } from "./stale-mask-gate.js";
 import { registerWriteTool } from "./write.js";
 
 function isBashToolResult(event: unknown): event is {
@@ -188,6 +193,13 @@ function willBashContextGuardTrim(text: string, config: BashContextGuardConfig):
   );
 }
 
+/** Pi 0.87.0 added `context_with_system`. */
+export function supportsContextWithSystem(version: string | undefined): boolean {
+  if (!version) return false;
+  const [major = 0, minor = 0] = version.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  return major > 0 || minor >= 87;
+}
+
 export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
   // readTurns maps an absolute path to the tracker event id of the most recent
   // live-anchor tool result for that path (read / grep / ast_search / write).
@@ -270,11 +282,34 @@ export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
     }
   };
 
+  // Masks land in `context_with_system`, after every `context` handler, so a prefix owner's
+  // signal for this request (pi-om emits it from `context`) is in hand whatever the load
+  // order. A Pi without that hook gets the old immediate masking from `context`.
+  const masksInSystemHook = supportsContextWithSystem(VERSION);
+  const maskGate = new StaleMaskGate();
+  if (typeof pi.events?.on === "function") {
+    pi.events.on(PREFIX_SIGNAL_CHANNEL, (signal) => maskGate.observe(signal));
+  }
+
   pi.on("context", (event: any): any => {
     if (!Array.isArray(event.messages)) return undefined;
     const report = getContextHygieneTracker().generateReport();
-    const messages = applyContextHygieneStaleContext(event.messages, report);
+    // The edit guard follows the tracker, not the masks: a stale anchor needs a fresh read
+    // even while its result is still shown unmasked to keep the cached prefix.
     expireStaleReadTurns(report);
+    if (masksInSystemHook) return undefined;
+    const messages = applyContextHygieneStaleContext(event.messages, report);
+    if (messages === event.messages) return undefined;
+    return { messages };
+  });
+
+  pi.on("context_with_system", (event: any): any => {
+    if (!masksInSystemHook || !Array.isArray(event.messages)) return undefined;
+    const desired = selectContextHygieneMasks(getContextHygieneTracker().generateReport());
+    const messages = applyContextHygieneMasks(
+      event.messages,
+      maskGate.next(desired, event.messages),
+    );
     if (messages === event.messages) return undefined;
     return { messages };
   });

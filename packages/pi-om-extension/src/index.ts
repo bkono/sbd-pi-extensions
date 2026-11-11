@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { resolveConfig } from "./config.js";
 import type { ModelAccess } from "./models.js";
 import { recallRange, recallSearch } from "./recall.js";
-import { type Host, SessionOM } from "./runtime.js";
+import { type Host, PREFIX_SIGNAL_CHANNEL, SessionOM } from "./runtime.js";
 import { type ChunkData, renderActiveObservations } from "./state.js";
 import { formatStatusReport, registerRenderers } from "./ui.js";
 
@@ -110,7 +110,13 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (_event, ctx) => {
-    await session(ctx).onContext(host(ctx));
+    const om = session(ctx);
+    const h = host(ctx);
+    await om.onContext(h);
+    // Emitted from `context` so every `context_with_system` handler (hashline masks there)
+    // has it for this request, whatever the load order.
+    const signal = om.prefixSignal(h);
+    if (signal) pi.events.emit(PREFIX_SIGNAL_CHANNEL, { source: "pi-om", ...signal });
     return undefined;
   });
 

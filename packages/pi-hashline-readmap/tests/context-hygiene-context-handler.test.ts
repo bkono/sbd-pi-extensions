@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe("context hygiene provider context handler", () => {
-  it("masks stale prior tool results in the provider-context copy without mutating source messages", async () => {
+  it("masks stale prior tool results in the provider-request copy without mutating source messages", async () => {
     const handlers = createHarness();
     expect(typeof handlers.context).toBe("function");
 
@@ -88,7 +88,17 @@ describe("context hygiene provider context handler", () => {
     });
     const providerContextCopy = [readMessage, editMessage];
 
-    const result = handlers.context({ type: "context", messages: providerContextCopy }, {});
+    // The context phase leaves messages alone; masks land after every context handler.
+    expect(handlers.context({ type: "context", messages: providerContextCopy }, {})).toBe(
+      undefined,
+    );
+    const system = { role: "system", content: "sys", timestamp: 0 };
+    const withSystem = handlers.context_with_system(
+      { type: "context_with_system", messages: [system, ...providerContextCopy] },
+      {},
+    );
+    expect(withSystem.messages[0]).toBe(system);
+    const result = { messages: withSystem.messages.slice(1) };
 
     expect(result.messages[0].content).toEqual([
       {

@@ -80,33 +80,37 @@ describe("issue 144 — stale-masked read must not satisfy edit's must-read guar
       {},
     );
 
-    // 3. Provider-context turn — masks the prior read into the stale placeholder.
-    const ctxResult = handlers.context!(
+    // 3. Provider request — the context phase expires the read turn, then
+    //    context_with_system masks the prior read into the stale placeholder.
+    const turnMessages = [
       {
-        type: "context",
-        messages: [
-          {
-            role: "toolResult",
-            toolCallId: "read-1",
-            toolName: "read",
-            content: [{ type: "text", text: "old read output" }],
-            details: { ptcValue: { tool: "read" } },
-            isError: false,
-            timestamp: 1,
-          },
-          {
-            role: "toolResult",
-            toolCallId: "edit-1",
-            toolName: "edit",
-            content: [{ type: "text", text: "edit succeeded" }],
-            details: { ptcValue: { tool: "edit" } },
-            isError: false,
-            timestamp: 2,
-          },
-        ],
+        role: "toolResult",
+        toolCallId: "read-1",
+        toolName: "read",
+        content: [{ type: "text", text: "old read output" }],
+        details: { ptcValue: { tool: "read" } },
+        isError: false,
+        timestamp: 1,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "edit-1",
+        toolName: "edit",
+        content: [{ type: "text", text: "edit succeeded" }],
+        details: { ptcValue: { tool: "edit" } },
+        isError: false,
+        timestamp: 2,
+      },
+    ];
+    handlers.context!({ type: "context", messages: turnMessages }, {});
+    const ctxResult = handlers.context_with_system!(
+      {
+        type: "context_with_system",
+        messages: [{ role: "system", content: "sys", timestamp: 0 }, ...turnMessages],
       },
       {},
     );
+    ctxResult.messages = ctxResult.messages.slice(1);
     expect(ctxResult.messages[0].content[0].text).toContain(
       "[Stale read result — this earlier read was superseded by a later file change; nothing is wrong with read. Run read again for current content.]",
     );
