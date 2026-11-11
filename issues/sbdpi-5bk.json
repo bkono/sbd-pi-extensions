@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-11T23:51:43Z",
+  "description": "Hashline's context hook masks a read/grep/bash result as stale as soon as a later mutation lands, which rewrites a mid-history item and breaks the provider prompt cache from that point. With OM, prefix changes must happen only at OM activation/reflection. Fix: per-request prefix signal from OM over pi.events; hashline commits masks only when the prefix moves anyway (OM signal, compaction, tree, model change), standalone hashline keeps immediate masking. Committed masks are frozen snapshots.",
+  "id": "sbdpi-5bk",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "hashline stale masks land only at cache-prefix boundaries (OM)",
+  "type": "task",
+  "updated_at": "2026-11-11T23:51:43Z"
+}
