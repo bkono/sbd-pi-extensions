@@ -14,11 +14,15 @@
     {
       "text": "Verifier PASS on 410b87b (fresh-eyes reviewer, probes + 39 tests). Branch feat/pi-om-v2 in worktree ../sbd-pi-extensions-om-v2, not pushed. Follow-ups: sbdpi-qhi.8.",
       "timestamp": "2026-11-11T19:21:00Z"
+    },
+    {
+      "text": "Parity audit done (doc §12). Closed gaps: extractor prompt, temporalMarkers, threadTitle, reflection provenance, transient retry, attachments, failover visibility, Pi\u003e=0.87 gate. Open: re-read A/B vs Mastra Code inconclusive; reflection and compaction not exercised live. Note: Bryan's local Mastra Code OM uses google/gemini-flash-latest and gets HTTP 402 on every observation.",
+      "timestamp": "2026-11-11T19:52:30Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "pi-om v2: Mastra-parity OM rewrite (1.0.0)",
   "type": "epic",
-  "updated_at": "2026-11-11T19:21:00Z"
+  "updated_at": "2026-11-11T19:52:30Z"
 }
