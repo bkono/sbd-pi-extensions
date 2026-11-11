@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, VERSION } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { resolveConfig } from "./config.js";
@@ -15,10 +15,40 @@ export { SessionOM } from "./runtime.js";
 const STATUS_KEY = "om";
 
 /**
+ * Pi 0.87.0 added context_with_system, context edits and actionable turn_end boundaries.
+ * On an older Pi those hooks never fire: OM would activate chunks without the edits that
+ * omit their messages, so it must not run at all.
+ */
+export const MIN_PI_VERSION = "0.87.0";
+
+export function isSupportedPiVersion(version: string | undefined, min = MIN_PI_VERSION): boolean {
+  if (!version) return false;
+  const parse = (v: string) =>
+    v
+      .split(/[.-]/)
+      .slice(0, 3)
+      .map((part) => Number.parseInt(part, 10) || 0);
+  const [a, b] = [parse(version), parse(min)];
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i]! !== b[i]!) return a[i]! > b[i]!;
+  }
+  return true;
+}
+
+/**
  * Observational memory for Pi, ported from Mastra Code's OM (`@mastra/memory@1.41.0`).
  * All state lives in the session as `om.*` custom entries plus context edits.
  */
 export default function piObservationalMemory(pi: ExtensionAPI): void {
+  if (!isSupportedPiVersion(VERSION) || typeof pi.registerEntryRenderer !== "function") {
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify(
+        `pi-om-extension 1.x needs Pi >= ${MIN_PI_VERSION}; this is Pi ${VERSION ?? "unknown"}. Observational memory is off.`,
+        "error",
+      );
+    });
+    return;
+  }
   const config = resolveConfig();
   const sessions = new Map<string, SessionOM>();
   const chunkIndex = new Map<string, ChunkData>();

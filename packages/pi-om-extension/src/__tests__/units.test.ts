@@ -62,6 +62,16 @@ function chunk(id: string, entryIds: string[], messageTokens: number): ChunkData
   };
 }
 
+describe("pi version gate", () => {
+  it("requires Pi 0.87+, where context_with_system and context edits exist", async () => {
+    const { isSupportedPiVersion } = await import("../index.js");
+    expect(isSupportedPiVersion("0.80.2")).toBe(false);
+    expect(isSupportedPiVersion("0.87.0")).toBe(true);
+    expect(isSupportedPiVersion("1.3.0")).toBe(true);
+    expect(isSupportedPiVersion(undefined)).toBe(false);
+  });
+});
+
 describe("config", () => {
   it("resolves Mastra Code's numbers to absolute tokens", () => {
     const c = config();
