@@ -10,7 +10,17 @@ import {
   sanitizeObservationLines,
   sortObservationsByTime,
 } from "./upstream/parse";
-import { buildObserverSystemPrompt } from "./upstream/prompts";
+import {
+  buildObserverSystemPrompt,
+  type ExtractorSlug,
+  OBSERVER_EXTRACTORS,
+  withoutContinuationHints,
+} from "./upstream/prompts";
+
+function observerExtractors(buffered?: boolean): readonly ExtractorSlug[] {
+  return buffered ? withoutContinuationHints(OBSERVER_EXTRACTORS) : OBSERVER_EXTRACTORS;
+}
+
 import { truncateObservationsToTokenBudget } from "./upstream/truncate";
 
 /** Upper bound on images forwarded to the observer in one call. */
@@ -25,12 +35,25 @@ export const PI_OBSERVER_INSTRUCTION = `Lines labelled "Custom <type>" are messa
 
 <current-task> and <suggested-response> describe the primary assistant's work for the user. Never describe your own observation or extraction work there.`;
 
+/** The Pi instruction for one call; the continuation guard only when those sections exist. */
+export function piObserverInstruction(buffered?: boolean): string {
+  return buffered ? PI_OBSERVER_INSTRUCTION.split("\n\n")[0]! : PI_OBSERVER_INSTRUCTION;
+}
+
 export interface ObserveInput {
   messages: AgentMessage[];
   activeObservations: string;
   priorCurrentTask?: string;
   priorSuggestedResponse?: string;
   priorThreadTitle?: string;
+  /**
+   * Background buffering call. Mastra's async buffer passes skipContinuationHints: no
+   * current-task or suggested-response is asked for, and the prompt says to always
+   * output <observations>.
+   */
+  buffered?: boolean;
+  /** The message just before this batch, so a time gap at its start is still shown. */
+  previousMessage?: AgentMessage;
   previousObserverTokens: number;
   toolResultMaxTokens: number;
 }
@@ -68,11 +91,25 @@ export function buildObserverUserMessage(input: ObserveInput): string {
     prompt +=
       "Previous observations were truncated for context budget reasons.\nThe main agent still has full memory context outside this observer window.\n\n";
   }
+  const extractors = observerExtractors(input.buffered);
+  // Mastra buildObserverContextPrompt: dash lines for the values the sync strategy passes,
+  // then one block per active extractor with a prior value (buildExtractorPriorLines).
   const prior: string[] = [];
-  if (input.priorCurrentTask) prior.push(`- prior current-task: ${input.priorCurrentTask}`);
-  if (input.priorSuggestedResponse)
-    prior.push(`- prior suggested-response: ${input.priorSuggestedResponse}`);
-  if (input.priorThreadTitle) prior.push(`- prior thread-title: ${input.priorThreadTitle}`);
+  if (!input.buffered) {
+    if (input.priorCurrentTask) prior.push(`- prior current-task: ${input.priorCurrentTask}`);
+    if (input.priorSuggestedResponse)
+      prior.push(`- prior suggested-response: ${input.priorSuggestedResponse}`);
+    if (input.priorThreadTitle) prior.push(`- prior thread-title: ${input.priorThreadTitle}`);
+  }
+  const priorValues: Partial<Record<ExtractorSlug, string | undefined>> = {
+    "current-task": input.priorCurrentTask,
+    "suggested-response": input.priorSuggestedResponse,
+    "thread-title": input.priorThreadTitle,
+  };
+  for (const slug of extractors) {
+    const value = priorValues[slug];
+    if (value) prior.push(`<${slug}>\n${value}\n</${slug}>`);
+  }
   if (prior.length > 0) {
     prompt += `## Prior Thread Metadata\n\n${prior.join("\n")}\n\n`;
     prompt +=
@@ -80,9 +117,11 @@ export function buildObserverUserMessage(input: ObserveInput): string {
   }
   prompt += `## New Message History to Observe\n\n${formatTranscript(input.messages, {
     toolResultMaxTokens: input.toolResultMaxTokens,
+    previousMessage: input.previousMessage,
   })}`;
   prompt +=
     "\n\n---\n\n## Your Task\n\nExtract new observations from the message history above. Do not repeat observations that are already in the previous observations. Add your new observations in the format specified in your instructions.";
+  if (input.buffered) prompt += "\n\nOutput <observations> every time.";
   return prompt;
 }
 
@@ -108,7 +147,10 @@ export async function observe(
   input: ObserveInput,
   options: { signal?: AbortSignal; timeoutMs: number },
 ): Promise<ObserveOutput> {
-  const systemPrompt = buildObserverSystemPrompt(PI_OBSERVER_INSTRUCTION);
+  const systemPrompt = buildObserverSystemPrompt(
+    piObserverInstruction(input.buffered),
+    observerExtractors(input.buffered),
+  );
   const user = buildObserverUserMessage(input);
   const images = collectImages(input.messages, MAX_OBSERVER_IMAGES);
   // A degenerate or empty parse moves on to the next model, like a model error does.

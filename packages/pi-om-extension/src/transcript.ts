@@ -14,6 +14,8 @@ export interface TranscriptOptions {
   /** Cap for one reasoning block, in characters. */
   reasoningMaxChars?: number;
   timeZone?: string;
+  /** Message before the first one, so a gap at the batch start is still rendered. */
+  previousMessage?: AgentMessage;
 }
 
 interface Line {
@@ -227,7 +229,7 @@ export function formatTranscript(
   const out: string[] = [];
   let previousDate: string | undefined;
   let previousTime: string | undefined;
-  let previousMessage: AgentMessage | undefined;
+  let previousMessage: AgentMessage | undefined = options.previousMessage;
   for (const message of messages) {
     const gap = temporalGapText(previousMessage, message);
     if (gap) out.push(gap);

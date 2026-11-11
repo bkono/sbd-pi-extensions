@@ -64,8 +64,13 @@ export interface ModelCallResult {
   failures: string[];
 }
 
+/**
+ * Transient failures worth retrying on the same model. Status codes only count at the
+ * start of the message or after "status"/"HTTP", so "402 … balance 500 credits" or
+ * "max_tokens must be <= 512" stay permanent.
+ */
 const TRANSIENT =
-  /\b(429|5\d\d)\b|rate.?limit|overloaded|timeout|timed out|ECONNRESET|ETIMEDOUT|socket hang up|network|temporar/i;
+  /^\s*(?:HTTP\s*)?(?:429|5\d\d)\b|\b(?:status(?:\s*code)?|HTTP)\s*:?\s*(?:429|5\d\d)\b|rate.?limit|overloaded|timed out|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|temporarily unavailable|service unavailable/i;
 const RETRY_DELAYS_MS = [1_000, 4_000];
 
 export function isTransientFailure(text: string): boolean {
@@ -84,11 +89,13 @@ function withoutImages(context: Context): Context {
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
+    const done = () => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
       resolve();
-    });
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
   });
 }
 
@@ -111,7 +118,10 @@ export async function completeWithFailover(
     const modelContext = model.input?.includes("image") ? context : withoutImages(context);
     for (let attempt = 0; attempt <= delays.length; attempt += 1) {
       if (options.signal?.aborted) break;
-      if (attempt > 0) await sleep(delays[attempt - 1]!, options.signal);
+      if (attempt > 0) {
+        await sleep(delays[attempt - 1]!, options.signal);
+        if (options.signal?.aborted) break;
+      }
       const signal = AbortSignal.any(
         [AbortSignal.timeout(options.timeoutMs), options.signal].filter(
           (s): s is AbortSignal => s !== undefined,

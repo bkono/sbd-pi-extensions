@@ -287,29 +287,30 @@ describe("review regressions", () => {
     expect(new Set(summaries).size).toBe(2);
   });
 
-  it("task chain: the next observer sees the latest buffered task; the section updates only at activation", async () => {
-    let n = 0;
-    registry.respond = () =>
-      `<observations>\nDate: Nov 11, 2026\n* 🔴 (10:00) step ${++n}\n</observations>\n\n<current-task>\nPrimary: read every file, task v${n}\n</current-task>`;
+  it("buffered observer calls skip continuation hints, like Mastra's async buffer", async () => {
     await toolStep(om, session, host, 7_000);
     await om.settled();
-    await toolStep(om, session, host, 7_000);
-    await om.settled();
-    // the second observer call got the first (still unactivated) chunk's task as its prior
-    expect(registry.calls[1]?.user).toContain(
-      "prior current-task: Primary: read every file, task v1",
-    );
-    const state = om.snapshot(host).state; // includes the chunk awaiting its boundary
-    expect(state.activated).toHaveLength(0);
-    expect(state.currentTask).toBeUndefined();
-    expect(state.latestTask).toContain("task v2");
-    for (let step = 0; step < 4; step += 1) {
-      await toolStep(om, session, host, 6_000);
-      await om.settled();
-    }
-    const after = replayState(session.getBranch(), []);
-    expect(after.activated.length).toBeGreaterThan(0);
-    expect(after.currentTask).toBe(after.latestTask);
+    const call = registry.calls[0]!;
+    expect(call.system).toContain("<thread-title>");
+    expect(call.system).not.toContain("<current-task>");
+    expect(call.system).not.toContain("<suggested-response>");
+    expect(call.user).toMatch(/Output <observations> every time\.$/);
+  });
+
+  it("sync observation gets the full extractor set and prior blocks", async () => {
+    const { buildObserverUserMessage } = await import("../observer.js");
+    const user = buildObserverUserMessage({
+      messages: [],
+      activeObservations: "",
+      priorCurrentTask: "Primary: read all files",
+      priorThreadTitle: "File reads",
+      previousObserverTokens: 1_000,
+      toolResultMaxTokens: 5_000,
+    });
+    expect(user).toContain("- prior current-task: Primary: read all files");
+    expect(user).toContain("<current-task>\nPrimary: read all files\n</current-task>");
+    expect(user).toContain("<thread-title>\nFile reads\n</thread-title>");
+    expect(user).not.toContain("Output <observations> every time.");
   });
 
   it("the run's request stays raw through activation, and is edited once a newer request exists", async () => {

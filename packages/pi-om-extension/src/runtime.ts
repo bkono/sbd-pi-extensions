@@ -648,7 +648,7 @@ export class SessionOM {
     if (slice.length === 0) return;
     const startedAt = host.now();
     const epoch = this.epoch;
-    const op = this.observeChunk(slice, state, host, candidates)
+    const op = this.observeChunk(slice, state, host, candidates, { buffered: true })
       .then((chunk) => {
         if (this.disposed) return;
         if (epoch !== this.epoch) {
@@ -685,8 +685,9 @@ export class SessionOM {
     state: OMState,
     host: Host,
     candidates: Model<Api>[],
-    signal?: AbortSignal,
+    options: { buffered: boolean; signal?: AbortSignal },
   ): Promise<ChunkData> {
+    const signal = options.signal;
     const result = await observe(
       host.registry,
       candidates,
@@ -696,6 +697,8 @@ export class SessionOM {
         priorCurrentTask: state.latestTask ?? state.currentTask,
         priorSuggestedResponse: state.latestSuggestion ?? state.suggestedResponse,
         priorThreadTitle: host.getSessionName?.(),
+        buffered: options.buffered,
+        previousMessage: this.predecessor(host, units[0]?.entryId),
         previousObserverTokens: this.config.previousObserverTokens,
         toolResultMaxTokens: this.config.observerToolResultMaxTokens,
       },
@@ -705,6 +708,7 @@ export class SessionOM {
       },
     );
     if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
+    else this.lastFailover = undefined;
     const entryIds = units.map((unit) => unit.entryId);
     return {
       v: 1,
@@ -780,7 +784,10 @@ export class SessionOM {
       const worker = async () => {
         while (next < batches.length) {
           const index = next++;
-          chunks[index] = await this.observeChunk(batches[index]!, state, host, candidates, signal);
+          chunks[index] = await this.observeChunk(batches[index]!, state, host, candidates, {
+            buffered: false,
+            signal,
+          });
         }
       };
       await Promise.all(
@@ -878,7 +885,12 @@ export class SessionOM {
             candidates,
             renderActiveObservations(state),
             this.config.reflectionTokens,
-            { signal: this.abort.signal, timeoutMs: this.config.modelCallTimeoutMs },
+            {
+              signal: this.abort.signal,
+              timeoutMs: this.config.modelCallTimeoutMs,
+              priorCurrentTask: state.latestTask ?? state.currentTask,
+              priorSuggestedResponse: state.latestSuggestion ?? state.suggestedResponse,
+            },
           );
           if (epoch !== this.epoch || this.disposed) return;
           if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
@@ -934,6 +946,8 @@ export class SessionOM {
       parts.join("\n\n"),
       Math.round(slice.tokens * 0.75),
       {
+        buffered: true,
+
         signal: this.abort.signal,
         timeoutMs: this.config.modelCallTimeoutMs,
       },
@@ -1037,6 +1051,17 @@ export class SessionOM {
     this.pending = keep;
   }
 
+  /** The branch message right before `entryId`, for the observer's gap line. */
+  private predecessor(host: Host, entryId: string | undefined): AgentMessage | undefined {
+    if (!entryId) return undefined;
+    let previous: AgentMessage | undefined;
+    for (const entry of host.branch()) {
+      if (entry.id === entryId) return previous;
+      if (entry.type === "message") previous = entry.message as AgentMessage;
+    }
+    return undefined;
+  }
+
   /** A call succeeded only after retries or another model: make that visible, not silent. */
   private recordFailover(host: Host, failures: readonly string[], model: string): void {
     this.lastFailover = `${failures.join("; ")} → ${model}`;
@@ -1092,7 +1117,7 @@ export class SessionOM {
       if (this.reflectionOp) parts.push("reflecting…");
     }
     if (this.lastError) parts.push("⚠ last OM call failed (/om)");
-    else if (this.lastFailover) parts.push("⚠ OM model fell back (/om)");
+    else if (this.lastFailover) parts.push("⚠ OM call retried or fell back (/om)");
     host.setStatus(parts.join(" · "));
   }
 }

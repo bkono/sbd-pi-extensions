@@ -199,4 +199,49 @@ describe("Mastra Code parity", () => {
     expect(failover?.detail).toMatch(/huggingface.*402.*→ openai-codex\/gpt-6-luna/);
     expect(om.snapshot(host).lastFailover).toBeDefined();
   });
+
+  it("reflector user message carries prior values and output sections (sync) or neither (buffered)", async () => {
+    const { buildReflectorUserMessage } = await import("../reflector.js");
+    const sync = buildReflectorUserMessage("* 🔴 (10:00) x", 1, { priorCurrentTask: "Primary: y" });
+    expect(sync).toContain(
+      "## Prior Extracted Values\n\n<current-task>\nPrimary: y\n</current-task>",
+    );
+    expect(sync).toContain("## Additional Output Sections");
+    const buffered = buildReflectorUserMessage("* 🔴 (10:00) x", 1, {
+      buffered: true,
+      priorCurrentTask: "Primary: y",
+    });
+    expect(buffered).not.toContain("Prior Extracted Values");
+    expect(buffered).not.toContain("Additional Output Sections");
+    expect(buffered).toMatch(/Output <observations> every time\.$/);
+  });
+
+  it("the observer sees the gap at the start of a batch", () => {
+    const start = Date.now() - 3 * 3_600_000;
+    const text = formatTranscript([user("back", start + 45 * 60_000)], {
+      toolResultMaxTokens: 5_000,
+      previousMessage: assistantText("reply", { timestamp: start }),
+    });
+    expect(text).toMatch(/^45 minutes later — /);
+  });
+
+  it("transient classification is anchored", async () => {
+    const { isTransientFailure } = await import("../models.js");
+    for (const t of [
+      "429 Too Many Requests",
+      "HTTP 503 Service Unavailable",
+      "status code 502",
+      "rate limit exceeded",
+      "socket hang up",
+    ])
+      expect(isTransientFailure(t)).toBe(true);
+    for (const f of [
+      "402 Payment Required: balance 500 credits",
+      "400 max_tokens must be <= 512",
+      "403 Forbidden: network policy",
+      "400 Unsupported parameter: 'timeout'",
+      "401 Unauthorized",
+    ])
+      expect(isTransientFailure(f)).toBe(false);
+  });
 });

@@ -296,6 +296,11 @@ export const REFLECTOR_EXTRACTORS: readonly ExtractorSlug[] = [
   "suggested-response",
 ];
 
+/** Buffered (async) calls pass skipContinuationHints, which drops these two extractors. */
+export function withoutContinuationHints(extractors: readonly ExtractorSlug[]): ExtractorSlug[] {
+  return extractors.filter((slug) => slug !== "current-task" && slug !== "suggested-response");
+}
+
 export function buildExtractorOutputSections(extractors: readonly ExtractorSlug[]): string {
   if (extractors.length === 0) {
     return "";
@@ -363,11 +368,14 @@ export const OBSERVER_GUIDELINES = `- Be specific enough for the assistant to ac
 - Observe WHAT the agent did and WHAT it means
 - If the user provides detailed messages or code snippets, observe all important details`;
 
-export function buildObserverSystemPrompt(instruction?: string): string {
-  const outputFormat = buildObserverOutputFormat();
+export function buildObserverSystemPrompt(
+  instruction?: string,
+  extractors: readonly ExtractorSlug[] = OBSERVER_EXTRACTORS,
+): string {
+  const outputFormat = buildObserverOutputFormat(extractors);
   const customInstructions = instruction ? `\n\n=== CUSTOM INSTRUCTIONS ===\n\n${instruction}` : "";
-  const currentTaskEnabled = true;
-  const suggestedResponseEnabled = true;
+  const currentTaskEnabled = extractors.includes("current-task");
+  const suggestedResponseEnabled = extractors.includes("suggested-response");
   return `You are the memory consciousness of an AI assistant. Your observations will be the ONLY information the assistant has about past interactions with this user.
 
 Extract observations that will help the assistant remember:
@@ -403,11 +411,14 @@ User messages are extremely important.${
   }${customInstructions}`;
 }
 
-export function buildReflectorSystemPrompt(instruction?: string): string {
-  const outputFormat = buildObserverOutputFormat(REFLECTOR_EXTRACTORS);
+export function buildReflectorSystemPrompt(
+  instruction?: string,
+  extractors: readonly ExtractorSlug[] = REFLECTOR_EXTRACTORS,
+): string {
+  const outputFormat = buildObserverOutputFormat(extractors);
   const customInstructions = instruction ? `\n\n=== CUSTOM INSTRUCTIONS ===\n\n${instruction}` : "";
-  const currentTaskEnabled = true;
-  const suggestedResponseEnabled = true;
+  const currentTaskEnabled = extractors.includes("current-task");
+  const suggestedResponseEnabled = extractors.includes("suggested-response");
   return `You are the memory consciousness of an AI assistant. Your memory observation reflections will be the ONLY information the assistant has about past interactions with this user.
 
 The following instructions were given to another part of your psyche (the observer) to create memories.
