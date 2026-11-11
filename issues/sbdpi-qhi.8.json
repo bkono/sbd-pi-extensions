@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-11T19:21:00Z",
+  "description": "From verifier PASS on 410b87b. R1a: a later buffered chunk can activate before an older stale chunk's re-observed remainder (group order). R1b: a non-null context_edit that restores an omitted entry revives the stale chunk next to its replacement (double coverage). R1c: /om shows state.buffered.length including stale chunks; show live count. R2 rest: two compactions with no progress produce identical summaries; prefer returning undefined when keep did not move since the last compaction. Probes: scratchpad review/v2-dup.mts, v2-r2.mts.",
+  "id": "sbdpi-qhi.8",
+  "labels": [],
+  "parent": "sbdpi-qhi",
+  "priority": 3,
+  "status": "open",
+  "title": "pi-om v2 follow-ups: activation order after stale chunk, revived stale chunk, /om stale count, no-progress compaction",
+  "type": "task",
+  "updated_at": "2026-11-11T19:21:00Z"
+}
