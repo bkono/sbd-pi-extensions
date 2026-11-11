@@ -237,3 +237,22 @@ Calls go through `modelRegistry.streamSimple(...).result()`, which uses Pi's aut
 The TTL is the `model.promptCache` lifetime for the active retention tier. When that is unknown, it falls back to Mastra's `activation-ttl.ts` table.
 
 Last activity is the latest assistant message or `usage` entry of kind `cache_warm`. Idle warming therefore counts as activity, and OM never breaks a cache Pi kept warm.
+
+### Review fixes (2026-11-11, fresh-eyes review of 2666f34)
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | A `!cmd` bash entry can't take a `context_edit`. Pi then rejects the whole boundary, including other extensions' drafts. | Only editable entries (`message` with user, assistant or toolResult role, plus `custom_message`) are observable. Edits are filtered to editable entries. |
+| 2 | Aborted or errored tool calls held the safe prefix open forever. | Calls on `aborted` and `error` responses are ignored. Open calls become orphans once a new user or assistant message arrives (Mastra selectSafeBufferPrefix). |
+| 3 | Losing model auth hid memory while its edits still hid raw history. | Missing models only stop new observer and reflector work. Existing memory is always injected. |
+| 4 | Background results landed on the wrong branch after `/tree`. | A `session_tree` handler bumps an epoch and drops stale results and pending drafts. Chunks whose entries are not in context never activate. A buffered reflection checks its active-chunk basis. |
+| 5 | Returning a list from `context` collapsed Pi's mid-transcript system messages. | All request edits (omission, reminder, OM section) moved to `context_with_system`. `context` only does run-start work. |
+| 6 | A cancelled compaction could commit activations without edits. | Compaction honors `event.signal`. Activations wait for `session_compact`, or for the next boundary with their edits. |
+| 7 | The "sent" heuristic treated unseen tool results as read. | Read status is structural: an entry is read if an assistant message follows it, or if it is assistant output itself. This survives restarts. |
+| 8 | Blocking failures re-ran the whole model chain every turn. | Exponential backoff (60s up to 15m) on the buffer, block and sync-reflect paths. |
+| 9-10 | messageKey collisions, stale token counts, section cache key. | Keys map to ordered id queues. The token cache is keyed by message object. The section cache is keyed by activated chunk ids. |
+
+Known and accepted:
+
+- Pi's projected-token compaction estimate does not count the request-time OM section. It undercounts by at most the observation tokens (under 44k), against a fallback threshold that OM keeps unreachable.
+- A `!cmd` bash entry stays raw in context permanently.

@@ -41,6 +41,7 @@ function unit(id: string, tokens: number, extra: Partial<ContextUnit> = {}): Con
     tokens,
     observable: true,
     read: true,
+    role: "user",
     toolCallIds: [],
     toolResultIds: [],
     ...extra,
@@ -184,10 +185,10 @@ describe("engine", () => {
   it("never splits a tool exchange", () => {
     const units = [
       unit("u1", 10),
-      unit("a1", 10, { toolCallIds: ["c1", "c2"] }),
-      unit("r1", 10, { toolResultIds: ["c1"] }),
-      unit("r2", 10, { toolResultIds: ["c2"] }),
-      unit("a2", 10, { toolCallIds: ["c3"] }),
+      unit("a1", 10, { role: "assistant", toolCallIds: ["c1", "c2"] }),
+      unit("r1", 10, { role: "toolResult", toolResultIds: ["c1"] }),
+      unit("r2", 10, { role: "toolResult", toolResultIds: ["c2"] }),
+      unit("a2", 10, { role: "assistant", toolCallIds: ["c3"] }),
     ];
     expect(selectSafePrefix(units).map((u) => u.entryId)).toEqual(["u1", "a1", "r1", "r2"]);
   });
@@ -246,11 +247,12 @@ describe("engine", () => {
   it("marks summaries as not observable", () => {
     const summary = describeUnit(
       "s",
+      "compaction",
       [{ role: "compactionSummary", summary: "x", tokensBefore: 1, timestamp: 0 } as never],
       5,
       true,
     );
     expect(summary.observable).toBe(false);
-    expect(describeUnit("a", [assistantText("hi")], 1, true).observable).toBe(true);
+    expect(describeUnit("a", "message", [assistantText("hi")], 1, true).observable).toBe(true);
   });
 });

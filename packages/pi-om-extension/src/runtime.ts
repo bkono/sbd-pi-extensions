@@ -38,7 +38,7 @@ import {
   renderActiveObservations,
   replayState,
 } from "./state.js";
-import { EntryTokenCache } from "./tokens.js";
+import { MessageTokenCache } from "./tokens.js";
 import { resolveActivationTTL } from "./upstream/activation-ttl";
 
 /** What the runtime needs from Pi for one hook invocation. */
@@ -65,6 +65,8 @@ export type OMEventKind =
   | "reflect-activate"
   | "reflect-sync"
   | "compaction"
+  | "tree"
+  | "dropped"
   | "error";
 
 export interface OMEvent {
@@ -86,9 +88,13 @@ interface BufferedReflection {
   model: string;
 }
 
+type BackoffKind = "buffer" | "block" | "reflect";
+
 const MAX_EVENTS = 200;
 const BLOCKING_BATCH_FACTOR = 2;
 const BLOCKING_CONCURRENCY = 4;
+const BACKOFF_START_MS = 60_000;
+const BACKOFF_MAX_MS = 15 * 60_000;
 
 function newId(): string {
   return randomBytes(8).toString("hex");
@@ -129,24 +135,27 @@ async function withTimeout<T>(promise: Promise<T> | undefined, ms: number): Prom
  * background buffering on 6k intervals, non-blocking activation between the threshold and
  * blockAfter, cache-TTL and provider-change activation at run start, buffered reflection,
  * and a single blocking path at blockAfter.
+ *
+ * Model availability only gates new observer and reflector work. Memory that already
+ * exists keeps being injected, because its raw messages are already omitted by context edits.
  */
 export class SessionOM {
   private pending: OMEntryDraft[] = [];
   private readonly pendingEdits = new Set<string>();
-  private readonly sent = new Set<string>();
-  private readonly tokens = new EntryTokenCache();
+  private readonly tokens = new MessageTokenCache();
   private bufferOp: Promise<void> | undefined;
   private reflectionOp: Promise<void> | undefined;
   private bufferedReflection: BufferedReflection | undefined;
   private firstRequestOfRun = true;
-  private runStartedAt = 0;
+  /** Bumps on `/tree`; background results started in an older epoch are dropped. */
+  private epoch = 0;
   private readonly abort = new AbortController();
   private disposed = false;
   private lastHost: Host | undefined;
-  private lastState: OMState | undefined;
   private lastError: string | undefined;
   private blocking: string | undefined;
   private sectionCache: { key: string; section: string | undefined } | undefined;
+  private readonly backoff = new Map<BackoffKind, { until: number; ms: number }>();
   readonly events: OMEvent[] = [];
 
   constructor(
@@ -170,92 +179,108 @@ export class SessionOM {
   // Lifecycle hooks
   // ---------------------------------------------------------------------------
 
-  startRun(host: Host): void {
+  startRun(_host: Host): void {
     this.firstRequestOfRun = true;
-    this.runStartedAt = host.now();
   }
 
-  /** `context`: run-start activation, request-local omission, continuation reminder. */
-  async onContext(messages: AgentMessage[], host: Host): Promise<AgentMessage[] | undefined> {
+  /** `/tree` moved the leaf: uncommitted work and buffered results belong to the old branch. */
+  onTreeChange(host: Host): void {
+    this.epoch += 1;
+    this.pending = [];
+    this.pendingEdits.clear();
+    this.bufferedReflection = undefined;
+    this.sectionCache = undefined;
+    this.firstRequestOfRun = true;
+    this.record("tree", host.now(), host);
+    this.refreshStatus();
+  }
+
+  /** `context`: run-start activation and reflection (Mastra step 0). Never edits messages. */
+  async onContext(host: Host): Promise<void> {
+    if (this.disposed) return;
     this.lastHost = host;
+    if (!this.firstRequestOfRun) return;
+    this.firstRequestOfRun = false;
     const startedAt = host.now();
-    const candidates = this.candidates(host);
-    if (!candidates) return undefined;
-
-    const projection = host.projection();
-    const entryByKey = new Map<string, string>();
-    for (const entry of projection) {
-      for (const message of entry.messages)
-        entryByKey.set(messageKey(message), entry.sourceEntry.id);
-    }
-
-    if (this.firstRequestOfRun) {
-      this.firstRequestOfRun = false;
-      // Everything that existed before this run has been read by the model already.
-      for (const entry of projection) {
-        if (Date.parse(entry.sourceEntry.timestamp) < this.runStartedAt)
-          this.sent.add(entry.sourceEntry.id);
-      }
-      await this.prepareRunStart(projection, host, candidates);
-    }
-
-    const state = this.state(host);
-    const kept = messages.filter((message) => {
-      const entryId = entryByKey.get(messageKey(message));
-      return !(entryId && state.observedEntryIds.has(entryId));
-    });
-    for (const message of kept) {
-      const entryId = entryByKey.get(messageKey(message));
-      if (entryId) this.sent.add(entryId);
-    }
-    this.updateStatus(host, projection, state);
-    this.record("context", startedAt, host, `${messages.length}→${kept.length} msgs`);
-
-    if (!hasActiveMemory(state)) return kept.length === messages.length ? undefined : kept;
-    return [
-      { role: "user", content: CONTINUATION_REMINDER, timestamp: 0 } as AgentMessage,
-      ...kept,
-    ];
+    await this.prepareRunStart(host.projection(), host, this.models(host));
+    this.record("context", startedAt, host, "run start");
   }
 
-  /** `context_with_system`: put active memory in the leading system message's OM section. */
+  /**
+   * `context_with_system`: owns the full transcript, so request-local omission, the
+   * continuation reminder and the OM section never collapse Pi's mid-transcript system
+   * messages the way a `context` result does.
+   */
   onSystem(messages: AgentMessage[], host: Host): AgentMessage[] | undefined {
-    if (!this.candidates(host)) return undefined;
+    if (this.disposed) return undefined;
+    this.lastHost = host;
     const lead = messages[0] as
       | { role?: string; sections?: Record<string, string | null> }
       | undefined;
     if (!lead || lead.role !== "system") return undefined;
-    const section = this.section(this.lastState ?? this.state(host), host);
-    if (section === undefined && lead.sections?.[OM_SECTION] === undefined) return undefined;
+    const projection = host.projection();
+    const state = this.state(host);
+
+    // Omit observed entries whose context edits are not committed yet.
+    const idsByKey = new Map<string, string[]>();
+    for (const entry of projection) {
+      for (const message of entry.messages) {
+        const key = messageKey(message);
+        const ids = idsByKey.get(key);
+        if (ids) ids.push(entry.sourceEntry.id);
+        else idsByKey.set(key, [entry.sourceEntry.id]);
+      }
+    }
+    let omitted = 0;
+    const rest: AgentMessage[] = [];
+    for (const message of messages.slice(1)) {
+      if ((message as { role?: string }).role !== "system") {
+        const entryId = idsByKey.get(messageKey(message))?.shift();
+        if (entryId && state.observedEntryIds.has(entryId)) {
+          omitted += 1;
+          continue;
+        }
+      }
+      rest.push(message);
+    }
+
+    const section = this.section(state, host);
+    const memory = hasActiveMemory(state);
+    this.updateStatus(host, projection, state);
+    if (
+      !memory &&
+      omitted === 0 &&
+      section === undefined &&
+      lead.sections?.[OM_SECTION] === undefined
+    ) {
+      return undefined;
+    }
     const sections = { ...(lead.sections ?? {}) };
     if (section === undefined) delete sections[OM_SECTION];
     else sections[OM_SECTION] = section;
-    return [{ ...(messages[0] as object), sections } as AgentMessage, ...messages.slice(1)];
+    const reminder = memory
+      ? [{ role: "user", content: CONTINUATION_REMINDER, timestamp: 0 } as AgentMessage]
+      : [];
+    return [{ ...(messages[0] as object), sections } as AgentMessage, ...reminder, ...rest];
   }
 
   /** `turn_end`: buffer, activate in band, block only at blockAfter, reflect, commit. */
   async onTurnEnd(
-    input: {
-      contextEntries: ProjectedSessionEntry[];
-      messageEntryId?: string;
-    },
+    input: { contextEntries: ProjectedSessionEntry[] },
     host: Host,
   ): Promise<SessionBoundaryDraft[]> {
+    if (this.disposed) return [];
     this.lastHost = host;
     const startedAt = host.now();
-    const candidates = this.candidates(host);
-    if (!candidates) return [];
-    if (input.messageEntryId) this.sent.add(input.messageEntryId);
+    const candidates = this.models(host);
 
     let state = this.state(host);
-    let units = this.units(input.contextEntries);
+    const units = this.units(input.contextEntries);
     let status = computeStatus(units, state, this.config);
 
     // Mastra: in the threshold→blockAfter band with a chunk ready, activate instead of buffering.
     const activateBeforeBuffering = status.inBand && status.canActivate;
-    if (!activateBeforeBuffering && !this.bufferOp && shouldBuffer(status, this.config)) {
-      this.startBuffer(status, state, host, candidates);
-    }
+    if (!activateBeforeBuffering) this.maybeStartBuffer(status, state, host, candidates);
 
     if (status.shouldObserve && status.canActivate) {
       this.activate(state, units, status.pendingTokens, "threshold", host);
@@ -263,69 +288,67 @@ export class SessionOM {
       status = computeStatus(units, state, this.config);
     }
 
-    if (status.mustBlock) {
+    if (status.mustBlock && !this.backedOff("block", host)) {
       await this.blockingObserve(input.contextEntries, host, candidates, "block");
-      state = this.state(host);
-      units = this.units(input.contextEntries);
-      status = computeStatus(units, state, this.config);
+      status = computeStatus(units, this.state(host), this.config);
     }
 
-    await this.maybeReflect(host, candidates, true);
-    state = this.state(host);
-    this.updateStatus(host, input.contextEntries, state);
+    await this.maybeReflect(host, candidates);
+    this.updateStatus(host, input.contextEntries, this.state(host));
     this.record("turn_end", startedAt, host, `pending ${formatK(status.pendingTokens)}`);
     return this.flushDrafts(input.contextEntries);
   }
 
   /** `agent_before_settle`: commit what is pending and keep buffering while idle. */
   onSettle(input: { contextEntries: ProjectedSessionEntry[] }, host: Host): SessionBoundaryDraft[] {
+    if (this.disposed) return [];
     this.lastHost = host;
     const startedAt = host.now();
-    const candidates = this.candidates(host);
-    if (!candidates) return [];
     const state = this.state(host);
-    const units = this.units(input.contextEntries);
-    const status = computeStatus(units, state, this.config);
-    if (!this.bufferOp && shouldBuffer(status, this.config)) {
-      this.startBuffer(status, state, host, candidates);
-    }
+    const status = computeStatus(this.units(input.contextEntries), state, this.config);
+    this.maybeStartBuffer(status, state, host, this.models(host));
     this.updateStatus(host, input.contextEntries, state);
     this.record("settle", startedAt, host);
     return this.flushDrafts(input.contextEntries);
   }
 
   /**
-   * `session_before_compact`: bring memory fully up to date and replace Pi's summarizer.
-   * Returns the entry id to keep from, or undefined to let Pi compact natively.
+   * `session_before_compact`: bring memory up to date and replace Pi's summarizer.
+   * Activations stay pending until `session_compact` confirms the compaction (or the next
+   * boundary commits them with their edits), so a cancelled compaction leaves no
+   * activation without edits.
    */
-  async onCompact(host: Host): Promise<{ firstKeptEntryId: string; summary: string } | undefined> {
+  async onCompact(
+    host: Host,
+    signal?: AbortSignal,
+  ): Promise<{ firstKeptEntryId: string; summary: string } | undefined> {
+    if (this.disposed) return undefined;
     this.lastHost = host;
     const startedAt = host.now();
-    const candidates = this.candidates(host);
-    if (!candidates) return undefined;
     const projection = host.projection();
-    try {
-      await this.blockingObserve(projection, host, candidates, "compaction");
-    } catch (error) {
-      this.fail(host, error);
-      return undefined;
-    }
-    // Compaction drops everything before the kept entry, so context edits are moot.
-    this.pendingEdits.clear();
-    this.flushIdle(host, true);
+    await this.blockingObserve(projection, host, this.models(host), "compaction", signal);
+    if (signal?.aborted) return undefined;
+    this.appendPending(host, { includeActivations: false });
     const state = this.state(host);
+    if (!hasActiveMemory(state)) return undefined;
     const units = this.units(projection);
     const firstUnobserved = units.find(
       (unit) => unit.observable && !state.observedEntryIds.has(unit.entryId),
     );
     const keep = firstUnobserved ?? units.at(-1);
-    if (!keep || !hasActiveMemory(state)) return undefined;
+    if (!keep) return undefined;
     this.record("compaction", startedAt, host);
     return {
       firstKeptEntryId: keep.entryId,
       summary:
         "Earlier conversation in this session is preserved in observational memory (the observational-memory system section). Raw messages remain available through om_recall.",
     };
+  }
+
+  /** `session_compact`: the compaction landed, so pending activations can be written now. */
+  onCompacted(host: Host): void {
+    if (this.disposed) return;
+    this.appendPending(host, { includeActivations: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -343,18 +366,28 @@ export class SessionOM {
     lastError?: string;
   } {
     const state = this.state(host);
-    const status = computeStatus(this.units(host.projection()), state, this.config);
-    const candidates = this.candidates(host);
     return {
       state,
-      status,
+      status: computeStatus(this.units(host.projection()), state, this.config),
       bufferInFlight: Boolean(this.bufferOp),
       reflectionInFlight: Boolean(this.reflectionOp),
       bufferedReflectionTokens: this.bufferedReflection?.observationTokens,
-      models: (candidates ?? []).map((model) => `${model.provider}/${model.id}`),
+      models: this.models(host).map((model) => `${model.provider}/${model.id}`),
       disabledReason: this.disabledReason(host),
       lastError: this.lastError,
     };
+  }
+
+  /** Lifetime of the cache the main model writes (Pi getPromptCacheTtlMs, then Mastra's table). */
+  cacheTtlMs(host: Host): number | undefined {
+    const model = host.model;
+    if (!model) return undefined;
+    const env = host.env ?? process.env;
+    const retention = env.PI_CACHE_RETENTION === "long" ? "long" : "short";
+    const seconds = (model as { promptCache?: Partial<Record<"short" | "long", number>> })
+      .promptCache?.[retention];
+    if (seconds !== undefined) return seconds * 1_000;
+    return resolveActivationTTL("auto", { provider: model.provider, modelId: model.id });
   }
 
   // ---------------------------------------------------------------------------
@@ -369,42 +402,65 @@ export class SessionOM {
     return undefined;
   }
 
-  private candidates(host: Host): Model<Api>[] | undefined {
-    if (this.config.disabled || this.disposed) return undefined;
-    const candidates = resolveModelCandidates(host.registry, this.config.modelOverride);
-    if (candidates.length === 0) {
-      host.setStatus(`OM off · ${this.disabledReason(host)}`);
-      return undefined;
-    }
-    return candidates;
+  /** Observer/reflector models; empty when OM may not start new model work. */
+  private models(host: Host): Model<Api>[] {
+    if (this.config.disabled) return [];
+    return resolveModelCandidates(host.registry, this.config.modelOverride);
   }
 
   private state(host: Host): OMState {
-    const state = replayState(host.branch(), this.pending);
-    this.lastState = state;
-    return state;
+    return replayState(host.branch(), this.pending);
   }
 
+  /**
+   * Context units in order. An entry counts as read once the model has produced a response
+   * after it: everything before the newest assistant message, plus assistant output itself.
+   * This is structural, so it survives restarts and aborted runs.
+   */
   private units(entries: readonly ProjectedSessionEntry[]): ContextUnit[] {
-    const units: ContextUnit[] = [];
-    for (const entry of entries) {
-      if (entry.messages.length === 0) continue;
-      const id = entry.sourceEntry.id;
-      units.push(
-        describeUnit(id, entry.messages, this.tokens.count(id, entry.messages), this.sent.has(id)),
+    const visible = entries.filter((entry) => entry.messages.length > 0);
+    let lastAssistant = -1;
+    visible.forEach((entry, index) => {
+      if (entry.messages.some((m) => (m as { role?: string }).role === "assistant")) {
+        lastAssistant = index;
+      }
+    });
+    return visible.map((entry, index) => {
+      const role = (entry.messages[0] as { role?: string }).role;
+      return describeUnit(
+        entry.sourceEntry.id,
+        entry.sourceEntry.type,
+        entry.messages,
+        this.tokens.count(entry.messages),
+        role === "assistant" || index < lastAssistant,
       );
-    }
-    return units;
+    });
   }
 
   private section(state: OMState, host: Host): string | undefined {
     const now = new Date(host.now());
-    const day = now.toDateString();
-    const key = `${state.activated.length}|${state.reflection?.id ?? ""}|${state.currentTask ?? ""}|${state.suggestedResponse ?? ""}|${day}`;
+    const key = [
+      state.activated.join(","),
+      state.reflection?.id ?? "",
+      state.currentTask ?? "",
+      state.suggestedResponse ?? "",
+      now.toDateString(),
+    ].join("|");
     if (this.sectionCache?.key === key) return this.sectionCache.section;
     const section = buildOMSection(state, now);
     this.sectionCache = { key, section };
     return section;
+  }
+
+  private backedOff(kind: BackoffKind, host: Host): boolean {
+    const entry = this.backoff.get(kind);
+    return entry !== undefined && host.now() < entry.until;
+  }
+
+  private bumpBackoff(kind: BackoffKind, host: Host): void {
+    const previous = this.backoff.get(kind);
+    const ms = previous ? Math.min(previous.ms * 2, BACKOFF_MAX_MS) : BACKOFF_START_MS;
+    this.backoff.set(kind, { until: host.now() + ms, ms });
   }
 
   private async prepareRunStart(
@@ -416,15 +472,17 @@ export class SessionOM {
     const units = this.units(projection);
     const status = computeStatus(units, state, this.config);
     const trigger = this.runStartTrigger(status, host);
-    if (trigger && status.canActivate)
+    if (trigger && status.canActivate) {
       this.activate(state, units, status.pendingTokens, trigger, host);
+    }
 
-    await this.maybeReflect(host, candidates, true);
+    await this.maybeReflect(host, candidates);
 
-    const after = computeStatus(this.units(projection), this.state(host), this.config);
-    if (after.mustBlock) await this.blockingObserve(projection, host, candidates, "block");
-    else if (!this.bufferOp && shouldBuffer(after, this.config)) {
-      this.startBuffer(after, this.state(host), host, candidates);
+    const after = computeStatus(units, this.state(host), this.config);
+    if (after.mustBlock && !this.backedOff("block", host)) {
+      await this.blockingObserve(projection, host, candidates, "block");
+    } else {
+      this.maybeStartBuffer(after, this.state(host), host, candidates);
     }
   }
 
@@ -463,18 +521,6 @@ export class SessionOM {
     return undefined;
   }
 
-  /** Lifetime of the cache the main model writes (Pi getPromptCacheTtlMs, then Mastra's table). */
-  cacheTtlMs(host: Host): number | undefined {
-    const model = host.model;
-    if (!model) return undefined;
-    const env = host.env ?? process.env;
-    const retention = env.PI_CACHE_RETENTION === "long" ? "long" : "short";
-    const seconds = (model as { promptCache?: Partial<Record<"short" | "long", number>> })
-      .promptCache?.[retention];
-    if (seconds !== undefined) return seconds * 1_000;
-    return resolveActivationTTL("auto", { provider: model.provider, modelId: model.id });
-  }
-
   private activate(
     state: OMState,
     units: readonly ContextUnit[],
@@ -500,8 +546,9 @@ export class SessionOM {
         messageTokens,
       },
     });
-    for (const chunk of chunks)
+    for (const chunk of chunks) {
       for (const entryId of chunk.entryIds) this.pendingEdits.add(entryId);
+    }
     this.record(
       "activate",
       host.now(),
@@ -511,29 +558,40 @@ export class SessionOM {
     return chunks.length;
   }
 
-  private startBuffer(
+  private maybeStartBuffer(
     status: OMStatus,
     state: OMState,
     host: Host,
     candidates: Model<Api>[],
   ): void {
+    if (candidates.length === 0 || this.bufferOp || this.backedOff("buffer", host)) return;
+    if (!shouldBuffer(status, this.config)) return;
     const slice = selectSafePrefix(status.unbuffered);
     if (slice.length === 0) return;
     const startedAt = host.now();
+    const epoch = this.epoch;
     const op = this.observeChunk(slice, state, host, candidates)
       .then((chunk) => {
+        if (this.disposed) return;
+        if (epoch !== this.epoch) {
+          this.record("dropped", startedAt, host, "chunk from another branch");
+          return;
+        }
         this.pending.push({ customType: OM_CHUNK, data: chunk });
         this.lastError = undefined;
+        this.backoff.delete("buffer");
         this.record(
           "buffer",
           startedAt,
           host,
           `${formatK(chunk.messageTokens)} → ${formatK(chunk.observationTokens)}`,
         );
-        this.flushIdle(host);
+        if (host.isIdle()) this.appendPending(host, { includeActivations: false });
       })
       .catch((error: unknown) => {
-        if (!this.disposed) this.fail(host, error);
+        if (this.disposed) return;
+        this.bumpBackoff("buffer", host);
+        this.fail(host, error);
       })
       .finally(() => {
         if (this.bufferOp === op) this.bufferOp = undefined;
@@ -548,6 +606,7 @@ export class SessionOM {
     state: OMState,
     host: Host,
     candidates: Model<Api>[],
+    signal?: AbortSignal,
   ): Promise<ChunkData> {
     const result = await observe(
       host.registry,
@@ -560,7 +619,10 @@ export class SessionOM {
         previousObserverTokens: this.config.previousObserverTokens,
         toolResultMaxTokens: this.config.observerToolResultMaxTokens,
       },
-      { signal: this.abort.signal, timeoutMs: this.config.modelCallTimeoutMs },
+      {
+        signal: signal ? AbortSignal.any([this.abort.signal, signal]) : this.abort.signal,
+        timeoutMs: this.config.modelCallTimeoutMs,
+      },
     );
     const entryIds = units.map((unit) => unit.entryId);
     return {
@@ -581,32 +643,36 @@ export class SessionOM {
   /**
    * The only blocking path (Mastra sync observation at blockAfter). Waits a bounded time for
    * in-flight buffering, activates every ready chunk, then observes what is still unbuffered
-   * and already read, in parallel batches, and activates the results.
+   * and already read, in parallel batches, and activates the results. A failure backs the
+   * path off instead of re-running the whole model chain every turn.
    */
   private async blockingObserve(
     entries: readonly ProjectedSessionEntry[],
     host: Host,
     candidates: Model<Api>[],
     trigger: "block" | "compaction",
+    signal?: AbortSignal,
   ): Promise<void> {
     const startedAt = host.now();
+    const epoch = this.epoch;
     this.blocking = "waiting for buffered observation";
     this.refreshStatus();
     try {
       await withTimeout(this.bufferOp, this.config.bufferWaitMs);
       let state = this.state(host);
-      let units = this.units(entries);
+      const units = this.units(entries);
       let status = computeStatus(units, state, this.config);
       this.activate(state, units, status.pendingTokens, trigger, host);
       state = this.state(host);
       status = computeStatus(units, state, this.config);
       if (trigger === "block" && !status.mustBlock) return;
+      if (candidates.length === 0 || signal?.aborted) return;
 
       let remaining = status.unbuffered.filter((unit) => unit.read);
       if (trigger === "compaction") remaining = this.withoutRetainedTail(remaining);
       const safe = selectSafePrefix(remaining);
       if (safe.length === 0) return;
-      this.blocking = `observing ${formatK(safe.reduce((t, u) => t + u.tokens, 0))}`;
+      this.blocking = `observing ${formatK(safe.reduce((total, unit) => total + unit.tokens, 0))}`;
       this.refreshStatus();
       const batches = this.batches(safe);
       const chunks: ChunkData[] = new Array(batches.length);
@@ -614,18 +680,24 @@ export class SessionOM {
       const worker = async () => {
         while (next < batches.length) {
           const index = next++;
-          chunks[index] = await this.observeChunk(batches[index]!, state, host, candidates);
+          chunks[index] = await this.observeChunk(batches[index]!, state, host, candidates, signal);
         }
       };
       await Promise.all(
         Array.from({ length: Math.min(BLOCKING_CONCURRENCY, batches.length) }, worker),
       );
+      if (epoch !== this.epoch || this.disposed || signal?.aborted) return;
       for (const chunk of chunks) this.pending.push({ customType: OM_CHUNK, data: chunk });
       state = this.state(host);
-      units = this.units(entries);
       status = computeStatus(units, state, this.config);
       this.activate(state, units, status.pendingTokens, trigger, host);
+      this.backoff.delete("block");
       this.record("block", startedAt, host, `${batches.length} batches`);
+    } catch (error) {
+      if (!this.disposed && !signal?.aborted) {
+        this.bumpBackoff("block", host);
+        this.fail(host, error);
+      }
     } finally {
       this.blocking = undefined;
       this.refreshStatus();
@@ -649,13 +721,10 @@ export class SessionOM {
     const batches: ContextUnit[][] = [];
     let current: ContextUnit[] = [];
     let tokens = 0;
-    const open = new Set<string>();
     for (const unit of units) {
       current.push(unit);
       tokens += unit.tokens;
-      for (const id of unit.toolCallIds) open.add(id);
-      for (const id of unit.toolResultIds) open.delete(id);
-      if (tokens >= limit && open.size === 0) {
+      if (tokens >= limit && selectSafePrefix(current).length === current.length) {
         batches.push(current);
         current = [];
         tokens = 0;
@@ -665,17 +734,11 @@ export class SessionOM {
     return batches;
   }
 
-  private async maybeReflect(
-    host: Host,
-    candidates: Model<Api>[],
-    allowBlock: boolean,
-  ): Promise<void> {
+  private async maybeReflect(host: Host, candidates: Model<Api>[]): Promise<void> {
+    if (candidates.length === 0) return;
     let state = this.state(host);
-    if (
-      this.bufferedReflection &&
-      this.bufferedReflection.baseReflectionId !== state.reflection?.id
-    ) {
-      this.bufferedReflection = undefined; // computed against a generation that is gone
+    if (this.bufferedReflection && !this.reflectionBasisValid(this.bufferedReflection, state)) {
+      this.bufferedReflection = undefined;
     }
     const decision = decideReflection({
       observationTokens: state.observationTokens,
@@ -687,22 +750,23 @@ export class SessionOM {
       case "none":
         return;
       case "start-buffer":
-        this.startReflectionBuffer(state, host, candidates);
+        if (!this.backedOff("reflect", host)) this.startReflectionBuffer(state, host, candidates);
         return;
       case "activate-buffer":
         this.activateBufferedReflection(state, host);
         return;
       case "sync": {
-        if (!allowBlock) return;
+        if (this.backedOff("reflect", host)) return;
         const startedAt = host.now();
+        const epoch = this.epoch;
         this.blocking = "reflecting";
         this.refreshStatus();
         try {
           await withTimeout(this.reflectionOp, this.config.bufferWaitMs);
           state = this.state(host);
           if (
-            this.bufferedReflection?.baseReflectionId === state.reflection?.id &&
-            this.bufferedReflection
+            this.bufferedReflection &&
+            this.reflectionBasisValid(this.bufferedReflection, state)
           ) {
             this.activateBufferedReflection(state, host);
             return;
@@ -714,12 +778,14 @@ export class SessionOM {
             this.config.reflectionTokens,
             { signal: this.abort.signal, timeoutMs: this.config.modelCallTimeoutMs },
           );
+          if (epoch !== this.epoch || this.disposed) return;
           this.pushReflection(state, host, {
             baseReflectionId: state.reflection?.id,
             chunkIds: state.activeChunks.map((chunk) => chunk.id),
             inputTokens: state.observationTokens,
             ...result,
           });
+          this.backoff.delete("reflect");
           this.record(
             "reflect-sync",
             startedAt,
@@ -727,7 +793,10 @@ export class SessionOM {
             `${formatK(state.observationTokens)} → ${formatK(result.observationTokens)}`,
           );
         } catch (error) {
-          this.fail(host, error);
+          if (!this.disposed) {
+            this.bumpBackoff("reflect", host);
+            this.fail(host, error);
+          }
         } finally {
           this.blocking = undefined;
           this.refreshStatus();
@@ -737,26 +806,42 @@ export class SessionOM {
     }
   }
 
+  /** A buffered reflection applies only to the generation and active chunks it read. */
+  private reflectionBasisValid(buffered: BufferedReflection, state: OMState): boolean {
+    if (buffered.baseReflectionId !== state.reflection?.id) return false;
+    const active = new Set(state.activeChunks.map((chunk) => chunk.id));
+    return buffered.chunkIds.every((id) => active.has(id));
+  }
+
   private startReflectionBuffer(state: OMState, host: Host, candidates: Model<Api>[]): void {
     const slice = selectReflectionSlice(state, this.config.reflectionBufferAt);
     const sliceChunks = new Set(slice.chunkIds);
     const parts: string[] = [];
     if (state.reflection) parts.push(state.reflection.observations);
-    for (const chunk of state.activeChunks)
+    for (const chunk of state.activeChunks) {
       if (sliceChunks.has(chunk.id)) parts.push(chunk.observations);
-    const input = parts.join("\n\n");
+    }
     const startedAt = host.now();
-    const op = reflect(host.registry, candidates, input, Math.round(slice.tokens * 0.75), {
-      signal: this.abort.signal,
-      timeoutMs: this.config.modelCallTimeoutMs,
-    })
+    const epoch = this.epoch;
+    const op = reflect(
+      host.registry,
+      candidates,
+      parts.join("\n\n"),
+      Math.round(slice.tokens * 0.75),
+      {
+        signal: this.abort.signal,
+        timeoutMs: this.config.modelCallTimeoutMs,
+      },
+    )
       .then((result) => {
+        if (this.disposed || epoch !== this.epoch) return;
         this.bufferedReflection = {
           baseReflectionId: state.reflection?.id,
           chunkIds: slice.chunkIds,
           inputTokens: slice.tokens,
           ...result,
         };
+        this.backoff.delete("reflect");
         this.record(
           "reflect-buffer",
           startedAt,
@@ -765,7 +850,9 @@ export class SessionOM {
         );
       })
       .catch((error: unknown) => {
-        if (!this.disposed) this.fail(host, error);
+        if (this.disposed) return;
+        this.bumpBackoff("reflect", host);
+        this.fail(host, error);
       })
       .finally(() => {
         if (this.reflectionOp === op) this.reflectionOp = undefined;
@@ -805,18 +892,23 @@ export class SessionOM {
     this.pending.push({ customType: OM_REFLECTION, data });
   }
 
-  /** Boundary drafts: OM entries first, then context edits for entries still in context. */
+  /**
+   * Boundary drafts: OM entries first, then context edits for entries Pi can still edit.
+   * Every edit target must be a projected, editable entry or Pi rejects the whole boundary.
+   */
   private flushDrafts(entries: readonly ProjectedSessionEntry[]): SessionBoundaryDraft[] {
     const drafts: SessionBoundaryDraft[] = this.pending.map((draft) => ({
       type: "custom" as const,
       customType: draft.customType,
       data: draft.data,
     }));
-    const projected = new Set(
-      entries.filter((entry) => entry.messages.length > 0).map((entry) => entry.sourceEntry.id),
+    const editable = new Set(
+      this.units(entries)
+        .filter((unit) => unit.observable)
+        .map((unit) => unit.entryId),
     );
     for (const entryId of this.pendingEdits) {
-      if (projected.has(entryId))
+      if (editable.has(entryId))
         drafts.push({ type: "context_edit", targetId: entryId, replacement: null });
     }
     this.pending = [];
@@ -824,17 +916,12 @@ export class SessionOM {
     return drafts;
   }
 
-  /**
-   * Write entries that need no context edit while Pi is idle. Activations wait for a
-   * boundary so their edits commit with them, unless `force` (compaction).
-   */
-  private flushIdle(host: Host, force = false): void {
+  /** Writes pending drafts outside a boundary. Activations need their edits, so they wait. */
+  private appendPending(host: Host, options: { includeActivations: boolean }): void {
     if (this.disposed) return;
-    if (!force && !host.isIdle()) return;
     const keep: OMEntryDraft[] = [];
-    const hasEdits = this.pendingEdits.size > 0 && !force;
     for (const draft of this.pending) {
-      if (draft.customType === OM_ACTIVATION && hasEdits) keep.push(draft);
+      if (draft.customType === OM_ACTIVATION && !options.includeActivations) keep.push(draft);
       else host.appendEntry(draft.customType, draft.data);
     }
     this.pending = keep;
@@ -881,7 +968,9 @@ export class SessionOM {
       `OM ${formatK(status.pendingTokens)}/${formatK(status.threshold)}`,
       `mem ${formatK(state.observationTokens)}/${formatK(this.config.reflectionTokens)}`,
     ];
-    if (this.blocking) parts.push(`⏳ ${this.blocking}`);
+    const off = this.disabledReason(host);
+    if (off) parts.push(`paused · ${off}`);
+    else if (this.blocking) parts.push(`⏳ ${this.blocking}`);
     else {
       if (this.bufferOp) parts.push("observing…");
       if (this.reflectionOp) parts.push("reflecting…");

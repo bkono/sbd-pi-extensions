@@ -78,18 +78,23 @@ export function countMessageTokens(message: AgentMessage): number {
 }
 
 /**
- * Per-entry token cache. Session entries are immutable once written, so an entry id
- * is a sound cache key. This keeps per-request accounting incremental.
+ * Token cache keyed by message object. Pi's projection hands out the stored message
+ * objects themselves, so a hit is exact; a `context_edit` replacement is a new object
+ * and is counted fresh.
  */
-export class EntryTokenCache {
-  private readonly cache = new Map<string, number>();
+export class MessageTokenCache {
+  private readonly cache = new WeakMap<object, number>();
 
-  count(entryId: string, messages: readonly AgentMessage[]): number {
-    const cached = this.cache.get(entryId);
-    if (cached !== undefined) return cached;
+  count(messages: readonly AgentMessage[]): number {
     let total = 0;
-    for (const message of messages) total += countMessageTokens(message);
-    this.cache.set(entryId, total);
+    for (const message of messages) {
+      let tokens = this.cache.get(message as object);
+      if (tokens === undefined) {
+        tokens = countMessageTokens(message);
+        this.cache.set(message as object, tokens);
+      }
+      total += tokens;
+    }
     return total;
   }
 }

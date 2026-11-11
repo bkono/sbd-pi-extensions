@@ -14,14 +14,20 @@ export interface ContextUnit {
   tokens: number;
   /** Whether the observer should ever see it (summaries and excluded bash are not). */
   observable: boolean;
-  /** Whether a request carrying this entry has already been sent to the model. */
+  /** Whether the model has already seen this entry (see `units` in runtime.ts). */
   read: boolean;
+  /** Role of the first message. */
+  role: string;
   toolCallIds: string[];
   toolResultIds: string[];
 }
 
+/** Message roles Pi accepts a `context_edit` for (session-manager appendContextEdit). */
+const EDITABLE_ROLES = new Set(["user", "assistant", "toolResult", "custom"]);
+
 export function describeUnit(
   entryId: string,
+  entryType: string,
   messages: AgentMessage[],
   tokens: number,
   read: boolean,
@@ -29,8 +35,16 @@ export function describeUnit(
   const toolCallIds: string[] = [];
   const toolResultIds: string[] = [];
   for (const message of messages) {
-    const m = message as { role?: string; content?: unknown; toolCallId?: unknown };
-    if (m.role === "assistant" && Array.isArray(m.content)) {
+    const m = message as {
+      role?: string;
+      content?: unknown;
+      toolCallId?: unknown;
+      stopReason?: unknown;
+    };
+    // Pi never writes results for calls on an aborted or failed response, and drops those
+    // messages from provider context, so their calls must not hold the safe prefix open.
+    const deadResponse = m.stopReason === "aborted" || m.stopReason === "error";
+    if (m.role === "assistant" && Array.isArray(m.content) && !deadResponse) {
       for (const block of m.content as { type?: string; id?: unknown }[]) {
         if (block?.type === "toolCall" && typeof block.id === "string") toolCallIds.push(block.id);
       }
@@ -38,12 +52,19 @@ export function describeUnit(
     if (m.role === "toolResult" && typeof m.toolCallId === "string")
       toolResultIds.push(m.toolCallId);
   }
+  const role = (messages[0] as { role?: string } | undefined)?.role ?? "";
+  // Only entries Pi can omit with a context edit may ever be covered by a chunk; anything
+  // else (a `!cmd` bash entry, summaries) stays raw in context.
+  const editable =
+    (entryType === "message" || entryType === "custom_message") &&
+    messages.every((message) => EDITABLE_ROLES.has((message as { role?: string }).role ?? ""));
   return {
     entryId,
     messages,
     tokens,
-    observable: messages.length > 0 && messages.every(isObservableMessage),
+    observable: messages.length > 0 && editable && messages.every(isObservableMessage),
     read,
+    role,
     toolCallIds,
     toolResultIds,
   };
@@ -124,6 +145,10 @@ export function selectSafePrefix(units: readonly ContextUnit[]): ContextUnit[] {
   let safeLength = 0;
   for (let index = 0; index < units.length; index += 1) {
     const unit = units[index]!;
+    // Once the conversation moves on (a new user or assistant message), calls still open
+    // are orphans: Pi will never pair them, so they must not block the prefix (Mastra
+    // selectSafeBufferPrefix treats only the newest pending call as live).
+    if (unit.role === "user" || unit.role === "assistant") openCalls.clear();
     for (const id of unit.toolCallIds) openCalls.add(id);
     for (const id of unit.toolResultIds) openCalls.delete(id);
     if (openCalls.size === 0) safeLength = index + 1;
@@ -133,10 +158,16 @@ export function selectSafePrefix(units: readonly ContextUnit[]): ContextUnit[] {
 
 /** Buffered chunks, in order, up to the first one that covers an unread entry. */
 export function activatableChunks(state: OMState, units: readonly ContextUnit[]): ChunkData[] {
-  const unread = new Set(units.filter((unit) => !unit.read).map((unit) => unit.entryId));
+  // A chunk activates only if every entry it covers is in the current context, editable,
+  // and already read. That also rejects chunks computed on another branch.
+  const byId = new Map(units.map((unit) => [unit.entryId, unit]));
   const ready: ChunkData[] = [];
   for (const chunk of state.buffered) {
-    if (chunk.entryIds.some((id) => unread.has(id))) break;
+    const covered = chunk.entryIds.map((id) => byId.get(id));
+    // Not in this context at all (another branch, or compacted away): skip it.
+    if (covered.some((unit) => !unit?.observable)) continue;
+    // Unread content: stop, so activation stays in order.
+    if (covered.some((unit) => !unit!.read)) break;
     ready.push(chunk);
   }
   return ready;

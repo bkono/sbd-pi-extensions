@@ -1,11 +1,9 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OM_SECTION } from "../context.js";
 import { type Host, SessionOM } from "../runtime.js";
 import { OM_ACTIVATION, OM_CHUNK, OM_REFLECTION, replayState } from "../state.js";
-import { countTokens } from "../tokens.js";
 import {
   append,
   assistantText,
@@ -20,53 +18,14 @@ import {
   makeHost,
   newSession,
   OBSERVATION_RESPONSE,
+  request,
+  systemMessages,
+  textOf,
   toolResult,
+  toolStep,
   user,
   words,
 } from "./helpers.js";
-
-const TOKENS_PER_WORD = countTokens(words(1_000)) / 1_000;
-function textOf(tokens: number): string {
-  return words(Math.round(tokens / TOKENS_PER_WORD));
-}
-
-let toolSeq = 0;
-
-/** One Pi request: the `context` hook, as Pi calls it before an LLM call. */
-async function request(
-  om: SessionOM,
-  session: SessionManager,
-  host: Host,
-): Promise<AgentMessage[]> {
-  const messages = contextMessages(session);
-  return (await om.onContext(messages, host)) ?? messages;
-}
-
-/** One agent step: assistant tool call + result, then the turn_end boundary, committed. */
-async function toolStep(
-  om: SessionOM,
-  session: SessionManager,
-  host: Host,
-  resultTokens: number,
-): Promise<{ drafts: Awaited<ReturnType<SessionOM["onTurnEnd"]>>; resultEntryId: string }> {
-  await request(om, session, host);
-  const id = `call-${++toolSeq}`;
-  const assistantEntryId = append(
-    session,
-    assistantToolCall(id, "read", { path: `src/file-${toolSeq}.ts` }),
-  );
-  const resultEntryId = append(session, toolResult(id, "read", textOf(resultTokens)));
-  const drafts = await om.onTurnEnd(
-    { contextEntries: session.buildSessionProjection().entries, messageEntryId: assistantEntryId },
-    host,
-  );
-  commit(session, drafts);
-  return { drafts, resultEntryId };
-}
-
-function systemMessages(): AgentMessage[] {
-  return [{ role: "system", content: "base prompt", timestamp: 0 } as AgentMessage];
-}
 
 function omSection(om: SessionOM, host: Host): string | undefined {
   const out = om.onSystem(systemMessages(), host);
@@ -237,8 +196,9 @@ describe("SessionOM", () => {
     const nextId = "call-after";
     const nextAssistant = append(session, assistantToolCall(nextId, "grep", { q: "x" }));
     append(session, toolResult(nextId, "grep", "no matches"));
+    expect(nextAssistant).toBeTruthy();
     const drafts = await om.onTurnEnd(
-      { contextEntries: session.buildSessionProjection().entries, messageEntryId: nextAssistant },
+      { contextEntries: session.buildSessionProjection().entries },
       host,
     );
     commit(session, drafts);
@@ -281,7 +241,7 @@ describe("SessionOM", () => {
     om.dispose();
     const restarted = new SessionOM(session.getSessionId(), config());
     restarted.startRun(host);
-    await restarted.onContext(contextMessages(session), host);
+    await restarted.onContext(host);
     expect(omSection(restarted, host)).toBe(section);
   });
 
@@ -293,6 +253,7 @@ describe("SessionOM", () => {
     await request(om, session, host);
     const result = await om.onCompact(host);
     expect(result).toBeDefined();
+    om.onCompacted(host); // Pi's session_compact after the compaction entry lands
     const state = replayState(session.getBranch());
     expect(state.observedEntryIds.has(result!.firstKeptEntryId)).toBe(false);
     // everything before the kept raw tail is in memory
@@ -308,7 +269,8 @@ describe("SessionOM", () => {
     const offHost = makeHost(session, offRegistry);
     const off = new SessionOM(session.getSessionId(), config());
     off.startRun(offHost);
-    expect(await off.onContext(contextMessages(session), offHost)).toBeUndefined();
-    expect(offHost.statuses.at(-1)).toMatch(/^OM off · no observer model/);
+    await request(off, session, offHost);
+    expect(offRegistry.calls).toHaveLength(0);
+    expect(offHost.statuses.at(-1)).toMatch(/paused · no observer model/);
   });
 });

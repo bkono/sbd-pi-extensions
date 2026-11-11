@@ -77,9 +77,9 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
     session(ctx).startRun(host(ctx));
   });
 
-  pi.on("context", async (event, ctx) => {
-    const messages = await session(ctx).onContext(event.messages as AgentMessage[], host(ctx));
-    return messages ? { messages } : undefined;
+  pi.on("context", async (_event, ctx) => {
+    await session(ctx).onContext(host(ctx));
+    return undefined;
   });
 
   pi.on("context_with_system", (event, ctx) => {
@@ -89,7 +89,7 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
 
   pi.on("turn_end", async (event, ctx) => {
     const drafts = await session(ctx).onTurnEnd(
-      { contextEntries: event.context.contextEntries, messageEntryId: event.messageEntryId },
+      { contextEntries: event.context.contextEntries },
       host(ctx),
     );
     indexChunks(ctx);
@@ -106,8 +106,18 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
     return { entries: [...event.entries, ...drafts] };
   });
 
+  pi.on("session_tree", (_event, ctx) => {
+    session(ctx).onTreeChange(host(ctx));
+    indexChunks(ctx);
+  });
+
+  pi.on("session_compact", (_event, ctx) => {
+    session(ctx).onCompacted(host(ctx));
+    indexChunks(ctx);
+  });
+
   pi.on("session_before_compact", async (event, ctx) => {
-    const result = await session(ctx).onCompact(host(ctx));
+    const result = await session(ctx).onCompact(host(ctx), event.signal);
     indexChunks(ctx);
     if (!result) return undefined;
     return {

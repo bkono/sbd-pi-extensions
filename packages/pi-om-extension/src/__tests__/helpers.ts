@@ -4,7 +4,8 @@ import { type SessionBoundaryDraft, SessionManager } from "@earendil-works/pi-co
 
 import { type ResolvedOMConfig, resolveConfig } from "../config.js";
 import type { ModelAccess } from "../models.js";
-import type { Host } from "../runtime.js";
+import type { Host, SessionOM } from "../runtime.js";
+import { countTokens } from "../tokens.js";
 
 export function config(overrides: Partial<ResolvedOMConfig> = {}): ResolvedOMConfig {
   return { ...resolveConfig({}), ...overrides };
@@ -205,4 +206,52 @@ export function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => voi
     resolve = r;
   });
   return { promise, resolve };
+}
+
+const TOKENS_PER_WORD = countTokens(words(1_000)) / 1_000;
+export function textOf(tokens: number): string {
+  return words(Math.round(tokens / TOKENS_PER_WORD));
+}
+
+let toolSeq = 0;
+
+/** One Pi request: `context`, then `context_with_system`, as Pi's emitContext runs them. */
+export async function request(
+  om: SessionOM,
+  session: SessionManager,
+  host: Host,
+): Promise<AgentMessage[]> {
+  await om.onContext(host);
+  const full = [...systemMessages(), ...contextMessages(session)];
+  return (om.onSystem(full, host) ?? full).slice(1);
+}
+
+/** One agent step: assistant tool call + result, then the turn_end boundary, committed. */
+export async function toolStep(
+  om: SessionOM,
+  session: SessionManager,
+  host: Host,
+  resultTokens: number,
+): Promise<{
+  drafts: Awaited<ReturnType<SessionOM["onTurnEnd"]>>;
+  resultEntryId: string;
+  assistantEntryId: string;
+}> {
+  await request(om, session, host);
+  const id = `call-${++toolSeq}`;
+  const assistantEntryId = append(
+    session,
+    assistantToolCall(id, "read", { path: `src/file-${toolSeq}.ts` }),
+  );
+  const resultEntryId = append(session, toolResult(id, "read", textOf(resultTokens)));
+  const drafts = await om.onTurnEnd(
+    { contextEntries: session.buildSessionProjection().entries },
+    host,
+  );
+  commit(session, drafts);
+  return { drafts, resultEntryId, assistantEntryId };
+}
+
+export function systemMessages(): AgentMessage[] {
+  return [{ role: "system", content: "base prompt", timestamp: 0 } as AgentMessage];
 }
