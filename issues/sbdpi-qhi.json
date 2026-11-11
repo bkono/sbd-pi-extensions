@@ -10,11 +10,15 @@
     {
       "text": "Live evidence 2026-11-11 on 5c10237 (gpt-6.1-sol main, gpt-6-luna observer): 14-file read run 50s, turn_end max 15ms, context hook max 3ms, 5 background buffers 4-7s off critical path, 2 threshold activations 0ms, 23 context edits, 0 duplicate tool calls, OM section hash stable between activations (changes only at requests 9 and 14), final table 28/28 values correct after pruning; resumed-process recall via om_recall correct (cacheStep11 % 3608, billingStep7). TTL activation verified live on backdated session (1 chunk, ttl, 17-\u003e12 msgs). Fresh-eyes review findings 1-10 fixed in 5c10237 with regression tests (37 tests).",
       "timestamp": "2026-11-11T19:12:13Z"
+    },
+    {
+      "text": "Verifier PASS on 410b87b (fresh-eyes reviewer, probes + 39 tests). Branch feat/pi-om-v2 in worktree ../sbd-pi-extensions-om-v2, not pushed. Follow-ups: sbdpi-qhi.8.",
+      "timestamp": "2026-11-11T19:21:00Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "pi-om v2: Mastra-parity OM rewrite (1.0.0)",
   "type": "epic",
-  "updated_at": "2026-11-11T19:12:13Z"
+  "updated_at": "2026-11-11T19:21:00Z"
 }
