@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-11T18:28:48Z",
+  "description": "",
+  "id": "sbdpi-qhi.7",
+  "labels": [],
+  "parent": "sbdpi-qhi",
+  "priority": 1,
+  "status": "open",
+  "title": "Live verification vs done-predicate + independent review",
+  "type": "task",
+  "updated_at": "2026-11-11T18:28:48Z"
+}
