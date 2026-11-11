@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-11T18:28:47Z",
+  "description": "Replace pi-om engine with Mastra Code OM mechanism (async buffering, activation, TTL-timed cache activation, buffered reflection, recall). Design: packages/pi-om-extension/docs/mastra-om-v2-port.md §11. Supersedes sbdpi-f51.",
+  "id": "sbdpi-qhi",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "pi-om v2: Mastra-parity OM rewrite (1.0.0)",
+  "type": "epic",
+  "updated_at": "2026-11-11T18:28:47Z"
+}
