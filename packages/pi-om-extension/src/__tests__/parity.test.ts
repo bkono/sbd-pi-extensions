@@ -244,4 +244,20 @@ describe("Mastra Code parity", () => {
     ])
       expect(isTransientFailure(f)).toBe(false);
   });
+
+  it("observer reasoning matches Mastra Code: medium on Codex, none on Anthropic", async () => {
+    const { observerReasoning } = await import("../models.js");
+    expect(
+      observerReasoning({
+        ...fakeModel("openai-codex", "gpt-6-luna"),
+        reasoning: true,
+      } as Model<Api>),
+    ).toBe("medium");
+    expect(
+      observerReasoning({
+        ...fakeModel("anthropic", "claude-haiku-5-5"),
+        reasoning: true,
+      } as Model<Api>),
+    ).toBeUndefined();
+  });
 });

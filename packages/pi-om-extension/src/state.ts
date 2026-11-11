@@ -228,10 +228,14 @@ export function hasActiveMemory(state: OMState): boolean {
  * active memory plus every buffered chunk still pending activation, so the chain of task,
  * progress and counts survives until activation.
  */
-export function renderObserverContext(state: OMState, buffered: boolean): string {
+export function renderObserverContext(
+  state: OMState,
+  buffered: boolean,
+  live: readonly ChunkData[] = state.buffered,
+): string {
   const active = renderActiveObservations(state);
-  if (!buffered || state.buffered.length === 0) return active;
-  const pending = state.buffered
+  if (!buffered || live.length === 0) return active;
+  const pending = live
     .map((chunk) => wrapInObservationGroup(chunk.observations, chunk.range, chunk.id))
     .join("\n\n");
   if (!active) return pending;

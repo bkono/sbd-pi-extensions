@@ -19,7 +19,11 @@ export interface ModelAccess {
   streamSimple(
     model: Model<Api>,
     context: Context,
-    options?: { signal?: AbortSignal; maxTokens?: number; reasoning?: "minimal" | "low" },
+    options?: {
+      signal?: AbortSignal;
+      maxTokens?: number;
+      reasoning?: "minimal" | "low" | "medium";
+    },
   ): { result(): Promise<AssistantMessage> };
 }
 
@@ -70,8 +74,19 @@ export interface ModelCallResult {
  * "max_tokens must be <= 512" stay permanent.
  */
 const TRANSIENT =
-  /^\s*(?:HTTP\s*)?(?:429|5\d\d)\b|\b(?:status(?:\s*code)?|HTTP)\s*:?\s*(?:429|5\d\d)\b|rate.?limit|overloaded|timed out|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|temporarily unavailable|service unavailable/i;
+  /^\s*(?:HTTP\s*)?(?:429|5\d\d)\b|\b(?:status(?:\s*code)?|HTTP)\s*:?\s*(?:429|5\d\d)\b|rate.?limit|overloaded|timed out|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|temporarily unavailable|service unavailable|API error \((?:429|5\d\d)\)|fetch failed|other side closed|\bterminated\b/i;
 const RETRY_DELAYS_MS = [1_000, 4_000];
+
+/**
+ * Mastra Code's observer reasoning: its Codex provider defaults to `medium`
+ * (openaiCodexProvider thinkingLevel ?? 'medium'); Anthropic runs without thinking.
+ * Leaving it unset is not "provider default" in pi-ai: for Codex models with an `off`
+ * level it sends effort "none".
+ */
+export function observerReasoning(model: Model<Api>): "medium" | undefined {
+  if (!model.reasoning) return undefined;
+  return model.provider === "openai-codex" || model.provider === "openai" ? "medium" : undefined;
+}
 
 export function isTransientFailure(text: string): boolean {
   return TRANSIENT.test(text);
@@ -129,9 +144,9 @@ export async function completeWithFailover(
       );
       let failure: string;
       try {
-        // Provider-default reasoning, like Mastra Code. Forcing "low" was measured to cost
-        // observation fidelity: progress and counts went missing and the agent re-read pages.
-        const message = await registry.streamSimple(model, modelContext, { signal }).result();
+        const message = await registry
+          .streamSimple(model, modelContext, { signal, reasoning: observerReasoning(model) })
+          .result();
         if (message.stopReason === "error" || message.stopReason === "aborted") {
           failure = message.errorMessage ?? message.stopReason;
         } else {

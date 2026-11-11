@@ -16,6 +16,7 @@ import {
   computeStatus,
   decideReflection,
   describeUnit,
+  liveBufferedChunks,
   type OMStatus,
   selectActivationCount,
   selectReflectionSlice,
@@ -279,13 +280,23 @@ export class SessionOM {
     }
     const gaps = temporalGaps(host.branch());
     const keepRaw = protectedRequestId(projection);
+    // Only entries covered by activations not committed yet are omitted here. An entry
+    // observed by a committed activation but still projected is a deferred edit (the
+    // protected request of an earlier run): it stays raw until the next activation commits
+    // its edit, so a new run's first request never changes the cached prefix.
+    const committed = replayState(host.branch()).observedEntryIds;
     let omitted = 0;
     let markers = 0;
     const rest: AgentMessage[] = [];
     for (const message of messages.slice(1)) {
       if ((message as { role?: string }).role !== "system") {
         const entryId = idsByKey.get(messageKey(message))?.shift();
-        if (entryId && entryId !== keepRaw && state.observedEntryIds.has(entryId)) {
+        if (
+          entryId &&
+          entryId !== keepRaw &&
+          state.observedEntryIds.has(entryId) &&
+          !committed.has(entryId)
+        ) {
           omitted += 1;
           continue;
         }
@@ -694,7 +705,11 @@ export class SessionOM {
       candidates,
       {
         messages: units.flatMap((unit) => unit.messages),
-        activeObservations: renderObserverContext(state, options.buffered),
+        activeObservations: renderObserverContext(
+          state,
+          options.buffered,
+          liveBufferedChunks(state, this.units(host.projection())),
+        ),
         priorCurrentTask: state.latestTask ?? state.currentTask,
         priorSuggestedResponse: state.latestSuggestion ?? state.suggestedResponse,
         priorThreadTitle: host.getSessionName?.(),
@@ -895,6 +910,7 @@ export class SessionOM {
           );
           if (epoch !== this.epoch || this.disposed) return;
           if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
+          else this.lastFailover = undefined;
           this.pushReflection(state, host, {
             baseReflectionId: state.reflection?.id,
             chunkIds: state.activeChunks.map((chunk) => chunk.id),
@@ -956,6 +972,7 @@ export class SessionOM {
       .then((result) => {
         if (this.disposed || epoch !== this.epoch) return;
         if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
+        else this.lastFailover = undefined;
         this.bufferedReflection = {
           baseReflectionId: state.reflection?.id,
           chunkIds: slice.chunkIds,
@@ -1026,11 +1043,16 @@ export class SessionOM {
       customType: draft.customType,
       data: draft.data,
     }));
-    // Every observed entry that is still in context gets its edit, except the protected
-    // run request. That also commits edits deferred while an entry was protected.
+    // Edits only land with a change the model sees anyway (an activation or reflection),
+    // so the cached prefix moves only then. Every observed entry still in context gets its
+    // edit at that point, except the protected run request; that also commits edits
+    // deferred while an entry was protected.
+    const visibleChange = this.pending.some(
+      (draft) => draft.customType === OM_ACTIVATION || draft.customType === OM_REFLECTION,
+    );
     const state = this.state(host);
     const keepRaw = protectedRequestId(entries);
-    for (const unit of this.units(entries)) {
+    for (const unit of visibleChange ? this.units(entries) : []) {
       if (!unit.observable || unit.entryId === keepRaw) continue;
       if (state.observedEntryIds.has(unit.entryId) || this.pendingEdits.has(unit.entryId)) {
         drafts.push({ type: "context_edit", targetId: unit.entryId, replacement: null });
@@ -1059,6 +1081,9 @@ export class SessionOM {
     for (const entry of host.branch()) {
       if (entry.id === entryId) return previous;
       if (entry.type === "message") previous = entry.message as AgentMessage;
+      else if (entry.type === "custom_message") {
+        previous = { role: "custom", timestamp: Date.parse(entry.timestamp) } as AgentMessage;
+      }
     }
     return undefined;
   }

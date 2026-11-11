@@ -331,11 +331,46 @@ describe("review regressions", () => {
     expect(projectedIds().has(request)).toBe(true);
     const sent = await request_(om);
     expect(sent.some((m) => JSON.stringify(m).includes("start"))).toBe(true);
-    // a new run: the old request is no longer protected, so its deferred edit lands
+    // A new run: the old request is no longer protected, but its edit is deferred to the
+    // next activation, so the new run's first request extends the last one (cache-stable).
+    const lastOfRun1 = await request_(om);
     append(session, user("next task"));
     om.startRun(host);
-    await toolStep(om, session, host, 500);
+    const firstOfRun2 = await request_(om);
+    expect(JSON.stringify(firstOfRun2.slice(0, lastOfRun1.length))).toBe(
+      JSON.stringify(lastOfRun1),
+    );
+    expect(projectedIds().has(request)).toBe(true);
+    // the next activation commits the deferred edit
+    for (let step = 0; step < 6; step += 1) {
+      await toolStep(om, session, host, 6_000);
+      await om.settled();
+    }
     expect(projectedIds().has(request)).toBe(false);
+  });
+
+  it("observer context excludes stale buffered chunks", async () => {
+    const { renderObserverContext } = await import("../state.js");
+    const { liveBufferedChunks, describeUnit } = await import("../engine.js");
+    const chunk = (id: string, entryIds: string[]) => ({
+      v: 1 as const,
+      id,
+      observations: `* 🔴 (10:00) ${id} fact`,
+      observationTokens: 5,
+      messageTokens: 10,
+      entryIds,
+      range: `${entryIds[0]}:${entryIds.at(-1)}`,
+      createdAt: 0,
+      model: "m",
+    });
+    const state = {
+      ...replayState([]),
+      buffered: [chunk("live", ["a"]), chunk("stale", ["b", "gone"])],
+    };
+    const units = ["a", "b"].map((id) => describeUnit(id, "message", [user(id)], 10, true));
+    const text = renderObserverContext(state, true, liveBufferedChunks(state, units));
+    expect(text).toContain("live fact");
+    expect(text).not.toContain("stale fact");
   });
 
   it("a buffered observer sees earlier buffered chunks as previous observations (Mastra async-buffer prepare)", async () => {
