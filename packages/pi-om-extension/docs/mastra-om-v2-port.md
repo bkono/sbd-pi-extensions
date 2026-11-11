@@ -320,3 +320,29 @@ Evidence key: **L** = verified in a live Pi run; **T** = unit or regression test
 
 - **Re-read A/B against Mastra Code is inconclusive.** Mastra Code's `view` tool caps reads at about 2k tokens, so the same task never crossed its threshold. The local Mastra Code OM is configured for Gemini and returns 402 on every observation.
 - **Not exercised live:** reflection and the OM compaction path (tests and reviewer probes only).
+
+## 13. Live A/B against Mastra Code (2026-11-11)
+
+Setup:
+
+- Mastra Code 0.49.0, observer and reflector pinned to `openai/gpt-6-luna`. With Google credentials present, "auto" prefers Gemini, which returned 402 here.
+- Pi v2 on Pi 1.3.0.
+- Main model `gpt-6.1-sol` (low thinking) on both.
+- Fixture: 14 generated files, about 62k tokens.
+
+### Findings and fixes
+
+| Finding | Evidence | Fix |
+|---|---|---|
+| Buffered observers never saw earlier buffered chunks, so every chunk before the first activation was blind to the task and the progress. After each activation the agent restarted from the first file. | 42-page counting task: v2 made 82 and 84 calls (40 and 42 duplicate reads); Mastra Code made 42 calls (0 duplicates); OM off made 42 calls (0 duplicates). | Ported `combineObservationsForBuffering` (674934d): duplicates fell to 5 and 10, all end-of-task verification reads. |
+| The run's request is pruned mid-task (a Mastra rule), and the model then stops at "ok" on a "reply only ok after each page" task. | Both v2 and Mastra Code stopped right after activation; OM off completed (2/2). | The latest user message stays raw (281e9c4). The stop on that particular task persists in v2 and in Mastra Code. The prompt design invites it, and the counting task is unaffected. |
+| Buffered prompts asked for current-task and suggested-response, which Mastra skips. | A suggestion "Read X, then reply only `ok`" preceded a stop. | Exact per-path prompts (c851956). |
+| Forced `reasoning: "low"` on the observer. | Not the cause of the re-reads (no change measured). | Provider default restored for parity. |
+
+### Fidelity
+
+Truth: 100. Mastra Code answered 97: its observer miscounted `cache.ts` (2 against 5). v2 answered 100 and 82. Both systems lose some precision through observation. That is inherent to OM, and `om_recall` is the recovery path.
+
+### Not equivalent between the two
+
+Mastra Code's `view` tool caps a read at about 2k tokens. That tool-layer cap, separate from OM, makes Mastra Code's context grow more slowly. Pi's analogue is `pi-hashline-readmap`.
