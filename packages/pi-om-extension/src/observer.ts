@@ -42,6 +42,8 @@ export interface ObserveOutput {
   suggestedResponse?: string;
   model: string;
   threadTitle?: string;
+  /** Failed attempts (retries, failovers, unusable output) before the result. */
+  failures: string[];
 }
 
 /** Mastra's single observer request: prior memory, then the history, then the task. */
@@ -84,7 +86,9 @@ export function buildObserverUserMessage(input: ObserveInput): string {
   return prompt;
 }
 
-export function parseObserverResponse(text: string): Omit<ObserveOutput, "model"> | undefined {
+export function parseObserverResponse(
+  text: string,
+): Omit<ObserveOutput, "model" | "failures"> | undefined {
   if (detectDegenerateRepetition(sanitizeObservationLines(text))) return undefined;
   const parsed = parseMemorySectionXml(text);
   const observations = sortObservationsByTime(sanitizeObservationLines(parsed.observations || ""));
@@ -127,7 +131,13 @@ export async function observe(
       options,
     );
     const parsed = parseObserverResponse(result.text);
-    if (parsed) return { ...parsed, model: modelLabel(result.model) };
+    if (parsed) {
+      return {
+        ...parsed,
+        model: modelLabel(result.model),
+        failures: [...failures, ...result.failures],
+      };
+    }
     failures.push(`${modelLabel(result.model)}: unparseable or degenerate output`);
     remaining = remaining.slice(remaining.indexOf(result.model) + 1);
   }

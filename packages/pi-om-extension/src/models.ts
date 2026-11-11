@@ -60,6 +60,8 @@ export interface ModelCallResult {
   text: string;
   model: Model<Api>;
   message: AssistantMessage;
+  /** Failed attempts before this one succeeded (retries and failovers). */
+  failures: string[];
 }
 
 const TRANSIENT =
@@ -129,7 +131,7 @@ export async function completeWithFailover(
             .map((block) => block.text)
             .join("")
             .trim();
-          if (text) return { text, model, message };
+          if (text) return { text, model, message, failures: attempts };
           failure = "empty response";
         }
       } catch (error) {

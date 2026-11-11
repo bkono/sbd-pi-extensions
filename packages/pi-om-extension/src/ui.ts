@@ -73,6 +73,7 @@ export function formatStatusReport(
     `  cache TTL for activation: ${ttlMs === undefined ? "unknown" : `${Math.round(ttlMs / 60_000)}m`}`,
   ];
   if (snapshot.lastError) lines.push(`  last error: ${snapshot.lastError}`);
+  if (snapshot.lastFailover) lines.push(`  last fallback: ${snapshot.lastFailover}`);
   const recent = events.slice(-12);
   if (recent.length > 0)
     lines.push("  recent:", ...recent.map((event) => `    ${eventLine(event)}`));

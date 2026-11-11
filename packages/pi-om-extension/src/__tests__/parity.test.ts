@@ -174,4 +174,29 @@ describe("Mastra Code parity", () => {
       expect(JSON.stringify(sent).includes("aGVsbG8=")).toBe(accepts);
     }
   });
+
+  it("PI_OM_MODEL goes first, and a fallback away from it is visible", async () => {
+    const session = newSession();
+    const registry = fakeRegistry([
+      "huggingface/deepseek-ai/DeepSeek-V4-Flash",
+      "openai-codex/gpt-6-luna",
+    ]);
+    registry.respond = (_context, model) => {
+      if (model.provider === "huggingface") throw new Error("402 Purchase pre-paid credits");
+      return OBSERVATION_RESPONSE;
+    };
+    const host = makeHost(session, registry);
+    const om = new SessionOM(
+      session.getSessionId(),
+      config({ modelOverride: "huggingface/deepseek-ai/DeepSeek-V4-Flash" }),
+    );
+    append(session, user("go"));
+    om.startRun(host);
+    await toolStep(om, session, host, 7_000);
+    await om.settled();
+    expect(registry.calls[0]?.model).toBe("huggingface/deepseek-ai/DeepSeek-V4-Flash");
+    const failover = om.events.find((e) => e.kind === "failover");
+    expect(failover?.detail).toMatch(/huggingface.*402.*→ openai-codex\/gpt-6-luna/);
+    expect(om.snapshot(host).lastFailover).toBeDefined();
+  });
 });

@@ -71,6 +71,7 @@ export type OMEventKind =
   | "compaction"
   | "tree"
   | "dropped"
+  | "failover"
   | "error";
 
 export interface OMEvent {
@@ -179,6 +180,7 @@ export class SessionOM {
   private disposed = false;
   private lastHost: Host | undefined;
   private lastError: string | undefined;
+  private lastFailover: string | undefined;
   private blocking: string | undefined;
   private sectionCache: { key: string; section: string | undefined } | undefined;
   private readonly backoff = new Map<BackoffKind, { until: number; ms: number }>();
@@ -402,6 +404,7 @@ export class SessionOM {
     models: string[];
     disabledReason?: string;
     lastError?: string;
+    lastFailover?: string;
   } {
     const state = this.state(host);
     return {
@@ -413,6 +416,7 @@ export class SessionOM {
       models: this.models(host).map((model) => `${model.provider}/${model.id}`),
       disabledReason: this.disabledReason(host),
       lastError: this.lastError,
+      lastFailover: this.lastFailover,
     };
   }
 
@@ -664,6 +668,7 @@ export class SessionOM {
         timeoutMs: this.config.modelCallTimeoutMs,
       },
     );
+    if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
     const entryIds = units.map((unit) => unit.entryId);
     return {
       v: 1,
@@ -840,6 +845,7 @@ export class SessionOM {
             { signal: this.abort.signal, timeoutMs: this.config.modelCallTimeoutMs },
           );
           if (epoch !== this.epoch || this.disposed) return;
+          if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
           this.pushReflection(state, host, {
             baseReflectionId: state.reflection?.id,
             chunkIds: state.activeChunks.map((chunk) => chunk.id),
@@ -898,6 +904,7 @@ export class SessionOM {
     )
       .then((result) => {
         if (this.disposed || epoch !== this.epoch) return;
+        if (result.failures.length > 0) this.recordFailover(host, result.failures, result.model);
         this.bufferedReflection = {
           baseReflectionId: state.reflection?.id,
           chunkIds: slice.chunkIds,
@@ -990,6 +997,12 @@ export class SessionOM {
     this.pending = keep;
   }
 
+  /** A call succeeded only after retries or another model: make that visible, not silent. */
+  private recordFailover(host: Host, failures: readonly string[], model: string): void {
+    this.lastFailover = `${failures.join("; ")} → ${model}`;
+    this.record("failover", host.now(), host, this.lastFailover);
+  }
+
   private fail(host: Host, error: unknown): void {
     this.lastError = error instanceof Error ? error.message : String(error);
     this.record("error", host.now(), host, this.lastError);
@@ -1039,6 +1052,7 @@ export class SessionOM {
       if (this.reflectionOp) parts.push("reflecting…");
     }
     if (this.lastError) parts.push("⚠ last OM call failed (/om)");
+    else if (this.lastFailover) parts.push("⚠ OM model fell back (/om)");
     host.setStatus(parts.join(" · "));
   }
 }

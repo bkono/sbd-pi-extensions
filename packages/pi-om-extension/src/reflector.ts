@@ -29,6 +29,7 @@ export interface ReflectOutput {
   suggestedResponse?: string;
   model: string;
   level: CompressionLevel;
+  failures: string[];
 }
 
 /** Mastra buildReflectorPrompt, without extractors. */
@@ -91,6 +92,7 @@ export async function reflect(
       suggestedResponse: parsed.suggestedResponse || undefined,
       model: modelLabel(result.model),
       level: level as CompressionLevel,
+      failures: result.failures,
     };
     if (!best || output.observationTokens < best.observationTokens) best = output;
     if (validateCompression(output.observationTokens, targetTokens)) return output;
