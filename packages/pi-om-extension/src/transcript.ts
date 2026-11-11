@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 import { countTokens } from "./tokens.js";
+import { formatTemporalGap, formatTemporalTimestamp } from "./upstream/date-utils";
 
 /**
  * Renders Pi messages as the observer transcript, in Mastra's observer format:
@@ -194,6 +195,30 @@ export function isObservableMessage(message: AgentMessage): boolean {
   );
 }
 
+/** End time of a message: when the response finished, else when it started. */
+export function messageEndTime(message: AgentMessage): number | undefined {
+  const m = message as { timestamp?: unknown; durationMs?: unknown };
+  if (typeof m.timestamp !== "number" || m.timestamp <= 0) return undefined;
+  return m.timestamp + (typeof m.durationMs === "number" ? m.durationMs : 0);
+}
+
+/**
+ * Mastra temporalMarkers: a user message that arrives at least 10 minutes after the
+ * previous message gets a `<system-reminder>` naming the gap. Returns the reminder text,
+ * or undefined when there is no qualifying gap.
+ */
+export function temporalGapText(
+  previous: AgentMessage | undefined,
+  current: AgentMessage,
+): string | undefined {
+  if ((current as { role?: string }).role !== "user" || !previous) return undefined;
+  const start = (current as { timestamp?: unknown }).timestamp;
+  const end = messageEndTime(previous);
+  if (typeof start !== "number" || end === undefined) return undefined;
+  const gap = formatTemporalGap(start - end);
+  return gap ? `${gap} — ${formatTemporalTimestamp(new Date(start))}` : undefined;
+}
+
 export function formatTranscript(
   messages: readonly AgentMessage[],
   options: TranscriptOptions,
@@ -202,7 +227,10 @@ export function formatTranscript(
   const out: string[] = [];
   let previousDate: string | undefined;
   let previousTime: string | undefined;
+  let previousMessage: AgentMessage | undefined;
   for (const message of messages) {
+    const gap = temporalGapText(previousMessage, message);
+    if (gap) out.push(gap);
     for (const line of messageLines(message, options, images)) {
       if (line.date !== previousDate) {
         out.push(`${line.date}:`);
@@ -213,6 +241,36 @@ export function formatTranscript(
       out.push(`${line.title}${showTime ? ` (${line.time})` : ""}: ${line.body}`);
       previousTime = line.time;
     }
+    previousMessage = message;
   }
   return out.join("\n");
+}
+
+export interface TranscriptImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+/**
+ * Images in transcript order, matching the `[Image #n]` placeholders. Mastra forwards
+ * attachments to observers that accept them (observeAttachments 'auto').
+ */
+export function collectImages(messages: readonly AgentMessage[], limit: number): TranscriptImage[] {
+  const out: TranscriptImage[] = [];
+  for (const message of messages) {
+    const m = message as { role?: string; content?: unknown };
+    if (m.role !== "user" && m.role !== "toolResult" && m.role !== "custom") continue;
+    if (!Array.isArray(m.content)) continue;
+    for (const block of m.content as { type?: string; data?: unknown; mimeType?: unknown }[]) {
+      if (block?.type !== "image" || typeof block.data !== "string") continue;
+      if (out.length >= limit) return out;
+      out.push({
+        type: "image",
+        data: block.data,
+        mimeType: String(block.mimeType ?? "image/png"),
+      });
+    }
+  }
+  return out;
 }

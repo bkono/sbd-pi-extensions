@@ -62,46 +62,83 @@ export interface ModelCallResult {
   message: AssistantMessage;
 }
 
+const TRANSIENT =
+  /\b(429|5\d\d)\b|rate.?limit|overloaded|timeout|timed out|ECONNRESET|ETIMEDOUT|socket hang up|network|temporar/i;
+const RETRY_DELAYS_MS = [1_000, 4_000];
+
+export function isTransientFailure(text: string): boolean {
+  return TRANSIENT.test(text);
+}
+
+function withoutImages(context: Context): Context {
+  return {
+    ...context,
+    messages: context.messages.map((message) => {
+      if (message.role !== "user" || typeof message.content === "string") return message;
+      return { ...message, content: message.content.filter((block) => block.type !== "image") };
+    }),
+  };
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 /**
- * One prompt, tried against each candidate until one returns text. Uses `streamSimple`
- * because Codex OAuth only serves streaming requests. An abort stops the chain.
+ * One prompt, tried against each candidate until one returns text. A transient failure
+ * (rate limit, 5xx, network, empty reply) is retried on the same model first, like
+ * Mastra's withRetry, then the next model is tried. Uses `streamSimple` because Codex
+ * OAuth only serves streaming requests. Images are dropped for models without image
+ * input. An abort stops the chain.
  */
 export async function completeWithFailover(
   registry: ModelAccess,
   candidates: readonly Model<Api>[],
   context: Context,
-  options: { signal?: AbortSignal; timeoutMs: number },
+  options: { signal?: AbortSignal; timeoutMs: number; retryDelaysMs?: readonly number[] },
 ): Promise<ModelCallResult> {
   const attempts: string[] = [];
+  const delays = options.retryDelaysMs ?? RETRY_DELAYS_MS;
   for (const model of candidates) {
-    if (options.signal?.aborted) break;
-    const signal = AbortSignal.any(
-      [AbortSignal.timeout(options.timeoutMs), options.signal].filter(
-        (s): s is AbortSignal => s !== undefined,
-      ),
-    );
-    try {
-      const reasoning = model.reasoning ? ("low" as const) : undefined;
-      const message = await registry.streamSimple(model, context, { signal, reasoning }).result();
-      if (message.stopReason === "error" || message.stopReason === "aborted") {
-        attempts.push(`${modelLabel(model)}: ${message.errorMessage ?? message.stopReason}`);
-        continue;
-      }
-      const text = message.content
-        .filter((block): block is { type: "text"; text: string } => block.type === "text")
-        .map((block) => block.text)
-        .join("")
-        .trim();
-      if (!text) {
-        attempts.push(`${modelLabel(model)}: empty response`);
-        continue;
-      }
-      return { text, model, message };
-    } catch (error) {
-      attempts.push(
-        `${modelLabel(model)}: ${error instanceof Error ? error.message : String(error)}`,
+    const modelContext = model.input?.includes("image") ? context : withoutImages(context);
+    for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+      if (options.signal?.aborted) break;
+      if (attempt > 0) await sleep(delays[attempt - 1]!, options.signal);
+      const signal = AbortSignal.any(
+        [AbortSignal.timeout(options.timeoutMs), options.signal].filter(
+          (s): s is AbortSignal => s !== undefined,
+        ),
       );
+      let failure: string;
+      try {
+        const reasoning = model.reasoning ? ("low" as const) : undefined;
+        const message = await registry
+          .streamSimple(model, modelContext, { signal, reasoning })
+          .result();
+        if (message.stopReason === "error" || message.stopReason === "aborted") {
+          failure = message.errorMessage ?? message.stopReason;
+        } else {
+          const text = message.content
+            .filter((block): block is { type: "text"; text: string } => block.type === "text")
+            .map((block) => block.text)
+            .join("")
+            .trim();
+          if (text) return { text, model, message };
+          failure = "empty response";
+        }
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+      }
+      attempts.push(`${modelLabel(model)}: ${failure}`);
+      if (!isTransientFailure(failure) && failure !== "empty response") break;
     }
+    if (options.signal?.aborted) break;
   }
   throw new ModelCallError(
     attempts.length > 0 ? `all OM models failed: ${attempts.join("; ")}` : "no OM model available",

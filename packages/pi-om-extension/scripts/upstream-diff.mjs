@@ -2,7 +2,7 @@
 // Verifies vendored prompt text in src/upstream matches @mastra/memory sources.
 // Usage: node scripts/upstream-diff.mjs <path-to-mastra observational-memory src dir>
 // Every template literal of 200+ characters in src/upstream/prompts.ts must appear
-// verbatim in the upstream observer-agent.ts, reflector-agent.ts or constants.ts.
+// verbatim in the upstream observer-agent.ts, reflector-agent.ts, constants.ts, built-in-extractors.ts or extractor.ts.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -11,7 +11,13 @@ if (!upstreamDir) {
   console.error("usage: upstream-diff.mjs <mastra src/processors/observational-memory>");
   process.exit(2);
 }
-const upstream = ["observer-agent.ts", "reflector-agent.ts", "constants.ts"]
+const upstream = [
+  "observer-agent.ts",
+  "reflector-agent.ts",
+  "constants.ts",
+  "built-in-extractors.ts",
+  "extractor.ts",
+]
   .map((file) => readFileSync(join(upstreamDir, file), "utf8"))
   .join("\n");
 const vendored = readFileSync(new URL("../src/upstream/prompts.ts", import.meta.url), "utf8");

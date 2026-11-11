@@ -3,7 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 
 import { completeWithFailover, type ModelAccess, modelLabel } from "./models.js";
 import { countTokens, estimateTokens } from "./tokens.js";
-import { formatTranscript } from "./transcript.js";
+import { collectImages, formatTranscript } from "./transcript.js";
 import {
   detectDegenerateRepetition,
   parseMemorySectionXml,
@@ -12,6 +12,9 @@ import {
 } from "./upstream/parse";
 import { buildObserverSystemPrompt } from "./upstream/prompts";
 import { truncateObservationsToTokenBudget } from "./upstream/truncate";
+
+/** Upper bound on images forwarded to the observer in one call. */
+export const MAX_OBSERVER_IMAGES = 8;
 
 /**
  * Pi-specific observer instruction, the analogue of Mastra Code's
@@ -27,6 +30,7 @@ export interface ObserveInput {
   activeObservations: string;
   priorCurrentTask?: string;
   priorSuggestedResponse?: string;
+  priorThreadTitle?: string;
   previousObserverTokens: number;
   toolResultMaxTokens: number;
 }
@@ -37,6 +41,7 @@ export interface ObserveOutput {
   currentTask?: string;
   suggestedResponse?: string;
   model: string;
+  threadTitle?: string;
 }
 
 /** Mastra's single observer request: prior memory, then the history, then the task. */
@@ -65,10 +70,11 @@ export function buildObserverUserMessage(input: ObserveInput): string {
   if (input.priorCurrentTask) prior.push(`- prior current-task: ${input.priorCurrentTask}`);
   if (input.priorSuggestedResponse)
     prior.push(`- prior suggested-response: ${input.priorSuggestedResponse}`);
+  if (input.priorThreadTitle) prior.push(`- prior thread-title: ${input.priorThreadTitle}`);
   if (prior.length > 0) {
     prompt += `## Prior Thread Metadata\n\n${prior.join("\n")}\n\n`;
     prompt +=
-      "Use the prior current-task, suggested-response as continuity hints, then update them based on the new messages.\n\n---\n\n";
+      "Use the prior current-task, suggested-response, and thread-title as continuity hints, then update them based on the new messages.\n\n---\n\n";
   }
   prompt += `## New Message History to Observe\n\n${formatTranscript(input.messages, {
     toolResultMaxTokens: input.toolResultMaxTokens,
@@ -88,6 +94,7 @@ export function parseObserverResponse(text: string): Omit<ObserveOutput, "model"
     observationTokens: countTokens(observations),
     currentTask: parsed.currentTask || undefined,
     suggestedResponse: parsed.suggestedResponse || undefined,
+    threadTitle: parsed.threadTitle || undefined,
   };
 }
 
@@ -99,6 +106,7 @@ export async function observe(
 ): Promise<ObserveOutput> {
   const systemPrompt = buildObserverSystemPrompt(PI_OBSERVER_INSTRUCTION);
   const user = buildObserverUserMessage(input);
+  const images = collectImages(input.messages, MAX_OBSERVER_IMAGES);
   // A degenerate or empty parse moves on to the next model, like a model error does.
   let remaining = [...candidates];
   const failures: string[] = [];
@@ -106,7 +114,16 @@ export async function observe(
     const result = await completeWithFailover(
       registry,
       remaining,
-      { systemPrompt, messages: [{ role: "user", content: user, timestamp: Date.now() }] },
+      {
+        systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: images.length > 0 ? [{ type: "text", text: user }, ...images] : user,
+            timestamp: Date.now(),
+          },
+        ],
+      },
       options,
     );
     const parsed = parseObserverResponse(result.text);

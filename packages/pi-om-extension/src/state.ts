@@ -33,6 +33,8 @@ export interface ChunkData {
   model: string;
   currentTask?: string;
   suggestedResponse?: string;
+  /** Title the observer proposed; OM applies it as the Pi session name unless the user named it. */
+  threadTitle?: string;
 }
 
 export interface ActivationData {

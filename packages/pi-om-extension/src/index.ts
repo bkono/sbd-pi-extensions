@@ -46,6 +46,8 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
       isIdle: () => ctx.isIdle(),
       appendEntry: (customType, data) => pi.appendEntry(customType, data),
       setStatus: (text) => ctx.ui.setStatus(STATUS_KEY, text),
+      getSessionName: () => pi.getSessionName(),
+      setSessionName: (name) => pi.setSessionName(name),
       now: () => Date.now(),
     };
   }

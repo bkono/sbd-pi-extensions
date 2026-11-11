@@ -39,7 +39,9 @@ import {
   replayState,
 } from "./state.js";
 import { MessageTokenCache } from "./tokens.js";
+import { temporalGapText } from "./transcript.js";
 import { resolveActivationTTL } from "./upstream/activation-ttl";
+import { wrapInObservationGroup } from "./upstream/observation-groups";
 
 /** What the runtime needs from Pi for one hook invocation. */
 export interface Host {
@@ -50,6 +52,8 @@ export interface Host {
   isIdle(): boolean;
   appendEntry(customType: string, data: unknown): void;
   setStatus(text: string | undefined): void;
+  getSessionName?(): string | undefined;
+  setSessionName?(name: string): void;
   now(): number;
   env?: NodeJS.ProcessEnv;
 }
@@ -109,6 +113,28 @@ function messageKey(message: AgentMessage): string {
     customType?: string;
   };
   return `${m.role}|${m.timestamp}|${m.toolCallId ?? ""}|${m.responseId ?? ""}|${m.customType ?? ""}`;
+}
+
+/**
+ * Mastra temporalMarkers, derived instead of persisted: for every user message that follows
+ * a gap of 10 minutes or more in the branch's full history, the reminder text. Deterministic
+ * from timestamps, so the request prefix stays cache-stable and pruning a predecessor never
+ * fakes a gap.
+ */
+function temporalGaps(branch: readonly SessionEntry[]): Map<string, string> {
+  const gaps = new Map<string, string>();
+  let previous: AgentMessage | undefined;
+  for (const entry of branch) {
+    if (entry.type !== "message" && entry.type !== "custom_message") continue;
+    const message =
+      entry.type === "message"
+        ? (entry.message as AgentMessage)
+        : ({ role: "custom", timestamp: Date.parse(entry.timestamp) } as AgentMessage);
+    const gap = temporalGapText(previous, message);
+    if (gap) gaps.set(entry.id, gap);
+    previous = message;
+  }
+  return gaps;
 }
 
 function formatK(tokens: number): string {
@@ -231,7 +257,9 @@ export class SessionOM {
         else idsByKey.set(key, [entry.sourceEntry.id]);
       }
     }
+    const gaps = temporalGaps(host.branch());
     let omitted = 0;
+    let markers = 0;
     const rest: AgentMessage[] = [];
     for (const message of messages.slice(1)) {
       if ((message as { role?: string }).role !== "system") {
@@ -239,6 +267,15 @@ export class SessionOM {
         if (entryId && state.observedEntryIds.has(entryId)) {
           omitted += 1;
           continue;
+        }
+        const gap = entryId ? gaps.get(entryId) : undefined;
+        if (gap) {
+          markers += 1;
+          rest.push({
+            role: "user",
+            content: `<system-reminder>${gap}</system-reminder>`,
+            timestamp: ((message as { timestamp?: number }).timestamp ?? 1) - 1,
+          } as AgentMessage);
         }
       }
       rest.push(message);
@@ -250,6 +287,7 @@ export class SessionOM {
     if (
       !memory &&
       omitted === 0 &&
+      markers === 0 &&
       section === undefined &&
       lead.sections?.[OM_SECTION] === undefined
     ) {
@@ -578,6 +616,7 @@ export class SessionOM {
           return;
         }
         this.pending.push({ customType: OM_CHUNK, data: chunk });
+        this.maybeApplyTitle(host, chunk);
         this.lastError = undefined;
         this.backoff.delete("buffer");
         this.record(
@@ -616,6 +655,7 @@ export class SessionOM {
         activeObservations: renderActiveObservations(state),
         priorCurrentTask: state.currentTask,
         priorSuggestedResponse: state.suggestedResponse,
+        priorThreadTitle: host.getSessionName?.(),
         previousObserverTokens: this.config.previousObserverTokens,
         toolResultMaxTokens: this.config.observerToolResultMaxTokens,
       },
@@ -637,7 +677,26 @@ export class SessionOM {
       model: result.model,
       currentTask: result.currentTask,
       suggestedResponse: result.suggestedResponse,
+      threadTitle: result.threadTitle,
     };
+  }
+
+  /**
+   * Mastra Code threadTitle: apply the observer's title as the session name, unless the
+   * session has a name OM did not set (the user named it, which pins it).
+   */
+  private maybeApplyTitle(host: Host, chunk: ChunkData): void {
+    const title = chunk.threadTitle?.trim();
+    if (!title || title.length < 3 || !host.setSessionName) return;
+    const current = host.getSessionName?.()?.trim();
+    if (current === title) return;
+    if (current) {
+      const omTitles = new Set(
+        [...this.state(host).chunks.values()].map((c) => c.threadTitle?.trim()).filter(Boolean),
+      );
+      if (!omTitles.has(current)) return;
+    }
+    host.setSessionName(title);
   }
 
   /**
@@ -688,6 +747,8 @@ export class SessionOM {
       );
       if (epoch !== this.epoch || this.disposed || signal?.aborted) return;
       for (const chunk of chunks) this.pending.push({ customType: OM_CHUNK, data: chunk });
+      const titled = chunks.filter((chunk) => chunk.threadTitle).at(-1);
+      if (titled) this.maybeApplyTitle(host, titled);
       state = this.state(host);
       status = computeStatus(units, state, this.config);
       this.activate(state, units, status.pendingTokens, trigger, host);
@@ -819,7 +880,9 @@ export class SessionOM {
     const parts: string[] = [];
     if (state.reflection) parts.push(state.reflection.observations);
     for (const chunk of state.activeChunks) {
-      if (sliceChunks.has(chunk.id)) parts.push(chunk.observations);
+      if (sliceChunks.has(chunk.id)) {
+        parts.push(wrapInObservationGroup(chunk.observations, chunk.range, chunk.id));
+      }
     }
     const startedAt = host.now();
     const epoch = this.epoch;

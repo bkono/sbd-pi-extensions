@@ -2,7 +2,10 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 
 import { completeWithFailover, type ModelAccess, modelLabel } from "./models.js";
 import { countTokens } from "./tokens.js";
-import { stripObservationGroups } from "./upstream/observation-groups";
+import {
+  reconcileObservationGroupsFromReflection,
+  stripObservationGroups,
+} from "./upstream/observation-groups";
 import {
   detectDegenerateRepetition,
   parseReflectorSectionXml,
@@ -75,7 +78,11 @@ export async function reflect(
     );
     if (detectDegenerateRepetition(sanitizeObservationLines(result.text))) continue;
     const parsed = parseReflectorSectionXml(result.text);
-    const reflected = sanitizeObservationLines(parsed.observations || "");
+    const sanitized = sanitizeObservationLines(parsed.observations || "");
+    // Mastra parseReflectorOutput: keep observation-group provenance (ids and source
+    // ranges) so recall still reaches the raw messages behind reflected memory.
+    const reflected =
+      reconcileObservationGroupsFromReflection(sanitized, observations) ?? sanitized;
     if (!reflected.trim()) continue;
     const output: ReflectOutput = {
       observations: reflected,

@@ -256,20 +256,67 @@ Or as a standalone observation when closing out a broader task:
 Completion observations should be terse but specific about WHAT was completed.
 Prefer concrete resolved outcomes over abstract workflow status so the assistant remembers what is already done.`;
 
-export function buildObserverOutputFormat(): string {
-  const legacyContinuationSections = `
-<current-task>
-State the current task(s) explicitly:
+/**
+ * Mastra composes these as built-in inline extractors (built-in-extractors.ts) and renders
+ * them with buildExtractorOutputSections (extractor.ts). Mastra Code's observer uses
+ * current-task, suggested-response and thread-title; its reflector the first two.
+ */
+const currentTaskInstructions = `State the current task(s) explicitly. Can be single or multiple:
 - Primary: What the agent is currently working on
 - Secondary: Other pending tasks (mark as "waiting for user" if appropriate)
-</current-task>
 
-<suggested-response>
-Hint for the agent's immediate next message. Examples:
+If the agent started doing something without user approval, note that it's off-task.`;
+
+const suggestedResponseInstructions = `Hint for the agent's immediate next message. Examples:
 - "I've updated the navigation model. Let me walk you through the changes..."
 - "The assistant should wait for the user to respond before continuing."
-- Call the view tool on src/example.ts to continue debugging.
-</suggested-response>`;
+- Call the view tool on src/example.ts to continue debugging.`;
+
+const threadTitleInstructions = `A short, noun-phrase title for this conversation (2-5 words). Examples:
+- "Auth bug fix" — not "Fixing the auth bug"
+- "Dark mode toggle" — not "User wants dark mode toggle added"
+- "Deployment pipeline setup" — not "Setting up deployment pipeline for project"
+Only update when the topic meaningfully changes.`;
+
+export type ExtractorSlug = "current-task" | "suggested-response" | "thread-title";
+
+const EXTRACTOR_INSTRUCTIONS: Record<ExtractorSlug, string> = {
+  "current-task": currentTaskInstructions,
+  "suggested-response": suggestedResponseInstructions,
+  "thread-title": threadTitleInstructions,
+};
+
+export const OBSERVER_EXTRACTORS: readonly ExtractorSlug[] = [
+  "current-task",
+  "suggested-response",
+  "thread-title",
+];
+export const REFLECTOR_EXTRACTORS: readonly ExtractorSlug[] = [
+  "current-task",
+  "suggested-response",
+];
+
+export function buildExtractorOutputSections(extractors: readonly ExtractorSlug[]): string {
+  if (extractors.length === 0) {
+    return "";
+  }
+
+  const sections = extractors
+    .map(
+      (slug) => `<${slug}>
+${EXTRACTOR_INSTRUCTIONS[slug]}
+Include this section when the observations contain relevant information for <${slug}>. Write only that information inside the tag.
+</${slug}>`,
+    )
+    .join("\n\n");
+
+  return `Additional optional XML sections:\nIf the observations include information relevant to any of these tags, output that tag after <observations> and include the relevant information.\n${sections}`;
+}
+
+export function buildObserverOutputFormat(
+  extractors: readonly ExtractorSlug[] = OBSERVER_EXTRACTORS,
+): string {
+  const extractorSections = buildExtractorOutputSections(extractors);
   return `Use priority levels:
 - 🔴 High: explicit user facts, preferences, unresolved goals, critical context
 - 🟡 Medium: project details, learned information, tool results
@@ -295,7 +342,7 @@ Date: Dec 5, 2025
 * 🔴 (09:15) Continued work on feature X
 </observations>
 
-${legacyContinuationSections}`;
+${extractorSections}`;
 }
 
 export const OBSERVER_GUIDELINES = `- Be specific enough for the assistant to act on
@@ -357,7 +404,7 @@ User messages are extremely important.${
 }
 
 export function buildReflectorSystemPrompt(instruction?: string): string {
-  const outputFormat = buildObserverOutputFormat();
+  const outputFormat = buildObserverOutputFormat(REFLECTOR_EXTRACTORS);
   const customInstructions = instruction ? `\n\n=== CUSTOM INSTRUCTIONS ===\n\n${instruction}` : "";
   const currentTaskEnabled = true;
   const suggestedResponseEnabled = true;
