@@ -20,11 +20,15 @@
     {
       "text": "Reworked the dependency graph to make `bw ready --scope sbdpi-f51` reflect actual delegation-safe concurrency instead of conceptual backlog groupings. The OM package has a very small shared core (`src/engine.ts`, `src/types.ts`, `src/state.ts`, `src/prompts.ts`, `src/format.ts`), so I tightened Tier 1 into a single serial implementation stream: staged/published state -\u003e threshold split -\u003e temporal anchors -\u003e lifecycle markers -\u003e observer specificity -\u003e injected layout -\u003e follow-on behavior -\u003e regression lock-in. Tier 2 is also serialized behind Tier 1 completion, then current-task lifecycle -\u003e gap/phase markers -\u003e reflection robustness. Goal: avoid spinning up multiple workers that would mostly fight over the same prompt/state/rendering surfaces and create high-conflict rebases for little value.",
       "timestamp": "2026-04-18T06:39:25Z"
+    },
+    {
+      "text": "Superseded by sbdpi-qhi (pi-om v2 Mastra-parity rewrite).",
+      "timestamp": "2026-11-11T18:28:48Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Implement the practical Mastra-parity backlog for @packages/pi-om-extension",
   "type": "epic",
-  "updated_at": "2026-04-18T06:39:25Z"
+  "updated_at": "2026-11-11T18:28:48Z"
 }
