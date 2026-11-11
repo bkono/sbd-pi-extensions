@@ -11,11 +11,15 @@
     {
       "text": "Done on chore/pi-1.5.2 (pushed); gates green; awaiting merge.",
       "timestamp": "2026-11-11T22:51:42Z"
+    },
+    {
+      "text": "Merged to main (4719175, ff). Post-merge gates green: lint, typecheck, 2137 tests.",
+      "timestamp": "2026-11-11T22:58:18Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "chore: upgrade Pi to 1.5.2",
   "type": "task",
-  "updated_at": "2026-11-11T22:51:42Z"
+  "updated_at": "2026-11-11T22:58:18Z"
 }
