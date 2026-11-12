@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 /** Shell commands the workflow gates. Matching is on command text, so it is a guard, not a wall. */
 export type GuardedCommand = "merge" | "ready";
 
@@ -12,4 +14,11 @@ export const MERGE_BLOCK_REASON =
 
 export function readyBlockReason(line: string): string {
   return `no passing independent verdict for HEAD (${line}); run the verifier before marking the PR ready`;
+}
+
+/** The directory a command runs in: a leading `cd <dir> &&` or `cd <dir>;`, else the session cwd. */
+export function commandCwd(command: string, cwd: string): string {
+  const match = command.match(/^\s*cd\s+(?:"([^"]+)"|'([^']+)'|([^\s;&]+))\s*(?:&&|;)/);
+  const dir = match?.[1] ?? match?.[2] ?? match?.[3];
+  return dir ? resolve(cwd, dir) : cwd;
 }

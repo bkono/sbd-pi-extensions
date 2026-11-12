@@ -61,7 +61,7 @@ describe("decideSettle", () => {
     const message = "message" in decision ? decision.message : "";
     expect(message).toContain("the bug is fixed");
     expect(message).toContain("/r: no passing verdict for bbb");
-    expect(message).toContain("/s: tracked edits are uncommitted");
+    expect(message).toContain("/s: commits landed but changes are still uncommitted");
   });
 
   it("gives up after the continuation cap instead of looping", () => {

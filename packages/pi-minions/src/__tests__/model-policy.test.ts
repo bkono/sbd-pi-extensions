@@ -64,4 +64,18 @@ describe("selectModel", () => {
         "verifier must differ from the writers' model; set pi-minions.modes.build in settings.json",
     });
   });
+
+  it("checks independence for agents outside the pack too", () => {
+    const own = agent({ name: "judge", independent: true, model: "openai-codex/gpt-6.1-sol" });
+    expect(selectModel(undefined, own, modes)).toEqual({
+      reject:
+        "judge would run on openai-codex/gpt-6.1-sol, the build model writers use; set its model to another model",
+    });
+    expect(selectModel("anthropic/claude-fable-5-2", own, modes)).toEqual({
+      ref: "anthropic/claude-fable-5-2",
+    });
+    expect(selectModel(undefined, agent({ name: "judge", independent: true }), modes)).toEqual({
+      reject: "judge must run on a model other than the build model; give it a mode or model",
+    });
+  });
 });

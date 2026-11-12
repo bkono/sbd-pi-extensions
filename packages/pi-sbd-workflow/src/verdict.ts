@@ -60,6 +60,11 @@ export function resolveSha(cwd: string, ref: string): string | undefined {
   return tryGit(cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
 }
 
+/** Changed tracked files or new files git does not ignore. */
+export function hasUncommittedWork(cwd: string): boolean {
+  return Boolean(tryGit(cwd, ["status", "--porcelain"]));
+}
+
 /** Tracked files with uncommitted changes. Untracked files do not count. */
 export function hasTrackedEdits(cwd: string): boolean {
   return Boolean(tryGit(cwd, ["status", "--porcelain", "--untracked-files=no"]));

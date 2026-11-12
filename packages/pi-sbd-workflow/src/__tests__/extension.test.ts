@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   createEventBus,
@@ -145,7 +145,7 @@ describe("pi-sbd-workflow", () => {
     live = 0;
     for (let i = 0; i < MAX_CONTINUATIONS; i++) expect((await h.settle(repo))?.continue).toBe(true);
     const last = await h.settle(repo);
-    expect(last?.continue).toBe(false);
+    expect(last?.continue).toBeUndefined();
     expect(last?.entries?.[0]?.content).toContain("Done is not claimed");
     expect(await h.settle(repo)).toBeUndefined();
   });
@@ -225,5 +225,113 @@ describe("pi-sbd-workflow", () => {
     const none = { systemPromptOptions: { skills: [], sections: {} as Record<string, string> } };
     await h.fire("before_agent_start", none, skillsDir);
     expect(none.systemPromptOptions.sections).toEqual({});
+  });
+
+  it("keeps covered bases when the predicate is set again", async () => {
+    const repo = makeRepo();
+    const h = harness();
+    const setPredicate = h.tools.get(SET_PREDICATE_TOOL);
+    if (!setPredicate) throw new Error("missing tool");
+    await h.callTool(setPredicate, { predicate: "first" }, repo);
+    commit(repo, "a.txt", "two\n");
+    expect((await h.settle(repo))?.continue).toBe(true);
+    await h.callTool(setPredicate, { predicate: "reworded" }, repo);
+    const held = await h.settle(repo);
+    expect(held?.continue).toBe(true);
+    expect(held?.entries?.[0]?.content).toContain("Goal: reworded");
+  });
+
+  it("keeps the goal after giving up, stays quiet, and re-arms when the user speaks", async () => {
+    const repo = makeRepo();
+    const h = harness();
+    const setPredicate = h.tools.get(SET_PREDICATE_TOOL);
+    if (!setPredicate) throw new Error("missing tool");
+    await h.callTool(setPredicate, { predicate: "p" }, repo);
+    commit(repo, "a.txt", "two\n");
+    for (let i = 0; i < MAX_CONTINUATIONS; i++) await h.settle(repo);
+    const gaveUp = await h.settle(repo);
+    expect(gaveUp?.continue).toBeUndefined();
+    expect(gaveUp?.entries?.[0]?.content).toContain("the goal stays set");
+    expect(h.entries.at(-1)?.data).not.toBeNull();
+    expect(await h.settle(repo)).toBeUndefined();
+    await h.fire("input", { type: "input", text: "go on", source: "interactive" }, repo);
+    expect((await h.settle(repo))?.continue).toBe(true);
+  });
+
+  it("lets a pause with uncommitted work settle, and blocks met on new uncommitted files", async () => {
+    const repo = makeRepo();
+    const h = harness();
+    const setPredicate = h.tools.get(SET_PREDICATE_TOOL);
+    if (!setPredicate) throw new Error("missing tool");
+    await h.callTool(setPredicate, { predicate: "p" }, repo);
+    writeFileSync(join(repo, "a.txt"), "wip\n");
+    expect(await h.settle(repo)).toBeUndefined();
+
+    git(repo, "checkout", "--", "a.txt");
+    const sha = commit(repo, "a.txt", "two\n");
+    writeFileSync(join(repo, "new-module.js"), "export {};\n");
+    const wt = worktreeAt(repo, sha);
+    await h.callTool(
+      verifierTool(h.contributions),
+      { sha, verdict: "PASS", worktree: wt, summary: "ran it" },
+      wt,
+    );
+    const held = await h.settle(repo);
+    expect(held?.continue).toBe(true);
+    expect(held?.entries?.[0]?.content).toContain("changes are still uncommitted");
+  });
+
+  it("ignores changes that predate the goal", async () => {
+    const repo = makeRepo();
+    writeFileSync(join(repo, "user-wip.txt"), "theirs\n");
+    const h = harness();
+    const setPredicate = h.tools.get(SET_PREDICATE_TOOL);
+    if (!setPredicate) throw new Error("missing tool");
+    await h.callTool(setPredicate, { predicate: "p" }, repo);
+    const sha = commit(repo, "a.txt", "two\n");
+    const wt = worktreeAt(repo, sha);
+    await h.callTool(
+      verifierTool(h.contributions),
+      { sha, verdict: "PASS", worktree: wt, summary: "ran it" },
+      wt,
+    );
+    expect(await h.settle(repo)).toBeUndefined();
+    expect(h.entries.at(-1)).toEqual({ customType: GOAL_ENTRY, data: null });
+  });
+
+  it("rebuilds the goal when /tree moves the branch", async () => {
+    const repo = makeRepo();
+    const base = git(repo, "rev-parse", "HEAD");
+    const branch: unknown[] = [];
+    const h = harness({ branch });
+    commit(repo, "a.txt", "two\n");
+    expect(await h.settle(repo)).toBeUndefined();
+    branch.push({
+      type: "custom",
+      customType: GOAL_ENTRY,
+      data: { predicate: "p", repos: [{ root: repo, base }] },
+    });
+    await h.fire("session_tree", { type: "session_tree" }, repo);
+    expect((await h.settle(repo))?.continue).toBe(true);
+  });
+
+  it("checks ready against the directory the command cds into", async () => {
+    const repo = makeRepo();
+    const h = harness();
+    const sha = git(repo, "rev-parse", "HEAD");
+    await h.callTool(
+      verifierTool(h.contributions),
+      { sha, verdict: "PASS", worktree: worktreeAt(repo, sha), summary: "ran it" },
+      repo,
+    );
+    const other = makeRepo();
+    const call = (command: string) =>
+      h.fire(
+        "tool_call",
+        { type: "tool_call", toolName: "bash", input: { command } },
+        repo,
+      ) as Promise<{ block?: boolean } | undefined>;
+    expect(await call("gh pr ready 3")).toBeUndefined();
+    expect(await call(`cd ${other} && gh pr ready 3`)).toMatchObject({ block: true });
   });
 });

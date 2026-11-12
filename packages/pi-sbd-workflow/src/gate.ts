@@ -8,6 +8,8 @@ export interface GoalRepo {
   root: string;
   /** HEAD when the goal was set. A repository still at its base shipped no commits. */
   base: string;
+  /** Uncommitted changes existed when the goal was set, so they are not this goal's to commit. */
+  dirtyAtStart?: boolean;
 }
 
 export interface Goal {
@@ -31,7 +33,7 @@ export const MAX_CONTINUATIONS = 3;
 
 function unmet(state: RepoState): string | undefined {
   if (state.kind === "uncommitted") {
-    return `${state.root}: tracked edits are uncommitted. Commit them, then have the verifier check that SHA.`;
+    return `${state.root}: commits landed but changes are still uncommitted. Commit them, then have the verifier check that SHA.`;
   }
   if (state.kind === "verdict" && !state.pass) {
     return `${state.root}: ${state.line}. Dispatch the verifier on ${state.sha}; only its sbd_verdict_post counts.`;
@@ -49,6 +51,8 @@ export function decideSettle(input: {
   if (!goal) return { kind: "settle" };
   // Yielding while delegates run is supervision, not "done". Their packets wake the lead.
   if (input.liveChildren > 0) return { kind: "settle" };
+  // After giving up, stay quiet until the user speaks and resets the count.
+  if (input.continuations > MAX_CONTINUATIONS) return { kind: "settle" };
   const states = input.states();
   const problems = states.map(unmet).filter((line): line is string => line !== undefined);
   if (problems.length === 0) {
@@ -61,7 +65,7 @@ export function decideSettle(input: {
     return {
       kind: "give-up",
       message: [
-        `sbd gate: the goal is still not met after ${MAX_CONTINUATIONS} continuations, so the session settles. Done is not claimed.`,
+        `sbd gate: the goal is still not met after ${MAX_CONTINUATIONS} continuations, so the session settles. Done is not claimed, and the goal stays set.`,
         ...problems.map((line) => `- ${line}`),
       ].join("\n"),
     };

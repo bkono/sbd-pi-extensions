@@ -8,10 +8,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { decideSettle, type Goal, type GoalRepo, type RepoState } from "./gate.js";
-import { classifyCommand, MERGE_BLOCK_REASON, readyBlockReason } from "./guard.js";
+import { classifyCommand, commandCwd, MERGE_BLOCK_REASON, readyBlockReason } from "./guard.js";
 import {
   checkVerdict,
-  hasTrackedEdits,
+  hasUncommittedWork,
   postVerdict,
   repoRoot,
   resolveSha,
@@ -38,9 +38,12 @@ interface MinionsApi {
 export const AGENTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "agents");
 
 export function repoState(repo: GoalRepo): RepoState {
-  if (hasTrackedEdits(repo.root)) return { root: repo.root, kind: "uncommitted" };
   const head = resolveSha(repo.root, "HEAD");
+  // Work in progress without commits is a pause or a question, not a claim of done.
   if (!head || head === repo.base) return { root: repo.root, kind: "unchanged" };
+  if (!repo.dirtyAtStart && hasUncommittedWork(repo.root)) {
+    return { root: repo.root, kind: "uncommitted" };
+  }
   const result = checkVerdict(repo.root, head);
   return { root: repo.root, kind: "verdict", pass: result.pass, line: result.line, sha: head };
 }
@@ -115,8 +118,17 @@ export default function sbdWorkflow(pi: ExtensionAPI): void {
 
   const setGoal = (next: Goal | undefined) => {
     goal = next;
-    continuations = 0;
     pi.appendEntry(GOAL_ENTRY, next ?? null);
+  };
+
+  const restoreGoal = (ctx: ExtensionContext) => {
+    goal = undefined;
+    continuations = 0;
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "custom" && entry.customType === GOAL_ENTRY) {
+        goal = (entry.data as Goal | null) ?? undefined;
+      }
+    }
   };
 
   pi.events.on(MINIONS_READY, (api: unknown) => {
@@ -130,40 +142,37 @@ export default function sbdWorkflow(pi: ExtensionAPI): void {
   });
   pi.events.emit(MINIONS_HELLO, undefined);
 
-  pi.on("session_start", (_event, ctx) => {
-    goal = undefined;
-    continuations = 0;
-    for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry.type === "custom" && entry.customType === GOAL_ENTRY) {
-        goal = (entry.data as Goal | null) ?? undefined;
-      }
-    }
-  });
+  pi.on("session_start", (_event, ctx) => restoreGoal(ctx));
+  pi.on("session_tree", (_event, ctx) => restoreGoal(ctx));
 
   pi.registerTool({
     name: SET_PREDICATE_TOOL,
     label: "Set done-predicate",
     description:
-      "Set this session's done-predicate. Until it is met, Pi will not settle while a covered repository has new commits without a passing verifier verdict at HEAD, or has uncommitted tracked edits.",
+      "Set this session's done-predicate. Until it is met, Pi will not settle while a covered repository has new commits without a passing verifier verdict at HEAD, or has new commits and uncommitted changes. Calling it again rewords the goal or adds repositories; it never resets what is already covered.",
     promptSnippet: "Set the sbd done-predicate that gates settling on an independent verdict",
     parameters: SetPredicateParams,
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const predicate = params.predicate.trim();
       if (!predicate) throw new Error("the predicate is empty");
       const paths = params.repos?.length ? params.repos : [ctx.cwd];
-      const repos: GoalRepo[] = [];
+      // A covered repository keeps its base, so a re-set cannot hide unverified commits.
+      const repos: GoalRepo[] = [...(goal?.repos ?? [])];
       for (const path of paths) {
         const root = repoRoot(path);
         const base = root && resolveSha(root, "HEAD");
         if (!root || !base) throw new Error(`not a git repository with a commit: ${path}`);
-        if (!repos.some((repo) => repo.root === root)) repos.push({ root, base });
+        if (!repos.some((repo) => repo.root === root)) {
+          repos.push({ root, base, dirtyAtStart: hasUncommittedWork(root) });
+        }
       }
+      if (!goal) continuations = 0;
       setGoal({ predicate, repos });
       return text(
         [
           `Goal set: ${predicate}`,
           `Covered: ${repos.map((repo) => `${repo.root} (base ${repo.base.slice(0, 12)})`).join(", ")}.`,
-          "The session will not settle while a covered repository has new commits without a passing verifier verdict at HEAD, or uncommitted tracked edits.",
+          "The session will not settle while a covered repository has new commits without a passing verifier verdict at HEAD, or has new commits and uncommitted changes.",
         ].join("\n"),
       );
     },
@@ -184,6 +193,7 @@ export default function sbdWorkflow(pi: ExtensionAPI): void {
     if (decision.kind === "settle") return undefined;
     if (decision.kind === "met") {
       setGoal(undefined);
+      continuations = 0;
       return undefined;
     }
     const draft = {
@@ -193,8 +203,9 @@ export default function sbdWorkflow(pi: ExtensionAPI): void {
       display: true,
     };
     if (decision.kind === "give-up") {
-      setGoal(undefined);
-      return { entries: [...event.entries, draft], continue: false };
+      // Keep the goal: the next user message re-arms the gate. Leave `continue` to other handlers.
+      continuations += 1;
+      return { entries: [...event.entries, draft] };
     }
     continuations += 1;
     return { entries: [...event.entries, draft], continue: true };
@@ -206,7 +217,7 @@ export default function sbdWorkflow(pi: ExtensionAPI): void {
     const kind = classifyCommand(command);
     if (kind === "merge") return { block: true, reason: MERGE_BLOCK_REASON };
     if (kind === "ready") {
-      const check = checkVerdict(ctx.cwd, "HEAD");
+      const check = checkVerdict(commandCwd(command, ctx.cwd), "HEAD");
       if (!check.pass) return { block: true, reason: readyBlockReason(check.line) };
     }
     return undefined;
