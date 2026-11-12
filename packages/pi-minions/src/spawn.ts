@@ -80,6 +80,8 @@ export async function runMinionSession(
     signal?: AbortSignal;
     modelRegistry: ModelRegistry;
     customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
+    /** Names of `customTools` to keep active past the agent's tool allowlist. */
+    extraTools?: string[];
     parentToolNames?: string[];
     toolSyncEnabled?: boolean;
     toolSyncMaxWait?: number;
@@ -142,8 +144,8 @@ export async function runMinionSession(
       signal: opts.signal,
       customTools: opts.customTools,
       parentToolNames: opts.parentToolNames,
-      // Spawn never unions orchestrated comm tools.
-      extraTools: [],
+      // Spawn never unions orchestrated comm tools; only tools contributed for this agent.
+      extraTools: opts.extraTools ?? [],
       toolSyncEnabled: opts.toolSyncEnabled,
       toolSyncMaxWait: opts.toolSyncMaxWait,
 

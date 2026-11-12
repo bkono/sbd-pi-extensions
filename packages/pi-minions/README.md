@@ -98,12 +98,40 @@ agent/template name; it is independent from the closed `taskType` workflow-polic
 merges layers in this order, with later definitions winning:
 
 1. package built-ins
-2. user definitions under Pi/agent minion directories
-3. project definitions under `.pi/agents`, `.pi/minions`, `.agents/agents`, or `.agents/minions`
+2. agent directories other extensions contribute (see [Contributions](#contributions))
+3. user definitions under Pi/agent minion directories
+4. project definitions under `.pi/agents`, `.pi/minions`, `.agents/agents`, or `.agents/minions`
 
-The package always supplies `worker` (routine scoped implementation, medium thinking) and
-`investigate` (evidence-first investigation, high thinking). Neither pins a provider or model.
-Project `worker` overrides user `worker`, which overrides the built-in.
+The package always supplies `worker` (routine scoped implementation, medium thinking, `build` mode)
+and `investigate` (evidence-first investigation, high thinking, `plan` mode). Neither pins a
+provider or model. Project `worker` overrides user `worker`, which overrides the built-in.
+
+Agent frontmatter beyond the basics:
+
+| Field | Meaning |
+| ----- | ------- |
+| `mode` | `plan`, `build` or `fast`: which model of the pack (`modes`) the agent runs on. |
+| `packModel: true` | Runs only on its mode's model. A task or file `model` is ignored with a warning. Rejected when the mode has no model. |
+| `independent: true` | With `packModel`: rejected when its mode model is the `build` model, so a verifier never shares the writers' model. |
+
+A child's model is the task `model`, else the file `model`, else its mode's model, else the
+session model. Pack agents skip the first two.
+
+### Contributions
+
+Other extensions extend minions over `pi.events`, with no import of this package. Minions emits
+`pi-minions:ready` with `{ liveOrchestrated(): number }` when it loads and whenever it hears
+`pi-minions:hello`. A contributor emits `pi-minions:hello` when it loads, and on ready emits
+`pi-minions:contribute`:
+
+```ts
+pi.events.emit("pi-minions:contribute", {
+  source: "my-package",            // a later contribution from the same source replaces this one
+  agentDirs: ["/abs/path/agents"],  // discovered below user and project agents
+  agentTools: { verifier: [tool] }, // injected only into children of that agent
+  parentOnlyTools: ["my_tool"],     // never active in any child
+});
+```
 
 **Migration:** replace `orchestrate.tasks[].role` with `orchestrate.tasks[].agent`. `role` was removed,
 not retained as an alias. Do not move semantic workflow values into `agent`; keep values such as
@@ -181,10 +209,18 @@ notices to one delivery per peer per announcement.
     "toolSync": {
       "enabled": true,
       "maxWait": 5
+    },
+    "modes": {
+      "plan": "anthropic/claude-opus-5-5",
+      "build": "openai-codex/gpt-6.1-sol",
+      "fast": "anthropic/claude-fable-5-2"
     }
   }
 }
 ```
+
+`modes` is the model pack. It has no defaults: an unset mode means the session model, except for
+pack agents, which are rejected until their mode is set.
 
 Global settings come from `getAgentDir()/settings.json`; project settings in `<cwd>/.pi/settings.json`
 override them.

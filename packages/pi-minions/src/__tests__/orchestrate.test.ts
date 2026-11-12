@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { unknownAgentMessage } from "../agents.js";
 import registerMinions from "../index.js";
@@ -947,6 +948,7 @@ describe("extension registration", () => {
       hangingHandle("mn-live", cwd),
     );
     const pi = {
+      events: createEventBus(),
       registerTool: (tool: {
         name: string;
         description?: string;

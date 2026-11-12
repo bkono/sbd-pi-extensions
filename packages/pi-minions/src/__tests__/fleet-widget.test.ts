@@ -8,6 +8,7 @@ import type {
   SessionStartEvent,
   Theme,
 } from "@earendil-works/pi-coding-agent";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -354,6 +355,7 @@ describe("fleet widget reactivity and lifecycle", () => {
 function extensionHarness() {
   const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>();
   const pi = {
+    events: createEventBus(),
     registerTool: vi.fn(),
     registerCommand: vi.fn(),
     registerMessageRenderer: vi.fn(),

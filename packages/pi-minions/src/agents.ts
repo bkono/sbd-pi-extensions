@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_AGENTS } from "./builtin-agents.js";
+import { contributedAgentDirs } from "./contributions.js";
 import { logger } from "./logger.js";
-import type { AgentConfig, AgentSource, ThinkingLevel } from "./types.js";
+import { AGENT_MODES } from "./model-policy.js";
+import type { AgentConfig, AgentMode, AgentSource, ThinkingLevel } from "./types.js";
 
 export { BUILTIN_AGENTS } from "./builtin-agents.js";
 
@@ -26,6 +28,16 @@ function parseCompletionNudge(raw: unknown): string | undefined {
   return trimmed.length > COMPLETION_NUDGE_MAX_LENGTH
     ? trimmed.slice(0, COMPLETION_NUDGE_MAX_LENGTH)
     : trimmed;
+}
+
+function flag(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+function parseMode(value: unknown): AgentMode | undefined {
+  return typeof value === "string" && (AGENT_MODES as readonly string[]).includes(value)
+    ? (value as AgentMode)
+    : undefined;
 }
 
 function loadAgentFromFile(
@@ -62,6 +74,9 @@ function loadAgentFromFile(
       : undefined;
   const timeout = frontmatter.timeout ? parseInt(frontmatter.timeout, 10) || undefined : undefined;
   const completionNudge = parseCompletionNudge(frontmatter.completion_nudge);
+  const mode = parseMode(frontmatter.mode);
+  const packModel = flag(frontmatter.packModel) || flag(frontmatter.pack_model);
+  const independent = flag(frontmatter.independent);
 
   logger.debug("agents", "loaded", {
     name,
@@ -75,6 +90,9 @@ function loadAgentFromFile(
     description: frontmatter.description,
     tools: tools && tools.length > 0 ? tools : undefined,
     model: frontmatter.model,
+    ...(mode ? { mode } : {}),
+    ...(packModel ? { packModel } : {}),
+    ...(independent ? { independent } : {}),
     thinking,
     steps,
     timeout,
@@ -139,7 +157,7 @@ function findProjectDir(cwd: string, ...subpath: string[]): string | null {
   }
 }
 
-/** Later layers win. Discovery order is builtin < user < project. */
+/** Later layers win. Discovery order is builtin < package < user < project. */
 export function mergeAgentLayers(...layers: AgentConfig[][]): AgentConfig[] {
   const agentMap = new Map<string, AgentConfig>();
   for (const layer of layers) {
@@ -220,6 +238,11 @@ export function discoverAgents(
         ]
       : [];
 
+  const packageAgents =
+    scope !== "project"
+      ? contributedAgentDirs().flatMap((dir) => loadAgentsFromDir(dir, "package"))
+      : [];
+
   const projectAgents: AgentConfig[] = [];
   if (scope !== "user") {
     if (piProjectDir) projectAgents.push(...loadAgentsFromDir(piProjectDir, "project"));
@@ -234,7 +257,7 @@ export function discoverAgents(
   const projectAgentsDir =
     piProjectDir ?? piMinionsProjectDir ?? dotAgentsProjectDir ?? dotMinionsProjectDir;
   return {
-    agents: mergeAgentLayers([...BUILTIN_AGENTS], userAgents, projectAgents),
+    agents: mergeAgentLayers([...BUILTIN_AGENTS], packageAgents, userAgents, projectAgents),
     projectAgentsDir,
   };
 }

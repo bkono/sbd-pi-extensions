@@ -12,7 +12,10 @@ export {
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-export type AgentSource = "builtin" | "user" | "project" | "ephemeral";
+export type AgentSource = "builtin" | "package" | "user" | "project" | "ephemeral";
+
+/** Which model of the pack (`pi-minions.modes`) an agent runs on. */
+export type AgentMode = "plan" | "build" | "fast";
 
 export function namedAgent(node: { agentName?: string }): string | undefined {
   if (!node.agentName || node.agentName === "ephemeral") return undefined;
@@ -25,6 +28,12 @@ export interface AgentConfig {
   description: string;
   tools?: string[];
   model?: string;
+  /** Pack mode. Without a file or task model the agent runs on `pi-minions.modes[mode]`. */
+  mode?: AgentMode;
+  /** Runs only on its mode's model; task and file models are ignored. */
+  packModel?: boolean;
+  /** Must not run on the build model writers use (a verifier). Needs `packModel`. */
+  independent?: boolean;
   thinking?: ThinkingLevel;
   steps?: number;
   timeout?: number;

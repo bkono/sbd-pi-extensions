@@ -7,8 +7,10 @@ import {
   sanitizeActivityText,
 } from "../activity.js";
 import { requireAgent } from "../agents.js";
+import { contributedToolsFor } from "../contributions.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate } from "../minions.js";
+import { type ModesConfig, selectModel } from "../model-policy.js";
 import { runMinionSession } from "../spawn.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { BatchMinionItem } from "../tools/spawn.js";
@@ -75,6 +77,7 @@ export async function runSingleMinion(opts: {
   ctx: ExtensionContext;
   piConfig: {
     toolSync: { enabled: boolean; maxWait: number };
+    modes: ModesConfig;
   };
   parentToolNames: string[];
   subsessionManager: SubsessionManager;
@@ -103,11 +106,15 @@ export async function runSingleMinion(opts: {
       ? resolveAgentConfig(spec.agent, ctx.cwd)
       : defaultMinionTemplate(m.name, { model: spec.model });
 
-    const requestedModel = spec.model ?? config.model;
-    const selectedModel = resolveModelReference(requestedModel, ctx);
-    if (requestedModel && selectedModel) {
+    const selection = selectModel(spec.model, config, piConfig.modes);
+    if ("reject" in selection) throw new Error(selection.reject);
+    if (selection.ignored)
+      logger.warn("spawn:tool", "model ignored", { detail: selection.ignored });
+    const selectedModel = resolveModelReference(selection.ref, ctx);
+    if (selection.ref && selectedModel) {
       m.model = formatModelReference(selectedModel);
     }
+    const agentTools = spec.agent ? contributedToolsFor(config.name) : [];
 
     const bound = bindTreeActivity(tree, m.id);
     let narrativeTail = "";
@@ -130,6 +137,8 @@ export async function runSingleMinion(opts: {
         spawnedBy: toolCallId,
         parentSessionPath: ctx.sessionManager?.getSessionFile() ?? undefined,
         parentToolNames,
+        customTools: agentTools,
+        extraTools: agentTools.map((tool) => tool.name),
         toolSyncEnabled: piConfig.toolSync.enabled,
         toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
         tree,

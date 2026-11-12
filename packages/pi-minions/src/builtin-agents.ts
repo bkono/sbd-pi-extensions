@@ -55,6 +55,7 @@ export const BUILTIN_AGENTS: readonly AgentConfig[] = [
     name: "worker",
     description:
       "Routine scoped implementation. Follow repository patterns, verify, and report files/validation/risk.",
+    mode: "build",
     thinking: "medium",
     systemPrompt: WORKER_PROMPT,
     source: "builtin",
@@ -64,6 +65,7 @@ export const BUILTIN_AGENTS: readonly AgentConfig[] = [
     name: "investigate",
     description:
       "Evidence-first investigation. Do not mutate the project unless the complete task explicitly requests implementation.",
+    mode: "plan",
     thinking: "high",
     systemPrompt: INVESTIGATE_PROMPT,
     source: "builtin",

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { AGENT_MODES, type ModesConfig } from "./model-policy.js";
 
 export interface PiMinionsConfig {
   minionNames?: string[];
@@ -9,6 +10,8 @@ export interface PiMinionsConfig {
   delegation?: DelegationConfig;
   display?: DisplayConfig;
   toolSync?: ToolSyncConfig;
+  /** The minions model pack: a model reference per mode. Unset modes use the session model. */
+  modes?: ModesConfig;
 }
 
 export interface ToolSyncConfig {
@@ -49,6 +52,7 @@ export interface ResolvedConfig {
   display: Required<DisplayConfig>;
   toolSync: Required<ToolSyncConfig>;
   delegation: ResolvedDelegationConfig;
+  modes: ModesConfig;
 }
 
 interface PiSettings {
@@ -89,6 +93,10 @@ function loadSettings(cwd: string): PiSettings {
           toolSync: {
             ...settings["pi-minions"]?.toolSync,
             ...projectSettings["pi-minions"]?.toolSync,
+          },
+          modes: {
+            ...settings["pi-minions"]?.modes,
+            ...projectSettings["pi-minions"]?.modes,
           },
         };
       }
@@ -213,5 +221,17 @@ export function getConfig(ctx: ExtensionContext): ResolvedConfig {
       enabled: user.toolSync?.enabled ?? true,
       maxWait: user.toolSync?.maxWait ?? 5,
     },
+    modes: resolveModes(user.modes),
   };
+}
+
+/** Keeps only known modes with non-empty string references. */
+function resolveModes(raw: unknown): ModesConfig {
+  if (!raw || typeof raw !== "object") return {};
+  const modes: ModesConfig = {};
+  for (const mode of AGENT_MODES) {
+    const value = (raw as Record<string, unknown>)[mode];
+    if (typeof value === "string" && value.trim()) modes[mode] = value.trim();
+  }
+  return modes;
 }
