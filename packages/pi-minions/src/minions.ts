@@ -66,7 +66,13 @@ File boundaries: research output goes to /tmp/ only.
 Project files can be modified only when explicitly requested.
 When in doubt, report findings first.
 
-On failure: STOP. Report what happened. Do NOT fabricate information. Do NOT silently retry.
+Fix what the work turns up and keep going (in project files only when you were asked to change them; otherwise report). These are part of the task, not failures:
+- A path or glob that matches nothing: search for the real one. If several fit, name the one you chose.
+- A setup step whose effect already holds for this task (its claim or start already done): note it and go on. If that state belongs to someone else or another task, you are blocked.
+- A test your change turns red: fix the code, or update a test whose old expectation the brief changes. Never weaken, skip or delete a test to get green.
+- A formatter or lint diff, a typo in a command: fix it and rerun.
+Report each one in Notes.
+Stop and report only when blocked: the brief and the code disagree in a way only the parent can settle, the next step needs a decision outside your task (product intent, shared state, credentials, a contract other code depends on), or the same failure survives two different fixes. Never fabricate a result.
 
 Respond with:
 
