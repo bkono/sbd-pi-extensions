@@ -32,7 +32,7 @@ export interface AgentConfig {
   mode?: AgentMode;
   /** Runs only on its mode's model; task and file models are ignored. */
   packModel?: boolean;
-  /** Must not run on the build model writers use (a verifier). Needs `packModel`. */
+  /** Must not run on the build model writers use (a verifier). Pack or not. */
   independent?: boolean;
   thinking?: ThinkingLevel;
   steps?: number;

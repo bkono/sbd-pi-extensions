@@ -112,7 +112,7 @@ Agent frontmatter beyond the basics:
 | ----- | ------- |
 | `mode` | `plan`, `build` or `fast`: which model of the pack (`modes`) the agent runs on. |
 | `packModel: true` | Runs only on its mode's model. A task or file `model` is ignored with a warning. Rejected when the mode has no model. |
-| `independent: true` | With `packModel`: rejected when its mode model is the `build` model, so a verifier never shares the writers' model. |
+| `independent: true` | Rejected when its selected model is the `build` model, or when `build` is unset, so a verifier never shares the writers' model. |
 
 A child's model is the task `model`, else the file `model`, else its mode's model, else the
 session model. Pack agents skip the first two.
