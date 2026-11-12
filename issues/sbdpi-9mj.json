@@ -6,9 +6,15 @@
   "description": "",
   "id": "sbdpi-9mj",
   "labels": [],
+  "comments": [
+    {
+      "text": "Built on feat/sbd-workflow-pi (7650183, 03a38c6, f524973) plus sbd-mastra-factory feat/pi-host (e308edb, plan §15). Live Pi evals at 03a38c6: bug fix and gate probe pass every process check (gpt-6.1-sol lead). Review found 4 proved gate/guard defects, fixed in f524973. Opus-lead eval blocked: Pi anthropic OAuth refresh failed.",
+      "timestamp": "2026-11-12T05:59:42Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Port sbd-workflow to Pi: pi-minions modes/agent dirs/live count/agent tools + pi-sbd-workflow extension",
   "type": "feature",
-  "updated_at": "2026-11-12T04:49:09Z"
+  "updated_at": "2026-11-12T05:59:42Z"
 }
