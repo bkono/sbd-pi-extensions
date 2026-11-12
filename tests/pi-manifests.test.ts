@@ -30,6 +30,21 @@ function published(target: string, files: readonly string[]): boolean {
   });
 }
 
+/**
+ * tsdown emits `dist/<path>.mjs` for an entry at `src/<path>.ts` (a bundled `src/index.ts`)
+ * or `<path>.ts` (an unbundled package-root build). A target with no such source is never
+ * built, and Pi skips a missing target without an error.
+ */
+function builtFromSource(packageDir: string, target: string): boolean {
+  const path = normalize(target).replace(/^\.\//, "");
+  const match = /^dist\/(.+)\.mjs$/.exec(path);
+  if (!match) return false;
+  const stem = match[1]!;
+  return [join("src", `${stem}.ts`), `${stem}.ts`].some((source) =>
+    existsSync(join(packageDir, source)),
+  );
+}
+
 const packages = readdirSync(packagesDir)
   .filter((dir) => existsSync(join(packagesDir, dir, "package.json")))
   .map((dir) => ({ dir, manifest: read(join(packagesDir, dir, "package.json")) }))
@@ -46,6 +61,13 @@ describe("Pi extension manifests", () => {
         (target) => !published(target, manifest.files ?? []),
       );
       expect({ package: dir, unpublished }).toEqual({ package: dir, unpublished: [] });
+    });
+
+    it(`${manifest.name} points pi.extensions at a tsdown build output`, () => {
+      const unbuilt = (manifest.pi?.extensions ?? []).filter(
+        (target) => !builtFromSource(join(packagesDir, dir), target),
+      );
+      expect({ package: dir, unbuilt }).toEqual({ package: dir, unbuilt: [] });
     });
   }
 
