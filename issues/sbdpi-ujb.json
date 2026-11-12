@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-12T01:13:17Z",
+  "description": "answer, exa, files, minions, om declare pi.extensions ./src/index.ts but publish only dist. Point them at the built entry and add a guard test that every package's pi.extensions targets are published.",
+  "id": "sbdpi-ujb",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "per-package pi.extensions point at unpublished src/index.ts",
+  "type": "task",
+  "updated_at": "2026-11-12T01:13:17Z"
+}
