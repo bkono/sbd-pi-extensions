@@ -30,7 +30,7 @@ package owns live child sessions.
 | `halt` | Abort one minion, an orchestration group, or all. Halt group forgets the open group. Also `/halt <id\|name\|group\|all>`. |
 | `learn_minions` | Concise usage guidance. |
 
-Slash commands: `/spawn`, `/minions`, `/halt`.
+Slash commands: `/spawn`, `/minions` (`/minions modes` picks the model pack), `/halt`.
 
 ### Blocking versus yielding
 
@@ -227,6 +227,12 @@ session model. Pack agents (`packModel`) take a default from the available first
 | Anthropic and OpenAI | Opus 5.5 if any writer ran on OpenAI, else Sol 6.1 if any ran on Anthropic | Terra 6.1 |
 | Only Anthropic | Opus 5.5 | Sonnet 5.5 |
 | Only OpenAI | Sol 6.1 | Terra 6.1 |
+
+**Picker.** `/minions modes` shows the effective pack (project over global, then defaults, then the
+session model) and lets you pick each mode's model from the models that have auth. It saves to
+`~/.pi/agent/settings.json` or the project's `.pi/settings.json` under Pi's own settings lock, so
+Pi's later saves keep it. "Unset" removes the mode so the default applies again. Without a UI it
+only prints the pack.
 
 Writers are this session's non-pack children; before any ran, the `build` model, else the session
 model. A pack agent with neither a setting nor a default is rejected.
