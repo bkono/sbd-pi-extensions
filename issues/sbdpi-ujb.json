@@ -6,9 +6,15 @@
   "description": "answer, exa, files, minions, om declare pi.extensions ./src/index.ts but publish only dist. Point them at the built entry and add a guard test that every package's pi.extensions targets are published.",
   "id": "sbdpi-ujb",
   "labels": [],
+  "comments": [
+    {
+      "text": "Verified PASS at 20bb61b (independent verifier, after FAIL on 54ea958 fixed): 7 npm-installed tarballs load in real Pi with identical tool/command inventories to source; guard test derives tsdown outputs and fails on pre-fix manifests, .js targets, and dist/src layout in src-only packages. Branch fix/npm-pi-entries pushed; awaiting merge.",
+      "timestamp": "2026-11-12T01:28:20Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "per-package pi.extensions point at unpublished src/index.ts",
   "type": "task",
-  "updated_at": "2026-11-12T01:13:17Z"
+  "updated_at": "2026-11-12T01:28:20Z"
 }
