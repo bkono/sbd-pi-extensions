@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-12T04:49:09Z",
+  "description": "",
+  "id": "sbdpi-9mj",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Port sbd-workflow to Pi: pi-minions modes/agent dirs/live count/agent tools + pi-sbd-workflow extension",
+  "type": "feature",
+  "updated_at": "2026-11-12T04:49:09Z"
+}
