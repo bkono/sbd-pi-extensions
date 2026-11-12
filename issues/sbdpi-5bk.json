@@ -6,9 +6,15 @@
   "description": "Hashline's context hook masks a read/grep/bash result as stale as soon as a later mutation lands, which rewrites a mid-history item and breaks the provider prompt cache from that point. With OM, prefix changes must happen only at OM activation/reflection. Fix: per-request prefix signal from OM over pi.events; hashline commits masks only when the prefix moves anyway (OM signal, compaction, tree, model change), standalone hashline keeps immediate masking. Committed masks are frozen snapshots.",
   "id": "sbdpi-5bk",
   "labels": [],
+  "comments": [
+    {
+      "text": "Verified PASS at eb761a5 (independent verifier). Gates: lint clean, typecheck clean, 2152 tests. Live (OM+hashline, gpt-6.1-sol, edit at req 10): prefix changes only at OM activations 17/29/41, req 11 = 202 uncached / 22400 cached (main: 14.5k / 1.8k with an extra break). Answer 94/94, ledger edited. Branch fix/hashline-cache-boundary pushed; awaiting merge.",
+      "timestamp": "2026-11-12T00:12:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "hashline stale masks land only at cache-prefix boundaries (OM)",
   "type": "task",
-  "updated_at": "2026-11-11T23:51:53Z"
+  "updated_at": "2026-11-12T00:12:31Z"
 }
