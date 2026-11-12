@@ -78,7 +78,7 @@ export function assignTaskIds(tasks: readonly TaskInput[], previous: readonly Ta
   });
 }
 
-/** Keeps one task in progress: the one at `keep`, else the first. */
+/** Keeps one task in progress: the one at `keep` (the task just updated), else the first. */
 function demoteExtraInProgress(tasks: Task[], keep?: number): { tasks: Task[]; demoted: boolean } {
   const active = tasks.flatMap((t, i) => (t.status === "in_progress" ? [i] : []));
   if (active.length <= 1) return { tasks, demoted: false };
@@ -93,6 +93,8 @@ function demoteExtraInProgress(tasks: Task[], keep?: number): { tasks: Task[]; d
 
 const ONE_IN_PROGRESS =
   "Only one task can be in_progress at a time; the others went back to pending.";
+const ONE_IN_PROGRESS_REFUSED =
+  "Only one task can be in_progress at a time. Mark one in_progress and the rest pending; the list was not changed.";
 
 function icon(status: TaskStatus): string {
   return status === "completed" ? "✓" : status === "in_progress" ? "▸" : "○";
@@ -111,16 +113,44 @@ function ids(tasks: readonly Task[]): string {
   return `Available task IDs:\n${tasks.map((t) => `- ${t.id}: ${t.content} (${t.status})`).join("\n")}`;
 }
 
+function blank(value: string | undefined): boolean {
+  return value !== undefined && value.trim() === "";
+}
+
+/** Like Mastra, a list with more than one task in progress is refused and nothing changes. */
 export function writeTasks(input: readonly TaskInput[], previous: readonly Task[]): TaskResult {
-  const { tasks, demoted } = demoteExtraInProgress(assignTaskIds(input, previous));
-  const text = formatTaskList(tasks);
-  return { tasks, text: demoted ? `${text}\n${ONE_IN_PROGRESS}` : text, isError: false };
+  if (input.some((t) => blank(t.content) || blank(t.activeForm))) {
+    return {
+      tasks: [...previous],
+      text: "Task content and activeForm must not be empty.",
+      isError: true,
+    };
+  }
+  if (input.filter((t) => t.status === "in_progress").length > 1) {
+    return { tasks: [...previous], text: ONE_IN_PROGRESS_REFUSED, isError: true };
+  }
+  const tasks = assignTaskIds(input, previous);
+  return { tasks, text: formatTaskList(tasks), isError: false };
 }
 
 export function updateTask(
   current: readonly Task[],
   patch: { id: string; content?: string; status?: TaskStatus; activeForm?: string },
 ): TaskResult {
+  if (!patch.content && !patch.status && !patch.activeForm) {
+    return {
+      tasks: [...current],
+      text: "Pass at least one of content, status or activeForm.",
+      isError: true,
+    };
+  }
+  if (blank(patch.content) || blank(patch.activeForm)) {
+    return {
+      tasks: [...current],
+      text: "Task content and activeForm must not be empty.",
+      isError: true,
+    };
+  }
   const index = current.findIndex((t) => t.id === patch.id);
   if (index === -1) {
     return {

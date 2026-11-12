@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   ProjectedSessionEntry,
+  SessionBoundaryDraft,
   SessionEntry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -80,6 +81,8 @@ export const SNAPSHOT_GUIDELINE =
  * forks carry the right list. When observational memory or compaction drops the latest carrier
  * from model context, a hidden snapshot is appended at the next turn boundary, after OM's own
  * drafts, so the list stays visible without touching the system prompt or the cached prefix.
+ * The list is persisted only through tool results, so a codemode or ctx.executeTool call that
+ * mutates it leaves no carrier (latent: codemode is off here).
  */
 export function registerTaskTools(pi: ExtensionAPI): void {
   let tasks: Task[] = [];
@@ -119,7 +122,10 @@ export function registerTaskTools(pi: ExtensionAPI): void {
   };
 
   const tool = <P extends TSchema>(def: ToolDefinition<P, TaskDetails>) => {
-    pi.registerTool({ executionMode: "sequential", ...def });
+    // Not sequential: every execute mutates the list synchronously before its first await, and
+    // Pi persists parallel results in call order, so a sequential flag would only serialize the
+    // rest of the batch.
+    pi.registerTool(def);
   };
 
   tool({
@@ -179,9 +185,21 @@ export function registerTaskTools(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => restore(ctx));
   pi.on("session_tree", (_event, ctx) => restore(ctx));
 
-  pi.on("turn_end", (event, ctx) => {
+  /**
+   * Re-surfaces the list at a boundary once its latest carrier left model context. Known gaps of
+   * one request each: an OM activation at run start omits entries for that request before any
+   * boundary runs, and a compaction between turns lands after turn_end. The next boundary fixes
+   * both. A finished list is not re-surfaced.
+   */
+  const resurface = (
+    event: {
+      entries: SessionBoundaryDraft[];
+      context: { contextEntries: ProjectedSessionEntry[] };
+    },
+    ctx: ExtensionContext,
+  ) => {
     const carrier = latestCarrier(ctx.sessionManager.getBranch());
-    if (!carrier || carrier.tasks.length === 0) return undefined;
+    if (!carrier || carrier.tasks.every((t) => t.status === "completed")) return undefined;
     // event.context reflects every earlier handler's drafts, OM's omissions included.
     if (isVisible(event.context.contextEntries, carrier.id)) return undefined;
     if (event.entries.some((e) => e.type === "custom_message" && e.customType === TASK_SNAPSHOT)) {
@@ -199,5 +217,9 @@ export function registerTaskTools(pi: ExtensionAPI): void {
         },
       ],
     };
-  });
+  };
+
+  pi.on("turn_end", (event, ctx) => resurface(event, ctx));
+  // Pi compacts at the end of a run before agent_before_settle, so that boundary can drop it too.
+  pi.on("agent_before_settle", (event, ctx) => resurface(event, ctx));
 }

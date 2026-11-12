@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   createEventBus,
   type ExtensionAPI,
@@ -128,5 +129,48 @@ describe("task tools", () => {
     const h = harness();
     await h.call("task_write", { tasks: [] });
     expect(await h.turnEnd([])).toBeUndefined();
+  });
+
+  it("does not re-surface a finished list", async () => {
+    const h = harness();
+    await h.call("task_write", {
+      tasks: [{ content: "Done", status: "completed", activeForm: "Doing" }],
+    });
+    expect(await h.turnEnd([])).toBeUndefined();
+  });
+
+  it("re-surfaces at agent_before_settle too, where end-of-run compaction lands", async () => {
+    const h = harness();
+    await h.call("task_write", plan);
+    const settled = (await h.fire("agent_before_settle", {
+      type: "agent_before_settle",
+      entries: [],
+      context: { contextEntries: [] },
+    })) as { entries: Array<{ customType?: string }> } | undefined;
+    expect(settled?.entries.at(-1)?.customType).toBe(TASK_SNAPSHOT);
+  });
+
+  it("keeps every mutation when task calls run in parallel", async () => {
+    const h = harness();
+    await h.call("task_write", plan);
+    await Promise.all([
+      h.call("task_complete", { id: "task_reproduce" }),
+      h.call("task_update", { id: "task_fix", status: "in_progress" }),
+    ]);
+    const { result } = await h.call("task_check", {});
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("✓ [completed] {id: task_reproduce}");
+    expect(text).toContain("▸ [in_progress] {id: task_fix}");
+  });
+
+  it("loads after observational memory, so it sees OM's omissions in the same boundary", () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"),
+    ) as { pi: { extensions: string[] } };
+    const order = manifest.pi.extensions;
+    const om = order.findIndex((p) => p.includes("pi-om-extension"));
+    const sbd = order.findIndex((p) => p.includes("pi-sbd-workflow"));
+    expect(om).toBeGreaterThanOrEqual(0);
+    expect(sbd).toBeGreaterThan(om);
   });
 });

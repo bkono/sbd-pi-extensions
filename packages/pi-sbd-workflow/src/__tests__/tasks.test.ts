@@ -31,13 +31,22 @@ describe("task list", () => {
     expect(again.map((x) => x.id)).toEqual(["task_write_tests", "task_ship", "ship"]);
   });
 
-  it("keeps one task in progress", () => {
-    const written = writeTasks([t("a", "in_progress"), t("b", "in_progress")], []);
-    expect(written.tasks.map((x) => x.status)).toEqual(["in_progress", "pending"]);
-    expect(written.text).toContain("Only one task can be in_progress");
+  it("keeps one task in progress: write refuses two, update moves it", () => {
+    const refused = writeTasks([t("a", "in_progress"), t("b", "in_progress")], []);
+    expect(refused).toMatchObject({ isError: true, tasks: [] });
+    expect(refused.text).toContain("the list was not changed");
 
+    const written = writeTasks([t("a", "in_progress"), t("b")], []);
     const moved = updateTask(written.tasks, { id: "task_b", status: "in_progress" });
     expect(moved.tasks.map((x) => x.status)).toEqual(["pending", "in_progress"]);
+    expect(moved.text).toContain("the others went back to pending");
+  });
+
+  it("refuses empty text and updates that change nothing", () => {
+    expect(writeTasks([{ ...t("a"), content: " " }], []).isError).toBe(true);
+    const { tasks } = writeTasks([t("a")], []);
+    expect(updateTask(tasks, { id: "task_a" }).isError).toBe(true);
+    expect(updateTask(tasks, { id: "task_a", activeForm: "" }).isError).toBe(true);
   });
 
   it("updates and completes by id, and reports unknown ids with the available ones", () => {
