@@ -10,11 +10,15 @@
     {
       "text": "Verified PASS at 20bb61b (independent verifier, after FAIL on 54ea958 fixed): 7 npm-installed tarballs load in real Pi with identical tool/command inventories to source; guard test derives tsdown outputs and fails on pre-fix manifests, .js targets, and dist/src layout in src-only packages. Branch fix/npm-pi-entries pushed; awaiting merge.",
       "timestamp": "2026-11-12T01:28:20Z"
+    },
+    {
+      "text": "Verified PASS at f825415: npm installs show 7 distinct pi config labels (\u003cpkg\u003e/extension.mjs) via root shims; installed loads match source inventories; guard red cases each fail; exports/main/types unchanged. Includes 6fbc9ee fixing the date-dependent pi-om prefix-signal test (main red as of 2026-11-12).",
+      "timestamp": "2026-11-12T17:45:47Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "per-package pi.extensions point at unpublished src/index.ts",
   "type": "task",
-  "updated_at": "2026-11-12T01:28:20Z"
+  "updated_at": "2026-11-12T17:45:47Z"
 }
