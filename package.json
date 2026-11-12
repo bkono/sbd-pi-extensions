@@ -29,12 +29,12 @@
   ],
   "pi": {
     "extensions": [
-      "packages/pi-om-extension/src/index.ts",
-      "packages/pi-files-extension/src/index.ts",
-      "packages/pi-answer-extension/src/index.ts",
-      "packages/pi-exa-extension/src/index.ts",
-      "packages/pi-minions/src/index.ts",
-      "packages/pi-hashline-readmap/src/index.ts"
+      "packages/pi-om-extension/index.ts",
+      "packages/pi-files-extension/index.ts",
+      "packages/pi-answer-extension/index.ts",
+      "packages/pi-exa-extension/index.ts",
+      "packages/pi-minions/index.ts",
+      "packages/pi-hashline-readmap/index.ts"
     ],
     "skills": [
       "skills"
