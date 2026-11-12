@@ -16,6 +16,7 @@ import {
   newSession,
   systemMessages,
   textOf,
+  tick,
   toolResult,
   user,
 } from "./helpers.js";
@@ -35,6 +36,19 @@ async function sentRequest(
   const full = [...systemMessages(), ...contextMessages(session)];
   const out = (om.onSystem(full, host) ?? full) as AgentMessage[];
   return { signal, items: out.map((message) => JSON.stringify(message)) };
+}
+
+/**
+ * The next local 23:00 after the helpers' message clock. Messages are stamped from that
+ * clock, so the host clock must start from it, not from a fixed date: a fixed date makes the
+ * TTL check depend on the wall clock (it read negative idle time once the date passed).
+ */
+function next2300(): number {
+  const at = new Date(tick(0));
+  const start = new Date(at);
+  start.setHours(23, 0, 0, 0);
+  if (start.getTime() <= at.getTime()) start.setDate(start.getDate() + 1);
+  return start.getTime();
 }
 
 function extends_(previous: readonly string[], next: readonly string[]): boolean {
@@ -82,7 +96,7 @@ describe("prefix signal", () => {
   it("reports moved exactly on the requests whose prefix changes", async () => {
     // A moving clock that crosses midnight, a second run after a 2h idle (TTL activation at
     // run start, temporal gap marker), and threshold activations in both runs.
-    let now = new Date(2026, 10, 11, 23, 0).getTime();
+    let now = next2300();
     const clocked = makeHost(session, registry, { now: () => now });
     const sent: Awaited<ReturnType<typeof sentRequest>>[] = [];
     for (let i = 0; i < 12; i += 1) {
@@ -108,7 +122,7 @@ describe("prefix signal", () => {
   });
 
   it("reports no move at midnight while there is no memory to render", async () => {
-    let now = new Date(2026, 10, 11, 23, 59).getTime();
+    let now = next2300() + 59 * 60_000;
     const clocked = makeHost(session, registry, { now: () => now });
     const before = await sentRequest(om, session, clocked);
     now += 2 * 60_000;
