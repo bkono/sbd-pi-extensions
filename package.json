@@ -36,9 +36,6 @@
       "packages/pi-minions/index.ts",
       "packages/pi-hashline-readmap/index.ts",
       "packages/pi-sbd-workflow/index.ts"
-    ],
-    "skills": [
-      "skills"
     ]
   },
   "devDependencies": {
