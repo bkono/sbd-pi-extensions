@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { dirname, join, matchesGlob, normalize, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -30,19 +30,52 @@ function published(target: string, files: readonly string[]): boolean {
   });
 }
 
+interface TsdownConfig {
+  entry?: string | string[];
+  outDir?: string;
+}
+
 /**
- * tsdown emits `dist/<path>.mjs` for an entry at `src/<path>.ts` (a bundled `src/index.ts`)
- * or `<path>.ts` (an unbundled package-root build). A target with no such source is never
- * built, and Pi skips a missing target without an error.
+ * The files tsdown emits for a package, as Pi manifest paths. tsdown writes each entry to
+ * `<outDir>/<path relative to the entries' common base dir>.mjs`: a `src`-only build mirrors
+ * `src` (`dist/index.mjs`), a build with a package-root entry mirrors the package
+ * (`dist/src/index.mjs`). Pi skips a missing target without an error, so the target must be
+ * one of these outputs, not merely a published path.
  */
-function builtFromSource(packageDir: string, target: string): boolean {
+async function buildsTarget(packageDir: string, target: string): Promise<boolean> {
+  const configPath = join(packageDir, "tsdown.config.ts");
+  if (!existsSync(configPath)) return false;
+  const loaded = (await import(configPath)).default as TsdownConfig | TsdownConfig[];
+  const configs = Array.isArray(loaded) ? loaded : [loaded];
   const path = normalize(target).replace(/^\.\//, "");
-  const match = /^dist\/(.+)\.mjs$/.exec(path);
-  if (!match) return false;
-  const stem = match[1]!;
-  return [join("src", `${stem}.ts`), `${stem}.ts`].some((source) =>
-    existsSync(join(packageDir, source)),
-  );
+  return configs.some((config) => {
+    const entries = [config.entry ?? []].flat();
+    const include = entries.filter((entry) => !entry.startsWith("!"));
+    const exclude = entries.filter((entry) => entry.startsWith("!")).map((e) => e.slice(1));
+    if (include.length === 0) return false;
+    const staticDir = (entry: string) =>
+      /[*?[{]/.test(entry)
+        ? entry.slice(0, entry.search(/[*?[{]/)).replace(/\/?[^/]*$/, "")
+        : dirname(entry);
+    const dirs = include.map((entry) => normalize(staticDir(entry) || "."));
+    const base = dirs.reduce((common, dir) => {
+      let candidate = common;
+      while (candidate !== "." && relative(candidate, dir).startsWith(".."))
+        candidate = dirname(candidate);
+      return candidate;
+    });
+    const outDir = normalize(config.outDir ?? "dist");
+    const match = new RegExp(`^${outDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(.+)\\.mjs$`).exec(
+      path,
+    );
+    if (!match) return false;
+    const source = normalize(join(base, `${match[1]}.ts`));
+    if (!existsSync(join(packageDir, source))) return false;
+    const included = include.some(
+      (entry) => normalize(entry) === source || matchesGlob(source, entry),
+    );
+    return included && !exclude.some((entry) => matchesGlob(source, entry));
+  });
 }
 
 const packages = readdirSync(packagesDir)
@@ -63,10 +96,11 @@ describe("Pi extension manifests", () => {
       expect({ package: dir, unpublished }).toEqual({ package: dir, unpublished: [] });
     });
 
-    it(`${manifest.name} points pi.extensions at a tsdown build output`, () => {
-      const unbuilt = (manifest.pi?.extensions ?? []).filter(
-        (target) => !builtFromSource(join(packagesDir, dir), target),
-      );
+    it(`${manifest.name} points pi.extensions at a tsdown build output`, async () => {
+      const unbuilt: string[] = [];
+      for (const target of manifest.pi?.extensions ?? []) {
+        if (!(await buildsTarget(join(packagesDir, dir), target))) unbuilt.push(target);
+      }
       expect({ package: dir, unbuilt }).toEqual({ package: dir, unbuilt: [] });
     });
   }
