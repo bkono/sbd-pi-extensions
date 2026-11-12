@@ -5,6 +5,7 @@ import { createHaltHandler } from "./commands/halt.js";
 import { createMinionsHandler } from "./commands/minions.js";
 import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";
 import { getConfig } from "./config.js";
+import { connectContributions } from "./contributions.js";
 import { PathOverlapLog } from "./coordination/index.js";
 import {
   createDelegationHint,
@@ -117,6 +118,10 @@ export default function (pi: ExtensionAPI): void {
   });
   eventBus.on(ORCHESTRATION_LIFECYCLE_CHANNEL, (event: OrchestrationLifecycleEvent) => {
     packets.enqueue(event);
+  });
+
+  connectContributions(pi, {
+    liveOrchestrated: () => tree.getLive().filter((node) => node.kind === "orchestrated").length,
   });
 
   let toolCallCount = 0;

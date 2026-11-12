@@ -7,6 +7,7 @@ import type {
 import { bindTreeActivity } from "../activity.js";
 import { findAgent, unknownAgentMessage } from "../agents.js";
 import { getConfig, type ResolvedConfig } from "../config.js";
+import { contributedToolsFor } from "../contributions.js";
 import type { PathOverlapLog } from "../coordination/index.js";
 import { logger } from "../logger.js";
 import {
@@ -15,6 +16,8 @@ import {
   generateId,
   pickMinionName,
 } from "../minions.js";
+import { modelPolicyFor } from "../model-context.js";
+import { selectModel } from "../model-policy.js";
 import {
   createLifecycleId,
   type InjectedCommTools,
@@ -224,6 +227,7 @@ function startRegisteredChild(
     return Promise.resolve();
   }
   const injected = injectBoundCommTools(deps, mailbox, group, id, lifecycleId, epoch);
+  const agentTools = task.agent ? contributedToolsFor(config.name) : [];
   const authority = { groupId: group.groupId, childId: id, lifecycleId, epoch };
   const ownsLiveAuthority = (): boolean => {
     const current = tree.get(id);
@@ -254,8 +258,12 @@ function startRegisteredChild(
       modelRegistry: ctx.modelRegistry,
       parentModel,
       parentToolNames,
-      customTools: injected.tools,
-      extraTools: [...injected.names, ...(deps.extraTools ?? [])],
+      customTools: [...injected.tools, ...agentTools],
+      extraTools: [
+        ...injected.names,
+        ...agentTools.map((tool) => tool.name),
+        ...(deps.extraTools ?? []),
+      ],
       toolSyncEnabled: piConfig.toolSync.enabled,
       toolSyncMaxWait: piConfig.toolSync.maxWait * 1000,
       onToolActivity: bound.onToolActivity,
@@ -398,6 +406,7 @@ export function orchestrate(deps: OrchestrateDeps) {
 
     const { tree } = deps;
     const piConfig = getConfig({ ...ctx, cwd: previewed.cwd });
+    const policy = modelPolicyFor(ctx, tree, piConfig.modes, previewed.cwd);
     const accepted: OrchestrateResult["accepted"] = [];
     const rejected: OrchestrateResult["rejected"] = [];
     const registered: RegisteredChild[] = [];
@@ -450,14 +459,22 @@ export function orchestrate(deps: OrchestrateDeps) {
         continue;
       }
 
+      const selection = selectModel(optionalString(spec.model), config, policy);
+      if ("reject" in selection) {
+        rejected.push({ index, reason: selection.reject, value: agent });
+        continue;
+      }
+      if (selection.ignored)
+        logger.warn("orchestrate", "model ignored", { detail: selection.ignored });
+
       let parentModel: Model<Api> | undefined;
       try {
-        parentModel = resolveModelReference(optionalString(spec.model) ?? config.model, ctx);
+        parentModel = resolveModelReference(selection.ref, ctx);
       } catch {
         rejected.push({
           index,
           reason: ORCHESTRATE_REJECT_REASONS.unknownModel,
-          value: optionalString(spec.model) ?? config.model,
+          value: selection.ref,
         });
         continue;
       }
@@ -480,7 +497,7 @@ export function orchestrate(deps: OrchestrateDeps) {
         description,
         domain: spec.domain,
         agentName: agent ?? "ephemeral",
-        model: descriptor.model ?? (parentModel ? formatModelReference(parentModel) : undefined),
+        model: parentModel ? formatModelReference(parentModel) : descriptor.model,
         completionNudge: config.completionNudge,
         status: "pending",
         lifecycleId,

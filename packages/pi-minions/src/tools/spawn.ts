@@ -15,6 +15,8 @@ import {
   generateId,
   pickMinionName,
 } from "../minions.js";
+import { modelPolicyFor } from "../model-context.js";
+import { selectModel } from "../model-policy.js";
 import { BatchCoordinator, runSingleMinion } from "../spawn/index.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
 import type { AgentTree } from "../tree.js";
@@ -131,6 +133,7 @@ async function executeSpawn(
   const assignedNames = new Set<string>();
   const reservedIds = new Set<string>();
 
+  const policy = modelPolicyFor(ctx, tree, piConfig.modes, ctx.cwd);
   const minions: BatchMinionItem[] = specs.map((spec) => {
     const id = generateAvailableId(tree, reservedIds);
     reservedIds.add(id);
@@ -139,7 +142,9 @@ async function executeSpawn(
     assignedNames.add(name);
 
     const config = agentConfig ?? defaultMinionTemplate(name, { model: spec.model });
-    const resolvedModel = spec.model ?? config.model ?? ctx.model?.id;
+    // Display only; runSingleMinion resolves and enforces the same selection.
+    const selection = selectModel(spec.model, config, policy);
+    const resolvedModel = ("ref" in selection ? selection.ref : undefined) ?? ctx.model?.id;
 
     return {
       id,

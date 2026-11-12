@@ -13,6 +13,7 @@ import {
   replayActivity,
   sessionRecordsToActivityEvents,
 } from "../activity.js";
+import { contributedParentOnlyTools } from "../contributions.js";
 import { logger } from "../logger.js";
 import { PARENT_ONLY_MINION_TOOLS } from "../orchestration/comm.js";
 import type { ActivitySnapshot } from "../types.js";
@@ -100,12 +101,14 @@ export interface ChildToolAllowlistInput {
  *     ∪ beadwork inspection allowlist
  *     ∪ extraTools (orchestrated comm hook; not beadwork_*)
  *     − every beadwork_* not in the inspection set
+ *     − tools other extensions contributed as parent-only (base set only)
  *
  * Parent `getAllTools()` is not a coding-tools base: it includes beadwork
  * mutations. Those names may still be passed in so tool-sync can wait for
  * late registration; this formula strips them from the active set.
  */
 export function computeChildActiveTools(input: ChildToolAllowlistInput): string[] {
+  const parentOnly = contributedParentOnlyTools();
   const role = input.roleAllowlist?.filter((name) => name.length > 0) ?? [];
   const parent = input.parentCodingTools?.filter((name) => name.length > 0) ?? [];
   const current = input.currentActiveTools?.filter((name) => name.length > 0) ?? [];
@@ -113,7 +116,7 @@ export function computeChildActiveTools(input: ChildToolAllowlistInput): string[
 
   const names = new Set<string>();
   for (const name of base) {
-    if (isDeniedChildBeadworkTool(name)) continue;
+    if (isDeniedChildBeadworkTool(name) || parentOnly.has(name)) continue;
     names.add(name);
   }
   for (const tool of BEADWORK_CHILD_INSPECTION_TOOLS) names.add(tool);

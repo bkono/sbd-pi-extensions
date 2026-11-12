@@ -30,7 +30,7 @@ package owns live child sessions.
 | `halt` | Abort one minion, an orchestration group, or all. Halt group forgets the open group. Also `/halt <id\|name\|group\|all>`. |
 | `learn_minions` | Concise usage guidance. |
 
-Slash commands: `/spawn`, `/minions`, `/halt`.
+Slash commands: `/spawn`, `/minions` (`/minions modes` picks the model pack), `/halt`.
 
 ### Blocking versus yielding
 
@@ -98,12 +98,40 @@ agent/template name; it is independent from the closed `taskType` workflow-polic
 merges layers in this order, with later definitions winning:
 
 1. package built-ins
-2. user definitions under Pi/agent minion directories
-3. project definitions under `.pi/agents`, `.pi/minions`, `.agents/agents`, or `.agents/minions`
+2. agent directories other extensions contribute (see [Contributions](#contributions))
+3. user definitions under Pi/agent minion directories
+4. project definitions under `.pi/agents`, `.pi/minions`, `.agents/agents`, or `.agents/minions`
 
-The package always supplies `worker` (routine scoped implementation, medium thinking) and
-`investigate` (evidence-first investigation, high thinking). Neither pins a provider or model.
-Project `worker` overrides user `worker`, which overrides the built-in.
+The package always supplies `worker` (routine scoped implementation, medium thinking, `build` mode)
+and `investigate` (evidence-first investigation, high thinking, `plan` mode). Neither pins a
+provider or model. Project `worker` overrides user `worker`, which overrides the built-in.
+
+Agent frontmatter beyond the basics:
+
+| Field | Meaning |
+| ----- | ------- |
+| `mode` | `plan`, `build` or `fast`: which model of the pack (`modes`) the agent runs on. |
+| `packModel: true` | Runs only on its mode's model, set or defaulted (see Configuration). A task or file `model` is ignored with a warning. |
+| `independent: true` | Rejected when its selected model is the writers' model (`build`, else the session model), so a verifier never shares it. |
+
+A child's model is the task `model`, else the file `model`, else its mode's model, else the
+session model. Pack agents skip the first two.
+
+### Contributions
+
+Other extensions extend minions over `pi.events`, with no import of this package. Minions emits
+`pi-minions:ready` with `{ liveOrchestrated(): number }` when it loads and whenever it hears
+`pi-minions:hello`. A contributor emits `pi-minions:hello` when it loads, and on ready emits
+`pi-minions:contribute`:
+
+```ts
+pi.events.emit("pi-minions:contribute", {
+  source: "my-package",            // a later contribution from the same source replaces this one
+  agentDirs: ["/abs/path/agents"],  // discovered below user and project agents
+  agentTools: { verifier: [tool] }, // injected only into children of that agent
+  parentOnlyTools: ["my_tool"],     // never active in any child
+});
+```
 
 **Migration:** replace `orchestrate.tasks[].role` with `orchestrate.tasks[].agent`. `role` was removed,
 not retained as an alias. Do not move semantic workflow values into `agent`; keep values such as
@@ -181,10 +209,33 @@ notices to one delivery per peer per announcement.
     "toolSync": {
       "enabled": true,
       "maxWait": 5
+    },
+    "modes": {
+      "plan": "anthropic/claude-opus-5-5",
+      "build": "openai-codex/gpt-6.1-sol",
+      "fast": "anthropic/claude-fable-5-2"
     }
   }
 }
 ```
+
+`modes` is the model pack, and anything set there wins. For an unset mode, ordinary agents use the
+session model. Pack agents (`packModel`) take a default from the available first-party models:
+
+| Available | `plan` (reviewer) | `fast` (verifier) |
+| --------- | ----------------- | ----------------- |
+| Anthropic and OpenAI | Opus 5.5 if any writer ran on OpenAI, else Sol 6.1 if any ran on Anthropic | Terra 6.1 |
+| Only Anthropic | Opus 5.5 | Sonnet 5.5 |
+| Only OpenAI | Sol 6.1 | Terra 6.1 |
+
+**Picker.** `/minions modes` shows the effective pack (project over global, then defaults, then the
+session model) and lets you pick each mode's model from the models that have auth. It saves to
+`~/.pi/agent/settings.json` or the project's `.pi/settings.json` under Pi's own settings lock, so
+Pi's later saves keep it. "Unset" removes the mode so the default applies again. It needs a UI (the TUI or RPC);
+in print and JSON modes it does nothing, so edit `pi-minions.modes` directly there.
+
+Writers are this session's non-pack children; before any ran, the `build` model, else the session
+model. A pack agent with neither a setting nor a default is rejected.
 
 Global settings come from `getAgentDir()/settings.json`; project settings in `<cwd>/.pi/settings.json`
 override them.

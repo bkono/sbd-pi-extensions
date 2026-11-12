@@ -7,6 +7,7 @@ import type { EventBus } from "../subsessions/event-bus.js";
 import { showMinionObservability } from "../subsessions/observability.js";
 import type { AgentTree } from "../tree.js";
 import { VERSION } from "../version.js";
+import { createModesHandler } from "./modes.js";
 
 type ParsedArgs =
   | { action: "list" }
@@ -14,6 +15,7 @@ type ParsedArgs =
   | { action: "skill" }
   | { action: "version" }
   | { action: "help" }
+  | { action: "modes" }
   | { action: "show-running" }
   | { action: "show"; target: string }
   | { error: string };
@@ -26,6 +28,7 @@ export function parseMinionArgs(args: string): ParsedArgs {
   const action = tokens[0];
 
   if (action === "list") return { action: "list" };
+  if (action === "modes") return { action: "modes" };
   if (action === "learn") return { action: "learn" };
   if (action === "skill") return { action: "skill" };
 
@@ -155,6 +158,11 @@ export function createMinionsHandler(tree: AgentTree, eventBus: EventBus) {
       return;
     }
 
+    if (parsed.action === "modes") {
+      await createModesHandler(tree)(ctx);
+      return;
+    }
+
     if (parsed.action === "version") {
       logger.debug("minions:cmd", "version", { version: VERSION });
       ctx.ui.notify(`pi-minions v${VERSION}`, "info");
@@ -168,6 +176,7 @@ export function createMinionsHandler(tree: AgentTree, eventBus: EventBus) {
       lines.push("  h, help            - Show this help message");
       lines.push("  learn              - Show minion usage guidance");
       lines.push("  list               - List available agent types");
+      lines.push("  modes              - Pick the plan, build and fast models (the model pack)");
       lines.push("  s, show <id|name>  - Show live activity for a spawn or orchestrated minion");
       lines.push("  skill              - Show the agentic minions skill text");
       lines.push("  version            - Show the extension version");

@@ -3,6 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import registerMinions from "../index.js";
 
@@ -23,6 +24,7 @@ describe("delegation lifecycle", () => {
   it("skips custom starts without consuming the tool count or user hint interval", async () => {
     const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
     registerMinions({
+      events: createEventBus(),
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
       registerMessageRenderer: vi.fn(),
