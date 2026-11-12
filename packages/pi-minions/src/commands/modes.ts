@@ -120,9 +120,20 @@ export function describePack(
       : global[mode]
         ? `${global[mode]} (global)`
         : undefined;
+    // Unset plan and fast with no default: the pack agents refuse (selectModel rejects them).
     const fallback =
-      mode !== "build" && defaults[mode] ? `${defaults[mode]} (default)` : `${session} (session)`;
-    return { mode, label: `${mode}: ${explicit ?? fallback} · ${ROLE[mode]}` };
+      mode === "build"
+        ? `${session} (session)`
+        : defaults[mode]
+          ? `${defaults[mode]} (default)`
+          : "unset, no default";
+    const role =
+      mode !== "build" && !explicit && !defaults[mode]
+        ? mode === "plan"
+          ? "reviewer refuses until set; investigate uses the session model"
+          : "verifier refuses until set"
+        : ROLE[mode];
+    return { mode, label: `${mode}: ${explicit ?? fallback} · ${role}` };
   });
 }
 

@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -129,11 +137,28 @@ describe("/minions modes", () => {
     expect(notify.mock.calls.at(-1)?.[0]).toContain("plan: anthropic/claude-opus-5-5 (project)");
   });
 
-  it("only reports the pack without a UI", async () => {
-    const { c, select, notify } = ctx(temp("modes-cwd-"), [], false);
+  it("labels unset plan and fast as refusing when no default is available", () => {
+    const { c } = ctx(temp("modes-cwd-"), []);
+    const noDefaults = {
+      ...c,
+      model: { provider: "google", id: "gemini-3-pro" },
+      modelRegistry: { getAvailable: () => [{ provider: "google", id: "gemini-3-pro" }] },
+    } as unknown as ExtensionCommandContext;
+    expect(
+      describePack(noDefaults, new AgentTree(), temp("modes-agent-")).map((l) => l.label),
+    ).toEqual([
+      "plan: unset, no default · reviewer refuses until set; investigate uses the session model",
+      "build: google/gemini-3-pro (session) · worker, sbd-worker",
+      "fast: unset, no default · verifier refuses until set",
+    ]);
+  });
+
+  it("does not open the picker without a UI", async () => {
+    const cwd = temp("modes-cwd-");
+    const { c, select } = ctx(cwd, [], false);
     await createModesHandler(new AgentTree(), () => temp("modes-agent-"))(c);
     expect(select).not.toHaveBeenCalled();
-    expect(notify.mock.calls[0]?.[0]).toContain("fast: openai-codex/gpt-6.1-terra (default)");
+    expect(existsSync(join(cwd, ".pi", "settings.json"))).toBe(false);
   });
 });
 

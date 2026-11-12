@@ -231,8 +231,8 @@ session model. Pack agents (`packModel`) take a default from the available first
 **Picker.** `/minions modes` shows the effective pack (project over global, then defaults, then the
 session model) and lets you pick each mode's model from the models that have auth. It saves to
 `~/.pi/agent/settings.json` or the project's `.pi/settings.json` under Pi's own settings lock, so
-Pi's later saves keep it. "Unset" removes the mode so the default applies again. Without a UI it
-only prints the pack.
+Pi's later saves keep it. "Unset" removes the mode so the default applies again. It needs a UI (the TUI or RPC);
+in print and JSON modes it does nothing, so edit `pi-minions.modes` directly there.
 
 Writers are this session's non-pack children; before any ran, the `build` model, else the session
 model. A pack agent with neither a setting nor a default is rejected.
