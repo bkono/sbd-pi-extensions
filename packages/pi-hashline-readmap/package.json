@@ -8,6 +8,7 @@
   "types": "dist/index.d.mts",
   "files": [
     "dist",
+    "extension.mjs",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -32,7 +33,7 @@
   },
   "pi": {
     "extensions": [
-      "./dist/src/index.mjs"
+      "./extension.mjs"
     ]
   },
   "engines": {

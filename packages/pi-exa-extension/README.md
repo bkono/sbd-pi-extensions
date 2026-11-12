@@ -30,7 +30,7 @@ Add the extension entrypoint to `settings.json`:
 ```json
 {
   "extensions": [
-    "/path/to/sbd-pi-extensions/packages/pi-exa-extension/src/index.ts"
+    "/path/to/sbd-pi-extensions/packages/pi-exa-extension/index.ts"
   ]
 }
 ```

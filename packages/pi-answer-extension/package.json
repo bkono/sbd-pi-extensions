@@ -7,6 +7,7 @@
   "types": "dist/index.d.mts",
   "files": [
     "dist",
+    "extension.mjs",
     "README.md"
   ],
   "scripts": {
@@ -29,7 +30,7 @@
   },
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./extension.mjs"
     ]
   },
   "peerDependencies": {
