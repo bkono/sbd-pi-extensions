@@ -18,11 +18,15 @@
     {
       "text": "Task tools landed (a16c876, 124dcd6, b85d4f9): Mastra parity, OM-safe tail snapshots; review fixes applied; Fable verifier PASS+NOTES at 124dcd6. PR #8 updated. mastra-factory #1 merged by Bryan; missed docs commit re-landed as bkono/sbd-mastra-factory#2.",
       "timestamp": "2026-11-12T07:06:00Z"
+    },
+    {
+      "text": "/minions modes picker (de32cb9, fa34a39, 1644644; verifier PASS at fa34a39). sbd-install in bkono/sbd-mastra-factory#3 (verifier PASS+NOTES at 4c6b107 after FAIL at caa8a92). Not run on the real HOME.",
+      "timestamp": "2026-11-12T07:58:31Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Port sbd-workflow to Pi: pi-minions modes/agent dirs/live count/agent tools + pi-sbd-workflow extension",
   "type": "feature",
-  "updated_at": "2026-11-12T07:06:00Z"
+  "updated_at": "2026-11-12T07:58:31Z"
 }
