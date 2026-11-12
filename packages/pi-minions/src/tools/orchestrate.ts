@@ -16,6 +16,7 @@ import {
   generateId,
   pickMinionName,
 } from "../minions.js";
+import { modelPolicyFor } from "../model-context.js";
 import { selectModel } from "../model-policy.js";
 import {
   createLifecycleId,
@@ -405,6 +406,7 @@ export function orchestrate(deps: OrchestrateDeps) {
 
     const { tree } = deps;
     const piConfig = getConfig({ ...ctx, cwd: previewed.cwd });
+    const policy = modelPolicyFor(ctx, tree, piConfig.modes, previewed.cwd);
     const accepted: OrchestrateResult["accepted"] = [];
     const rejected: OrchestrateResult["rejected"] = [];
     const registered: RegisteredChild[] = [];
@@ -457,7 +459,7 @@ export function orchestrate(deps: OrchestrateDeps) {
         continue;
       }
 
-      const selection = selectModel(optionalString(spec.model), config, piConfig.modes);
+      const selection = selectModel(optionalString(spec.model), config, policy);
       if ("reject" in selection) {
         rejected.push({ index, reason: selection.reject, value: agent });
         continue;

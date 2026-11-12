@@ -121,7 +121,7 @@ function model(provider: string, id: string): Model<Api> {
   return { provider, id, name: id } as Model<Api>;
 }
 
-function setupOrchestrate(modes?: Record<string, string>) {
+function setupOrchestrate(modes?: Record<string, string>, available = false) {
   const cwd = tempDir("pi-minions-cwd-");
   mkdirSync(join(cwd, ".git"));
   if (modes) {
@@ -132,6 +132,8 @@ function setupOrchestrate(modes?: Record<string, string>) {
     model("anthropic", "claude-opus-5-5"),
     model("openai-codex", "gpt-6.1-sol"),
     model("anthropic", "claude-fable-5-2"),
+    model("anthropic", "claude-sonnet-5-5"),
+    model("openai-codex", "gpt-6.1-terra"),
   ];
   const startChild = vi.fn(
     async (opts: { id: string }): Promise<MinionSessionHandle> => ({
@@ -158,6 +160,7 @@ function setupOrchestrate(modes?: Record<string, string>) {
     mode: "rpc",
     model: models[0],
     modelRegistry: {
+      getAvailable: () => (available ? models : []),
       getAll: () => models,
       find: (provider: string, id: string) =>
         models.find((m) => m.provider === provider && m.id === id),
@@ -223,7 +226,7 @@ describe("orchestrate with the model pack and contributed tools", () => {
     const { run, started } = setupOrchestrate({ build: modes.build });
 
     await expect(run([{ agent: "verifier" }])).rejects.toThrow(
-      "verifier runs on the fast model; set pi-minions.modes.fast in settings.json",
+      "verifier runs on the fast model and no default is available; set pi-minions.modes.fast in settings.json",
     );
     expect(started()).toEqual([]);
   });
@@ -245,5 +248,25 @@ describe("orchestrate with the model pack and contributed tools", () => {
     expect(verifier?.extraTools).toContain("sbd_verdict_post");
     expect(worker?.customTools?.map((t) => t.name)).not.toContain("sbd_verdict_post");
     expect(worker?.extraTools).not.toContain("sbd_verdict_post");
+  });
+
+  it("defaults the reviewer against the writers' family and the verifier to terra", async () => {
+    const events = connect();
+    const pkg = tempDir("pi-minions-pkg-");
+    agentFile(pkg, "reviewer", "mode: plan\npackModel: true\n");
+    agentFile(pkg, "verifier", "mode: fast\npackModel: true\nindependent: true\n");
+    events.emit(MINIONS_CONTRIBUTE_EVENT, { source: "sbd", agentDirs: [pkg] });
+    const { run, started } = setupOrchestrate(undefined, true);
+
+    await run([{ agent: "worker", model: "openai-codex/gpt-6.1-sol" }]);
+    const result = await run([{ agent: "reviewer" }, { agent: "verifier" }]);
+    expect(result.rejected).toEqual([]);
+    expect(
+      started().map((c) => [c.config.name, `${c.parentModel?.provider}/${c.parentModel?.id}`]),
+    ).toEqual([
+      ["worker", "openai-codex/gpt-6.1-sol"],
+      ["reviewer", "anthropic/claude-opus-5-5"],
+      ["verifier", "openai-codex/gpt-6.1-terra"],
+    ]);
   });
 });

@@ -17,8 +17,10 @@ The Pi side of the sbd workflow. The router, playbooks and principles are skills
 
 ## Setup
 
-Requires `@solvedbydev/pi-minions` with the pack configured, because the reviewer and verifier
-run only on their mode's model and the verifier must differ from the build model:
+Requires `@solvedbydev/pi-minions`. The reviewer and verifier run only on the pack's `plan` and
+`fast` models. Without settings they default from the available models (pi-minions README,
+Configuration): with Anthropic and OpenAI, Terra verifies and the reviewer takes the family opposite
+the writers'. To pin them:
 
 ```json
 {

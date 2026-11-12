@@ -111,8 +111,8 @@ Agent frontmatter beyond the basics:
 | Field | Meaning |
 | ----- | ------- |
 | `mode` | `plan`, `build` or `fast`: which model of the pack (`modes`) the agent runs on. |
-| `packModel: true` | Runs only on its mode's model. A task or file `model` is ignored with a warning. Rejected when the mode has no model. |
-| `independent: true` | Rejected when its selected model is the `build` model, or when `build` is unset, so a verifier never shares the writers' model. |
+| `packModel: true` | Runs only on its mode's model, set or defaulted (see Configuration). A task or file `model` is ignored with a warning. |
+| `independent: true` | Rejected when its selected model is the writers' model (`build`, else the session model), so a verifier never shares it. |
 
 A child's model is the task `model`, else the file `model`, else its mode's model, else the
 session model. Pack agents skip the first two.
@@ -219,8 +219,17 @@ notices to one delivery per peer per announcement.
 }
 ```
 
-`modes` is the model pack. It has no defaults: an unset mode means the session model, except for
-pack agents, which are rejected until their mode is set.
+`modes` is the model pack, and anything set there wins. For an unset mode, ordinary agents use the
+session model. Pack agents (`packModel`) take a default from the available first-party models:
+
+| Available | `plan` (reviewer) | `fast` (verifier) |
+| --------- | ----------------- | ----------------- |
+| Anthropic and OpenAI | Opus 5.5 if any writer ran on OpenAI, else Sol 6.1 if any ran on Anthropic | Terra 6.1 |
+| Only Anthropic | Opus 5.5 | Sonnet 5.5 |
+| Only OpenAI | Sol 6.1 | Terra 6.1 |
+
+Writers are this session's non-pack children; before any ran, the `build` model, else the session
+model. A pack agent with neither a setting nor a default is rejected.
 
 Global settings come from `getAgentDir()/settings.json`; project settings in `<cwd>/.pi/settings.json`
 override them.

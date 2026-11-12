@@ -271,6 +271,11 @@ export class AgentTree {
     return match;
   }
 
+  /** Every node, terminal included. */
+  getAll(): AgentNode[] {
+    return Array.from(this.nodes.values());
+  }
+
   getRunning(): AgentNode[] {
     return Array.from(this.nodes.values()).filter((n) => n.status === "running");
   }

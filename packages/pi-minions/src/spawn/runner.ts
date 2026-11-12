@@ -10,6 +10,7 @@ import { requireAgent } from "../agents.js";
 import { contributedToolsFor } from "../contributions.js";
 import { logger } from "../logger.js";
 import { defaultMinionTemplate } from "../minions.js";
+import { modelPolicyFor } from "../model-context.js";
 import { type ModesConfig, selectModel } from "../model-policy.js";
 import { runMinionSession } from "../spawn.js";
 import type { SubsessionManager } from "../subsessions/manager.js";
@@ -106,7 +107,11 @@ export async function runSingleMinion(opts: {
       ? resolveAgentConfig(spec.agent, ctx.cwd)
       : defaultMinionTemplate(m.name, { model: spec.model });
 
-    const selection = selectModel(spec.model, config, piConfig.modes);
+    const selection = selectModel(
+      spec.model,
+      config,
+      modelPolicyFor(ctx, tree, piConfig.modes, ctx.cwd),
+    );
     if ("reject" in selection) throw new Error(selection.reject);
     if (selection.ignored)
       logger.warn("spawn:tool", "model ignored", { detail: selection.ignored });
