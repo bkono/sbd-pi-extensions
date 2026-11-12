@@ -78,6 +78,32 @@ async function buildsTarget(packageDir: string, target: string): Promise<boolean
   });
 }
 
+/**
+ * A target is either a tsdown output or a package-root shim that only re-exports the
+ * default of one (`export { default } from "./dist/index.mjs";`). The shim exists so the
+ * installed path names the package in `pi config`.
+ */
+async function loadsBuildOutput(packageDir: string, target: string): Promise<boolean> {
+  if (await buildsTarget(packageDir, target)) return true;
+  const file = join(packageDir, target);
+  if (!existsSync(file)) return false;
+  const code = readFileSync(file, "utf8")
+    .replace(/\/\/.*$/gm, "")
+    .trim();
+  const shim = /^export \{ default \} from "(\.\/[^"]+)";$/.exec(code);
+  if (!shim) return false;
+  const spec = normalize(join(dirname(normalize(target)), shim[1]!));
+  return buildsTarget(packageDir, spec);
+}
+
+/** Pi's `pi config` label for an extension: `<parent folder>/<file>` (config-selector.js). */
+function piConfigLabel(path: string): string {
+  const parts = normalize(path).split("/");
+  const file = parts.at(-1)!;
+  const parent = parts.at(-2) ?? "";
+  return parent === "extensions" ? file : `${parent}/${file}`;
+}
+
 const packages = readdirSync(packagesDir)
   .filter((dir) => existsSync(join(packagesDir, dir, "package.json")))
   .map((dir) => ({ dir, manifest: read(join(packagesDir, dir, "package.json")) }))
@@ -99,11 +125,22 @@ describe("Pi extension manifests", () => {
     it(`${manifest.name} points pi.extensions at a tsdown build output`, async () => {
       const unbuilt: string[] = [];
       for (const target of manifest.pi?.extensions ?? []) {
-        if (!(await buildsTarget(join(packagesDir, dir), target))) unbuilt.push(target);
+        if (!(await loadsBuildOutput(join(packagesDir, dir), target))) unbuilt.push(target);
       }
       expect({ package: dir, unbuilt }).toEqual({ package: dir, unbuilt: [] });
     });
   }
+
+  it("gives every npm-installed extension a distinct pi config label", () => {
+    // Installed at node_modules/@scope/<name>/<target>.
+    const labels = packages.flatMap(({ manifest }) =>
+      (manifest.pi?.extensions ?? []).map((target) =>
+        piConfigLabel(join("node_modules", manifest.name, target)),
+      ),
+    );
+    const duplicates = labels.filter((label, i) => labels.indexOf(label) !== i);
+    expect({ labels, duplicates }).toEqual({ labels, duplicates: [] });
+  });
 
   it("root manifest points at files that exist in the checkout", () => {
     const rootManifest = read(join(root, "package.json"));

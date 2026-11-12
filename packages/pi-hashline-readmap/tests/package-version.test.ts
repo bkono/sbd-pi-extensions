@@ -18,8 +18,10 @@ describe("package version", () => {
     );
   });
 
-  it("points package-installed pi extension metadata at shipped dist output", () => {
-    expect(packageJson.files).toContain("dist");
-    expect(packageJson.pi.extensions).toEqual(["./dist/src/index.mjs"]);
+  it("points package-installed pi extension metadata at a shipped shim over dist output", () => {
+    expect(packageJson.files).toEqual(expect.arrayContaining(["dist", "extension.mjs"]));
+    expect(packageJson.pi.extensions).toEqual(["./extension.mjs"]);
+    const shim = readFileSync(fileURLToPath(new URL("../extension.mjs", import.meta.url)), "utf8");
+    expect(shim).toContain('export { default } from "./dist/src/index.mjs";');
   });
 });

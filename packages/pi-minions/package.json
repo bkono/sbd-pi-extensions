@@ -8,6 +8,7 @@
   "types": "dist/index.d.mts",
   "files": [
     "dist",
+    "extension.mjs",
     "README.md",
     "LICENSE.md"
   ],
@@ -31,7 +32,7 @@
   },
   "pi": {
     "extensions": [
-      "./dist/index.mjs"
+      "./extension.mjs"
     ]
   },
   "peerDependencies": {
