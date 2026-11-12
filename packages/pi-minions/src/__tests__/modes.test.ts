@@ -38,7 +38,12 @@ const models = [
   { provider: "openai-codex", id: "gpt-6.1-terra" },
 ];
 
-function ctx(cwd: string, picks: Array<string | undefined>, hasUI = true) {
+function ctx(
+  cwd: string,
+  picks: Array<string | undefined>,
+  hasUI = true,
+  scoped: typeof models = [],
+) {
   const select = vi.fn(async (_title: string, options: string[]) => {
     const pick = picks.shift();
     return typeof pick === "string" ? options.find((o) => o.startsWith(pick)) : undefined;
@@ -50,6 +55,7 @@ function ctx(cwd: string, picks: Array<string | undefined>, hasUI = true) {
       hasUI,
       model: models[2],
       modelRegistry: { getAvailable: () => models },
+      scopedModels: scoped.map((model) => ({ model })),
       ui: { select, notify },
     } as unknown as ExtensionCommandContext,
     select,
@@ -137,5 +143,28 @@ describe("updateSettingsFile", () => {
     writeFileSync(path, "{ not json");
     expect(() => updateSettingsFile(path, () => {})).toThrow();
     expect(readFileSync(path, "utf8")).toBe("{ not json");
+  });
+});
+
+describe("/minions modes model list", () => {
+  it("offers the scoped models first and the full list on request", async () => {
+    const cwd = temp("modes-cwd-");
+    const { c, select } = ctx(
+      cwd,
+      ["This project", "build:", "All available", "anthropic/claude-sonnet-5-5", "Done"],
+      true,
+      [models[2] as (typeof models)[number], models[3] as (typeof models)[number]],
+    );
+    await createModesHandler(new AgentTree(), () => temp("modes-agent-"))(c);
+    expect(select.mock.calls[2]?.[1]).toEqual([
+      "Unset (use the default)",
+      "openai-codex/gpt-6.1-sol",
+      "openai-codex/gpt-6.1-terra",
+      "All available models…",
+    ]);
+    expect(select.mock.calls[3]?.[1]).toHaveLength(models.length + 1);
+    expect(json(join(cwd, ".pi", "settings.json"))["pi-minions"].modes.build).toBe(
+      "anthropic/claude-sonnet-5-5",
+    );
   });
 });

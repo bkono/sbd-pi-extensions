@@ -130,6 +130,7 @@ const DONE = "Done";
 const GLOBAL = "All projects (~/.pi/agent/settings.json)";
 const PROJECT = "This project (.pi/settings.json)";
 const USE_DEFAULT = "Unset (use the default)";
+const ALL_MODELS = "All available models…";
 
 /** `/minions modes`: pick the plan, build and fast models, as Mastra Code's model packs do. */
 export function createModesHandler(tree: Pick<AgentTree, "getAll">, agentDir?: () => string) {
@@ -151,6 +152,9 @@ export function createModesHandler(tree: Pick<AgentTree, "getAll">, agentDir?: (
       .getAvailable()
       .map((m) => `${m.provider}/${m.id}`)
       .sort();
+    // Mirror Pi's own picker: the scoped models (enabledModels / --models) first.
+    const scoped = [...new Set(ctx.scopedModels.map((s) => `${s.model.provider}/${s.model.id}`))];
+    const label = (ref: string, current?: string) => (ref === current ? `${ref} (current)` : ref);
     for (;;) {
       const lines = describePack(ctx, tree, dir);
       const pick = await ctx.ui.select("Minion model pack", [
@@ -160,10 +164,19 @@ export function createModesHandler(tree: Pick<AgentTree, "getAll">, agentDir?: (
       const line = lines.find((l) => l.label === pick);
       if (!line) break;
       const current = readModes(path)[line.mode];
-      const model = await ctx.ui.select(`${line.mode} model (${scope})`, [
-        USE_DEFAULT,
-        ...available.map((ref) => (ref === current ? `${ref} (current)` : ref)),
-      ]);
+      const title = `${line.mode} model (${scope})`;
+      let model = await ctx.ui.select(
+        title,
+        scoped.length > 0
+          ? [USE_DEFAULT, ...scoped.map((ref) => label(ref, current)), ALL_MODELS]
+          : [USE_DEFAULT, ...available.map((ref) => label(ref, current))],
+      );
+      if (model === ALL_MODELS) {
+        model = await ctx.ui.select(title, [
+          USE_DEFAULT,
+          ...available.map((ref) => label(ref, current)),
+        ]);
+      }
       if (!model) continue;
       const ref = model === USE_DEFAULT ? undefined : model.replace(/ \(current\)$/, "");
       writeMode(path, line.mode, ref);
