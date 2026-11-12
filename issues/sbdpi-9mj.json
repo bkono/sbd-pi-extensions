@@ -14,11 +14,15 @@
     {
       "text": "Pack defaults per Bryan landed in c0dd4f8 (Fable verifier PASS+NOTES, live no-modes run put verifier on gpt-6.1-terra). Draft PRs: bkono/sbd-pi-extensions#8, bkono/sbd-mastra-factory#1. Open: Opus-lead eval (needs Pi anthropic re-login); proposed next: a task_write-style todo tool in pi-sbd-workflow.",
       "timestamp": "2026-11-12T06:29:11Z"
+    },
+    {
+      "text": "Task tools landed (a16c876, 124dcd6, b85d4f9): Mastra parity, OM-safe tail snapshots; review fixes applied; Fable verifier PASS+NOTES at 124dcd6. PR #8 updated. mastra-factory #1 merged by Bryan; missed docs commit re-landed as bkono/sbd-mastra-factory#2.",
+      "timestamp": "2026-11-12T07:06:00Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Port sbd-workflow to Pi: pi-minions modes/agent dirs/live count/agent tools + pi-sbd-workflow extension",
   "type": "feature",
-  "updated_at": "2026-11-12T06:29:11Z"
+  "updated_at": "2026-11-12T07:06:00Z"
 }
