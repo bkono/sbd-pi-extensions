@@ -29,7 +29,7 @@
   },
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/index.mjs"
     ]
   },
   "peerDependencies": {

@@ -60,7 +60,7 @@ Add both entrypoints to `settings.json` (global `getAgentDir()/settings.json`, o
 ```json
 {
   "extensions": [
-    "/path/to/sbd-pi-extensions/packages/pi-minions/src/index.ts",
+    "/path/to/sbd-pi-extensions/packages/pi-minions/index.ts",
     "/path/to/sbd-pi-extensions/packages/pi-beadwork-extension/src/index.ts"
   ]
 }
