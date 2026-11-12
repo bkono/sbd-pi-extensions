@@ -212,7 +212,7 @@ export class SessionOM {
   private sectionCache: { key: string; section: string | undefined } | undefined;
   /** What the last request's prefix was built from, for {@link prefixSignal}. */
   private lastPrefixKey: string | undefined;
-  /** Compaction or `/tree` replaced the transcript: the next request's prefix is new. */
+  /** A compaction replaced the transcript: the next request's prefix is new. */
   private prefixReset = false;
   private readonly backoff = new Map<BackoffKind, { until: number; ms: number }>();
   readonly events: OMEvent[] = [];
@@ -251,7 +251,6 @@ export class SessionOM {
     this.bufferedReflection = undefined;
     this.sectionCache = undefined;
     this.firstRequestOfRun = true;
-    this.prefixReset = true;
     this.record("tree", host.now(), host);
     this.refreshStatus();
   }
@@ -460,20 +459,26 @@ export class SessionOM {
 
   /**
    * Once per provider request, after {@link onContext}: whether this request's cached prefix
-   * moves anyway. OM changes the prefix only with an activation or reflection (the section
-   * and the omissions move together), and the cache is gone after a compaction, a `/tree`
-   * move or a model switch. Other context rewriters (hashline's stale masks) hold their
-   * rewrites of already-sent items for these requests. Undefined while OM is off, so they
-   * do not wait on boundaries that never come.
+   * moves anyway. OM changes the prefix only with an activation or reflection, which changes
+   * the rendered section (the omissions and the continuation reminder move with it), and the
+   * cache is gone after a compaction or a model switch. Keyed on the rendered section, not
+   * on what it is built from, so a date change with no memory reports no move. Other context
+   * rewriters (hashline's stale masks) hold rewrites of already-sent items for these
+   * requests. Undefined while OM is off, so they do not wait on boundaries that never come;
+   * the key still tracks, so re-enabling does not report a stale move.
+   *
+   * `/tree` is not a reset: the shared ancestor prefix stays cached, and a section that
+   * differs across the branch point shows up in the key.
    */
   prefixSignal(host: Host): { moved: boolean } | undefined {
-    if (this.disposed || this.disabledReason(host)) return undefined;
+    if (this.disposed) return undefined;
     const model = host.model ? `${host.model.provider}/${host.model.id}` : "";
-    const key = `${this.sectionKey(this.state(host), new Date(host.now()))}|${model}`;
+    const key = `${this.section(this.state(host), host) ?? ""}\u0000${model}`;
     const moved =
       this.prefixReset || (this.lastPrefixKey !== undefined && key !== this.lastPrefixKey);
     this.prefixReset = false;
     this.lastPrefixKey = key;
+    if (this.disabledReason(host)) return undefined;
     return { moved };
   }
 

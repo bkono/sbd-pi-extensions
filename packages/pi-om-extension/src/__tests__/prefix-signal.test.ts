@@ -80,31 +80,67 @@ describe("prefix signal", () => {
   });
 
   it("reports moved exactly on the requests whose prefix changes", async () => {
+    // A moving clock that crosses midnight, a second run after a 2h idle (TTL activation at
+    // run start, temporal gap marker), and threshold activations in both runs.
+    let now = new Date(2026, 10, 11, 23, 0).getTime();
+    const clocked = makeHost(session, registry, { now: () => now });
     const sent: Awaited<ReturnType<typeof sentRequest>>[] = [];
-    for (let i = 0; i < 16; i += 1) sent.push(await step(om, session, host, 6_000));
+    for (let i = 0; i < 12; i += 1) {
+      sent.push(await step(om, session, clocked, 6_000));
+      now += 4 * 60_000;
+    }
+    now += 2 * 60 * 60_000;
+    append(session, user("now count the queue steps"));
+    om.startRun(clocked);
+    for (let i = 0; i < 10; i += 1) {
+      sent.push(await step(om, session, clocked, 6_000));
+      now += 4 * 60_000;
+    }
     let moves = 0;
     for (let i = 1; i < sent.length; i += 1) {
       const changed = !extends_(sent[i - 1]!.items, sent[i]!.items);
       expect({ request: i, moved: sent[i]!.signal?.moved }).toEqual({ request: i, moved: changed });
       if (changed) moves += 1;
     }
-    expect(moves).toBeGreaterThan(0); // the run crossed at least one activation
+    expect(moves).toBeGreaterThan(1);
+    expect(om.events.some((e) => e.kind === "activate" && e.detail?.includes("ttl"))).toBe(true);
     expect(sent[0]!.signal).toEqual({ moved: false });
   });
 
-  it("reports moved after a compaction, a /tree move and a model switch", async () => {
+  it("reports no move at midnight while there is no memory to render", async () => {
+    let now = new Date(2026, 10, 11, 23, 59).getTime();
+    const clocked = makeHost(session, registry, { now: () => now });
+    const before = await sentRequest(om, session, clocked);
+    now += 2 * 60_000;
+    const after = await sentRequest(om, session, clocked);
+    expect(after.items).toEqual(before.items);
+    expect(after.signal).toEqual({ moved: false });
+  });
+
+  it("reports moved after a compaction and a model switch, but not for /tree alone", async () => {
     await sentRequest(om, session, host);
     expect(om.prefixSignal(host)).toEqual({ moved: false });
     om.onCompacted(host);
     expect(om.prefixSignal(host)).toEqual({ moved: true });
     expect(om.prefixSignal(host)).toEqual({ moved: false });
+    // the shared ancestor prefix stays cached across a /tree move
     om.onTreeChange(host);
-    expect(om.prefixSignal(host)).toEqual({ moved: true });
+    expect(om.prefixSignal(host)).toEqual({ moved: false });
     const switched = makeHost(session, registry, {
       model: fakeModel("anthropic", "claude-sonnet-5-5"),
     });
     expect(om.prefixSignal(switched)).toEqual({ moved: true });
     expect(om.prefixSignal(switched)).toEqual({ moved: false });
+  });
+
+  it("keeps tracking while off, so re-enabling reports no stale move", async () => {
+    await sentRequest(om, session, host);
+    expect(om.prefixSignal(host)).toEqual({ moved: false });
+    const offHost = makeHost(session, fakeRegistry([]));
+    expect(om.prefixSignal(offHost)).toBeUndefined();
+    om.onCompacted(host); // a move during the off window is consumed there
+    expect(om.prefixSignal(offHost)).toBeUndefined();
+    expect(om.prefixSignal(host)).toEqual({ moved: false });
   });
 
   it("is silent when OM is off, so hashline masks on its own schedule", async () => {
