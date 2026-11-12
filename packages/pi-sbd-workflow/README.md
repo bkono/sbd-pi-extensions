@@ -12,6 +12,7 @@ The Pi side of the sbd workflow. The router, playbooks and principles are skills
 | Yield while minions run | The gate never continues while pi-minions reports live orchestrated children. Their packets wake the lead. |
 | `sbd_verdict_post` | Injected only into `verifier` children. Refuses unless run against a linked worktree at the SHA with no tracked edits. Writes the same record and store as `sbd-verdict post` (`~/.local/state/sbd-workflow/verdicts`, or `SBD_VERDICT_HOME`), so `sbd-verdict check` reads it. |
 | Shell guard | Blocks `gh pr merge` always (humans merge) and `gh pr ready` until HEAD has a passing verdict. It matches command text. |
+| Task list | `task_write`, `task_update`, `task_complete`, `task_check`, ported from Mastra Code: stable ids, one task in progress, a TUI widget. Lead-only. State lives in tool-result details, so `/tree` and forks carry it. When observational memory or compaction drops the latest list from model context, a hidden `<current-task-list>` snapshot is appended at the next turn boundary, after OM's own edits, so it adds no cache break and never edits the system prompt. |
 | Agents | `sbd-worker` (build mode), `reviewer` (plan, pack-only), `verifier` (fast, pack-only, independent), contributed to pi-minions. |
 | Router pointer | In any session that loaded the hidden `sbd` skill, a `sbd_workflow` prompt section names the router and principle-leaf paths, so delegates can read them. |
 

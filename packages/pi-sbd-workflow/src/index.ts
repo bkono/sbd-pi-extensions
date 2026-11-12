@@ -9,6 +9,7 @@ import type {
 import { Type } from "typebox";
 import { decideSettle, type Goal, type GoalRepo, type RepoState } from "./gate.js";
 import { classifyCommand, commandCwd, MERGE_BLOCK_REASON, readyBlockReason } from "./guard.js";
+import { registerTaskTools, TASK_TOOLS } from "./task-tools.js";
 import {
   checkVerdict,
   hasUncommittedWork,
@@ -112,6 +113,7 @@ export const verdictPostTool: ToolDefinition<typeof VerdictPostParams> = {
 };
 
 export default function sbdWorkflow(pi: ExtensionAPI): void {
+  registerTaskTools(pi);
   let goal: Goal | undefined;
   let continuations = 0;
   let minions: MinionsApi | undefined;
@@ -137,7 +139,7 @@ export default function sbdWorkflow(pi: ExtensionAPI): void {
       source: SOURCE,
       agentDirs: [AGENTS_DIR],
       agentTools: { verifier: [verdictPostTool] },
-      parentOnlyTools: [SET_PREDICATE_TOOL],
+      parentOnlyTools: [SET_PREDICATE_TOOL, ...TASK_TOOLS],
     });
   });
   pi.events.emit(MINIONS_HELLO, undefined);

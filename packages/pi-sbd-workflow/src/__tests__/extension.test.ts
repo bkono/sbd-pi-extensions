@@ -18,6 +18,7 @@ import sbdWorkflow, {
   SOURCE,
   VERDICT_POST_TOOL,
 } from "../index.js";
+import { TASK_TOOLS } from "../task-tools.js";
 import { cleanupTempDirs, commit, git, makeRepo, tempDir, worktreeAt } from "./git-fixture.js";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
@@ -88,7 +89,7 @@ describe("pi-sbd-workflow", () => {
         source: SOURCE,
         agentDirs: [AGENTS_DIR],
         agentTools: { verifier: [expect.objectContaining({ name: VERDICT_POST_TOOL })] },
-        parentOnlyTools: [SET_PREDICATE_TOOL],
+        parentOnlyTools: [SET_PREDICATE_TOOL, ...TASK_TOOLS],
       },
     ]);
     for (const agent of ["sbd-worker", "verifier", "reviewer"]) {
