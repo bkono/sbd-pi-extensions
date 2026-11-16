@@ -44,11 +44,13 @@ describe("system prompt stability", () => {
       prompt: `refactor and audit the whole service. ${"x".repeat(5_000)}`,
       images: undefined,
     };
+    // The extension did register its other handlers, so an absent start hook is a real result.
+    expect(handlers.has("session_start")).toBe(true);
     const start = handlers.get("before_agent_start");
     for (let run = 0; run < 3; run++) {
       for (let i = 0; i < 20; i++) await handlers.get("tool_call")?.({}, ctx);
       const result = (await start?.(user, ctx)) as { systemPrompt?: string } | undefined;
-      expect(result?.systemPrompt ?? user.systemPrompt).toBe("fixture-base");
+      expect(result?.systemPrompt).toBeUndefined();
     }
   });
 });

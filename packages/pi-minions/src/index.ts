@@ -140,11 +140,6 @@ export default function (pi: ExtensionAPI): void {
     parameters: SpawnToolParams,
     execute: (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      const params = args[1] as { task?: unknown; tasks?: unknown } | undefined;
-      const hasTask = typeof params?.task === "string" && params.task.trim().length > 0;
-      const hasTasks = Array.isArray(params?.tasks) && params.tasks.length > 0;
-      if ((hasTask || hasTasks) && !(hasTask && hasTasks)) {
-      }
       return spawn(tree, pi, subsessionManager)(...args);
     },
     renderCall,
