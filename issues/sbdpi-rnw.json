@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-16T21:34:47Z",
+  "description": "Evidence: 1,050 hashline Pi sessions (2026-04-18..11-12, 31 projects, mostly gpt-5.x; Claude only 31 sessions/134 edits). Script + raw counts: session scratchpad history/analyze.py, results.json. Tool defs cost ~1,812 tokens/request (edit 514, find 279, grep 285, read 229).\n\nProposed cuts (zero use, or fail by design), ~410 tok/request:\n- find minSize/maxSize (0), regex (1, errored), modifiedSince (4, 3 errored)\n- edit replace.fuzzy (0); legacy edits[] {old_text,new_text} branch (13 calls, all failed by design; keep runtime guidance); insert_after.text alias (3; also fails Pi validation without new_text); redundant additionalProperties:true\n- edit replace_symbol (20 calls, 15 failed, 5 successes in 7 months)\n- ast_search tool (6 calls in 7 months) — unregister for the model, keep executor for PTC\n- grep scope/scopeContext (55 calls, scopeContext 46% failed); write.map (60, none since 2026-06-03)\n\nKeep (used): postEditVerify (1,443), read map (15%)/symbol (325)/bundle (110), grep literal/glob/ignoreCase/context/limit/summary, find type/maxDepth/sortBy (96)/reverse, ls.glob, replace.all (495).\n\nDecision pending Bryan. Done: schema trimmed, runtime kept for programmatic callers, a test pins that extra keys still validate (pi-schema), gates clean, then the two-provider eval.",
+  "id": "sbdpi-rnw",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "hashline: trim model-facing tool schema per session-history evidence",
+  "type": "task",
+  "updated_at": "2026-11-16T21:34:47Z"
+}
