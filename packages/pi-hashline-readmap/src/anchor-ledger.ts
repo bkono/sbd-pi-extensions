@@ -9,6 +9,10 @@
  * diff, so an anchor the model already holds for an unchanged line keeps working under the line
  * number it was issued with. Any change the ledger did not make (a shell command, a formatter, the
  * user) clears the file's anchors: the file stamp no longer matches.
+ *
+ * Keys can collide: an anchor carried to line M keeps its old key `N:H`, and a later view or edit
+ * result can show the current line N under the same key. Neither wins silently. The key is
+ * contested, its next use is refused with both lines shown, and only that refusal resolves it.
  */
 import { type BigIntStats, statSync } from "node:fs";
 import { diffArrays } from "diff";
@@ -35,11 +39,13 @@ export type AnchorCheck =
 export interface AnchorGuard {
   wasObserved(absolutePath: string): boolean;
   check(absolutePath: string, currentLines: readonly string[], refs: IssuedAnchor[]): AnchorCheck;
-  issue(absolutePath: string, anchors: Iterable<IssuedAnchor>): void;
+  issue(absolutePath: string, anchors: Iterable<IssuedAnchor>, stamp?: Stamp): void;
+  /** After refusing an ambiguous key: it now names only its own line, or nothing. */
+  resolve(absolutePath: string, ref: IssuedAnchor): void;
   recordEdit(absolutePath: string, lineMap: LineMap, fresh: Iterable<IssuedAnchor>): void;
 }
 
-type Stamp = string | undefined;
+export type Stamp = string | undefined;
 
 interface FileAnchors {
   stamp: Stamp;
@@ -47,7 +53,9 @@ interface FileAnchors {
   anchors: Map<string, Set<number>>;
 }
 
-function stampOf(absolutePath: string): Stamp {
+/** File identity and version: inode, size and mtime in ns. Taken before a read, it ties the anchors
+ * the read shows to the content it read. */
+export function stampOf(absolutePath: string): Stamp {
   let stats: BigIntStats | undefined;
   try {
     stats = statSync(absolutePath, { bigint: true, throwIfNoEntry: false });
@@ -58,6 +66,9 @@ function stampOf(absolutePath: string): Stamp {
 }
 
 const keyOf = (line: number, hash: string) => `${line}:${hash.toLowerCase()}`;
+const lineOfKey = (key: string) => Number(key.slice(0, key.indexOf(":")));
+/** Carried aliases are dropped past this many keys per current line of the file. */
+const KEYS_PER_LINE_CAP = 8;
 
 function add(anchors: Map<string, Set<number>>, key: string, line: number) {
   const lines = anchors.get(key);
@@ -77,21 +88,30 @@ export class AnchorLedger implements AnchorGuard {
   }
 
   /**
-   * Record anchors an explicit view (read, grep, ast_search, write, an edit refusal) just showed
-   * for the file as it is on disk now. The view wins: each key now names only the line it shows,
-   * so an older anchor carried to another line under the same key stops resolving.
+   * Record anchors a view (read, grep, ast_search, write, an edit refusal) just showed for the
+   * file. `stamp` is the file's stamp when the view read it (default: now). A key already carried
+   * to another line becomes contested rather than replaced.
    */
-  issue(absolutePath: string, anchors: Iterable<IssuedAnchor>): void {
+  issue(
+    absolutePath: string,
+    anchors: Iterable<IssuedAnchor>,
+    stamp: Stamp = stampOf(absolutePath),
+  ): void {
     const key = normalizePathForContextHygiene(absolutePath);
-    const stamp = stampOf(absolutePath);
     let state = this.#files.get(key);
     if (!state || state.stamp !== stamp) {
       state = { stamp, anchors: new Map() };
       this.#files.set(key, state);
     }
-    for (const anchor of anchors) {
-      state.anchors.set(keyOf(anchor.line, anchor.hash), new Set([anchor.line]));
-    }
+    for (const anchor of anchors) add(state.anchors, keyOf(anchor.line, anchor.hash), anchor.line);
+  }
+
+  resolve(absolutePath: string, ref: IssuedAnchor): void {
+    const state = this.#state(absolutePath);
+    if (!state) return;
+    const key = keyOf(ref.line, ref.hash);
+    if (state.anchors.get(key)?.has(ref.line)) state.anchors.set(key, new Set([ref.line]));
+    else state.anchors.delete(key);
   }
 
   /** Drop the file's anchors, keeping it observed. For changes made outside the edit tool. */
@@ -129,9 +149,7 @@ export class AnchorLedger implements AnchorGuard {
 
   /**
    * After the edit tool writes the file: move every anchor whose line survived unchanged to its
-   * new line, drop the rest, then add the anchors the edit result shows. Unlike a view, the
-   * result's anchors do not replace moved ones: the model may still mean the anchor it held, so
-   * a key naming two lines is refused once, and the refusal shows both.
+   * new line, drop the rest, then add the anchors the edit result shows.
    */
   recordEdit(absolutePath: string, lineMap: LineMap, fresh: Iterable<IssuedAnchor>): void {
     const key = normalizePathForContextHygiene(absolutePath);
@@ -143,6 +161,13 @@ export class AnchorLedger implements AnchorGuard {
       }
     }
     for (const anchor of fresh) add(moved, keyOf(anchor.line, anchor.hash), anchor.line);
+    if (moved.size > KEYS_PER_LINE_CAP * lineMap.newLength + 256) {
+      for (const [anchorKey, lines] of moved) {
+        const own = lineOfKey(anchorKey);
+        if (lines.has(own)) moved.set(anchorKey, new Set([own]));
+        else moved.delete(anchorKey);
+      }
+    }
     this.#files.set(key, { stamp: stampOf(absolutePath), anchors: moved });
   }
 }
@@ -154,6 +179,8 @@ export interface LineMap {
   changed: Array<[number, number]>;
   /** 1-based new line just after each pure deletion (lines removed, none added). */
   deletions: number[];
+  /** Line count after the edit. */
+  newLength: number;
 }
 
 export function diffLineMap(before: readonly string[], after: readonly string[]): LineMap {
@@ -181,7 +208,7 @@ export function diffLineMap(before: readonly string[], after: readonly string[])
     }
   }
   if (pendingRemoval) deletions.push(newIdx + 1);
-  return { oldToNew, changed, deletions };
+  return { oldToNew, changed, deletions, newLength: after.length };
 }
 
 const ANCHOR_LINE_RE = /^(?:>>>? ?|\s+)?(\d+):([0-9a-f]{3})\|/gm;

@@ -253,6 +253,28 @@ function collectAnchorRefs(edits: readonly unknown[]): AnchorRef[] {
   return refs;
 }
 
+/** Map every parseable anchor's line number, keeping its hash. */
+function rewriteAnchorsWith<T>(edits: T[], mapLine: (line: number) => number): T[] {
+  return edits.map((edit) => {
+    const out: Record<string, any> = { ...(edit as Record<string, any>) };
+    for (const variant of Object.keys(ANCHOR_FIELDS) as Array<keyof typeof ANCHOR_FIELDS>) {
+      if (!out[variant] || typeof out[variant] !== "object") continue;
+      const body = { ...out[variant] };
+      for (const field of ANCHOR_FIELDS[variant]) {
+        if (typeof body[field] !== "string") continue;
+        try {
+          const { line, hash } = parseLineRef(body[field]);
+          body[field] = `${mapLine(line)}:${hash.toLowerCase()}`;
+        } catch {
+          /* reported by applyHashlineEdits */
+        }
+      }
+      out[variant] = body;
+    }
+    return out as T;
+  });
+}
+
 /** Point each anchor at the current line the ledger resolved it to. */
 function rewriteAnchors(edits: any[], refs: AnchorRef[], lines: number[]): any[] {
   const out = edits.map((edit) => ({ ...edit }));
@@ -315,17 +337,26 @@ function buildStaleAnchorError(
   }
   const shown = [...near].sort((x, y) => x - y).slice(0, STALE_MAX_LINES);
   const anchors = shown.map((n) => ({ line: n, hash: computeLineHash(n, lines[n - 1]) }));
-  // Showing the lines is a view: a retry with an anchor shown here resolves to its line.
+  // This refusal is where an ambiguous key is settled: it now names only its own line, and every
+  // other candidate is shown under its own current anchor.
+  for (const ref of stale) if (ref.candidates.length > 1) guard.resolve(absolutePath, ref);
   guard.issue(absolutePath, anchors);
+  const anchorAt = (n: number) => `${n}:${computeLineHash(n, lines[n - 1])}`;
   const reasons = changedOutside
     ? [
         `${displayPath} changed since its anchors were issued (by a command or another tool), so ${stale.map((r) => `${r.line}:${r.hash}`).join(", ")} no longer prove(s) where a line is.`,
       ]
-    : stale.map((r) =>
-        r.candidates.length > 1
-          ? `${r.line}:${r.hash} names lines ${r.candidates.join(" and ")} since your last edit.`
-          : `${r.line}:${r.hash} was not issued for the current content of ${displayPath}.`,
-      );
+    : stale.map((r) => {
+        const key = `${r.line}:${r.hash}`;
+        if (r.candidates.length < 2) {
+          return `${key} was not issued for the current content of ${displayPath}.`;
+        }
+        const moved = r.candidates.filter((n) => n !== r.line);
+        const movedText = moved.map((n) => `line ${n} (now ${anchorAt(n)})`).join(" and ");
+        return r.candidates.includes(r.line)
+          ? `${key} is ambiguous: an anchor you held from before an edit moved to ${movedText}, and line ${r.line} now shows as ${key} too. Use ${moved.map(anchorAt).join(" or ")} for the moved line; ${key} now means line ${r.line}.`
+          : `${key} is ambiguous: anchors you held from before an edit moved to ${movedText}. Use one of those.`;
+      });
   const body: string[] = [];
   shown.forEach((n, i) => {
     if (i > 0 && n !== shown[i - 1] + 1) body.push("...");
@@ -663,12 +694,29 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               );
             }
             preAnchorContent = lines.join("\n");
+            // Anchors name lines of the file as read; move them past the symbol splices exactly
+            // instead of leaving the engine to relocate them by hash.
+            anchorEdits = rewriteAnchorsWith(anchorEdits, (line) => {
+              let shift = 0;
+              for (const probe of rsProbeResults) {
+                if (probe.range.end < line) {
+                  shift +=
+                    probe.replacement.split("\n").length -
+                    (probe.range.end - probe.range.start + 1);
+                }
+              }
+              return line + shift;
+            });
           }
           let result = preAnchorContent;
 
           let anchorResult: ReturnType<typeof applyHashlineEdits>;
           try {
-            anchorResult = applyHashlineEdits(result, anchorEdits, signal);
+            // With a ledger every anchor already names a verified line: a mismatch now is a race,
+            // and refusing beats relocating by hash.
+            anchorResult = applyHashlineEdits(result, anchorEdits, signal, {
+              relocate: !options.anchors,
+            });
           } catch (err) {
             if (err instanceof HashlineMismatchError) {
               // The lines it shows are computed from disk content unless replace_symbol ran first.

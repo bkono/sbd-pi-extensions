@@ -426,6 +426,8 @@ export function applyHashlineEdits(
   content: string,
   edits: HashlineEditItem[],
   signal?: AbortSignal,
+  /** relocate: false refuses a mismatched anchor instead of moving it to a nearby hash match. */
+  options: { relocate?: boolean } = {},
 ): {
   content: string;
   firstChangedLine: number | undefined;
@@ -506,6 +508,10 @@ export function applyHashlineEdits(
     const originalLine = ref.line;
     const actual = lineHashes[originalLine - 1];
     if (actual === expected) return true;
+    if (options.relocate === false) {
+      mismatches.push({ line: originalLine, expected: ref.hash, actual });
+      return false;
+    }
     const relocated = findRelocationLine(expected, originalLine, relocationWindow);
     if (relocated !== undefined) {
       ref.line = relocated;

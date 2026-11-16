@@ -153,7 +153,7 @@ describe("anchor ledger through the edit tool", () => {
     expect(readFileSync(file, "utf8")).toBe("inserted\na\nb\nc\n");
   });
 
-  it("refuses an anchor that names two current lines once, then resolves to the line shown", async () => {
+  it("refuses an ambiguous key once, naming the moved line; each anchor then means one line", async () => {
     const file = fixture("ambiguous.ts", ["x", "}", "y", "}", "z"]);
     await call("read", { path: file });
     // Old 4:} moves to 6; the result shows the new line 4 (old 2:}) as 4:} too.
@@ -168,25 +168,83 @@ describe("anchor ledger through the edit tool", () => {
 
     const ambiguous = await call("edit", {
       path: file,
-      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // four" } }],
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // held" } }],
     });
-    expect(ambiguous.isError).toBe(true);
     expect(ambiguous.details.ptcValue.error.code).toBe("stale-anchor");
-    expect(textOf(ambiguous)).toContain(`${a(4, "}")} names lines 4 and 6 since your last edit.`);
-    expect(textOf(ambiguous)).toContain(`${a(6, "}")}|}`);
+    expect(textOf(ambiguous)).toContain(
+      `${a(4, "}")} is ambiguous: an anchor you held from before an edit moved to line 6 (now ${a(6, "}")})`,
+    );
     expect(linesOf(file)).toEqual(["x", "p", "q", "}", "y", "}", "z"]);
 
-    // The refusal showed 4:} at line 4, so the same anchor now means line 4.
-    const retry = await call("edit", {
+    // The moved line is reachable under its new anchor; the old key now means line 4.
+    const moved = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(6, "}"), new_text: "} // held" } }],
+    });
+    expect(moved.isError).not.toBe(true);
+    const own = await call("edit", {
       path: file,
       edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // four" } }],
     });
-    expect(retry.isError).not.toBe(true);
-    expect(linesOf(file)).toEqual(["x", "p", "q", "} // four", "y", "}", "z"]);
+    expect(own.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["x", "p", "q", "} // four", "y", "} // held", "z"]);
   });
 
-  it("a re-read resolves a key an earlier anchor also moved to (no refusal loop)", async () => {
-    // Live t6 failure: a `});` anchor named two lines, and a re-read did not help.
+  const nested = [
+    "function f() {",
+    "  if (a) {",
+    "    g();",
+    "  }",
+    "  if (b) {",
+    "    h();",
+    "  }",
+    "}",
+  ];
+  const shiftThree = () => ({
+    insert_after: { anchor: a(1, "function f() {"), new_text: "  n1();\n  n2();\n  n3();" },
+  });
+
+  it("a later view never retargets a held anchor: refusal display, then grep context", async () => {
+    // After the shift, line 7 is if(a)'s brace; the held 7:} meant if(b)'s brace, now line 10.
+    const file = fixture("held.ts", nested);
+    await call("read", { path: file });
+    await call("edit", { path: file, edits: [shiftThree()] });
+    const refused = await call("edit", {
+      path: file,
+      edits: [
+        { set_line: { anchor: a(7, "  }"), new_text: "  } // end b" } },
+        { set_line: { anchor: a(8, "    g();"), new_text: "    g(1);" } },
+      ],
+    });
+    expect(refused.details.ptcValue.error.code).toBe("stale-anchor");
+    const retry = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(7, "  }"), new_text: "  } // end b" } }],
+    });
+    expect(retry.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(textOf(retry)).toContain(`moved to line 10 (now ${a(10, "  }")})`);
+    const meant = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(10, "  }"), new_text: "  } // end b" } }],
+    });
+    expect(meant.isError).not.toBe(true);
+    expect(linesOf(file)[9]).toBe("  } // end b");
+    expect(linesOf(file)[6]).toBe("  }");
+
+    const file2 = fixture("held2.ts", nested);
+    await call("read", { path: file2 });
+    await call("edit", { path: file2, edits: [shiftThree()] });
+    await call("grep", { pattern: "g\\(\\)", path: file2, context: 1 });
+    const viaGrep = await call("edit", {
+      path: file2,
+      edits: [{ set_line: { anchor: a(7, "  }"), new_text: "  } // end b" } }],
+    });
+    expect(viaGrep.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file2)[6]).toBe("  }");
+  });
+
+  it("a re-read does not loop: one refusal settles the key", async () => {
+    // Live t6 failure: a `});` anchor named two lines, and re-reads could not resolve it.
     const file = fixture("loop.ts", ["a", "});", "b", "});", "c"]);
     await call("read", { path: file });
     await call("edit", {
@@ -194,12 +252,62 @@ describe("anchor ledger through the edit tool", () => {
       edits: [{ insert_after: { anchor: a(1, "a"), new_text: "n1\nn2" } }],
     });
     await call("read", { path: file, offset: 3, limit: 3 });
-    const edit = await call("edit", {
-      path: file,
-      edits: [{ insert_after: { anchor: a(4, "});"), new_text: "after four" } }],
-    });
-    expect(edit.isError).not.toBe(true);
+    const edit = () =>
+      call("edit", {
+        path: file,
+        edits: [{ insert_after: { anchor: a(4, "});"), new_text: "after four" } }],
+      });
+    expect((await edit()).details.ptcValue.error.code).toBe("stale-anchor");
+    expect((await edit()).isError).not.toBe(true);
     expect(linesOf(file)).toEqual(["a", "n1", "n2", "});", "after four", "b", "});", "c"]);
+  });
+
+  it("moves anchors exactly past a replace_symbol splice instead of relocating by hash", async () => {
+    const lines = [
+      "function a() {",
+      "  return 1;",
+      "}",
+      ...Array.from({ length: 5 }, (_, i) => `const f${i} = ${i};`),
+      "function b() {",
+      "  if (x) {",
+      "    y();",
+      "  }",
+      "  return 2;",
+      "}",
+    ];
+    const file = fixture("rs.ts", lines);
+    await call("read", { path: file });
+    const body = [
+      "function a() {",
+      "  if (q) {",
+      ...Array.from({ length: 15 }, (_, i) => `    s${i}();`),
+      "  }",
+      ...Array.from({ length: 25 }, (_, i) => `  t${i}();`),
+      "  return 1;",
+      "}",
+    ].join("\n");
+    const result = await call("edit", {
+      path: file,
+      edits: [
+        { replace_symbol: { symbol: "a", new_body: body } },
+        { set_line: { anchor: a(12, "  }"), new_text: "  } // MARK" } },
+      ],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(linesOf(file).findIndex((l) => l.includes("MARK")) + 1).toBe(12 + 42);
+  });
+
+  it("issues ptcValue anchors past the read text's truncation", async () => {
+    const lines = Array.from({ length: 2500 }, (_, i) => `row ${i + 1}`);
+    const file = fixture("long.ts", lines);
+    const read = await call("read", { path: file });
+    expect(textOf(read)).not.toContain(`${a(2400, "row 2400")}|`);
+    const result = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(2400, "row 2400"), new_text: "edited" } }],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(linesOf(file)[2399]).toBe("edited");
   });
 
   it("still refuses an edit to a file that was never read", async () => {
@@ -258,7 +366,7 @@ describe("freshAnchorWindows", () => {
       [350, 351],
       [380, 381],
     ];
-    const map = { oldToNew: new Int32Array(0), changed, deletions: [] };
+    const map = { oldToNew: new Int32Array(0), changed, deletions: [], newLength: 400 };
     const { shown, omittedRegions } = freshAnchorWindows(lines, map);
     expect(shown[0]).toEqual([8, 9, 10, 11, 12, 13, 57, 58, 59, 60, 61, 62]);
     expect(shown.flat().length).toBeLessThanOrEqual(48);

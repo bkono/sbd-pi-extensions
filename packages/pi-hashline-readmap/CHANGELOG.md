@@ -9,7 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - `edit` checks freshness per anchor, not per file. An anchor ledger (`src/anchor-ledger.ts`) records every `LINE:HASH` shown by `read`, `grep`, `ast_search`, `write` and `edit`, and carries each one through the edit tool's own edits with a line diff. An anchor the model already holds for an unchanged line keeps working under the line number it was copied with, so a follow-up edit to the same file no longer needs a re-read. A change made outside `edit` (file stamp moved, or a detected shell mutation) clears the file's anchors.
 - `edit` results now end with fresh anchors for each changed region and two lines of context (long regions show head and tail, 48 lines at most).
-- An anchor that was not issued for the current content, or that names two current lines, fails with the new `stale-anchor` code and shows the current lines near it with anchors. A hash match alone no longer passes: the hash covers one whitespace-stripped line in 12 bits with no line number, so a shifted `}` or blank line used to verify.
+- An anchor that was not issued for the current content fails with the new `stale-anchor` code and shows the current lines near it with anchors. A hash match alone no longer passes: the hash covers one whitespace-stripped line in 12 bits with no line number, so a shifted `}` or blank line used to verify.
+- When a carried anchor's key collides with a line shown later under the same key (common for `}` and blank lines), neither wins silently. The next use is refused once, naming the moved line's new anchor; after that refusal the key means its own line.
+- With the ledger, `edit` no longer relocates anchors by hash: anchored lines move exactly past `replace_symbol` splices, and a mismatch is refused. Read stamps the file before reading and also issues the `ptcValue` lines past the text's truncation.
 
 ### Removed
 - The "Edit changed N lines across M operations — verify no unintended reformatting" warning. It counted changed lines by position, so any mid-file `insert_after` counted every later line and fired on correct edits.
