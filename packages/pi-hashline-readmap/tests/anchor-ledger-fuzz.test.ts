@@ -55,7 +55,7 @@ it("fuzz: accepted edits land only on a line shown under that key", async () => 
     carriedAccepted: 0,
     wroteOnRefusal: [] as any[],
   };
-  for (let seed = 1; seed <= SEEDS; seed++) {
+  for (let seed = Number(process.env.FUZZ_SEED_FROM ?? 1); seed <= SEEDS; seed++) {
     const rand = rng(seed);
     const pick = <T>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
     const dir = mkdtempSync(join(tmpdir(), "vfuzz-"));
@@ -121,7 +121,17 @@ it("fuzz: accepted edits land only on a line shown under that key", async () => 
         key = `${n}:${computeLineHash(n, lines[n - 1])}`;
         void anyKey;
       } else key = pick(keys);
-      const alive = [...(held.get(key) ?? [])].filter((id) => ids.includes(id));
+      const sameHashShown = (n: number) => {
+        const id = ids[n - 1];
+        const h = key.split(":")[1];
+        return [...held.entries()].some(([k, set]) => k.split(":")[1] === h && set.has(id));
+      };
+      const keyLine = Number(key.split(":")[0]);
+      // The ledger also accepts a renumbered anchor: N:H for a line shown under another H key.
+      const renumbered = sameHashShown(keyLine) ? [ids[keyLine - 1]] : [];
+      const alive = [
+        ...new Set([...[...(held.get(key) ?? [])].filter((id) => ids.includes(id)), ...renumbered]),
+      ];
       const op = pick(["set", "ins", "ins", "set", "del"]);
       const newLines =
         op === "del"
@@ -183,6 +193,11 @@ it("fuzz: accepted edits land only on a line shown under that key", async () => 
         if (after !== before) stats.wroteOnRefusal.push(ctx);
         if (code === "no-op") note(text);
         if (code === "stale-anchor") {
+          // An ambiguity refusal redefines the key: it now means its own line, or nothing.
+          if (text.includes(`${key} is ambiguous`)) {
+            if (text.includes(`${key} now means line`)) held.set(key, new Set([ids[keyLine - 1]]));
+            else held.delete(key);
+          }
           const allShown = held.get(key);
           // false refusal: exactly one meaning ever recorded and it is alive
           if (allShown && allShown.size === 1 && alive.length === 1)

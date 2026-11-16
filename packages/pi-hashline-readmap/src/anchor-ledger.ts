@@ -10,6 +10,9 @@
  * the edit did not touch keeps working under the line number it was issued with. Any change the ledger did not make (a shell command, a formatter, the
  * user) clears the file's anchors: the file stamp no longer matches.
  *
+ * An anchor the model renumbered itself, `N:H` for a shown line now tracked at N, is accepted
+ * too: it names the same line.
+ *
  * Keys can collide: an anchor carried to line M keeps its old key `N:H`, and a later view or edit
  * result can show the current line N under the same key. Neither wins silently. The key is
  * contested, its next use is refused with both lines shown, and only that refusal resolves it.
@@ -113,9 +116,15 @@ export class AnchorLedger implements AnchorGuard {
   ): void {
     const key = normalizePathForContextHygiene(absolutePath);
     let state = this.#files.get(key);
-    if (!state || state.stamp !== stamp) {
+    if (!state) {
       state = { stamp, anchors: new Map(), evicted: new Set() };
       this.#files.set(key, state);
+    } else if (state.stamp !== stamp) {
+      // Changed outside edit: no position survives, so start over from this view. (Tombstoning
+      // carried keys here would refuse the common case, a fresh anchor after a re-read.)
+      state.stamp = stamp;
+      state.anchors = new Map();
+      state.evicted = new Set();
     }
     for (const anchor of anchors) add(state.anchors, keyOf(anchor.line, anchor.hash), anchor.line);
   }
@@ -161,6 +170,16 @@ export class AnchorLedger implements AnchorGuard {
         const text = currentLines[line - 1];
         return text !== undefined && computeLineHash(line, text) === hash;
       });
+      // A model often shifts an anchor it holds by the lines its own edit inserted. Accept N:H
+      // when an anchor shown for this hash is now tracked at line N: that is the line it saw.
+      if (
+        !named.includes(ref.line) &&
+        computeLineHash(ref.line, currentLines[ref.line - 1] ?? "") === hash &&
+        currentLines[ref.line - 1] !== undefined &&
+        this.#tracksLine(state, hash, ref.line)
+      ) {
+        named.push(ref.line);
+      }
       const evicted = state.evicted.has(key);
       if (named.length === 1 && !evicted) lines.push(named[0]);
       else
@@ -173,6 +192,15 @@ export class AnchorLedger implements AnchorGuard {
     return stale.length ? { kind: "stale", refs: stale, changedOutside } : { kind: "ok", lines };
   }
 
+  /** Whether any anchor issued with this hash currently names `line`. */
+  #tracksLine(state: FileAnchors, hash: string, line: number): boolean {
+    const suffix = `:${hash}`;
+    for (const [key, lines] of state.anchors) {
+      if (key.endsWith(suffix) && lines.has(line)) return true;
+    }
+    return false;
+  }
+
   /**
    * After the edit tool writes the file: move every anchor whose line survived unchanged to its
    * new line, drop the rest, then add the anchors the edit result shows.
@@ -180,7 +208,7 @@ export class AnchorLedger implements AnchorGuard {
   recordEdit(absolutePath: string, lineMap: LineMap, fresh: Iterable<IssuedAnchor>): void {
     const key = normalizePathForContextHygiene(absolutePath);
     const moved = new Map<string, Set<number>>();
-    const evicted = new Set(this.#files.get(key)?.evicted ?? []);
+    const evicted = this.#files.get(key)?.evicted ?? new Set<string>();
     for (const [anchorKey, lines] of this.#files.get(key)?.anchors ?? []) {
       for (const line of lines) {
         const next = lineMap.oldToNew[line - 1];

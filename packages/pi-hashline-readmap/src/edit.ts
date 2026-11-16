@@ -351,8 +351,11 @@ function buildStaleAnchorError(
     : stale.map((r) => {
         const key = `${r.line}:${r.hash}`;
         if (r.evicted && r.candidates.length < 2) {
+          if (r.candidates[0] === r.line) {
+            return `${key} may still mean a line it named before earlier edits, which is no longer tracked; line ${r.line} now shows as ${key}, and ${key} now means line ${r.line}.`;
+          }
           return r.candidates.length
-            ? `${key} may still mean a line it named before earlier edits, which is no longer tracked; line ${r.candidates[0]} now shows as ${key}, and ${key} now means line ${r.candidates[0]}.`
+            ? `${key} may still mean a line it named before earlier edits, which is no longer tracked; the line it was last tracked at is now ${anchorAt(r.candidates[0])}.`
             : `${key} may still mean a line it named before earlier edits, which is no longer tracked. Read the target region again.`;
         }
         if (r.candidates.length < 2) {

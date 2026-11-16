@@ -75,31 +75,29 @@ describe("anchor ledger through the edit tool", () => {
     expect(linesOf(file)).toEqual(["", "keep1", "keep2", "MOVED", "last"]);
   });
 
-  it("refuses an anchor that hash-matches the current line but was never issued", async () => {
-    const file = fixture("forged.ts", ["first", "", "keep1", "keep2", "", "last"]);
-    await call("read", { path: file });
+  it("refuses a hash match on a line never shown; a renumbered shown line lands on that line", async () => {
+    const file = fixture("forged.ts", ["first", "", "keep1", "keep2", "", "last", "x", "", "y"]);
+    await call("read", { path: file, limit: 6 });
     await call("edit", {
       path: file,
       edits: [{ set_line: { anchor: a(1, "first"), new_text: "" } }],
     });
-
-    // Line 4 is blank now, so 4:<blank> verifies by hash alone, but it was issued as 4:<keep2>.
+    // Line 7 is now the blank that was line 8, never shown: a hash match alone does not pass.
     const forged = await call("edit", {
       path: file,
-      edits: [{ set_line: { anchor: a(4, ""), new_text: "WRONG" } }],
+      edits: [{ set_line: { anchor: a(7, ""), new_text: "WRONG" } }],
     });
-    expect(forged.isError).toBe(true);
     expect(forged.details.ptcValue.error.code).toBe("stale-anchor");
-    expect(textOf(forged)).toContain(`${a(4, "")} was not issued`);
-    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "", "last"]);
+    expect(textOf(forged)).toContain(`${a(7, "")} was not issued`);
+    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "", "last", "x", "", "y"]);
 
-    // The refusal showed line 4 with its anchor, so a retry with it goes through.
-    const retry = await call("edit", {
+    // 4:<blank> renumbers the shown 5:<blank> (now line 4): it edits that same physical line.
+    const renumbered = await call("edit", {
       path: file,
       edits: [{ set_line: { anchor: a(4, ""), new_text: "RIGHT" } }],
     });
-    expect(retry.isError).not.toBe(true);
-    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "RIGHT", "last"]);
+    expect(renumbered.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "RIGHT", "last", "x", "", "y"]);
   });
 
   it("accepts a second edit from the same read without a re-read", async () => {
@@ -221,13 +219,10 @@ describe("anchor ledger through the edit tool", () => {
         { set_line: { anchor: a(8, "    g();"), new_text: "    g(1);" } },
       ],
     });
+    // 7:} is held for if(b)'s brace (now 10) and also renumbers if(a)'s shown brace (now 7):
+    // the refusal names the moved line before anything can bind.
     expect(refused.details.ptcValue.error.code).toBe("stale-anchor");
-    const retry = await call("edit", {
-      path: file,
-      edits: [{ set_line: { anchor: a(7, "  }"), new_text: "  } // end b" } }],
-    });
-    expect(retry.details.ptcValue.error.code).toBe("stale-anchor");
-    expect(textOf(retry)).toContain(`moved to line 10 (now ${a(10, "  }")})`);
+    expect(textOf(refused)).toContain(`moved to line 10 (now ${a(10, "  }")})`);
     const meant = await call("edit", {
       path: file,
       edits: [{ set_line: { anchor: a(10, "  }"), new_text: "  } // end b" } }],
@@ -501,6 +496,41 @@ describe("anchor ledger through the edit tool", () => {
     });
     expect(use.isError).not.toBe(true);
     expect(linesOf(file)[16]).toBe("USED");
+  });
+
+  it("accepts an anchor the model renumbered itself after its own insert", async () => {
+    // Paired eval, t5/t6: the model read a region, inserted lines above it, then sent the shifted
+    // number (595:fbb for a line shown as 589:fbb). The old engine accepted it; so must the ledger.
+    const lines = Array.from({ length: 30 }, (_, i) => `const v${i + 1} = ${i + 1};`);
+    const file = fixture("renumber.ts", lines);
+    await call("read", { path: file, offset: 20, limit: 10 });
+    await call("read", { path: file, limit: 5 });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(2, "const v2 = 2;"), new_text: "a1();\na2();\na3();" } }],
+    });
+    const shifted = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(28, "const v25 = 25;"), new_text: "const v25 = 250;" } }],
+    });
+    expect(shifted.isError).not.toBe(true);
+    expect(linesOf(file)[27]).toBe("const v25 = 250;");
+  });
+
+  it("still refuses a renumbered brace once when the key also names a moved brace", async () => {
+    const file = fixture("renumber-brace.ts", ["x", "}", "y", "}", "z", "w"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "x"), new_text: "p\nq" } }],
+    });
+    // 4:} was issued for the old line 4 (now 6); line 4 is now the old line 2, also shown.
+    const edit = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // ?" } }],
+    });
+    expect(edit.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file)).toEqual(["x", "p", "q", "}", "y", "}", "z", "w"]);
   });
 
   it("still refuses an edit to a file that was never read", async () => {
