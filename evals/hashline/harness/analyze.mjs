@@ -246,6 +246,32 @@ function classifyBash(cmd) {
   return { primary, mixed: classes.size > 1 };
 }
 
+/**
+ * The 1:1 bucket a tool result's output belongs to. A bash chain that mixes classes (e.g.
+ * `node --test && git diff`) is its own bucket so per-class comparisons stay like for like.
+ */
+function outputCategory(it, kind) {
+  if (kind === "read") return "read";
+  if (kind === "edit") return "edit result";
+  if (kind === "write") return "write result";
+  if (kind === "search") {
+    if (/^(find|find_files|ls|list_files)$/.test(it.name)) return "find/ls";
+    return it.name === "ast_search" ? "ast_search" : "grep";
+  }
+  if (kind === "bash") {
+    const { primary, mixed } = classifyBash(String(it.args.command ?? it.args.cmd ?? ""));
+    if (mixed) return "bash mixed";
+    return {
+      read: "bash read",
+      search: "bash search",
+      diff: "git diff",
+      test: "test run",
+      other: "bash other",
+    }[primary];
+  }
+  return kind;
+}
+
 function bashRead(call, work) {
   const cmd = String(call.args.command ?? call.args.cmd ?? "");
   const { primary, mixed } = classifyBash(cmd);
@@ -312,6 +338,8 @@ function analyzeRun(dir, task, arm) {
     bashWrites: 0,
     scriptedWrites: 0,
     editResultChars: 0,
+    /** Output size per 1:1 bucket: { calls, chars, lines? }. */
+    toolOut: {},
     cacheWriteTokens: 0,
     externalReads: 0,
     filesRead: 0,
@@ -441,6 +469,10 @@ function analyzeRun(dir, task, arm) {
     curPrompt.toolCalls += 1;
     m.byKind[kind] = (m.byKind[kind] ?? 0) + 1;
     m.byTool[it.name] = (m.byTool[it.name] ?? 0) + 1;
+    const bucket = (m.toolOut[outputCategory(it, kind)] ??= { calls: 0, chars: 0, lines: 0 });
+    bucket.calls += 1;
+    bucket.chars += it.text.length;
+    if (kind === "read") bucket.lines += linesOfRead(it).nums.length;
     if (kind === "read") {
       const file = relPath(it.args.path ?? it.args.file_path, work);
       if (!file || file.startsWith("external:")) {
@@ -718,6 +750,57 @@ const md = [
   ...rows.map((r) => `| ${cols.map((c) => r[c]).join(" | ")} |`),
 ].join("\n");
 writeFileSync(path.join(outDir, "summary.md"), `${md}\n`);
+
+// 1:1 output comparison: what each arm's tools returned for the same kind of call, per arm over
+// all tasks. Means are per call; read also reports chars per line (the anchor prefix).
+const BUCKETS = [
+  "read",
+  "grep",
+  "find/ls",
+  "ast_search",
+  "edit result",
+  "write result",
+  "test run",
+  "git diff",
+  "bash read",
+  "bash search",
+  "bash mixed",
+  "bash other",
+];
+const byArm = new Map();
+for (const r of runs) {
+  const a = byArm.get(r.arm) ?? { runs: 0, out: {} };
+  a.runs += 1;
+  for (const [b, v] of Object.entries(r.toolOut ?? {})) {
+    const t = (a.out[b] ??= { calls: 0, chars: 0, lines: 0 });
+    t.calls += v.calls;
+    t.chars += v.chars;
+    t.lines += v.lines;
+  }
+  byArm.set(r.arm, a);
+}
+const toolRows = [];
+for (const b of BUCKETS) {
+  const row = { output: b };
+  let any = false;
+  for (const [arm, a] of [...byArm.entries()].sort()) {
+    const t = a.out[b];
+    if (t?.calls) any = true;
+    row[arm] = t?.calls
+      ? `${fmt(t.calls / a.runs)}/run × ${fmt(t.chars / t.calls)}${b === "read" && t.lines ? ` (${fmt(t.chars / t.lines)}/line)` : ""}`
+      : "-";
+  }
+  if (any) toolRows.push(row);
+}
+const toolCols = ["output", ...[...byArm.keys()].sort()];
+const toolMd = [
+  "Calls per run × mean chars per call, all tasks.",
+  "",
+  `| ${toolCols.join(" | ")} |`,
+  `| ${toolCols.map(() => "---").join(" | ")} |`,
+  ...toolRows.map((r) => `| ${toolCols.map((c) => r[c]).join(" | ")} |`),
+].join("\n");
+writeFileSync(path.join(outDir, "summary-tools.md"), `${toolMd}\n`);
 console.log(md);
 if (process.argv.includes("--json"))
   console.log(

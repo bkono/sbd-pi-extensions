@@ -160,9 +160,9 @@ Used ops (`insert_after` 180, `set_line` 83, `replace_lines` 13; read `offset/li
 
 ## Analyzer coverage (2026-11-17)
 
-The analyzer classifies each bash command of a chain by its first pipeline stage: read (`cat`, `head`, `tail`, `sed -n`, `nl`, `awk`, `wc`, `diff`, scripted `readFileSync`/`open().read`), search (`rg`, `grep`, `find`, `fd`, `ls`, `tree`), `git diff`/`git show`, test/build, or other. Writes (`sed -i`, `perl -i`, `>`/`>>`/`tee` into the tree, scripted writes including heredocs, `apply_patch`) count as edits for re-read classification. Pi's Anthropic usage counts `cacheWrite` as prompt input.
+`analyze.mjs` also writes `summary-tools.md`: a 1:1 table of what each arm's tools returned for the same kind of call (calls per run × mean chars per call), so each hashline component can be compared like for like: read (and chars per line), grep, find/ls, edit and write results, and bash output by class (test runs, `git diff`, reads, searches; chains mixing classes are their own row). Overall cost stays in the token columns of `summary.md`.
 
-The first analysis dropped `git diff` output and any chain that also ran `node`, `npm` or `git`. Re-analysed from the same 54 traces, file-context chars (read + search + git diff) are MC 1,433k, hashline 1,157k, stock 982k: hashline is +18% over stock. `git diff` alone was 220k for hashline, 96k for stock and 178k for MC. Scripted reads did not occur; one MC run made one scripted write. Re-read counts are unchanged.
+Bash commands are classified per command of a chain by the first pipeline stage. Writes (`sed -i`, `perl -i`, `>`/`>>`/`tee` into the tree, scripted writes including heredocs, `apply_patch`) count as edits for re-read classification. Pi's Anthropic usage counts `cacheWrite` as prompt input.
 
 ## Reproduce
 
