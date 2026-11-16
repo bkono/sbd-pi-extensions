@@ -12,7 +12,6 @@ import type { Static } from "typebox";
 import { Type } from "typebox";
 import {
   type AnchorGuard,
-  anchorsInText,
   freshAnchorWindows,
   type IssuedAnchor,
   lineMapFromOrigin,
@@ -732,7 +731,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             if (err instanceof HashlineMismatchError) {
               // The lines it shows are computed from disk content unless replace_symbol ran first.
               if (options.anchors && rsProbeResults.length === 0) {
-                options.anchors.issue(absolutePath, anchorsInText(err.message));
+                options.anchors.issue(absolutePath, err.shownAnchors);
               }
               return buildEditError(absolutePath, "hash-mismatch", err.message, undefined, {
                 updatedAnchors: err.updatedAnchors,
@@ -773,7 +772,18 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 
           if (originalNormalized === result) {
             let diagnostic = `No changes made to ${path}. The edits produced identical content.`;
+            // Issued from structure, never parsed back from the text: the text prints file lines
+            // raw, and a line shaped like LINE:HASH| must not become an anchor.
+            const noopAnchors: IssuedAnchor[] = [];
             if (anchorResult.noopEdits?.length) {
+              for (const e of anchorResult.noopEdits) {
+                try {
+                  const { line, hash } = parseLineRef(e.loc);
+                  noopAnchors.push({ line, hash });
+                } catch {
+                  /* loc is always LINE:HASH */
+                }
+              }
               diagnostic +=
                 "\n" +
                 anchorResult.noopEdits
@@ -802,6 +812,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                     if (parsed.line >= 1 && parsed.line <= lines.length) {
                       const lineContent = lines[parsed.line - 1];
                       const hash = computeLineHash(parsed.line, lineContent);
+                      if (targetLines.length < 5) noopAnchors.push({ line: parsed.line, hash });
                       targetLines.push(
                         `${parsed.line}:${hash}|${escapeControlCharsForDisplay(lineContent)}`,
                       );
@@ -818,7 +829,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             }
             // The anchors this shows name current disk lines: issue them so a retry can use them.
             if (options.anchors && preAnchorContent === originalNormalized) {
-              options.anchors.issue(absolutePath, anchorsInText(diagnostic));
+              options.anchors.issue(absolutePath, noopAnchors);
             }
             return buildEditError(absolutePath, "no-op", diagnostic);
           }

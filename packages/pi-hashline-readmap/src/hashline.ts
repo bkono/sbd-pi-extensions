@@ -27,11 +27,18 @@ interface HashMismatch {
 
 export class HashlineMismatchError extends Error {
   readonly updatedAnchors: PtcLine[];
+  /** Every LINE:HASH the message shows, each naming that line of the content edited. */
+  readonly shownAnchors: Array<{ line: number; hash: string }>;
 
-  constructor(message: string, updatedAnchors: PtcLine[]) {
+  constructor(
+    message: string,
+    updatedAnchors: PtcLine[],
+    shownAnchors: Array<{ line: number; hash: string }> = [],
+  ) {
     super(message);
     this.name = "HashlineMismatchError";
     this.updatedAnchors = updatedAnchors;
+    this.shownAnchors = shownAnchors;
   }
 }
 
@@ -167,7 +174,7 @@ function findSimilarLines(
   fileLines: string[],
   hintLine: number,
   maxSuggestions: number = 3,
-): string[] {
+): Array<{ line: number; hash: string; text: string }> {
   const SCAN_WINDOW = 50;
   const MIN_SIMILARITY = 0.3;
   const start = Math.max(0, hintLine - 1 - SCAN_WINDOW);
@@ -186,14 +193,23 @@ function findSimilarLines(
   candidates.sort((a, b) => b.score - a.score);
   return candidates.slice(0, maxSuggestions).map((c) => {
     const hash = computeLineHash(c.line, c.content);
-    return `  ${c.line}:${hash}|${escapeControlCharsForDisplay(c.content)}`;
+    return {
+      line: c.line,
+      hash,
+      text: `  ${c.line}:${hash}|${escapeControlCharsForDisplay(c.content)}`,
+    };
   });
 }
 function formatMismatchError(
   mismatches: HashMismatch[],
   fileLines: string[],
   relocationWindow: number,
-): { message: string; updatedAnchors: PtcLine[] } {
+): {
+  message: string;
+  updatedAnchors: PtcLine[];
+  shownAnchors: Array<{ line: number; hash: string }>;
+} {
+  const shownAnchors: Array<{ line: number; hash: string }> = [];
   const mismatchSet = new Map<number, HashMismatch>();
   for (const m of mismatches) mismatchSet.set(m.line, m);
   const updatedAnchors: PtcLine[] = mismatches.map((m) => {
@@ -225,6 +241,7 @@ function formatMismatchError(
     prev = num;
     const content = fileLines[num - 1];
     const hash = computeLineHash(num, content);
+    shownAnchors.push({ line: num, hash });
     const prefix = `${num}:${hash}`;
     out.push(
       mismatchSet.has(num)
@@ -239,12 +256,13 @@ function formatMismatchError(
       if (suggestions.length > 0) {
         out.push("");
         out.push("Did you mean one of these nearby lines?");
-        out.push(...suggestions);
+        out.push(...suggestions.map((c) => c.text));
+        shownAnchors.push(...suggestions.map(({ line, hash }) => ({ line, hash })));
       }
     }
   }
 
-  return { message: out.join("\n"), updatedAnchors };
+  return { message: out.join("\n"), updatedAnchors, shownAnchors };
 }
 
 // ─── DST preprocessing helpers ──────────────────────────────────────────
@@ -608,7 +626,11 @@ export function applyHashlineEdits(
   }
   if (mismatches.length) {
     const formatted = formatMismatchError(mismatches, fileLines, relocationWindow);
-    throw new HashlineMismatchError(formatted.message, formatted.updatedAnchors);
+    throw new HashlineMismatchError(
+      formatted.message,
+      formatted.updatedAnchors,
+      formatted.shownAnchors,
+    );
   }
 
   // Recompute after potential relocation

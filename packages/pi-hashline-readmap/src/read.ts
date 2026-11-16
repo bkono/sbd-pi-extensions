@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { anchorsInText, type IssuedAnchor, type Stamp, stampOf } from "./anchor-ledger.js";
+import { type IssuedAnchor, type Stamp, stampOf } from "./anchor-ledger.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildReadRehydrateDescriptor } from "./context-hygiene.js";
@@ -117,6 +117,27 @@ function isSupportedImageBuffer(buffer: Buffer): boolean {
   if (startsWithBytes(buffer, PNG_SIGNATURE)) return isPng(buffer) && !isAnimatedPng(buffer);
   if (startsWithAscii(buffer, 0, "GIF")) return true;
   return startsWithAscii(buffer, 0, "RIFF") && startsWithAscii(buffer, 8, "WEBP");
+}
+
+/**
+ * The anchors a read result carries, from its structured value (every selected line, past the
+ * text's truncation, and bundle support lines), never parsed back from its text.
+ */
+function readAnchors(details: unknown): IssuedAnchor[] {
+  const ptc = (details as { ptcValue?: any } | undefined)?.ptcValue;
+  const anchors: IssuedAnchor[] = [];
+  for (const l of Array.isArray(ptc?.lines) ? ptc.lines : []) {
+    if (typeof l?.line === "number" && typeof l?.hash === "string") {
+      anchors.push({ line: l.line, hash: l.hash });
+    }
+  }
+  for (const support of Array.isArray(ptc?.bundle?.localSupport) ? ptc.bundle.localSupport : []) {
+    for (const anchor of Array.isArray(support?.lineAnchors) ? support.lineAnchors : []) {
+      const m = /^(\d+):([0-9a-f]{3})$/.exec(String(anchor));
+      if (m) anchors.push({ line: Number(m[1]), hash: m[2] });
+    }
+  }
+  return anchors;
 }
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
@@ -251,20 +272,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       const succeed = <T extends AgentToolResult<any>>(result: T): T => {
         const isError = (result as { isError?: boolean }).isError;
         if (!isError) {
-          const text = (result.content ?? [])
-            .map((c: { type: string; text?: string }) => (c.type === "text" ? (c.text ?? "") : ""))
-            .join("\n");
-          // Programmatic callers get every selected line in ptcValue, past the text's truncation.
-          const ptcLines: Array<{ line: number; hash: string }> =
-            (result.details as { ptcValue?: { lines?: unknown } } | undefined)?.ptcValue?.lines &&
-            Array.isArray((result.details as any).ptcValue.lines)
-              ? (result.details as any).ptcValue.lines
-              : [];
-          options.onSuccessfulRead?.(
-            absolutePath,
-            [...anchorsInText(text), ...ptcLines.map(({ line, hash }) => ({ line, hash }))],
-            readStamp,
-          );
+          options.onSuccessfulRead?.(absolutePath, readAnchors(result.details), readStamp);
         }
         return result;
       };

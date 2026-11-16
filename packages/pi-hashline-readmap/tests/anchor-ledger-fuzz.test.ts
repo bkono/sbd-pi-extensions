@@ -41,7 +41,7 @@ beforeAll(async () => {
 });
 
 it("fuzz: accepted edits land only on a line shown under that key", async () => {
-  const SEEDS = Number(process.env.FUZZ_SEEDS ?? 25);
+  const SEEDS = Number(process.env.FUZZ_SEEDS ?? 40);
   const STEPS = Number(process.env.FUZZ_STEPS ?? 40);
   const stats = {
     accepted: 0,
@@ -181,6 +181,7 @@ it("fuzz: accepted edits land only on a line shown under that key", async () => 
         stats.refused++;
         stats.other[code ?? "unknown"] = (stats.other[code ?? "unknown"] ?? 0) + 1;
         if (after !== before) stats.wroteOnRefusal.push(ctx);
+        if (code === "no-op") note(text);
         if (code === "stale-anchor") {
           const allShown = held.get(key);
           // false refusal: exactly one meaning ever recorded and it is alive

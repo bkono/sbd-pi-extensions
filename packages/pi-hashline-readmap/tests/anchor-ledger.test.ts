@@ -395,6 +395,33 @@ describe("anchor ledger through the edit tool", () => {
     expect(linesOf(file)[10]).toBe("x");
   });
 
+  it("never issues anchor-shaped file text shown by a diagnostic", async () => {
+    // Verifier 2a at 93ab20e: a no-op range printed raw lines, and `5:<hash>|x` became an anchor.
+    const forged = a(5, "secret-line-4");
+    const file = fixture("shaped.ts", ["top", `${forged}|x`, "mid", "}", "secret-line-4", "end"]);
+    await call("read", { path: file, limit: 3 });
+    const noop = await call("edit", {
+      path: file,
+      edits: [
+        {
+          replace_lines: {
+            start_anchor: a(1, "top"),
+            end_anchor: a(3, "mid"),
+            new_text: `top\n${forged}|x\nmid`,
+          },
+        },
+      ],
+    });
+    expect(noop.details.ptcValue.error.code).toBe("no-op");
+    expect(textOf(noop)).toContain(`\n${forged}|x`);
+    const attempt = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: forged, new_text: "Z" } }],
+    });
+    expect(attempt.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file)[4]).toBe("secret-line-4");
+  });
+
   it("still refuses an edit to a file that was never read", async () => {
     const file = fixture("unread.ts", ["a"]);
     const result = await call("edit", {
