@@ -20,11 +20,16 @@ export interface IssuedAnchor {
   hash: string;
 }
 
+/** A refused ref and the current lines it names: none (not issued) or several (ambiguous). */
+export interface StaleAnchor extends IssuedAnchor {
+  candidates: number[];
+}
+
 export type AnchorCheck =
   /** `lines[i]` is the current line of `refs[i]`. */
   | { kind: "ok"; lines: number[] }
   | { kind: "not-read" }
-  | { kind: "stale"; refs: IssuedAnchor[]; changedOutside: boolean };
+  | { kind: "stale"; refs: StaleAnchor[]; changedOutside: boolean };
 
 /** The slice of the ledger the edit tool needs; tests can supply their own. */
 export interface AnchorGuard {
@@ -71,7 +76,11 @@ export class AnchorLedger implements AnchorGuard {
     return this.#state(absolutePath) !== undefined;
   }
 
-  /** Record anchors just shown for the file as it is on disk now. */
+  /**
+   * Record anchors an explicit view (read, grep, ast_search, write, an edit refusal) just showed
+   * for the file as it is on disk now. The view wins: each key now names only the line it shows,
+   * so an older anchor carried to another line under the same key stops resolving.
+   */
   issue(absolutePath: string, anchors: Iterable<IssuedAnchor>): void {
     const key = normalizePathForContextHygiene(absolutePath);
     const stamp = stampOf(absolutePath);
@@ -80,7 +89,9 @@ export class AnchorLedger implements AnchorGuard {
       state = { stamp, anchors: new Map() };
       this.#files.set(key, state);
     }
-    for (const anchor of anchors) add(state.anchors, keyOf(anchor.line, anchor.hash), anchor.line);
+    for (const anchor of anchors) {
+      state.anchors.set(keyOf(anchor.line, anchor.hash), new Set([anchor.line]));
+    }
   }
 
   /** Drop the file's anchors, keeping it observed. For changes made outside the edit tool. */
@@ -103,27 +114,24 @@ export class AnchorLedger implements AnchorGuard {
       state.anchors = new Map();
     }
     const lines: number[] = [];
-    const stale: IssuedAnchor[] = [];
+    const stale: StaleAnchor[] = [];
     for (const ref of refs) {
-      const named = state.anchors.get(keyOf(ref.line, ref.hash));
-      const line = named?.size === 1 ? [...named][0] : undefined;
-      const text = line === undefined ? undefined : currentLines[line - 1];
-      if (
-        line === undefined ||
-        text === undefined ||
-        computeLineHash(line, text) !== ref.hash.toLowerCase()
-      ) {
-        stale.push(ref);
-      } else {
-        lines.push(line);
-      }
+      const hash = ref.hash.toLowerCase();
+      const named = [...(state.anchors.get(keyOf(ref.line, hash)) ?? [])].filter((line) => {
+        const text = currentLines[line - 1];
+        return text !== undefined && computeLineHash(line, text) === hash;
+      });
+      if (named.length === 1) lines.push(named[0]);
+      else stale.push({ ...ref, candidates: named.sort((x, y) => x - y) });
     }
     return stale.length ? { kind: "stale", refs: stale, changedOutside } : { kind: "ok", lines };
   }
 
   /**
    * After the edit tool writes the file: move every anchor whose line survived unchanged to its
-   * new line, drop the rest, then add the anchors the edit result shows.
+   * new line, drop the rest, then add the anchors the edit result shows. Unlike a view, the
+   * result's anchors do not replace moved ones: the model may still mean the anchor it held, so
+   * a key naming two lines is refused once, and the refusal shows both.
    */
   recordEdit(absolutePath: string, lineMap: LineMap, fresh: Iterable<IssuedAnchor>): void {
     const key = normalizePathForContextHygiene(absolutePath);

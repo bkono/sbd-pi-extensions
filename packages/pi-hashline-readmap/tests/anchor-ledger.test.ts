@@ -153,10 +153,10 @@ describe("anchor ledger through the edit tool", () => {
     expect(readFileSync(file, "utf8")).toBe("inserted\na\nb\nc\n");
   });
 
-  it("refuses an anchor that names two current lines", async () => {
+  it("refuses an anchor that names two current lines once, then resolves to the line shown", async () => {
     const file = fixture("ambiguous.ts", ["x", "}", "y", "}", "z"]);
     await call("read", { path: file });
-    // Old 4:} moves to 6; the result shows the new line 4 (old 2:}) as 4:}.
+    // Old 4:} moves to 6; the result shows the new line 4 (old 2:}) as 4:} too.
     const insert = await call("edit", {
       path: file,
       edits: [{ insert_after: { anchor: a(1, "x"), new_text: "p\nq" } }],
@@ -168,11 +168,38 @@ describe("anchor ledger through the edit tool", () => {
 
     const ambiguous = await call("edit", {
       path: file,
-      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // which?" } }],
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // four" } }],
     });
     expect(ambiguous.isError).toBe(true);
     expect(ambiguous.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(textOf(ambiguous)).toContain(`${a(4, "}")} names lines 4 and 6 since your last edit.`);
+    expect(textOf(ambiguous)).toContain(`${a(6, "}")}|}`);
     expect(linesOf(file)).toEqual(["x", "p", "q", "}", "y", "}", "z"]);
+
+    // The refusal showed 4:} at line 4, so the same anchor now means line 4.
+    const retry = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // four" } }],
+    });
+    expect(retry.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["x", "p", "q", "} // four", "y", "}", "z"]);
+  });
+
+  it("a re-read resolves a key an earlier anchor also moved to (no refusal loop)", async () => {
+    // Live t6 failure: a `});` anchor named two lines, and a re-read did not help.
+    const file = fixture("loop.ts", ["a", "});", "b", "});", "c"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "a"), new_text: "n1\nn2" } }],
+    });
+    await call("read", { path: file, offset: 3, limit: 3 });
+    const edit = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(4, "});"), new_text: "after four" } }],
+    });
+    expect(edit.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["a", "n1", "n2", "});", "after four", "b", "});", "c"]);
   });
 
   it("still refuses an edit to a file that was never read", async () => {

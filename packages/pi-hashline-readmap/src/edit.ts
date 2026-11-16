@@ -16,6 +16,7 @@ import {
   diffLineMap,
   freshAnchorWindows,
   type IssuedAnchor,
+  type StaleAnchor,
 } from "./anchor-ledger.js";
 import {
   buildContextHygieneMetadata,
@@ -301,29 +302,37 @@ function buildStaleAnchorError(
   absolutePath: string,
   displayPath: string,
   lines: readonly string[],
-  stale: IssuedAnchor[],
+  stale: StaleAnchor[],
   changedOutside: boolean,
 ) {
   const near = new Set<number>();
   for (const ref of stale) {
-    for (let n = ref.line - STALE_CONTEXT_LINES; n <= ref.line + STALE_CONTEXT_LINES; n++) {
-      if (n >= 1 && n <= lines.length) near.add(n);
+    for (const center of ref.candidates.length ? ref.candidates : [ref.line]) {
+      for (let n = center - STALE_CONTEXT_LINES; n <= center + STALE_CONTEXT_LINES; n++) {
+        if (n >= 1 && n <= lines.length) near.add(n);
+      }
     }
   }
-  const shown = [...near].sort((a, b) => a - b).slice(0, STALE_MAX_LINES);
+  const shown = [...near].sort((x, y) => x - y).slice(0, STALE_MAX_LINES);
   const anchors = shown.map((n) => ({ line: n, hash: computeLineHash(n, lines[n - 1]) }));
+  // Showing the lines is a view: a retry with an anchor shown here resolves to its line.
   guard.issue(absolutePath, anchors);
-  const list = stale.map((r) => `${r.line}:${r.hash}`).join(", ");
-  const why = changedOutside
-    ? `${displayPath} changed since its anchors were issued (by a command or another tool), so ${list} no longer prove(s) where a line is.`
-    : `${list} ${stale.length === 1 ? "was" : "were"} not issued for the current content of ${displayPath}.`;
+  const reasons = changedOutside
+    ? [
+        `${displayPath} changed since its anchors were issued (by a command or another tool), so ${stale.map((r) => `${r.line}:${r.hash}`).join(", ")} no longer prove(s) where a line is.`,
+      ]
+    : stale.map((r) =>
+        r.candidates.length > 1
+          ? `${r.line}:${r.hash} names lines ${r.candidates.join(" and ")} since your last edit.`
+          : `${r.line}:${r.hash} was not issued for the current content of ${displayPath}.`,
+      );
   const body: string[] = [];
   shown.forEach((n, i) => {
     if (i > 0 && n !== shown[i - 1] + 1) body.push("...");
     body.push(anchorLine(n, lines[n - 1]));
   });
   const message = [
-    `Edit rejected — nothing was written. ${why}`,
+    `Edit rejected — nothing was written. ${reasons.join(" ")}`,
     ...(body.length ? ["Current lines near them:", ...body] : []),
     "Use these anchors, or read the file again if the target is elsewhere.",
   ].join("\n");
@@ -333,10 +342,10 @@ function buildStaleAnchorError(
     message,
     "Copy anchors from the lines shown, or read the target region again.",
     {
-      updatedAnchors: anchors.map((a) => ({
-        line: a.line,
-        hash: a.hash,
-        anchor: `${a.line}:${a.hash}`,
+      updatedAnchors: anchors.map((x) => ({
+        line: x.line,
+        hash: x.hash,
+        anchor: `${x.line}:${x.hash}`,
       })),
     },
   );
