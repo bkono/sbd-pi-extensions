@@ -158,6 +158,12 @@ The 8 tool definitions total about 1.8k tokens, mostly JSON schema (`edit` 1,778
 
 Used ops (`insert_after` 180, `set_line` 83, `replace_lines` 13; read `offset/limit` 96) stay untouched. The expected saving is about 500–700 tokens per request, bringing hashline near stock's fixed cost. Confirm by re-running this eval.
 
+## Analyzer coverage (2026-11-17)
+
+The analyzer classifies each bash command of a chain by its first pipeline stage: read (`cat`, `head`, `tail`, `sed -n`, `nl`, `awk`, `wc`, `diff`, scripted `readFileSync`/`open().read`), search (`rg`, `grep`, `find`, `fd`, `ls`, `tree`), `git diff`/`git show`, test/build, or other. Writes (`sed -i`, `perl -i`, `>`/`>>`/`tee` into the tree, scripted writes including heredocs, `apply_patch`) count as edits for re-read classification. Pi's Anthropic usage counts `cacheWrite` as prompt input.
+
+The first analysis dropped `git diff` output and any chain that also ran `node`, `npm` or `git`. Re-analysed from the same 54 traces, file-context chars (read + search + git diff) are MC 1,433k, hashline 1,157k, stock 982k: hashline is +18% over stock. `git diff` alone was 220k for hashline, 96k for stock and 178k for MC. Scripted reads did not occur; one MC run made one scripted write. Re-read counts are unchanged.
+
 ## Reproduce
 
 ```bash
@@ -165,6 +171,7 @@ node evals/hashline/harness/run-eval.mjs <outDir> --reps 3 --concurrency 8
 node evals/hashline/harness/analyze.mjs <outDir>
 ```
 
+- `--model sol|opus` runs every arm on Codex `gpt-6.1-sol` (default) or Anthropic `claude-opus-5-5`. Use one outDir per model.
 - `EVAL_PI_EXT_ROOT=<checkout>` loads extensions from another checkout.
 - `EVAL_PROBE=1` dumps every Pi provider payload to `trace/payloads/req-NNN.json`.
 - `MC_HOST_NODE_MODULES` overrides the Mastra Code install found on PATH.

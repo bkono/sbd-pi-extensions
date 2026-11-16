@@ -92,6 +92,7 @@ function timeline(arm, events) {
           prompt,
           input: u.promptTokens ?? 0,
           cached: u.cachedInputTokens ?? 0,
+          cacheWrite: u.cacheCreationInputTokens ?? 0,
           output: u.completionTokens ?? 0,
           reasoning: u.reasoningTokens ?? 0,
         });
@@ -121,8 +122,10 @@ function timeline(arm, events) {
         items.push({
           type: "request",
           prompt,
-          input: (u.input ?? 0) + (u.cacheRead ?? 0),
+          // Pi's `input` excludes both cache reads and cache writes (Anthropic reports writes).
+          input: (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0),
           cached: u.cacheRead ?? 0,
+          cacheWrite: u.cacheWrite ?? 0,
           output: u.output ?? 0,
           reasoning: u.reasoning ?? 0,
         });
@@ -166,18 +169,91 @@ function linesOfRead(call) {
   return { nums, mapLines };
 }
 
-const BASH_SEARCH = /(^|[;&|]\s*|\s)(rg|grep|egrep|ag|ack|find|fd|ls|tree)\s/;
-const BASH_READ = /^\s*(?:cd [^;&]+(?:&&|;)\s*)?(cat|sed\s+-n|head|tail|nl|awk|less|bat)\b/;
+// Bash output is classified per command of a chain (split on && || ; and newlines), by the
+// first stage of its pipeline: later stages only filter. Precedence for the output's chars when
+// a chain mixes classes: read > search > diff > test > other. Writes are counted on their own.
+const FILE_RE = /([\w./-]+\.(?:ts|tsx|js|mjs|cjs|json|md|csv|py|txt))\b/g;
+const SCRIPT_READ = /readFileSync|readFile\(|open\([^)]*\)\.read|read_text|readlines|\.read\(\)/;
+const SCRIPT_WRITE =
+  /writeFileSync|writeFile\(|write_text|\.write\(|open\([^)]*['"][wa]\+?['"]|appendFileSync/;
+
+function stripPrefix(seg) {
+  let s = seg.trim();
+  for (;;) {
+    const next = s
+      .replace(/^(?:do|then|else|\(|\{)\s+/, "")
+      .replace(/^[A-Z_][A-Z0-9_]*=\S*\s+/, "")
+      .replace(/^(?:command|time|timeout\s+\d+)\s+/, "");
+    if (next === s) return s;
+    s = next;
+  }
+}
+
+function classifyStage(stage) {
+  const s = stripPrefix(stage);
+  const word = s.split(/\s+/)[0] ?? "";
+  if (/^git$/.test(word)) return /^git\s+(diff|show|log\s+-p)\b/.test(s) ? "diff" : "other";
+  if (/^(python3?|node|deno|bun|perl|ruby)$/.test(word)) {
+    if (/^node\s+--test\b/.test(s)) return "test";
+    if (SCRIPT_READ.test(s)) return "read";
+    return "other";
+  }
+  if (/^(npm|npx|pnpm|yarn|tsc|vitest|jest|biome|eslint|prettier|make)$/.test(word)) return "test";
+  if (/^(cat|head|tail|nl|awk|less|more|bat|wc|diff|cut|xxd|od)$/.test(word)) return "read";
+  if (word === "sed") return /^sed\s+(-[a-zA-Z]*i|--in-place)/.test(s) ? "other" : "read";
+  if (/^(rg|grep|egrep|fgrep|ag|ack|find|fd|ls|tree|stat|file)$/.test(word)) return "search";
+  return "other";
+}
+
+/** Files a command writes (sed -i, perl -i, > / >> / tee into the tree, scripted writes). */
+function bashWriteTargets(cmd) {
+  const targets = [];
+  for (const m of cmd.matchAll(/(?<![0-9&])>>?\s*(['"]?)([^\s'"&|;]+)\1/g)) {
+    if (!/^\/(dev|tmp|private\/tmp)\b/.test(m[2])) targets.push(m[2]);
+  }
+  for (const m of cmd.matchAll(/\btee\s+(?:-a\s+)?([^\s|;&]+)/g)) targets.push(m[1]);
+  let scripted = false;
+  for (const seg of cmd.split(/&&|\|\||;|\n/)) {
+    const s = stripPrefix(seg);
+    if (/^sed\s+(-[a-zA-Z]*i|--in-place)/.test(s) || /^perl\s+-\S*i/.test(s)) {
+      targets.push(...[...s.matchAll(FILE_RE)].map((m) => m[1]));
+    }
+  }
+  // A script's write call can sit on a later line than the interpreter (heredocs).
+  if (/(^|[\s;&|(])(python3?|node|deno|bun|ruby)\b/.test(cmd) && SCRIPT_WRITE.test(cmd)) {
+    scripted = true;
+  }
+  if (scripted || /\bapply_patch\b/.test(cmd)) {
+    targets.push(...[...cmd.matchAll(FILE_RE)].map((m) => m[1]));
+  }
+  return { targets: [...new Set(targets)], scripted };
+}
+
+const PRECEDENCE = ["read", "search", "diff", "test", "other"];
+
+function classifyBash(cmd) {
+  const classes = new Set();
+  for (const command of cmd.split(/&&|\|\||;|\n/)) {
+    const first = command.split(/(?<!\|)\|(?!\|)/)[0];
+    if (!first.trim() || /^\s*(done|fi|esac)\s*$/.test(first)) continue;
+    if (/^\s*for\s+\w+\s+in\b/.test(first) || /^\s*(cd|echo|printf|set|export)\b/.test(first)) {
+      classes.add("other");
+      continue;
+    }
+    classes.add(classifyStage(first));
+  }
+  const primary = PRECEDENCE.find((c) => classes.has(c)) ?? "other";
+  return { primary, mixed: classes.size > 1 };
+}
 
 function bashRead(call, work) {
   const cmd = String(call.args.command ?? call.args.cmd ?? "");
-  if (!BASH_READ.test(cmd) || /\b(node|npm|git)\b/.test(cmd)) return undefined;
-  const files = [...cmd.matchAll(/([\w./-]+\.(?:ts|json|md|mjs))/g)].map((m) =>
-    relPath(m[1], work),
-  );
+  const { primary, mixed } = classifyBash(cmd);
+  if (primary !== "read") return undefined;
+  const files = [...cmd.matchAll(FILE_RE)].map((m) => relPath(m[1], work));
   const unique = [...new Set(files)];
   const outLines = call.text.split("\n").filter((l) => l.length).length;
-  if (unique.length !== 1) return { file: undefined, nums: [], outLines };
+  if (unique.length !== 1 || mixed) return { file: undefined, nums: [], outLines };
   const range = /sed\s+-n\s+['"]?(\d+),(\d+)p/.exec(cmd);
   const start = range ? Number(range[1]) : 1;
   return { file: unique[0], nums: Array.from({ length: outLines }, (_, i) => start + i) };
@@ -228,6 +304,15 @@ function analyzeRun(dir, task, arm) {
     bashReadLines: 0,
     searchCalls: 0,
     searchChars: 0,
+    diffCalls: 0,
+    diffChars: 0,
+    testChars: 0,
+    otherBashChars: 0,
+    mixedBash: 0,
+    bashWrites: 0,
+    scriptedWrites: 0,
+    editResultChars: 0,
+    cacheWriteTokens: 0,
     externalReads: 0,
     filesRead: 0,
     reReads: { redundant: 0, newWindow: 0, postEdit: 0, postEditError: 0 },
@@ -328,6 +413,7 @@ function analyzeRun(dir, task, arm) {
       m.requests += 1;
       m.inputTokens += it.input;
       m.cachedTokens += it.cached;
+      m.cacheWriteTokens += it.cacheWrite ?? 0;
       m.uncachedTokens += it.input - it.cached;
       m.outputTokens += it.output;
       m.reasoningTokens += it.reasoning;
@@ -370,19 +456,17 @@ function analyzeRun(dir, task, arm) {
       curPrompt.readLines += nums.length;
       if (!it.isError) noteRead(file, nums, false);
     } else if (kind === "bash") {
+      const cmd = String(it.args.command ?? it.args.cmd ?? "");
+      const { primary, mixed } = classifyBash(cmd);
+      if (mixed) m.mixedBash += 1;
       const br = bashRead(it, work);
       if (br && !br.file) {
-        // Multi-file cat/sed: content in context, but no per-file attribution.
+        // Multi-file or mixed read: content in context, but no per-file attribution.
         m.bashReads += 1;
         m.bashReadLines += br.outLines;
         m.readLines += br.outLines;
         m.readChars += it.text.length;
         curPrompt.readLines += br.outLines;
-      }
-      const cmd = String(it.args.command ?? it.args.cmd ?? "");
-      if (!br && BASH_SEARCH.test(` ${cmd}`) && !/\b(node|npm|npx|git)\b/.test(cmd)) {
-        m.searchCalls += 1;
-        m.searchChars += it.text.length;
       }
       if (br?.file && !br.file.startsWith("external:")) {
         m.readChars += it.text.length;
@@ -390,11 +474,31 @@ function analyzeRun(dir, task, arm) {
         curPrompt.readLines += br.nums.length;
         noteRead(br.file, br.nums, true);
       }
+      if (primary === "search") {
+        m.searchCalls += 1;
+        m.searchChars += it.text.length;
+      } else if (primary === "diff") {
+        m.diffCalls += 1;
+        m.diffChars += it.text.length;
+      } else if (primary === "test") m.testChars += it.text.length;
+      else if (primary === "other") m.otherBashChars += it.text.length;
+      const writes = bashWriteTargets(cmd);
+      if (!it.isError && (writes.targets.length || writes.scripted)) {
+        m.bashWrites += 1;
+        if (writes.scripted) m.scriptedWrites += 1;
+        for (const target of writes.targets) {
+          const file = relPath(target, work);
+          if (!file || file.startsWith("external:")) continue;
+          firstEditSeen = true;
+          state(file).editedSinceRead = true;
+        }
+      }
     } else if (kind === "search") {
       m.searchCalls += 1;
       m.searchChars += it.text.length;
     } else if (kind === "edit" || kind === "write") {
       const file = editPath(it, work);
+      if (kind === "edit") m.editResultChars += it.text.length;
       if (kind === "write") m.writes += 1;
       else m.edits += 1;
       curPrompt.edits += 1;
@@ -581,6 +685,7 @@ for (const [key, rs] of [...groups.entries()].sort()) {
     suite: visible,
     "in tok": fmt(g((r) => r.inputTokens)),
     uncached: fmt(g((r) => r.uncachedTokens)),
+    "cache write": fmt(g((r) => r.cacheWriteTokens)),
     "out tok": fmt(g((r) => r.outputTokens)),
     reqs: fmt(g((r) => r.requests)),
     "peak ctx": fmt(g((r) => r.peakContext)),
@@ -589,6 +694,9 @@ for (const [key, rs] of [...groups.entries()].sort()) {
     "read lines": fmt(g((r) => r.readLines)),
     "read chars": fmt(g((r) => r.readChars)),
     "search chars": fmt(g((r) => r.searchChars)),
+    "git diff chars": fmt(g((r) => r.diffChars)),
+    "edit result chars": fmt(g((r) => r.editResultChars)),
+    "bash writes": fmt(g((r) => r.bashWrites)),
     "rr redundant": fmt(g((r) => r.reReads.redundant)),
     "rr redundant lines": fmt(g((r) => r.reReadLines.redundant)),
     "rr new window": fmt(g((r) => r.reReads.newWindow)),

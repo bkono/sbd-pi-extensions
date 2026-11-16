@@ -1,7 +1,8 @@
 // Runs the task matrix: every task x arm x rep in a fresh fixture copy, then grades each run with
 // the hidden tests. Usage:
 //   node run-eval.mjs <outDir> [--tasks t1-explore,t2-bugfix] [--arms mc,pi-hashline,pi-stock]
-//                     [--reps 2] [--concurrency 6]
+//                     [--reps 2] [--concurrency 6] [--model sol|opus]
+// --model picks the same model for every arm; run each model into its own outDir.
 import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -20,6 +21,17 @@ const tasks = opt("tasks", Object.keys(spec.tasks).join(",")).split(",");
 const arms = opt("arms", "mc,pi-hashline,pi-stock").split(",");
 const reps = Number(opt("reps", "2"));
 const concurrency = Number(opt("concurrency", "6"));
+const MODELS = {
+  sol: { pi: "openai-codex/gpt-6.1-sol", mc: "openai/gpt-6.1-sol" },
+  opus: { pi: "anthropic/claude-opus-5-5", mc: "anthropic/claude-opus-5-5" },
+};
+const model = opt("model", "sol");
+if (!MODELS[model]) throw new Error(`--model must be one of ${Object.keys(MODELS).join(", ")}`);
+const runEnv = {
+  ...process.env,
+  EVAL_PI_MODEL: MODELS[model].pi,
+  EVAL_MC_MODEL: MODELS[model].mc,
+};
 
 const jobs = [];
 for (let rep = 1; rep <= reps; rep++)
@@ -64,7 +76,7 @@ function parseTap(out) {
 }
 
 function grade(job, dir, work) {
-  const g = { task: job.task, arm: job.arm, rep: job.rep };
+  const g = { task: job.task, arm: job.arm, rep: job.rep, model };
   g.changedFiles = git(work, "status", "--porcelain").trim().split("\n").filter(Boolean);
   g.diffStat = git(work, "diff", "--shortstat").trim();
   if (spec.tasks[job.task].kind === "code") {
@@ -97,7 +109,7 @@ function runOne(job) {
       {
         cwd: work,
         stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
+        env: runEnv,
       },
     );
     let log = "";
@@ -123,7 +135,7 @@ function runOne(job) {
 }
 
 mkdirSync(outDir, { recursive: true });
-console.log(`${jobs.length} jobs, concurrency ${concurrency}`);
+console.log(`${jobs.length} jobs, concurrency ${concurrency}, model ${model}`);
 const queue = [...jobs];
 await Promise.all(
   Array.from({ length: concurrency }, async () => {
