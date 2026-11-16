@@ -5,9 +5,9 @@
  * A hash alone cannot prove an anchor is current. It covers one line's whitespace-stripped text
  * in 12 bits, with no line number, so a shifted `}` or blank line still verifies. The ledger
  * accepts an anchor only when it was issued (by read, grep, ast_search, write, or edit) and the
- * line it names is known. The edit tool carries issued anchors through its own edits with a line
- * diff, so an anchor the model already holds for an unchanged line keeps working under the line
- * number it was issued with. Any change the ledger did not make (a shell command, a formatter, the
+ * line it names is known. The edit tool carries issued anchors through its own edits by tracking
+ * every splice it makes (see lineMapFromOrigin), so an anchor the model already holds for a line
+ * the edit did not touch keeps working under the line number it was issued with. Any change the ledger did not make (a shell command, a formatter, the
  * user) clears the file's anchors: the file stamp no longer matches.
  *
  * Keys can collide: an anchor carried to line M keeps its old key `N:H`, and a later view or edit

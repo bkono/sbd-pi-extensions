@@ -343,7 +343,7 @@ function buildStaleAnchorError(
   for (const ref of stale) if (ref.candidates.length > 1) guard.resolve(absolutePath, ref);
   guard.issue(absolutePath, anchors);
   const anchorAt = (n: number) => `${n}:${computeLineHash(n, lines[n - 1])}`;
-  const reasons = changedOutside
+  const reasons: string[] = changedOutside
     ? [
         `${displayPath} changed since its anchors were issued (by a command or another tool), so ${stale.map((r) => `${r.line}:${r.hash}`).join(", ")} no longer prove(s) where a line is.`,
       ]
@@ -364,7 +364,7 @@ function buildStaleAnchorError(
     body.push(anchorLine(n, lines[n - 1]));
   });
   const message = [
-    `Edit rejected — nothing was written. ${reasons.join(" ")}`,
+    `Edit rejected — nothing was written. ${[...new Set(reasons)].join(" ")}`,
     ...(body.length ? ["Current lines near them:", ...body] : []),
     "Use these anchors, or read the file again if the target is elsewhere.",
   ].join("\n");
@@ -815,6 +815,10 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                 const preview = [...new Set(targetLines)].slice(0, 5).join("\n");
                 diagnostic += `\nThe file currently contains:\n${preview}\nYour edits were normalized back to the original content. Ensure your replacement changes actual code, not just formatting.`;
               }
+            }
+            // The anchors this shows name current disk lines: issue them so a retry can use them.
+            if (options.anchors && preAnchorContent === originalNormalized) {
+              options.anchors.issue(absolutePath, anchorsInText(diagnostic));
             }
             return buildEditError(absolutePath, "no-op", diagnostic);
           }

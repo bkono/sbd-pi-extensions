@@ -373,6 +373,28 @@ describe("anchor ledger through the edit tool", () => {
     expect(linesOf(file)).toEqual(["start", "", "", "mid A", "mid B", "", "before end", "end"]);
   });
 
+  it("issues the anchors a no-op error shows, so a retry with them is accepted", async () => {
+    // Verifier note: a carried anchor's no-op error printed a key the ledger had not issued.
+    const file = fixture("noop.ts", ["a", "b", "c", "}", "d", "e", "f", "}", "g"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "a"), new_text: "NEW1\nNEW2\nNEW3" } }],
+    });
+    const noop = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(8, "}"), new_text: "}" } }],
+    });
+    expect(noop.details.ptcValue.error.code).toBe("no-op");
+    expect(textOf(noop)).toContain(`${a(11, "}")}| }`);
+    const retry = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(11, "}"), new_text: "x" } }],
+    });
+    expect(retry.isError).not.toBe(true);
+    expect(linesOf(file)[10]).toBe("x");
+  });
+
   it("still refuses an edit to a file that was never read", async () => {
     const file = fixture("unread.ts", ["a"]);
     const result = await call("edit", {
