@@ -6,9 +6,15 @@
   "description": "Today `edit` returns only `Edited X (n changes, +a -b lines)`, and `expireStaleReadTurns` (packages/pi-hashline-readmap/src/index.ts) drops the file's read state at the next request after any mutation. Every follow-up edit to the same file therefore needs a grep or read first.\n\nEvidence (evals/hashline/RESULTS.md, 2026-11-16): about 3 anchor-refresh calls per multi-edit session against 0.3-1.5 on stock Pi; post-edit re-reads 3.3 vs 1.7 (t5) and 7.3 vs 4.0 (t6). The one live guard refusal re-sent an identical, still-valid edit.\n\nDo:\n- Return `LINE:HASH|` lines for each changed region plus 2-3 lines of context, in the result text the model sees.\n- Track freshness per anchor, not per file: keep the set of (line, hash) pairs issued since the file's last mutation (by read, grep, ast_search, write, and now edit). Accept an edit only when every anchor in it is in that set; otherwise refuse as now. Do not relax the guard to hash-match alone: the hash covers only the line's own text, whitespace-stripped, 12 bits, with no line number, and ±window/fuzzy relocation can rebind a stale `}` or blank-line anchor to a different line.\n- Keep the result compact: a large edit returns anchors for a bounded window per region.\n\nDone: unit tests for anchor issuance, freshness after an edit, refusal of pre-edit anchors after a shift, and the identical-retry case; then rerun `evals/hashline` (t3, t5, t6, 3 reps) and show anchor-refresh calls and post-edit re-reads drop toward stock with hidden tests still all passing.",
   "id": "sbdpi-cdf",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented in PR #12 (branch claude/hashline-fresh-anchors, verified PASS+NOTES at 7b13bee): anchor ledger, exact carry through the edit's own splices, fresh anchors in edit results, stale-anchor refusals, contested-key refuse-once. Remaining for Done: the 3-rep eval rerun (t3/t5/t6), planned with the two-provider eval after the trim decision (sbdpi-rnw).",
+      "timestamp": "2026-11-16T22:55:53Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "hashline: edit returns fresh anchors for the changed region",
   "type": "task",
-  "updated_at": "2026-11-16T19:21:20Z"
+  "updated_at": "2026-11-16T22:55:53Z"
 }
