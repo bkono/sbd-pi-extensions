@@ -977,7 +977,8 @@ describe("extension registration", () => {
     expect(tools.has("orchestrate")).toBe(true);
     expect(tools.has("send_minion_message")).toBe(true);
     expect(registrationCounts.get("orchestrate")).toBe(1);
-    expect(handlers.get("before_agent_start")).toHaveLength(1);
+    // No start hook at all: nothing can rewrite the system prompt between runs.
+    expect(handlers.get("before_agent_start") ?? []).toHaveLength(0);
 
     const ctx = {
       ...createCtx(cwd),

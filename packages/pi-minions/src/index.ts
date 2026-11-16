@@ -3,15 +3,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { createHaltHandler } from "./commands/halt.js";
 import { createMinionsHandler } from "./commands/minions.js";
-import { createSpawnHandler, parseSpawnArgs } from "./commands/spawn.js";
-import { getConfig } from "./config.js";
+import { createSpawnHandler } from "./commands/spawn.js";
 import { connectContributions } from "./contributions.js";
 import { PathOverlapLog } from "./coordination/index.js";
-import {
-  createDelegationHint,
-  isComplexDelegationTask,
-  shouldInjectDelegationHint,
-} from "./delegation.js";
 import { createFleetWidgetController, type FleetWidgetController } from "./fleet-widget.js";
 import { buildFooterFactory } from "./footer.js";
 import { LOG_FILE, logger } from "./logger.js";
@@ -124,10 +118,6 @@ export default function (pi: ExtensionAPI): void {
     liveOrchestrated: () => tree.getLive().filter((node) => node.kind === "orchestrated").length,
   });
 
-  let toolCallCount = 0;
-  let lastHintTime = 0;
-  let usedMinionsThisSession = false;
-
   pi.registerTool({
     name: "spawn",
     label: "Spawn Minion",
@@ -150,12 +140,6 @@ export default function (pi: ExtensionAPI): void {
     parameters: SpawnToolParams,
     execute: (...args) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      const params = args[1] as { task?: unknown; tasks?: unknown } | undefined;
-      const hasTask = typeof params?.task === "string" && params.task.trim().length > 0;
-      const hasTasks = Array.isArray(params?.tasks) && params.tasks.length > 0;
-      if ((hasTask || hasTasks) && !(hasTask && hasTasks)) {
-        usedMinionsThisSession = true;
-      }
       return spawn(tree, pi, subsessionManager)(...args);
     },
     renderCall,
@@ -185,7 +169,6 @@ export default function (pi: ExtensionAPI): void {
     parameters: OrchestrateToolParams,
     execute: async (...args: Parameters<ReturnType<typeof orchestrate>>) => {
       if (!subsessionManager) throw new Error("SubsessionManager not initialized");
-      usedMinionsThisSession = true;
       const result = await orchestrate({
         tree,
         pi,
@@ -299,11 +282,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("spawn", {
     description: "Spawn a foreground minion: /spawn <task> [--model <model>]",
-    handler: async (args, ctx) => {
-      const parsed = parseSpawnArgs(args);
-      if (!("error" in parsed)) usedMinionsThisSession = true;
-      return createSpawnHandler(pi)(args, ctx);
-    },
+    handler: async (args, ctx) => createSpawnHandler(pi)(args, ctx),
   });
 
   pi.registerCommand("minions", {
@@ -322,51 +301,6 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_execution_end", (event) => {
     logger.debug("status", "tool_execution_end", { tool: event.toolName });
     statusTracker?.refresh();
-  });
-
-  pi.on("tool_call", async () => {
-    toolCallCount++;
-  });
-
-  pi.on("before_agent_start", (event, ctx) => {
-    if (event.messageType !== "user") return;
-
-    const config = getConfig(ctx);
-    if (!config.delegation.enabled) return;
-
-    const prompt = event.prompt;
-    const now = Date.now();
-    const isComplexTask = isComplexDelegationTask({
-      toolCallCount,
-      prompt,
-      config: config.delegation,
-    });
-
-    if (
-      !shouldInjectDelegationHint({
-        usedMinionsThisSession,
-        isComplexTask,
-        now,
-        lastHintTime,
-        hintIntervalMinutes: config.delegation.hintIntervalMinutes,
-      })
-    ) {
-      return;
-    }
-
-    logger.debug("delegation", "injecting_hint", {
-      toolCallCount,
-      promptLength: prompt.length,
-      isComplexTask,
-      timeSinceLastHint: now - lastHintTime,
-      usedMinionsThisSession,
-    });
-
-    lastHintTime = now;
-    const hint = createDelegationHint(toolCallCount, config.delegation);
-    toolCallCount = 0;
-
-    return { systemPrompt: `${event.systemPrompt}\n\n${hint}` };
   });
 
   pi.on("session_shutdown", async () => {
@@ -392,9 +326,6 @@ export default function (pi: ExtensionAPI): void {
     cachedCtx = ctx;
     cachedModel = ctx.model;
     cachedUi = ctx.ui;
-    usedMinionsThisSession = false;
-    toolCallCount = 0;
-    lastHintTime = 0;
 
     const parentSessionPath = ctx.sessionManager?.getSessionFile() ?? getTempSessionPath(ctx.cwd);
     const manager = new SubsessionManager(ctx.cwd, parentSessionPath, eventBus);
