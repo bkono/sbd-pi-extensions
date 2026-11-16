@@ -23,9 +23,14 @@ export interface IssuedAnchor {
   hash: string;
 }
 
-/** A refused ref and the current lines it names: none (not issued) or several (ambiguous). */
+/**
+ * A refused ref and the current lines it names: none (not issued) or several (ambiguous).
+ * `evicted`: the key once named a line the ledger stopped tracking (memory cap), so a line it
+ * names now may not be the one the model holds it for.
+ */
 export interface StaleAnchor extends IssuedAnchor {
   candidates: number[];
+  evicted?: boolean;
 }
 
 export type AnchorCheck =
@@ -50,6 +55,8 @@ interface FileAnchors {
   stamp: Stamp;
   /** `${line}:${hash}` as issued → the current line(s) it names. Two lines means ambiguous. */
   anchors: Map<string, Set<number>>;
+  /** Keys whose carried meaning was dropped by the memory cap: refused once before reuse. */
+  evicted: Set<string>;
 }
 
 /** File identity and version: inode, size and mtime in ns. Taken before a read, it ties the anchors
@@ -66,8 +73,9 @@ export function stampOf(absolutePath: string): Stamp {
 
 const keyOf = (line: number, hash: string) => `${line}:${hash.toLowerCase()}`;
 const lineOfKey = (key: string) => Number(key.slice(0, key.indexOf(":")));
-/** Carried aliases are dropped past this many keys per current line of the file. */
+/** Carried aliases are evicted past this many keys per current line of the file, plus slack. */
 const KEYS_PER_LINE_CAP = 8;
+const KEY_SLACK = 256;
 
 function add(anchors: Map<string, Set<number>>, key: string, line: number) {
   const lines = anchors.get(key);
@@ -77,6 +85,13 @@ function add(anchors: Map<string, Set<number>>, key: string, line: number) {
 
 export class AnchorLedger implements AnchorGuard {
   readonly #files = new Map<string, FileAnchors>();
+  readonly #keysPerLine: number;
+  readonly #keySlack: number;
+
+  constructor(options: { keysPerLine?: number; keySlack?: number } = {}) {
+    this.#keysPerLine = options.keysPerLine ?? KEYS_PER_LINE_CAP;
+    this.#keySlack = options.keySlack ?? KEY_SLACK;
+  }
 
   #state(absolutePath: string): FileAnchors | undefined {
     return this.#files.get(normalizePathForContextHygiene(absolutePath));
@@ -99,7 +114,7 @@ export class AnchorLedger implements AnchorGuard {
     const key = normalizePathForContextHygiene(absolutePath);
     let state = this.#files.get(key);
     if (!state || state.stamp !== stamp) {
-      state = { stamp, anchors: new Map() };
+      state = { stamp, anchors: new Map(), evicted: new Set() };
       this.#files.set(key, state);
     }
     for (const anchor of anchors) add(state.anchors, keyOf(anchor.line, anchor.hash), anchor.line);
@@ -109,6 +124,7 @@ export class AnchorLedger implements AnchorGuard {
     const state = this.#state(absolutePath);
     if (!state) return;
     const key = keyOf(ref.line, ref.hash);
+    state.evicted.delete(key);
     if (state.anchors.get(key)?.has(ref.line)) state.anchors.set(key, new Set([ref.line]));
     else state.anchors.delete(key);
   }
@@ -116,7 +132,10 @@ export class AnchorLedger implements AnchorGuard {
   /** Drop the file's anchors, keeping it observed. For changes made outside the edit tool. */
   forget(absolutePath: string): void {
     const state = this.#state(absolutePath);
-    if (state) state.anchors = new Map();
+    if (state) {
+      state.anchors = new Map();
+      state.evicted = new Set();
+    }
   }
 
   /**
@@ -131,17 +150,25 @@ export class AnchorLedger implements AnchorGuard {
     if (changedOutside) {
       state.stamp = stamp;
       state.anchors = new Map();
+      state.evicted = new Set();
     }
     const lines: number[] = [];
     const stale: StaleAnchor[] = [];
     for (const ref of refs) {
       const hash = ref.hash.toLowerCase();
-      const named = [...(state.anchors.get(keyOf(ref.line, hash)) ?? [])].filter((line) => {
+      const key = keyOf(ref.line, hash);
+      const named = [...(state.anchors.get(key) ?? [])].filter((line) => {
         const text = currentLines[line - 1];
         return text !== undefined && computeLineHash(line, text) === hash;
       });
-      if (named.length === 1) lines.push(named[0]);
-      else stale.push({ ...ref, candidates: named.sort((x, y) => x - y) });
+      const evicted = state.evicted.has(key);
+      if (named.length === 1 && !evicted) lines.push(named[0]);
+      else
+        stale.push({
+          ...ref,
+          candidates: named.sort((x, y) => x - y),
+          ...(evicted ? { evicted } : {}),
+        });
     }
     return stale.length ? { kind: "stale", refs: stale, changedOutside } : { kind: "ok", lines };
   }
@@ -153,6 +180,7 @@ export class AnchorLedger implements AnchorGuard {
   recordEdit(absolutePath: string, lineMap: LineMap, fresh: Iterable<IssuedAnchor>): void {
     const key = normalizePathForContextHygiene(absolutePath);
     const moved = new Map<string, Set<number>>();
+    const evicted = new Set(this.#files.get(key)?.evicted ?? []);
     for (const [anchorKey, lines] of this.#files.get(key)?.anchors ?? []) {
       for (const line of lines) {
         const next = lineMap.oldToNew[line - 1];
@@ -160,14 +188,18 @@ export class AnchorLedger implements AnchorGuard {
       }
     }
     for (const anchor of fresh) add(moved, keyOf(anchor.line, anchor.hash), anchor.line);
-    if (moved.size > KEYS_PER_LINE_CAP * lineMap.newLength + 256) {
+    if (moved.size > this.#keysPerLine * lineMap.newLength + this.#keySlack) {
+      // Drop carried meanings but remember their keys: a later view of the same key must not
+      // silently bind it to another line while the model may still hold the old meaning.
       for (const [anchorKey, lines] of moved) {
         const own = lineOfKey(anchorKey);
+        if (lines.size === 1 && lines.has(own)) continue;
+        evicted.add(anchorKey);
         if (lines.has(own)) moved.set(anchorKey, new Set([own]));
         else moved.delete(anchorKey);
       }
     }
-    this.#files.set(key, { stamp: stampOf(absolutePath), anchors: moved });
+    this.#files.set(key, { stamp: stampOf(absolutePath), anchors: moved, evicted });
   }
 }
 

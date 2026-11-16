@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import init from "../index.js";
-import { anchorsInText, freshAnchorWindows, lineMapFromOrigin } from "../src/anchor-ledger.js";
+import {
+  AnchorLedger,
+  anchorsInText,
+  freshAnchorWindows,
+  lineMapFromOrigin,
+} from "../src/anchor-ledger.js";
 import { applyHashlineEdits, computeLineHash, ensureHashInit } from "../src/hashline.js";
 
 const a = (line: number, text: string) => `${line}:${computeLineHash(line, text)}`;
@@ -420,6 +425,82 @@ describe("anchor ledger through the edit tool", () => {
     });
     expect(attempt.details.ptcValue.error.code).toBe("stale-anchor");
     expect(linesOf(file)[4]).toBe("secret-line-4");
+  });
+
+  it("a key whose carried meaning the memory cap evicted is refused once before reuse", async () => {
+    // Codex P1 on #12: eviction dropped the carried line, then a read re-issued the key for
+    // another line and the edit was accepted there.
+    const lines = Array.from({ length: 40 }, (_, i) =>
+      i === 10 || i === 20 ? "}" : `line ${i + 1}`,
+    );
+    const file = fixture("evict.ts", lines);
+    for (let i = 0; i < 17; i++) {
+      await call("read", { path: file });
+      await call("edit", {
+        path: file,
+        edits: [{ insert_after: { anchor: a(1, "line 1"), new_text: `ins ${i}` } }],
+      });
+    }
+    await call("read", { path: file });
+    const before = readFileSync(file, "utf8");
+    const reuse = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(27, "}"), new_text: "} // which?" } }],
+    });
+    expect(reuse.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(readFileSync(file, "utf8")).toBe(before);
+  });
+
+  it("evicted keys stay refused-once through later edits and views, then resolve", () => {
+    const file = fixture("evict-unit.ts", ["a", "}", "b", "}"]);
+    const ledger = new AnchorLedger({ keysPerLine: 0, keySlack: 0 });
+    const hb = computeLineHash(2, "}");
+    ledger.issue(file, [
+      { line: 2, hash: hb },
+      { line: 4, hash: hb },
+    ]);
+    // Two lines inserted at the top: 2:} now names line 4, 4:} names line 6; the cap evicts both.
+    writeFileSync(file, "n1\nn2\na\n}\nb\n}\n");
+    ledger.recordEdit(file, lineMapFromOrigin([0, 0, 1, 2, 3, 4], 4), []);
+    const now = ["n1", "n2", "a", "}", "b", "}"];
+    ledger.issue(file, [{ line: 4, hash: hb }]);
+    const first = ledger.check(file, now, [{ line: 4, hash: hb }]);
+    expect(first).toMatchObject({ kind: "stale", refs: [{ evicted: true, candidates: [4] }] });
+    ledger.resolve(file, { line: 4, hash: hb });
+    expect(ledger.check(file, now, [{ line: 4, hash: hb }])).toEqual({ kind: "ok", lines: [4] });
+  });
+
+  it("issues every target line a normalized no-op shows, even with repeated anchors", async () => {
+    // Verifier note at 7b13bee: the cap counted duplicates, so the 4th and 5th shown were not issued.
+    const lines = Array.from({ length: 14 }, (_, i) => `line${i + 1}`);
+    const file = fixture("noop-dup.ts", lines);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "line1"), new_text: "N1\nN2\nN3\nN4\nN5\nN6" } }],
+    });
+    const targets = [8, 9, 10, 11];
+    const noop = await call("edit", {
+      path: file,
+      edits: [
+        ...targets.map((n) => ({
+          replace_lines: {
+            start_anchor: a(n, `line${n}`),
+            end_anchor: a(n, `line${n}`),
+            new_text: `QQ${n}`,
+          },
+        })),
+        ...targets.map((n) => ({ replace: { old_text: `QQ${n}\n`, new_text: `line${n}\n` } })),
+      ],
+    });
+    expect(noop.details.ptcValue.error.code).toBe("no-op");
+    expect(textOf(noop)).toContain(`${a(17, "line11")}|line11`);
+    const use = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(17, "line11"), new_text: "USED" } }],
+    });
+    expect(use.isError).not.toBe(true);
+    expect(linesOf(file)[16]).toBe("USED");
   });
 
   it("still refuses an edit to a file that was never read", async () => {

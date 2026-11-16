@@ -339,7 +339,9 @@ function buildStaleAnchorError(
   const anchors = shown.map((n) => ({ line: n, hash: computeLineHash(n, lines[n - 1]) }));
   // This refusal is where an ambiguous key is settled: it now names only its own line, and every
   // other candidate is shown under its own current anchor.
-  for (const ref of stale) if (ref.candidates.length > 1) guard.resolve(absolutePath, ref);
+  for (const ref of stale) {
+    if (ref.candidates.length > 1 || ref.evicted) guard.resolve(absolutePath, ref);
+  }
   guard.issue(absolutePath, anchors);
   const anchorAt = (n: number) => `${n}:${computeLineHash(n, lines[n - 1])}`;
   const reasons: string[] = changedOutside
@@ -348,6 +350,11 @@ function buildStaleAnchorError(
       ]
     : stale.map((r) => {
         const key = `${r.line}:${r.hash}`;
+        if (r.evicted && r.candidates.length < 2) {
+          return r.candidates.length
+            ? `${key} may still mean a line it named before earlier edits, which is no longer tracked; line ${r.candidates[0]} now shows as ${key}, and ${key} now means line ${r.candidates[0]}.`
+            : `${key} may still mean a line it named before earlier edits, which is no longer tracked. Read the target region again.`;
+        }
         if (r.candidates.length < 2) {
           return `${key} was not issued for the current content of ${displayPath}.`;
         }
@@ -812,10 +819,12 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                     if (parsed.line >= 1 && parsed.line <= lines.length) {
                       const lineContent = lines[parsed.line - 1];
                       const hash = computeLineHash(parsed.line, lineContent);
-                      if (targetLines.length < 5) noopAnchors.push({ line: parsed.line, hash });
-                      targetLines.push(
-                        `${parsed.line}:${hash}|${escapeControlCharsForDisplay(lineContent)}`,
-                      );
+                      const shown = `${parsed.line}:${hash}|${escapeControlCharsForDisplay(lineContent)}`;
+                      // De-duplicate before the cap, and issue exactly what is shown.
+                      if (!targetLines.includes(shown) && targetLines.length < 5) {
+                        targetLines.push(shown);
+                        noopAnchors.push({ line: parsed.line, hash });
+                      }
                     }
                   } catch {
                     /* skip malformed refs */
@@ -823,7 +832,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                 }
               }
               if (targetLines.length > 0) {
-                const preview = [...new Set(targetLines)].slice(0, 5).join("\n");
+                const preview = targetLines.join("\n");
                 diagnostic += `\nThe file currently contains:\n${preview}\nYour edits were normalized back to the original content. Ensure your replacement changes actual code, not just formatting.`;
               }
             }
