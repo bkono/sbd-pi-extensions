@@ -192,15 +192,6 @@ notices to one delivery per peer per announcement.
 {
   "pi-minions": {
     "allowEphemeral": true,
-    "delegation": {
-      "enabled": true,
-      "toolCallThreshold": 16,
-      "promptLengthThreshold": 4000,
-      "hintIntervalMinutes": 8,
-      "acknowledgementRequired": false,
-      "complexTaskKeywords": ["investigate", "audit", "review", "refactor", "analyze", "implement"],
-      "message": "Optional custom reminder text. Use {toolCallCount} for the current count."
-    },
     "display": {
       "outputPreviewLines": 20,
       "observabilityLines": 6,
@@ -240,10 +231,9 @@ model. A pack agent with neither a setting nor a default is rejected.
 Global settings come from `getAgentDir()/settings.json`; project settings in `<cwd>/.pi/settings.json`
 override them.
 
-Delegation reminders are injected into the system prompt, never as synthetic user messages. The
-default reminder distinguishes `spawn` (foreground blocking) from `orchestrate` (event-driven yielding). The
-`acknowledgementRequired` setting is kept for backward compatibility but no longer adds mandatory
-acknowledgement text; custom `message` values are used verbatim.
+pi-minions never rewrites the system prompt mid-session: a rewrite that comes and goes moves the
+provider's cached prefix. There is no delegation reminder; a `delegation` block left in settings is
+ignored.
 
 ## Beadwork pairing
 

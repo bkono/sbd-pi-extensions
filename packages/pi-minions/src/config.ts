@@ -7,7 +7,6 @@ import { AGENT_MODES, type ModesConfig } from "./model-policy.js";
 export interface PiMinionsConfig {
   minionNames?: string[];
   allowEphemeral?: boolean;
-  delegation?: DelegationConfig;
   display?: DisplayConfig;
   toolSync?: ToolSyncConfig;
   /** The minions model pack: a model reference per mode. Unset modes use the session model. */
@@ -17,26 +16,6 @@ export interface PiMinionsConfig {
 export interface ToolSyncConfig {
   enabled?: boolean;
   maxWait?: number;
-}
-
-export interface DelegationConfig {
-  enabled?: boolean;
-  toolCallThreshold?: number;
-  promptLengthThreshold?: number;
-  hintIntervalMinutes?: number;
-  acknowledgementRequired?: boolean;
-  complexTaskKeywords?: string[];
-  message?: string;
-}
-
-export interface ResolvedDelegationConfig {
-  enabled: boolean;
-  toolCallThreshold: number;
-  promptLengthThreshold: number;
-  hintIntervalMinutes: number;
-  acknowledgementRequired: boolean;
-  complexTaskKeywords: string[];
-  message?: string;
 }
 
 export interface DisplayConfig {
@@ -51,7 +30,6 @@ export interface ResolvedConfig {
   allowEphemeral: boolean;
   display: Required<DisplayConfig>;
   toolSync: Required<ToolSyncConfig>;
-  delegation: ResolvedDelegationConfig;
   modes: ModesConfig;
 }
 
@@ -82,10 +60,6 @@ function loadSettings(cwd: string): PiSettings {
         settings["pi-minions"] = {
           ...settings["pi-minions"],
           ...projectSettings["pi-minions"],
-          delegation: {
-            ...settings["pi-minions"]?.delegation,
-            ...projectSettings["pi-minions"]?.delegation,
-          },
           display: {
             ...settings["pi-minions"]?.display,
             ...projectSettings["pi-minions"]?.display,
@@ -185,32 +159,12 @@ export const DEFAULT_SPINNER_FRAMES = [
   "[oo]",
 ];
 
-export const DEFAULT_COMPLEX_TASK_KEYWORDS = [
-  "investigate",
-  "audit",
-  "review",
-  "refactor",
-  "analyze",
-  "implement",
-];
-
 export function getConfig(ctx: ExtensionContext): ResolvedConfig {
   const settings = loadSettings(ctx.cwd);
   const user = settings["pi-minions"] ?? {};
   return {
     minionNames: [...(user.minionNames ?? DEFAULT_MINION_NAMES)],
     allowEphemeral: user.allowEphemeral ?? true,
-    delegation: {
-      enabled: user.delegation?.enabled ?? true,
-      toolCallThreshold: user.delegation?.toolCallThreshold ?? 16,
-      promptLengthThreshold: user.delegation?.promptLengthThreshold ?? 4_000,
-      hintIntervalMinutes: user.delegation?.hintIntervalMinutes ?? 8,
-      acknowledgementRequired: user.delegation?.acknowledgementRequired ?? false,
-      complexTaskKeywords: [
-        ...(user.delegation?.complexTaskKeywords ?? DEFAULT_COMPLEX_TASK_KEYWORDS),
-      ],
-      message: user.delegation?.message,
-    },
     display: {
       outputPreviewLines: user.display?.outputPreviewLines ?? 20,
       observabilityLines: user.display?.observabilityLines ?? 6,
