@@ -11,7 +11,7 @@ On these tasks, hashline as implemented **costs tokens and buys nothing measurab
   - **+28% input tokens** (8.63M vs 6.73M);
   - **+58% uncached** (1.04M vs 0.66M);
   - **+15% requests** (432 vs 377);
-  - **+16% file-context chars**, read plus search output (938k vs 810k).
+  - **+8% to +16% file-context chars**, read plus search output (938k vs 810k to 869k). The range is because 16 of stock's bash calls mixed search output with test or git output; the analyzer leaves those out, so +16% is the upper bound.
 
   It is cheaper on one task (T4 refactor, −12% tokens).
 - The failure hashline insures against never happened. Stock `oldText/newText` edits failed **0 of 118** times. Hashline edits failed 1 of 118, and that one was the read guard refusing an anchor that was still valid.
@@ -35,7 +35,7 @@ Fairness decisions:
 - **The sbd-workflow plugin is off in MC.** With it on, MC ran the whole sbd flow on every task (router, `sbd_set_predicate`, playbook, verifier gate). Pi does that only under `/skill:sbd`, so the plugin would have measured workflow overhead, not file tools.
 - **OM thresholds are untouched in both harnesses.** T6 reaches activations by being a longer session, not by changing a setting.
 - **Pi stock is the control.** It isolates hashline from every other Pi-vs-MC difference.
-- **Provenance.** The 2026-11-16 runs loaded extensions from the live main checkout, at 649cf03 or 2e3f7b4. The two differ only in pi-minions, so the hashline and pi-om code is the same either way. `pi-run.mjs` now records the extension root's SHA and dirty state in every trace.
+- **Provenance.** The 2026-11-16 runs loaded extensions from the live main checkout, which was at 649cf03 when the session started. Traces from then do not record the SHA. 649cf03 and 2e3f7b4 differ only in pi-minions. `pi-run.mjs` now records the extension root's SHA and dirty state in every trace.
 
 ## Fixture and tasks
 
