@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-16T19:21:20Z",
+  "description": "On evals/hashline t6-long-session (7 prompts, gpt-6.1-sol medium, stock thresholds in both), Mastra Code activated OM 8-9 times per session against about 1 for pi-om (Pi with or without hashline). Peak context was about 51k vs 35k. MC also made about 1.7x as many requests and re-read more after edits. Both use the 30k message-token threshold, so the difference must come from what counts toward it (tool-result sizes, message accounting, buffering and activation rules) or from MC's larger tool results.\n\nDo: compare the two on the same task with OM traces (pi-om PI_OM_TRACE; MC om_* events in evals/hashline/harness/mc-run.mjs logs). Account for the message-token totals each side sees per request, and find where they diverge. Do not change thresholds; this is a parity investigation.\n\nDone: a written explanation with per-request evidence of where the activation counts diverge, and either a parity fix in pi-om with a test or a documented, intended difference.",
+  "id": "sbdpi-64e",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "OM: why Mastra Code activates OM ~8x more than pi-om on the same session",
+  "type": "task",
+  "updated_at": "2026-11-16T19:21:20Z"
+}
