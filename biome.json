@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**/*.ts", "**/*.js", "**/*.mjs", "**/*.mts", "**/*.json"]
+    "includes": [
+      "**/*.ts",
+      "**/*.js",
+      "**/*.mjs",
+      "**/*.mts",
+      "**/*.json",
+      "!evals/hashline/fixture",
+      "!evals/hashline/grading"
+    ]
   },
   "formatter": {
     "enabled": true,

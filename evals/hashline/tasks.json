@@ -1,0 +1,50 @@
+{
+  "preamble": "You are working in the tallyhub repository in the current directory: a TypeScript order-pricing service on Node 25 with no dependencies. Run tests with `node --test`. Do the work yourself in this session: do not delegate to subagents or minions, do not commit, and do not ask me questions; make reasonable decisions and finish the task.\n\n",
+  "tasks": {
+    "t1-explore": {
+      "kind": "answer",
+      "prompts": [
+        "Answer these questions about how this codebase works. Do not change any files. Cite the file and function for each answer.\n1. When an order line gets several discounts, in what order are the sources applied, what is the maximum total discount on a line, and what happens to a source that arrives after the cap is reached?\n2. What loyalty discount does a platinum customer get when they also use coupon SOLO15, and why?\n3. For region CA-ON, what is the free-shipping threshold, and what is every condition an order must meet to ship free?\n4. How is tax rounded: per line or per order, with which rounding mode, and how does each line get its share?\n5. If a paid order is cancelled, what happens to its inventory and to the customer's money?"
+      ]
+    },
+    "t2-bugfix": {
+      "kind": "code",
+      "prompts": [
+        "Bug report from finance: bulk orders are under-charged. Example: 10 units of BUL-1012 (list price $49.87 each) to region DE-BE on 2026-03-02, no coupon, no loyalty. The 10+ unit bulk tier is 8%, so the line should be $498.70 gross, $39.90 discount and $458.80 net, but we charge a net of $422.10. Find the root cause, fix it, add a regression test, and make sure the whole test suite passes."
+      ]
+    },
+    "t3-feature": {
+      "kind": "code",
+      "prompts": [
+        "Add gift wrapping to orders.\n- A line item can be gift wrapped: optional `giftWrap?: boolean` on LineItem (absent or false means not wrapped).\n- Gift wrap costs $4.99 per unit. Export `GIFT_WRAP_CENTS_PER_UNIT = 499` from src/pricing/engine.ts. The fee is never discounted, it is taxed at the line's tax rate (an exempt line stays exempt), and it does not count toward the free-shipping threshold.\n- Each LinePrice gets `giftWrapCents`, and PriceBreakdown gets a top-level `giftWrapCents` (sum of the lines). totalCents includes it, and auditBreakdown must still pass.\n- explainBreakdown prints a `Gift wrap: $x.xx` line when the order has any gift wrap.\n- Digital items cannot be gift wrapped: validateOrder reports error code `GIFT_WRAP_DIGITAL` for such a line.\n- The API JSON carries it: line JSON `gift_wrap` (boolean, in both orderToJson and orderFromJson), breakdown JSON `gift_wrap_cents`, and line-price JSON `gift_wrap_cents`.\nAdd tests. The whole suite must pass."
+      ]
+    },
+    "t4-refactor": {
+      "kind": "code",
+      "prompts": [
+        "Refactor: replace `computeLineTotal(qty, unitPriceCents, discountBps)` in src/pricing/engine.ts with `priceLineItem({ qty, unitPriceCents, discountBps })`, which takes a single options object (`discountBps` optional, default 0) and keeps the same arithmetic. Remove computeLineTotal entirely (no alias, no re-export) and update every caller in src/ and test/. The whole suite must pass."
+      ]
+    },
+    "t5-marathon": {
+      "kind": "code",
+      "prompts": [
+        "Support ticket: perishable groceries are supposed to be tax-free in regions that exempt them (US-NY and CA-ON among them), but customers there are charged tax on them. Example: 2 x PER-1030 to US-NY on 2026-03-02 shows $9.51 tax; it should be $0.00. Find the root cause and fix it with a regression test. Keep the whole suite passing.",
+        "New requirement from finance: some regions cap the total stacked discount on a line below the global 40%. Add an optional `maxDiscountBps` field to Region, set it for US-NY (2500), DE-BE (3000) and JP-13 (2000), and make line pricing use the lower of the region's cap and GLOBAL_DISCOUNT_CAP_BPS. The audit must still hold. Add tests.",
+        "Follow-up: expose the cap that applied. Add `discountCapBps` to PriceBreakdown (the effective cap for the order's region), print it in explainBreakdown as a line like `Discount cap: 25%` (whole percent when it is whole), and include it in the breakdown JSON as `discount_cap_bps`. Update the tests.",
+        "Run the whole test suite and fix anything broken. Then list every source change you made in this session, one bullet per change, each with the file path and the current line number of the changed code as `path:line`."
+      ]
+    },
+    "t6-long-session": {
+      "kind": "code",
+      "prompts": [
+        "Support ticket: perishable groceries are supposed to be tax-free in regions that exempt them (US-NY and CA-ON among them), but customers there are charged tax on them. Example: 2 x PER-1030 to US-NY on 2026-03-02 shows $9.51 tax; it should be $0.00. Find the root cause and fix it with a regression test. Keep the whole suite passing.",
+        "New requirement from finance: some regions cap the total stacked discount on a line below the global 40%. Add an optional `maxDiscountBps` field to Region, set it for US-NY (2500), DE-BE (3000) and JP-13 (2000), and make line pricing use the lower of the region's cap and GLOBAL_DISCOUNT_CAP_BPS. The audit must still hold. Add tests.",
+        "Follow-up: expose the cap that applied. Add `discountCapBps` to PriceBreakdown (the effective cap for the order's region), print it in explainBreakdown as a line like `Discount cap: 25%` (whole percent when it is whole), and include it in the breakdown JSON as `discount_cap_bps`. Update the tests.",
+        "Add the discount cap to the CSV export: append a `discount_cap_bps` column at the end of CSV_HEADER and of breakdownToCsvRow. Update the tests.",
+        "Read through src/pricing/regions.ts and tell me which regions have hazmatBlocked set to true and also have a maxDiscountBps. Do not change any files for this one.",
+        "Change explainBreakdown: print the `Discount cap:` line directly after the `Discounts:` line (or after `Subtotal:` when there are no discounts), and only when the cap is below 40%. Update the tests.",
+        "Run the whole test suite and fix anything broken. Then list every source change you made in this session, one bullet per change, each with the file path and the current line number of the changed code as `path:line`."
+      ]
+    }
+  }
+}
