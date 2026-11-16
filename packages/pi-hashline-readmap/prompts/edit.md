@@ -2,6 +2,8 @@ Surgically edit existing text files. Prefer hash-verified anchored edits from fr
 
 `edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `read`, `grep`, `ast_search`, or `write` first.
 
+Anchors survive your own edits. After an edit, an anchor you already hold for an unchanged line still works exactly as you copied it, even if the line moved; the result also shows fresh anchors for the lines around each change. You need a new read only for lines you have not seen since they changed, or after the file changed outside `edit` (a command, a formatter, another tool).
+
 ## Variants
 
 | Variant | Use | Anchors |
@@ -54,15 +56,7 @@ Rules:
 
 ## Stale anchors
 
-If anchors no longer match, `edit` fails with a hash mismatch (`hash-mismatch`) and shows nearby current lines. Lines marked `>>>` include updated anchors:
-
-```text
->>> 41:b34|  const renamed = 3;
-```
-
-Copy the updated `LINE:HASH` and retry. If the target moved farther away, re-run `read`, `grep`, `ast_search`, or `write` for fresh anchors.
-
-If `edit` auto-relocates an anchor, check the warning and verify the edit landed in the intended place.
+An anchor that was not shown for the file's current content fails with `stale-anchor`, and nothing is written. The error shows the current lines near it with their anchors; copy one and retry, or read the target region again if it is elsewhere.
 
 ## Validation and warnings
 

@@ -1,5 +1,8 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: Pi extension lifecycle events are intentionally dynamic at runtime. */
+
+import { resolve as resolvePath } from "node:path";
 import { type ExtensionAPI, VERSION } from "@earendil-works/pi-coding-agent";
+import { AnchorLedger } from "./anchor-ledger.js";
 import { buildBashCommandState } from "./bash-command-state.js";
 import { registerBashRendererTool } from "./bash-renderer.js";
 import {
@@ -16,7 +19,6 @@ import {
   type ContextHygieneMetadata,
   type ContextHygieneResource,
   getContextHygieneTracker,
-  normalizePathForContextHygiene,
   registerContextHygieneDebugTool,
   resetContextHygieneTracker,
 } from "./context-hygiene.js";
@@ -201,32 +203,16 @@ export function supportsContextWithSystem(version: string | undefined): boolean 
 }
 
 export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
-  // readTurns maps an absolute path to the tracker event id of the most recent
-  // live-anchor tool result for that path (read / grep / ast_search / write).
-  // When the provider-context handler masks a prior live-anchor read into a
-  // stale placeholder, we expire the corresponding entry so wasReadInSession
-  // stops returning true until the agent re-reads the file.
-  const readTurns = new Map<string, number>();
+  // The edit guard: which anchors the model was shown for each file's current content. It
+  // follows the files, not the masks: a stale anchor is refused even while its result is still
+  // shown unmasked to keep the cached prefix.
+  const anchors = new AnchorLedger();
   const doomLoopState = createDoomLoopState();
   resetContextHygieneTracker();
-  const readTurnKey = (absolutePath: string) => normalizePathForContextHygiene(absolutePath);
-  const noteRead = (absolutePath: string) => {
-    // noteRead is invoked synchronously from inside read/grep/ast_search/write
-    // BEFORE the tool result is dispatched to the tool_result handler that
-    // calls tracker.record(). So the just-finishing tool's event will receive
-    // id = report.eventCount + 1 once tool_result fires. We anchor readTurns
-    // to that anticipated id so the entry is strictly newer than every
-    // mutation event id <= the current eventCount, which is exactly what
-    // expireStaleReadTurns compares against.
-    const tracker = getContextHygieneTracker();
-    const report = tracker.generateReport();
-    const eventId = report.eventCount + 1;
-    readTurns.set(readTurnKey(absolutePath), eventId);
-  };
-  const wasReadInSession = (absolutePath: string) => readTurns.has(readTurnKey(absolutePath));
+  const noteRead = anchors.issue.bind(anchors);
 
   const readTool = registerReadTool(pi, { onSuccessfulRead: noteRead });
-  const editTool = registerEditTool(pi, { wasReadInSession });
+  const editTool = registerEditTool(pi, { anchors });
   const sgAvailable = isSgAvailable();
   const astSearchGuideline = sgAvailable
     ? "Use grep summary for counts; use ast_search for structural code patterns."
@@ -263,25 +249,6 @@ export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  // Expire readTurns entries whose tracked live-anchor event id has been
-  // superseded by a later same-file mutation (i.e. the prior read has been
-  // masked into a stale placeholder by applyContextHygieneStaleContext).
-  // After expiry, edit's read-before-edit guard correctly forces a re-read.
-  const expireStaleReadTurns = (
-    report: ReturnType<ReturnType<typeof getContextHygieneTracker>["generateReport"]>,
-  ) => {
-    if (readTurns.size === 0) return;
-    for (const candidate of report.staleCandidates) {
-      if (!candidate.resourceKey.startsWith("file:")) continue;
-      const absolutePath = readTurnKey(candidate.resourceKey.slice("file:".length));
-      const recordedEventId = readTurns.get(absolutePath);
-      if (recordedEventId === undefined) continue;
-      if (recordedEventId <= candidate.mutationEventId) {
-        readTurns.delete(absolutePath);
-      }
-    }
-  };
-
   // Masks land in `context_with_system`, after every `context` handler, so a prefix owner's
   // signal for this request (pi-om emits it from `context`) is in hand whatever the load
   // order. A Pi without that hook gets the old immediate masking from `context`.
@@ -292,12 +259,8 @@ export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
   }
 
   pi.on("context", (event: any): any => {
-    if (!Array.isArray(event.messages)) return undefined;
+    if (masksInSystemHook || !Array.isArray(event.messages)) return undefined;
     const report = getContextHygieneTracker().generateReport();
-    // The edit guard follows the tracker, not the masks: a stale anchor needs a fresh read
-    // even while its result is still shown unmasked to keep the cached prefix.
-    expireStaleReadTurns(report);
-    if (masksInSystemHook) return undefined;
     const messages = applyContextHygieneStaleContext(event.messages, report);
     if (messages === event.messages) return undefined;
     return { messages };
@@ -399,12 +362,11 @@ export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
       commandState,
     });
     const recordedContextHygieneEvent = recordContextHygiene(contextHygiene, event.toolCallId);
-    if (
-      event.isError !== true &&
-      commandState?.stateKind === "shell-file-mutation" &&
-      (commandState.fileTargets?.length ?? 0) > 0
-    ) {
-      expireStaleReadTurns(getContextHygieneTracker().generateReport());
+    if (event.isError !== true && commandState?.stateKind === "shell-file-mutation") {
+      // The file stamp catches this too; forgetting now also covers a same-size, same-tick write.
+      for (const target of commandState.fileTargets ?? []) {
+        anchors.forget(resolvePath(process.cwd(), target));
+      }
     }
     const appliedEffects = summarizeBashAppliedEffects(recordedContextHygieneEvent.id);
     const contextHygieneForDetails: ContextHygieneMetadata = hasAppliedEffects(appliedEffects)

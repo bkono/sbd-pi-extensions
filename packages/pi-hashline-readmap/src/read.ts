@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { anchorsInText, type IssuedAnchor } from "./anchor-ledger.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildReadRehydrateDescriptor } from "./context-hygiene.js";
@@ -62,7 +63,8 @@ interface ReadParams {
 }
 
 interface ReadToolOptions {
-  onSuccessfulRead?: (absolutePath: string) => void;
+  /** Called with the LINE:HASH anchors a successful read showed. */
+  onSuccessfulRead?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -248,7 +250,10 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       const succeed = <T extends AgentToolResult<any>>(result: T): T => {
         const isError = (result as { isError?: boolean }).isError;
         if (!isError) {
-          options.onSuccessfulRead?.(absolutePath);
+          const text = (result.content ?? [])
+            .map((c: { type: string; text?: string }) => (c.type === "text" ? (c.text ?? "") : ""))
+            .join("\n");
+          options.onSuccessfulRead?.(absolutePath, anchorsInText(text));
         }
         return result;
       };

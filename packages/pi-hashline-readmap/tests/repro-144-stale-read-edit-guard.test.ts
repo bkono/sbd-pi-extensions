@@ -129,9 +129,8 @@ describe("issue 144 — stale-masked read must not satisfy edit's must-read guar
     );
 
     expect(editResult2.isError).toBe(true);
-    expect(getTextContent(editResult2)).toContain(
-      `You must get fresh anchors for ${filePath} before editing it.`,
-    );
+    expect(editResult2.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(getTextContent(editResult2)).toContain(`${fakeAnchor} was not issued`);
     expect(readFileSync(filePath, "utf-8")).toBe(
       `${["a", "b", "uniqueLineV2", "d", "e"].join("\n")}\n`,
     );

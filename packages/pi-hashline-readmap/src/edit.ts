@@ -11,6 +11,13 @@ import { createPatch } from "diff";
 import type { Static } from "typebox";
 import { Type } from "typebox";
 import {
+  type AnchorGuard,
+  anchorsInText,
+  diffLineMap,
+  freshAnchorWindows,
+  type IssuedAnchor,
+} from "./anchor-ledger.js";
+import {
   buildContextHygieneMetadata,
   buildFileResource,
   type ContextHygieneMetadata,
@@ -201,8 +208,138 @@ function buildEditError(
 }
 
 export interface EditToolOptions {
+  /** Per-anchor freshness (see anchor-ledger.ts). Takes precedence over wasReadInSession. */
+  anchors?: AnchorGuard;
+  /** File-level guard for an edit tool registered without a ledger. */
   wasReadInSession?: (absolutePath: string) => boolean;
   syntaxValidate?: SyntaxValidateOptions["syntaxValidate"];
+}
+
+// ─── Anchor freshness ───────────────────────────────────────────────────
+
+type AnchorField = "anchor" | "start_anchor" | "end_anchor";
+interface AnchorRef {
+  editIndex: number;
+  variant: "set_line" | "replace_lines" | "insert_after";
+  field: AnchorField;
+  ref: IssuedAnchor;
+}
+
+const ANCHOR_FIELDS = {
+  set_line: ["anchor"],
+  replace_lines: ["start_anchor", "end_anchor"],
+  insert_after: ["anchor"],
+} as const;
+
+/** Anchors in the request that parse; a malformed one fails later with the engine's message. */
+function collectAnchorRefs(edits: readonly unknown[]): AnchorRef[] {
+  const refs: AnchorRef[] = [];
+  edits.forEach((edit, editIndex) => {
+    for (const variant of Object.keys(ANCHOR_FIELDS) as Array<keyof typeof ANCHOR_FIELDS>) {
+      const body = (edit as Record<string, any>)[variant];
+      if (!body || typeof body !== "object") continue;
+      for (const field of ANCHOR_FIELDS[variant]) {
+        if (typeof body[field] !== "string") continue;
+        try {
+          const { line, hash } = parseLineRef(body[field]);
+          refs.push({ editIndex, variant, field, ref: { line, hash } });
+        } catch {
+          /* reported by applyHashlineEdits */
+        }
+      }
+    }
+  });
+  return refs;
+}
+
+/** Point each anchor at the current line the ledger resolved it to. */
+function rewriteAnchors(edits: any[], refs: AnchorRef[], lines: number[]): any[] {
+  const out = edits.map((edit) => ({ ...edit }));
+  refs.forEach((r, i) => {
+    out[r.editIndex][r.variant] = {
+      ...out[r.editIndex][r.variant],
+      [r.field]: `${lines[i]}:${r.ref.hash.toLowerCase()}`,
+    };
+  });
+  return out;
+}
+
+function anchorLine(lineNumber: number, content: string): string {
+  return `${lineNumber}:${computeLineHash(lineNumber, content)}|${escapeControlCharsForDisplay(content)}`;
+}
+
+function formatFreshAnchors(
+  lines: readonly string[],
+  lineMap: ReturnType<typeof diffLineMap>,
+): { text: string; anchors: IssuedAnchor[] } {
+  const { shown, omittedRegions } = freshAnchorWindows(lines, lineMap);
+  if (shown.length === 0) return { text: "", anchors: [] };
+  const anchors: IssuedAnchor[] = [];
+  const out: string[] = [];
+  for (const region of shown) {
+    if (out.length) out.push("...");
+    region.forEach((n, i) => {
+      if (i > 0 && n !== region[i - 1] + 1) out.push("...");
+      anchors.push({ line: n, hash: computeLineHash(n, lines[n - 1]) });
+      out.push(anchorLine(n, lines[n - 1]));
+    });
+  }
+  if (omittedRegions) {
+    out.push(`[${omittedRegions} more changed region(s) not shown; read them for anchors.]`);
+  }
+  return {
+    text: `\n\nFresh anchors (anchors you already hold for unchanged lines still work):\n${out.join("\n")}`,
+    anchors,
+  };
+}
+
+const STALE_CONTEXT_LINES = 2;
+const STALE_MAX_LINES = 30;
+
+function buildStaleAnchorError(
+  guard: AnchorGuard,
+  absolutePath: string,
+  displayPath: string,
+  lines: readonly string[],
+  stale: IssuedAnchor[],
+  changedOutside: boolean,
+) {
+  const near = new Set<number>();
+  for (const ref of stale) {
+    for (let n = ref.line - STALE_CONTEXT_LINES; n <= ref.line + STALE_CONTEXT_LINES; n++) {
+      if (n >= 1 && n <= lines.length) near.add(n);
+    }
+  }
+  const shown = [...near].sort((a, b) => a - b).slice(0, STALE_MAX_LINES);
+  const anchors = shown.map((n) => ({ line: n, hash: computeLineHash(n, lines[n - 1]) }));
+  guard.issue(absolutePath, anchors);
+  const list = stale.map((r) => `${r.line}:${r.hash}`).join(", ");
+  const why = changedOutside
+    ? `${displayPath} changed since its anchors were issued (by a command or another tool), so ${list} no longer prove(s) where a line is.`
+    : `${list} ${stale.length === 1 ? "was" : "were"} not issued for the current content of ${displayPath}.`;
+  const body: string[] = [];
+  shown.forEach((n, i) => {
+    if (i > 0 && n !== shown[i - 1] + 1) body.push("...");
+    body.push(anchorLine(n, lines[n - 1]));
+  });
+  const message = [
+    `Edit rejected — nothing was written. ${why}`,
+    ...(body.length ? ["Current lines near them:", ...body] : []),
+    "Use these anchors, or read the file again if the target is elsewhere.",
+  ].join("\n");
+  return buildEditError(
+    absolutePath,
+    "stale-anchor",
+    message,
+    "Copy anchors from the lines shown, or read the target region again.",
+    {
+      updatedAnchors: anchors.map((a) => ({
+        line: a.line,
+        hash: a.hash,
+        anchor: `${a.line}:${a.hash}`,
+      })),
+    },
+  );
 }
 
 // ─── Registration ───────────────────────────────────────────────────────
@@ -236,7 +373,10 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
       try {
         return await withFileMutationQueue(absolutePath, async () => {
           throwIfAborted(signal);
-          if (options.wasReadInSession && !options.wasReadInSession(absolutePath)) {
+          const observed = options.anchors
+            ? options.anchors.wasObserved(absolutePath)
+            : (options.wasReadInSession?.(absolutePath) ?? true);
+          if (!observed) {
             const message = [
               `You must get fresh anchors for ${absolutePath} before editing it.`,
               `Call read(${JSON.stringify(rawPath)}) first, or use grep, ast_search, or write to produce fresh anchors for this file.`,
@@ -313,7 +453,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             }
           }
 
-          const anchorEdits = edits.filter(
+          let anchorEdits = edits.filter(
             (e): e is HashlineEditItem =>
               "set_line" in e || "replace_lines" in e || "insert_after" in e,
           );
@@ -373,6 +513,37 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           const { bom, text: content } = stripBom(raw);
           const originalEnding = detectLineEnding(content);
           const originalNormalized = normalizeToLF(content);
+          const originalLines = originalNormalized.split("\n");
+          if (options.anchors) {
+            const refs = collectAnchorRefs(edits);
+            const check = options.anchors.check(
+              absolutePath,
+              originalLines,
+              refs.map((r) => r.ref),
+            );
+            if (check.kind === "not-read") {
+              return buildEditError(
+                absolutePath,
+                "file-not-read",
+                `You must get fresh anchors for ${absolutePath} before editing it.`,
+              );
+            }
+            if (check.kind === "stale") {
+              return buildStaleAnchorError(
+                options.anchors,
+                absolutePath,
+                path,
+                originalLines,
+                check.refs,
+                check.changedOutside,
+              );
+            }
+            edits = rewriteAnchors(edits, refs, check.lines);
+            anchorEdits = edits.filter(
+              (e): e is HashlineEditItem =>
+                "set_line" in e || "replace_lines" in e || "insert_after" in e,
+            );
+          }
           let preAnchorContent = originalNormalized;
           // AC 26: reject anchored edits that target a line inside any replace_symbol
           // pre-replace range. Resolve each target against the ORIGINAL content so the
@@ -491,6 +662,10 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             anchorResult = applyHashlineEdits(result, anchorEdits, signal);
           } catch (err) {
             if (err instanceof HashlineMismatchError) {
+              // The lines it shows are computed from disk content unless replace_symbol ran first.
+              if (options.anchors && rsProbeResults.length === 0) {
+                options.anchors.issue(absolutePath, anchorsInText(err.message));
+              }
               return buildEditError(absolutePath, "hash-mismatch", err.message, undefined, {
                 updatedAnchors: err.updatedAnchors,
               });
@@ -659,6 +834,14 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           }
 
           const diffResult = generateCompactOrFullDiff(originalNormalized, result);
+          let freshAnchorText = "";
+          if (options.anchors) {
+            const resultLines = result.split("\n");
+            const lineMap = diffLineMap(originalLines, resultLines);
+            const fresh = formatFreshAnchors(resultLines, lineMap);
+            options.anchors.recordEdit(absolutePath, lineMap, fresh.anchors);
+            freshAnchorText = fresh.text;
+          }
           const patch = createPatch(path, originalNormalized, result);
           const blockRanges: DiffBlockRange[] = rsProbeResults.map((probe) => ({
             kind: "remove" as const,
@@ -712,7 +895,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 
           const _warn = warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : "";
           return {
-            content: [{ type: "text", text: builtOutput.text }],
+            content: [{ type: "text", text: `${builtOutput.text}${freshAnchorText}` }],
             details: {
               diff: diffResult.diff,
               patch: builtOutput.patch,

@@ -50,6 +50,10 @@ export const PTC_ERROR_CODES = {
     description: "edit anchors do not verify against current file contents",
     trigger: "applyHashlineEdits detected stale anchors",
   },
+  "stale-anchor": {
+    description: "edit anchors were not issued for the file's current content",
+    trigger: "the anchor ledger has no single current line for an anchor in the request",
+  },
   "no-op": {
     description: "edits produced identical content",
     trigger: "originalNormalized === result after applying edits",

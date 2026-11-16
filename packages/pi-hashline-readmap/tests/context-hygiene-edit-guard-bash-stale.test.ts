@@ -98,9 +98,10 @@ describe("edit guard after bash shell-file mutation", () => {
       { cwd: process.cwd() },
     );
 
+    // The file is still observed, but its pre-bash anchors no longer prove where a line is.
     expect(immediateEdit.details?.ptcValue).toMatchObject({
       ok: false,
-      error: { code: "file-not-read" },
+      error: { code: "stale-anchor" },
     });
     expect(immediateEdit.content?.[0]?.text).toContain(
       immediateEdit.details.ptcValue.error.message,

@@ -79,8 +79,11 @@ describe("issue 144 — live-read hash-mismatch path is unchanged", () => {
 
     expect(result.isError).toBe(true);
     const text = getTextContent(result);
-    expect(result.details.ptcValue.error.code).toBe("hash-mismatch");
-    expect(text).toContain(">>>");
+    // The ledger refuses an anchor that was never issued and shows the current lines.
+    expect(result.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(text).toContain("Current lines near them:");
+    expect(text).toContain(`1:${computeLineHash(1, "alpha")}|alpha`);
+    expect(text).not.toContain("You must get fresh anchors");
     expect(readFileSync(filePath, "utf-8")).toBe(
       `${["alpha", "beta", "gamma", "delta", "epsilon"].join("\n")}\n`,
     );

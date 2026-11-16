@@ -5,6 +5,7 @@ import path from "node:path";
 import type { ExtensionAPI, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { IssuedAnchor } from "./anchor-ledger.js";
 import { executableCommand, resolveBundledBin } from "./binary-resolution.js";
 import {
   buildAstSearchRehydrateDescriptor,
@@ -160,7 +161,8 @@ export function isSgAvailable(): boolean {
 }
 
 interface SgToolOptions {
-  onFileAnchored?: (absolutePath: string) => void;
+  /** Called per file with the LINE:HASH anchors the result showed for it. */
+  onFileAnchored?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
 
 export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
@@ -377,7 +379,10 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
         });
         for (const ptcFile of ptcFiles) {
           if (ptcFile.lines.length > 0) {
-            options.onFileAnchored?.(ptcFile.path);
+            options.onFileAnchored?.(
+              ptcFile.path,
+              ptcFile.lines.map((l) => ({ line: l.line, hash: l.hash })),
+            );
           }
         }
         return {
