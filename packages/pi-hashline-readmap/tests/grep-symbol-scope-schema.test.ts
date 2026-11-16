@@ -38,11 +38,9 @@ function getTextContent(result: any): string {
 }
 
 describe("grep scope schema passthrough", () => {
-  it("adds optional scope while preserving summary mode and default output", async () => {
+  it("keeps scope off the model schema while execute() still honors it", async () => {
     const tool = await getGrepTool();
-    expect(tool.parameters.properties.scope).toBeDefined();
-    expect(tool.parameters.properties.scope.const).toBe("symbol");
-    expect(tool.parameters.required ?? []).not.toContain("scope");
+    expect(tool.parameters.properties.scope).toBeUndefined();
 
     const filePath = resolve(fixturesDir, "small.ts");
 
@@ -76,10 +74,8 @@ describe("grep scope schema passthrough", () => {
     expect((normal.details?.ptcValue as any).scopes).toBeUndefined();
   });
 
-  it("exposes optional scopeContext as a number-or-string union", async () => {
+  it("keeps scopeContext off the model schema", async () => {
     const tool = await getGrepTool();
-    expect(tool.parameters.properties.scopeContext).toBeDefined();
-    expect(tool.parameters.properties.scopeContext.anyOf).toBeDefined();
-    expect(tool.parameters.required ?? []).not.toContain("scopeContext");
+    expect(tool.parameters.properties.scopeContext).toBeUndefined();
   });
 });

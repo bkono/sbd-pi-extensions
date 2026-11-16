@@ -104,73 +104,49 @@ export function isBinaryBuffer(buf: Buffer): boolean {
 
 // ─── Schema ─────────────────────────────────────────────────────────────
 
+// Model-facing variants only. execute() still accepts the legacy item shape (with a guided
+// error), insert_after.text, replace.fuzzy and replace_symbol from programmatic callers; Pi's
+// validator rejects them from the model. Unused across 1,050 sessions (sbdpi-rnw).
 const hashlineEditItemSchema = Type.Union([
-  Type.Object(
-    { set_line: Type.Object({ anchor: Type.String(), new_text: Type.String() }) },
-    { additionalProperties: true },
-  ),
-  Type.Object(
-    {
-      replace_lines: Type.Object({
-        start_anchor: Type.String(),
-        end_anchor: Type.String(),
-        new_text: Type.String(),
-      }),
-    },
-    { additionalProperties: true },
-  ),
-  Type.Object(
-    {
-      insert_after: Type.Object({
-        anchor: Type.String(),
-        new_text: Type.String(),
-        text: Type.Optional(Type.String()),
-      }),
-    },
-    { additionalProperties: true },
-  ),
-  Type.Object(
-    {
-      replace: Type.Object({
-        old_text: Type.String(),
-        new_text: Type.String(),
-        all: Type.Optional(Type.Boolean()),
-        fuzzy: Type.Optional(Type.Boolean()),
-      }),
-    },
-    { additionalProperties: true },
-  ),
-  Type.Object(
-    { replace_symbol: Type.Object({ symbol: Type.String(), new_body: Type.String() }) },
-    { additionalProperties: true },
-  ),
-  Type.Object(
-    { old_text: Type.String(), new_text: Type.String() },
-    {
-      additionalProperties: true,
-      description: "Do not use — Wrap as { replace: {old_text, new_text} }.",
-    },
-  ),
+  Type.Object({ set_line: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }),
+  Type.Object({
+    replace_lines: Type.Object({
+      start_anchor: Type.String(),
+      end_anchor: Type.String(),
+      new_text: Type.String(),
+    }),
+  }),
+  Type.Object({ insert_after: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }),
+  Type.Object({
+    replace: Type.Object({
+      old_text: Type.String(),
+      new_text: Type.String(),
+      all: Type.Optional(Type.Boolean()),
+    }),
+  }),
 ]);
 
-const hashlineEditSchema = Type.Object(
-  {
-    path: Type.String({ description: "File path" }),
-    edits: Type.Optional(Type.Array(hashlineEditItemSchema, { description: "Edit operations" })),
-    postEditVerify: Type.Optional(
-      Type.Boolean({
-        description: "Verify persisted content after write",
-      }),
-    ),
-  },
-  { additionalProperties: true },
-);
+const hashlineEditSchema = Type.Object({
+  path: Type.String({ description: "File path" }),
+  edits: Type.Optional(Type.Array(hashlineEditItemSchema, { description: "Edit operations" })),
+  postEditVerify: Type.Optional(
+    Type.Boolean({
+      description: "Verify persisted content after write",
+    }),
+  ),
+});
 
 type HashlineParams = Static<typeof hashlineEditSchema>;
+/** What execute() accepts: the model schema plus the programmatic-only variants. */
+type EditItemInput =
+  | Static<typeof hashlineEditItemSchema>
+  | { insert_after: { anchor: string; new_text: string; text?: string } }
+  | { replace: { old_text: string; new_text: string; all?: boolean; fuzzy?: boolean } }
+  | { replace_symbol: { symbol: string; new_body: string } };
 
 const EDIT_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/edit.md", import.meta.url),
-  promptSnippet: "Edit files using hash-verified anchors from read/grep/ast_search/write",
+  promptSnippet: "Edit files using hash-verified anchors from read/grep/write/edit",
   promptGuidelines: [
     "Use edit for changes to existing files; read or search first and copy fresh LINE:HASH anchors.",
     "Prefer edit anchored set_line, replace_lines, and insert_after over shell rewrites.",
@@ -429,14 +405,14 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           if (!observed) {
             const message = [
               `You must get fresh anchors for ${absolutePath} before editing it.`,
-              `Call read(${JSON.stringify(rawPath)}) first, or use grep, ast_search, or write to produce fresh anchors for this file.`,
-              "edit requires fresh LINE:HASH anchors from read, grep, ast_search, or write so the hashes match the current file contents.",
+              `Call read(${JSON.stringify(rawPath)}) first, or use grep or write to produce fresh anchors for this file.`,
+              "edit requires LINE:HASH anchors from read, grep, write, or edit so the hashes match the current file contents.",
             ].join(" ");
             return buildEditError(
               absolutePath,
               "file-not-read",
               message,
-              `Call read(${JSON.stringify(rawPath)}) first, or use grep, ast_search, or write to produce fresh anchors for this file.`,
+              `Call read(${JSON.stringify(rawPath)}) first, or use grep or write to produce fresh anchors for this file.`,
             );
           }
           const legacyOldText =
@@ -454,7 +430,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           const hasLegacyInput = legacyOldText !== undefined || legacyNewText !== undefined;
           const hasEditsInput = Array.isArray(parsed.edits);
 
-          let edits = parsed.edits ?? [];
+          let edits: EditItemInput[] = (parsed.edits ?? []) as EditItemInput[];
           let legacyNormalizationWarning: string | undefined;
           if (!hasEditsInput && hasLegacyInput) {
             if (legacyOldText === undefined || legacyNewText === undefined) {

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed (model-facing schema)
+Cut from the tool definitions sent on every request, from usage across 1,050 hashline sessions (2026-04 to 2026-11): about 1,812 → 1,408 tokens per request. `execute()` still accepts each for programmatic (PTC) callers.
+- `ast_search` is no longer offered to the model (6 calls in 7 months); its executor stays in `__hashlineToolExecutors`.
+- `edit`: the `replace_symbol` variant (20 calls, 15 failed), `replace.fuzzy` (0), `insert_after.text` (3), the legacy `{old_text,new_text}` item (13 calls, all rejected by design), and the repeated `additionalProperties: true` (Pi's validator allows extra keys without it).
+- `find`: `regex` (1), `modifiedSince` (4), `minSize` and `maxSize` (0).
+- `grep`: `scope` and `scopeContext` (55 calls, `scopeContext` failed 46%).
+- `write`: `map` (60 calls, none since 2026-06-03).
+
 ### Changed
 - `edit` checks freshness per anchor, not per file. An anchor ledger (`src/anchor-ledger.ts`) records every `LINE:HASH` shown by `read`, `grep`, `ast_search`, `write` and `edit`, and carries each one through the edit tool's own edits by tracking every splice it makes (replace_symbol, anchored edits, text replace), never by a content diff, which slides across identical lines. An anchor the model already holds for an unchanged line keeps working under the line number it was copied with, so a follow-up edit to the same file no longer needs a re-read. A change made outside `edit` (file stamp moved, or a detected shell mutation) clears the file's anchors.
 - `edit` results now end with fresh anchors for each changed region and two lines of context (long regions show head and tail, 48 lines at most).

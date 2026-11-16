@@ -340,20 +340,14 @@ export function registerFindTool(pi: ExtensionAPI) {
           }),
         ),
         maxDepth: Type.Optional(Type.Number({ description: "Max directory depth" })),
-        regex: Type.Optional(Type.Boolean({ description: "Treat pattern as regex" })),
         sortBy: Type.Optional(
           Type.Union([Type.Literal("name"), Type.Literal("mtime"), Type.Literal("size")], {
             description: "Sort key",
           }),
         ),
         reverse: Type.Optional(Type.Boolean({ description: "Reverse sort order" })),
-        modifiedSince: Type.Optional(Type.String({ description: "Modified after time" })),
-        minSize: Type.Optional(
-          Type.Union([Type.Number(), Type.String()], { description: "Minimum file size" }),
-        ),
-        maxSize: Type.Optional(
-          Type.Union([Type.Number(), Type.String()], { description: "Maximum file size" }),
-        ),
+        // regex, modifiedSince, minSize, maxSize stay supported in execute() for programmatic
+        // callers (sbdpi-rnw).
       },
       { required: ["pattern"] },
     ),

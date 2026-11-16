@@ -377,7 +377,6 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
       content: Type.String({ description: "File content" }),
-      map: Type.Optional(Type.Boolean({ description: "Append structural map" })),
     }),
     async execute(
       _toolCallId: string,

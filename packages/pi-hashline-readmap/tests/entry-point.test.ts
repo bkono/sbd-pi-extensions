@@ -25,7 +25,7 @@ describe("extension entry point (AC8)", () => {
     expect(typeof mod.default).toBe("function");
     expect(mod.default.length).toBe(1);
   });
-  it("registers ast_search tool", async () => {
+  it("keeps ast_search off the model surface but available to programmatic callers", async () => {
     const mod = await import(pathToFileURL(resolve(root, "index.ts")).href);
     const tools: string[] = [];
     const mockPi = {
@@ -36,6 +36,7 @@ describe("extension entry point (AC8)", () => {
       events: { emit() {}, on() {} },
     };
     mod.default(mockPi as any);
-    expect(tools).toContain("ast_search");
+    expect(tools).not.toContain("ast_search");
+    expect((globalThis as any).__hashlineToolExecutors.ast_search).toBeDefined();
   });
 });

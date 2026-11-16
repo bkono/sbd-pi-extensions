@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectHashlineSystemPromptMetadata } from "./helpers/pi-prompt-metadata-harness.js";
 
-const EXPECTED_TOOLS = ["read", "edit", "grep", "find", "ls", "write", "ast_search"] as const;
+// ast_search is built for programmatic callers but not offered to the model (sbdpi-rnw).
+const EXPECTED_TOOLS = ["read", "edit", "grep", "find", "ls", "write"] as const;
 
 describe("Pi system prompt metadata integration", () => {
   afterEach(() => {

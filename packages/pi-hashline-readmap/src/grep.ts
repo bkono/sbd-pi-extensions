@@ -34,7 +34,6 @@ const GREP_PROMPT_METADATA = defineToolPromptMetadata({
   promptGuidelines: [
     "Use grep for text search across files instead of bash grep or rg.",
     "Use grep summary mode when you only need matching files or counts.",
-    "Use ast_search instead of grep when the query depends on code structure.",
   ],
 });
 
@@ -57,17 +56,7 @@ const grepSchema = Type.Object({
     ]),
   ),
   summary: Type.Optional(Type.Boolean({ description: "Return per-file counts" })),
-  scope: Type.Optional(
-    Type.Literal("symbol", {
-      description: "Scope matches to symbols",
-    }),
-  ),
-  scopeContext: Type.Optional(
-    Type.Union([
-      Type.Number({ description: "Symbol context lines" }),
-      Type.String({ description: "Symbol context lines" }),
-    ]),
-  ),
+  // scope / scopeContext stay supported in execute() for programmatic callers (sbdpi-rnw).
 });
 
 interface GrepParams {

@@ -60,7 +60,7 @@ describe("repro 109 — anchor contract", () => {
     const filePath = resolve(dir, "sample.ts");
     await writeFile(filePath, "const value = 1;\nconst other = 2;\n", "utf8");
 
-    const searchResult = await tools.ast_search.execute(
+    const searchResult = await (globalThis as any).__hashlineToolExecutors.ast_search.execute(
       "sg-call",
       { pattern: "const $NAME = $_", lang: "typescript", path: filePath },
       new AbortController().signal,
