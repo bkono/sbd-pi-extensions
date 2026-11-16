@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Applies a reference solution for each task to a copy of the fixture, so the hidden graders can
 be checked: every grader must fail on the fixture and pass on its reference.
-Usage: python3 reference-solutions.py <dir with t2-bugfix t3-feature t4-refactor t5-marathon copies>"""
+Usage: python3 reference-solutions.py <dir with t2-bugfix t3-feature t4-refactor t5-marathon and,
+optionally, t6-long-session copies>"""
 import glob, re, sys, os
 
 root = sys.argv[1]
@@ -29,25 +30,39 @@ for f in glob.glob("t4-refactor/src/**/*.ts", recursive=True) + glob.glob("t4-re
                r"priceLineItem({ qty: \1, unitPriceCents: \2, discountBps: \3 })", s)
     open(f, "w").write(s.replace("computeLineTotal", "priceLineItem"))
 
-# T5: P1 exemption on every class, P2 region caps, P3 exposed cap.
-e = "t5-marathon/src/pricing/engine.ts"
-sub(e, """    const taxable =
-      taxClass === "reduced" ? group : group.filter((l) => !isTaxExempt(l, region));""",
-    """    const taxable = group.filter((l) => !isTaxExempt(l, region));""")
-sub("t5-marathon/src/types.ts", "  freeShippingThresholdCents: Cents;\n}", "  freeShippingThresholdCents: Cents;\n  maxDiscountBps?: Bps;\n}")
-sub("t5-marathon/src/types.ts", "  freeShipping: boolean;\n  warnings: string[];", "  freeShipping: boolean;\n  discountCapBps: Bps;\n  warnings: string[];")
-r = "t5-marathon/src/pricing/regions.ts"
-for code, cap in [("US-NY", 2500), ("DE-BE", 3000), ("JP-13", 2000)]:
-    s = open(r).read()
-    i = s.index(f'code: "{code}"'); j = s.index("freeShippingThresholdCents", i); k = s.index("\n", j)
-    open(r, "w").write(s[:k] + f"\n    maxDiscountBps: {cap}," + s[k:])
-sub(e, "  const discounts = stackDiscounts(grossCents, requests);", "  const discounts = stackDiscounts(grossCents, requests, effectiveCapBps(ctx.region));")
-sub(e, "export interface LineContext {", "export function effectiveCapBps(region: Region): Bps {\n  return Math.min(region.maxDiscountBps ?? GLOBAL_DISCOUNT_CAP_BPS, GLOBAL_DISCOUNT_CAP_BPS);\n}\n\nexport interface LineContext {")
-sub(e, "    freeShipping: shipping.free,\n    warnings,", "    freeShipping: shipping.free,\n    discountCapBps: effectiveCapBps(region),\n    warnings,")
-sub(e, "  out.push(`Total: ${formatCents(b.totalCents, b.currency)}`);", "  out.push(`Discount cap: ${b.discountCapBps / 100}%`);\n  out.push(`Total: ${formatCents(b.totalCents, b.currency)}`);")
-s = "t5-marathon/src/api/serialize.ts"
-sub(s, "  free_shipping: boolean;\n  warnings: string[];", "  free_shipping: boolean;\n  discount_cap_bps: number;\n  warnings: string[];")
-sub(s, "    free_shipping: b.freeShipping,", "    free_shipping: b.freeShipping,\n    discount_cap_bps: b.discountCapBps,")
+# T5: P1 exemption on every class, P2 region caps, P3 exposed cap. T6 starts from the same changes.
+def apply_t5(d):
+    e = f"{d}/src/pricing/engine.ts"
+    sub(e, '    const taxable =\n      taxClass === "reduced" ? group : group.filter((l) => !isTaxExempt(l, region));',
+        "    const taxable = group.filter((l) => !isTaxExempt(l, region));")
+    sub(f"{d}/src/types.ts", "  freeShippingThresholdCents: Cents;\n}", "  freeShippingThresholdCents: Cents;\n  maxDiscountBps?: Bps;\n}")
+    sub(f"{d}/src/types.ts", "  freeShipping: boolean;\n  warnings: string[];", "  freeShipping: boolean;\n  discountCapBps: Bps;\n  warnings: string[];")
+    r = f"{d}/src/pricing/regions.ts"
+    for code, cap in [("US-NY", 2500), ("DE-BE", 3000), ("JP-13", 2000)]:
+        text = open(r).read()
+        i = text.index(f'code: "{code}"'); j = text.index("freeShippingThresholdCents", i); k = text.index("\n", j)
+        open(r, "w").write(text[:k] + f"\n    maxDiscountBps: {cap}," + text[k:])
+    sub(e, "  const discounts = stackDiscounts(grossCents, requests);", "  const discounts = stackDiscounts(grossCents, requests, effectiveCapBps(ctx.region));")
+    sub(e, "export interface LineContext {", "export function effectiveCapBps(region: Region): Bps {\n  return Math.min(region.maxDiscountBps ?? GLOBAL_DISCOUNT_CAP_BPS, GLOBAL_DISCOUNT_CAP_BPS);\n}\n\nexport interface LineContext {")
+    sub(e, "    freeShipping: shipping.free,\n    warnings,", "    freeShipping: shipping.free,\n    discountCapBps: effectiveCapBps(region),\n    warnings,")
+    sub(e, "  out.push(`Total: ${formatCents(b.totalCents, b.currency)}`);", "  out.push(`Discount cap: ${b.discountCapBps / 100}%`);\n  out.push(`Total: ${formatCents(b.totalCents, b.currency)}`);")
+    js = f"{d}/src/api/serialize.ts"
+    sub(js, "  free_shipping: boolean;\n  warnings: string[];", "  free_shipping: boolean;\n  discount_cap_bps: number;\n  warnings: string[];")
+    sub(js, "    free_shipping: b.freeShipping,", "    free_shipping: b.freeShipping,\n    discount_cap_bps: b.discountCapBps,")
+
+
+apply_t5("t5-marathon")
+
+# T6: the T5 changes, then P5 (CSV column) and P7 (cap line after Discounts, only below 40%).
+if os.path.isdir("t6-long-session"):
+    apply_t5("t6-long-session")
+    e = "t6-long-session/src/pricing/engine.ts"
+    sub(e, '"order_id,region,subtotal_cents,discount_cents,tax_cents,shipping_cents,handling_cents,total_cents";',
+        '"order_id,region,subtotal_cents,discount_cents,tax_cents,shipping_cents,handling_cents,total_cents,discount_cap_bps";')
+    sub(e, '    b.totalCents,\n  ].join(",");', '    b.totalCents,\n    b.discountCapBps,\n  ].join(",");')
+    sub(e, "  out.push(`Discount cap: ${b.discountCapBps / 100}%`);\n", "")
+    sub(e, "  if (b.discountCents > 0) out.push(`Discounts: -${formatCents(b.discountCents, b.currency)}`);",
+        "  if (b.discountCents > 0) out.push(`Discounts: -${formatCents(b.discountCents, b.currency)}`);\n  if (b.discountCapBps < 4000) out.push(`Discount cap: ${b.discountCapBps / 100}%`);")
 
 # T3: gift wrap.
 e = "t3-feature/src/pricing/engine.ts"

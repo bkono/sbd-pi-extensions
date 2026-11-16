@@ -166,6 +166,7 @@ function linesOfRead(call) {
   return { nums, mapLines };
 }
 
+const BASH_SEARCH = /(^|[;&|]\s*|\s)(rg|grep|egrep|ag|ack|find|fd|ls|tree)\s/;
 const BASH_READ = /^\s*(?:cd [^;&]+(?:&&|;)\s*)?(cat|sed\s+-n|head|tail|nl|awk|less|bat)\b/;
 
 function bashRead(call, work) {
@@ -229,7 +230,7 @@ function analyzeRun(dir, task, arm) {
     searchChars: 0,
     externalReads: 0,
     filesRead: 0,
-    reReads: { redundant: 0, postEdit: 0, postEditError: 0 },
+    reReads: { redundant: 0, newWindow: 0, postEdit: 0, postEditError: 0 },
     reReadLines: { redundant: 0, postEdit: 0 },
     readsBeforeFirstEdit: 0,
     readsAfterFirstEdit: 0,
@@ -284,9 +285,13 @@ function analyzeRun(dir, task, arm) {
     const s = state(file);
     const set = new Set(nums);
     let kind = "first";
-    if (s.everRead)
-      kind = s.editedSinceRead ? (s.lastEditError ? "postEditError" : "postEdit") : "redundant";
-    const overlap = [...set].filter((n) => s.seen.has(n)).length;
+    const overlap = s.editedSinceRead ? 0 : [...set].filter((n) => s.seen.has(n)).length;
+    if (s.everRead) {
+      if (s.lastEditError) kind = "postEditError";
+      else if (s.editedSinceRead) kind = "postEdit";
+      else kind = overlap > 0 ? "redundant" : "newWindow";
+    }
+    if (kind === "newWindow") m.reReads.newWindow += 1;
     if (kind === "redundant") {
       m.reReads.redundant += 1;
       m.reReadLines.redundant += overlap;
@@ -316,7 +321,6 @@ function analyzeRun(dir, task, arm) {
   for (const it of items) {
     if (it.type === "prompt") {
       promptStat();
-      prevInput = 0;
       continue;
     }
     if (!curPrompt) promptStat();
@@ -328,7 +332,8 @@ function analyzeRun(dir, task, arm) {
       m.outputTokens += it.output;
       m.reasoningTokens += it.reasoning;
       m.peakContext = Math.max(m.peakContext, it.input);
-      if (prevInput > 10_000 && it.cached < prevInput * 0.5) m.cacheDrops += 1;
+      const shrank = it.input < prevInput * 0.7;
+      if (prevInput > 10_000 && !shrank && it.cached < prevInput * 0.5) m.cacheDrops += 1;
       prevInput = it.input;
       curPrompt.requests += 1;
       curPrompt.inputTokens += it.input;
@@ -374,6 +379,11 @@ function analyzeRun(dir, task, arm) {
         m.readChars += it.text.length;
         curPrompt.readLines += br.outLines;
       }
+      const cmd = String(it.args.command ?? it.args.cmd ?? "");
+      if (!br && BASH_SEARCH.test(` ${cmd}`) && !/\b(node|npm|npx|git)\b/.test(cmd)) {
+        m.searchCalls += 1;
+        m.searchChars += it.text.length;
+      }
       if (br?.file && !br.file.startsWith("external:")) {
         m.readChars += it.text.length;
         m.readLines += br.nums.length;
@@ -409,6 +419,7 @@ function analyzeRun(dir, task, arm) {
         firstEditSeen = true;
         const s = state(file);
         s.editedSinceRead = true;
+        s.lastEditError = false;
         if (kind === "write") {
           // A write returns the file's content (hashline) or nothing (stock); either way the
           // agent knows the content it wrote.
@@ -517,7 +528,14 @@ for (const task of readdirSync(outDir).filter(
     runs.push(analyzeRun(dir, task, arm));
   }
 }
-writeFileSync(path.join(outDir, "metrics.json"), `${JSON.stringify(runs, null, 2)}\n`);
+const scrub = (value) =>
+  JSON.parse(
+    JSON.stringify(value)
+      .replaceAll(outDir, "<out>")
+      .replaceAll(outDir.replace(/^\/private/, ""), "<out>")
+      .replaceAll(process.env.HOME ?? "\u0000", "~"),
+  );
+writeFileSync(path.join(outDir, "metrics.json"), `${JSON.stringify(scrub(runs), null, 2)}\n`);
 
 // Aggregate: mean per task x arm.
 const groups = new Map();
@@ -572,6 +590,8 @@ for (const [key, rs] of [...groups.entries()].sort()) {
     "read chars": fmt(g((r) => r.readChars)),
     "search chars": fmt(g((r) => r.searchChars)),
     "rr redundant": fmt(g((r) => r.reReads.redundant)),
+    "rr redundant lines": fmt(g((r) => r.reReadLines.redundant)),
+    "rr new window": fmt(g((r) => r.reReads.newWindow)),
     "rr post-edit": fmt(g((r) => r.reReads.postEdit + r.reReads.postEditError)),
     "reads pre/post 1st edit": `${fmt(g((r) => r.readsBeforeFirstEdit))}/${fmt(g((r) => r.readsAfterFirstEdit))}`,
     edits: fmt(g((r) => r.edits)),

@@ -1,17 +1,33 @@
 // One Mastra Code session (host SDK, in-process) over a list of prompts. Scratch DB per run;
 // Bryan's auth and settings are read, never written. Events go to <out>/events.jsonl.
 // Usage: node mc-run.mjs <cwd> <out> <promptsJsonFile>
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const [cwd, out, promptsFile] = process.argv.slice(2);
-const HOST =
-  process.env.MC_HOST_NODE_MODULES ??
-  path.join(
-    process.env.HOME,
-    ".local/share/mise/installs/node/25/lib/node_modules/mastracode/node_modules",
-  );
+
+/** node_modules of the `mastracode` on PATH (the installed host), unless MC_HOST_NODE_MODULES is set. */
+function hostNodeModules() {
+  if (process.env.MC_HOST_NODE_MODULES) return process.env.MC_HOST_NODE_MODULES;
+  const bin = realpathSync(execFileSync("which", ["mastracode"], { encoding: "utf8" }).trim());
+  for (let dir = path.dirname(bin); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+    const pkg = path.join(dir, "package.json");
+    if (existsSync(pkg) && JSON.parse(readFileSync(pkg, "utf8")).name === "mastracode") {
+      return path.join(dir, "node_modules");
+    }
+  }
+  throw new Error(`no mastracode package above ${bin}; set MC_HOST_NODE_MODULES`);
+}
+const HOST = hostNodeModules();
 const MODEL = process.env.EVAL_MC_MODEL ?? "openai/gpt-6.1-sol";
 const THINKING = process.env.EVAL_THINKING ?? "medium";
 const prompts = JSON.parse(readFileSync(promptsFile, "utf8"));

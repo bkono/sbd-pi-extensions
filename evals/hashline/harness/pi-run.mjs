@@ -1,8 +1,10 @@
 // One Pi RPC session over a list of prompts. Every event (minus streaming deltas) goes to
 // <out>/events.jsonl. Usage: node pi-run.mjs <cwd> <out> <arm> <promptsJsonFile>
 // arm: "pi-hashline" | "pi-stock". Both load the same sbd-pi-extensions set via -e; stock omits
-// pi-hashline-readmap, so Pi's built-in read/edit/grep/find/ls stay in place.
-import { spawn } from "node:child_process";
+// pi-hashline-readmap, so Pi's default built-ins (read, edit, write, bash) stay in place.
+// EVAL_PI_EXT_ROOT picks the extensions checkout (default: the live main checkout); its git SHA
+// and dirty state are recorded in the trace so a run is tied to the code it loaded.
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -91,7 +93,22 @@ const m = await send({ type: "set_model", provider, modelId: rest.join("/") });
 if (!m.success) throw new Error(`set_model: ${m.error}`);
 await send({ type: "set_thinking_level", level: THINKING });
 const state = await send({ type: "get_state" });
-write({ type: "harness_state", data: state.data });
+const git = (...a) => {
+  try {
+    return execFileSync("git", a, { cwd: EXT_ROOT, encoding: "utf8" }).trim();
+  } catch {
+    return undefined;
+  }
+};
+write({
+  type: "harness_state",
+  data: state.data,
+  extensions: {
+    root: EXT_ROOT,
+    sha: git("rev-parse", "HEAD"),
+    dirty: Boolean(git("status", "--porcelain")),
+  },
+});
 for (const [i, message] of prompts.entries()) {
   write({ type: "harness_prompt", index: i, message });
   const done = new Promise((r) => {
