@@ -15,7 +15,6 @@
  * contested, its next use is refused with both lines shown, and only that refusal resolves it.
  */
 import { type BigIntStats, statSync } from "node:fs";
-import { diffArrays } from "diff";
 import { normalizePathForContextHygiene } from "./context-hygiene.js";
 import { computeLineHash } from "./hashline.js";
 
@@ -183,32 +182,63 @@ export interface LineMap {
   newLength: number;
 }
 
-export function diffLineMap(before: readonly string[], after: readonly string[]): LineMap {
-  const oldToNew = new Int32Array(before.length);
+/**
+ * The line map of an edit from each new line's origin (its 1-based line before the edit, or 0
+ * for a line the edit inserted or replaced). The edit tool builds `origin` from its own splices,
+ * not from a content diff: a diff slides across identical lines (a blank line, a `}`) and would
+ * carry an anchor onto an inserted duplicate.
+ */
+export function lineMapFromOrigin(origin: readonly number[], oldLength: number): LineMap {
+  const oldToNew = new Int32Array(oldLength);
   const changed: Array<[number, number]> = [];
   const deletions: number[] = [];
-  let oldIdx = 0;
-  let newIdx = 0;
-  let pendingRemoval = false;
-  for (const part of diffArrays(before as string[], after as string[])) {
-    const count = part.count ?? part.value.length;
-    if (part.added) {
-      changed.push([newIdx + 1, newIdx + count]);
-      newIdx += count;
-      pendingRemoval = false;
-    } else if (part.removed) {
-      oldIdx += count;
-      pendingRemoval = true;
-    } else {
-      if (pendingRemoval) deletions.push(newIdx + 1);
-      pendingRemoval = false;
-      for (let i = 0; i < count; i++) oldToNew[oldIdx + i] = newIdx + i + 1;
-      oldIdx += count;
-      newIdx += count;
+  let prevOrigin = 0;
+  let runStart = 0;
+  for (let i = 0; i <= origin.length; i++) {
+    const o = i < origin.length ? origin[i] : oldLength + 1;
+    if (o === 0) {
+      if (!runStart) runStart = i + 1;
+      continue;
     }
+    if (runStart) {
+      changed.push([runStart, i]);
+      runStart = 0;
+    } else if (o > prevOrigin + 1) {
+      deletions.push(i + 1);
+    }
+    if (i < origin.length) oldToNew[o - 1] = i + 1;
+    prevOrigin = o;
   }
-  if (pendingRemoval) deletions.push(newIdx + 1);
-  return { oldToNew, changed, deletions, newLength: after.length };
+  return { oldToNew, changed, deletions, newLength: origin.length };
+}
+
+/** Mirror a text replacement into `origin`: every line a replaced span touches becomes 0. */
+export function spliceOriginForSpans(
+  origin: number[],
+  content: string,
+  spans: ReadonlyArray<{ index: number; matchLength: number }>,
+  newText: string,
+): void {
+  const starts = [0];
+  for (let at = content.indexOf("\n"); at !== -1; at = content.indexOf("\n", at + 1)) {
+    starts.push(at + 1);
+  }
+  const lineAt = (offset: number) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const newLines = newText.split("\n").length;
+  for (const span of [...spans].sort((x, y) => y.index - x.index)) {
+    const first = lineAt(span.index);
+    const last = lineAt(span.index + span.matchLength);
+    origin.splice(first, last - first + 1, ...Array.from({ length: newLines }, () => 0));
+  }
 }
 
 const ANCHOR_LINE_RE = /^(?:>>>? ?|\s+)?(\d+):([0-9a-f]{3})\|/gm;

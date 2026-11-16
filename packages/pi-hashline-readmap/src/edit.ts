@@ -13,10 +13,11 @@ import { Type } from "typebox";
 import {
   type AnchorGuard,
   anchorsInText,
-  diffLineMap,
   freshAnchorWindows,
   type IssuedAnchor,
+  lineMapFromOrigin,
   type StaleAnchor,
+  spliceOriginForSpans,
 } from "./anchor-ledger.js";
 import {
   buildContextHygieneMetadata,
@@ -293,7 +294,7 @@ function anchorLine(lineNumber: number, content: string): string {
 
 function formatFreshAnchors(
   lines: readonly string[],
-  lineMap: ReturnType<typeof diffLineMap>,
+  lineMap: ReturnType<typeof lineMapFromOrigin>,
 ): { text: string; anchors: IssuedAnchor[] } {
   const { shown, omittedRegions } = freshAnchorWindows(lines, lineMap);
   if (shown.length === 0) return { text: "", anchors: [] };
@@ -554,6 +555,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           const originalEnding = detectLineEnding(content);
           const originalNormalized = normalizeToLF(content);
           const originalLines = originalNormalized.split("\n");
+          // Each current line's line before this edit (0 once an edit replaced or inserted it),
+          // kept in step with every splice below. It is the ledger's line map.
+          const origin = originalLines.map((_, i) => i + 1);
           if (options.anchors) {
             const refs = collectAnchorRefs(edits);
             const check = options.anchors.check(
@@ -687,10 +691,16 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               replaceSymbolWarnings.push(...probe.warnings);
             }
             for (const probe of [...rsProbeResults].sort((a, b) => b.range.start - a.range.start)) {
+              const replacement = probe.replacement.split("\n");
               lines.splice(
                 probe.range.start - 1,
                 probe.range.end - probe.range.start + 1,
-                ...probe.replacement.split("\n"),
+                ...replacement,
+              );
+              origin.splice(
+                probe.range.start - 1,
+                probe.range.end - probe.range.start + 1,
+                ...replacement.map(() => 0),
               );
             }
             preAnchorContent = lines.join("\n");
@@ -716,6 +726,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             // and refusing beats relocating by hash.
             anchorResult = applyHashlineEdits(result, anchorEdits, signal, {
               relocate: !options.anchors,
+              ...(options.anchors ? { origin } : {}),
             });
           } catch (err) {
             if (err instanceof HashlineMismatchError) {
@@ -748,6 +759,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                 "Re-read the file and prefer set_line/replace_lines/insert_after for hash-verified edits. " +
                 "The replace variant is exact-only by default because fuzzy fallback is unverified.";
               return buildEditError(absolutePath, "text-not-found", message, hint);
+            }
+            if (options.anchors && rep.spans) {
+              spliceOriginForSpans(origin, result, rep.spans, normalizeToLF(r.replace.new_text));
             }
             if (rep.usedFuzzyMatch) {
               replaceWarnings.push(
@@ -894,7 +908,11 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           let freshAnchorText = "";
           if (options.anchors) {
             const resultLines = result.split("\n");
-            const lineMap = diffLineMap(originalLines, resultLines);
+            // A length mismatch would be a bug in the splice bookkeeping: carry nothing then.
+            const lineMap = lineMapFromOrigin(
+              origin.length === resultLines.length ? origin : resultLines.map(() => 0),
+              originalLines.length,
+            );
             const fresh = formatFreshAnchors(resultLines, lineMap);
             options.anchors.recordEdit(absolutePath, lineMap, fresh.anchors);
             freshAnchorText = fresh.text;

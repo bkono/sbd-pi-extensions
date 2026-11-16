@@ -142,7 +142,13 @@ export function fuzzyFindText(
  * Fuzzy matching only determines target spans; replacement always applies to
  * the original content (never normalizes the whole file).
  */
-export type ReplaceTextResult = { content: string; count: number; usedFuzzyMatch: boolean };
+/** `spans` are the replaced ranges of the input `content`, in order, when count > 0. */
+export type ReplaceTextResult = {
+  content: string;
+  count: number;
+  usedFuzzyMatch: boolean;
+  spans?: Array<{ index: number; matchLength: number }>;
+};
 
 export function replaceText(
   content: string,
@@ -156,10 +162,19 @@ export function replaceText(
   if (opts.all) {
     const exactCount = content.split(oldText).length - 1;
     if (exactCount > 0) {
+      const exactSpans: Array<{ index: number; matchLength: number }> = [];
+      for (
+        let at = content.indexOf(oldText);
+        at !== -1;
+        at = content.indexOf(oldText, at + oldText.length)
+      ) {
+        exactSpans.push({ index: at, matchLength: oldText.length });
+      }
       return {
         content: content.split(oldText).join(normalizedNew),
         count: exactCount,
         usedFuzzyMatch: false,
+        spans: exactSpans,
       };
     }
     if (!opts.fuzzy) return { content, count: 0, usedFuzzyMatch: false };
@@ -192,7 +207,7 @@ export function replaceText(
       out =
         out.substring(0, span.index) + normalizedNew + out.substring(span.index + span.matchLength);
     }
-    return { content: out, count: spans.length, usedFuzzyMatch: true };
+    return { content: out, count: spans.length, usedFuzzyMatch: true, spans };
   }
 
   const exactIndex = content.indexOf(oldText);
@@ -204,6 +219,7 @@ export function replaceText(
         content.substring(exactIndex + oldText.length),
       count: 1,
       usedFuzzyMatch: false,
+      spans: [{ index: exactIndex, matchLength: oldText.length }],
     };
   }
 
@@ -219,6 +235,7 @@ export function replaceText(
       content.substring(result.index + result.matchLength),
     count: 1,
     usedFuzzyMatch: result.usedFuzzyMatch,
+    spans: [{ index: result.index, matchLength: result.matchLength }],
   };
 }
 

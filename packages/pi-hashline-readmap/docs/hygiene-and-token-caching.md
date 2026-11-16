@@ -73,7 +73,10 @@ Every tool result the agent sees carries:
   table after each edit attempt), so prior turns' cached suffixes don't
   reuse. This is the "doom loop" the `tests/doom-loop-*.test.ts` family
   is named after.
-- **Auto-relocation tables embed live file state.** The fresh anchors
+- **Auto-relocation tables embed live file state.** (Since the anchor
+  ledger, an edit tool registered with it refuses stale anchors with
+  `stale-anchor` instead of relocating; the `>>>` table remains for an
+  edit tool registered without a ledger.) The fresh anchors
   shown after a mismatch encode the *current* file contents. If the file
   changes again, the same query produces different help text, so
   retries don't fingerprint identically.

@@ -426,8 +426,12 @@ export function applyHashlineEdits(
   content: string,
   edits: HashlineEditItem[],
   signal?: AbortSignal,
-  /** relocate: false refuses a mismatched anchor instead of moving it to a nearby hash match. */
-  options: { relocate?: boolean } = {},
+  /**
+   * relocate: false refuses a mismatched anchor instead of moving it to a nearby hash match.
+   * origin: one entry per line of `content` (the original line it came from, or 0); every splice
+   * the engine makes is mirrored into it, and a line an edit replaced or inserted becomes 0.
+   */
+  options: { relocate?: boolean; origin?: number[] } = {},
 ): {
   content: string;
   firstChangedLine: number | undefined;
@@ -445,6 +449,13 @@ export function applyHashlineEdits(
 
   const fileLines = content.split("\n");
   const origLines = [...fileLines];
+  if (options.origin && options.origin.length !== fileLines.length) {
+    throw new Error("origin must have one entry per line of content");
+  }
+  const spliceLines = (start: number, deleteCount: number, items: string[]) => {
+    fileLines.splice(start, deleteCount, ...items);
+    options.origin?.splice(start, deleteCount, ...items.map(() => 0));
+  };
   let firstChanged: number | undefined;
   const noopEdits: NoopEdit[] = [];
 
@@ -755,7 +766,7 @@ export function applyHashlineEdits(
           });
           continue;
         }
-        fileLines.splice(merged.startLine - 1, merged.deleteCount, ...newL);
+        spliceLines(merged.startLine - 1, merged.deleteCount, newL);
         track(merged.startLine);
         continue;
       }
@@ -778,7 +789,7 @@ export function applyHashlineEdits(
         });
         continue;
       }
-      fileLines.splice(spec.ref.line - 1, 1, ...newL);
+      spliceLines(spec.ref.line - 1, 1, newL);
       track(spec.ref.line);
     } else if (spec.kind === "range") {
       const count = spec.end.line - spec.start.line + 1;
@@ -800,7 +811,7 @@ export function applyHashlineEdits(
         });
         continue;
       }
-      fileLines.splice(spec.start.line - 1, count, ...newL);
+      spliceLines(spec.start.line - 1, count, newL);
       track(spec.start.line);
     } else {
       const anchor = origLines[spec.after.line - 1];
@@ -814,11 +825,11 @@ export function applyHashlineEdits(
         continue;
       }
       if (content === "" && spec.after.line === 1 && anchor === "") {
-        fileLines.splice(0, 1, ...inserted);
+        spliceLines(0, 1, inserted);
         track(1);
         continue;
       }
-      fileLines.splice(spec.after.line, 0, ...inserted);
+      spliceLines(spec.after.line, 0, inserted);
       track(spec.after.line + 1);
     }
   }

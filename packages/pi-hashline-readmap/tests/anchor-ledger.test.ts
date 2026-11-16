@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import init from "../index.js";
-import { anchorsInText, diffLineMap, freshAnchorWindows } from "../src/anchor-ledger.js";
+import { anchorsInText, freshAnchorWindows, lineMapFromOrigin } from "../src/anchor-ledger.js";
 import { applyHashlineEdits, computeLineHash, ensureHashInit } from "../src/hashline.js";
 
 const a = (line: number, text: string) => `${line}:${computeLineHash(line, text)}`;
@@ -310,6 +310,69 @@ describe("anchor ledger through the edit tool", () => {
     expect(linesOf(file)[2399]).toBe("edited");
   });
 
+  it("carries a held blank line past an inserted block that starts with a blank line", async () => {
+    // Verifier case C: a content diff slid the held blank onto the inserted one.
+    const file = fixture("slide.ts", [
+      "function a() {",
+      "  one();",
+      "}",
+      "",
+      "function b() {",
+      "  two();",
+      "}",
+      "tail",
+    ]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "function a() {"), new_text: "  zero();" } }],
+    });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(3, "}"), new_text: "\nfunction mid() {\n}" } }],
+    });
+    const held = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(4, ""), new_text: "// doc comment for b()" } }],
+    });
+    expect(held.isError).not.toBe(true);
+    const lines = linesOf(file);
+    expect(lines[lines.indexOf("function b() {") - 1]).toBe("// doc comment for b()");
+  });
+
+  it("refuses the anchor of a line it just replaced, even with an identical neighbour", async () => {
+    // Verifier case A.
+    const file = fixture("replaced.ts", ["a", "x", "x", "x", "b"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(2, "x"), new_text: "u1" } }],
+    });
+    const reuse = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(2, "x"), new_text: "NEW" } }],
+    });
+    expect(reuse.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file)).toEqual(["a", "u1", "x", "x", "b"]);
+  });
+
+  it("drops anchors of lines a text replace touched and carries the rest exactly", async () => {
+    const file = fixture("text.ts", ["start", "", "middle", "", "end"]);
+    await call("read", { path: file });
+    // Inserts a blank-led block in place of "middle"; the held blank at line 4 must stay itself.
+    await call("edit", {
+      path: file,
+      edits: [{ replace: { old_text: "middle", new_text: "\nmid A\nmid B" } }],
+    });
+    expect(linesOf(file)).toEqual(["start", "", "", "mid A", "mid B", "", "end"]);
+    const held = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(4, ""), new_text: "before end" } }],
+    });
+    expect(held.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["start", "", "", "mid A", "mid B", "", "before end", "end"]);
+  });
+
   it("still refuses an edit to a file that was never read", async () => {
     const file = fixture("unread.ts", ["a"]);
     const result = await call("edit", {
@@ -346,12 +409,14 @@ describe("anchor ledger through the edit tool", () => {
   });
 });
 
-describe("diffLineMap", () => {
-  it("maps unchanged lines across an insert and a deletion", () => {
-    const map = diffLineMap(["a", "b", "c", "d"], ["a", "x", "b", "d"]);
-    expect([...map.oldToNew]).toEqual([1, 3, 0, 4]);
+describe("lineMapFromOrigin", () => {
+  it("maps kept lines and reports inserted runs and pure deletions", () => {
+    // before: a b c d e; after: a X b d e (X inserted, c deleted)
+    const map = lineMapFromOrigin([1, 0, 2, 4, 5], 5);
+    expect([...map.oldToNew]).toEqual([1, 3, 0, 4, 5]);
     expect(map.changed).toEqual([[2, 2]]);
     expect(map.deletions).toEqual([4]);
+    expect(lineMapFromOrigin([1, 2], 4).deletions).toEqual([3]);
   });
 });
 
