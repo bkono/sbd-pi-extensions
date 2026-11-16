@@ -2,13 +2,14 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-11-16T22:55:53Z",
   "created": "2026-11-16T19:21:20Z",
   "description": "`applyHashlineEdits` (packages/pi-hashline-readmap/src/hashline.ts, around line 820) counts changed lines positionally, so any mid-file `insert_after` counts every later line as changed and warns, e.g. \"Edit changed 697 lines across 9 operations — verify no unintended reformatting\" on a +12/-3 edit.\n\nEvidence (evals/hashline/RESULTS.md): it fired 11 times per t5 session and 14-15 per t6 session, every one a false positive; it was followed by a re-read twice. Decision (Bryan, 2026-11-16): drop it; it is a holdover.\n\nDone: the warning and its counting loop are gone, no test depends on it, and an `insert_after` mid-file returns no warning. Gates clean.",
   "id": "sbdpi-lno",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "hashline: drop the 'verify no unintended reformatting' edit warning",
   "type": "bug",
-  "updated_at": "2026-11-16T19:21:20Z"
+  "updated_at": "2026-11-16T22:55:53Z"
 }
