@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-16T22:55:53Z",
+  "description": "Verifier note at 7b13bee (scratchpad ev-7b13bee/verdict.md, repro tests/zz-x1.test.ts): edit.ts no-op 'file currently contains' block pushes noopAnchors while targetLines.length \u003c 5 before de-duplication, but displays [...new Set(targetLines)].slice(0,5). With \u003e=4 replace_lines start==end edits that cancel to a no-op, the 4th/5th shown keys are not issued; their use is refused once (nothing written), retry accepted. Fix: build the displayed list first (dedupe, cap) and issue exactly it. Done: repro test red then green, gates, verifier.",
+  "id": "sbdpi-7tx",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "hashline: no-op display caps anchors before de-duplicating",
+  "type": "bug",
+  "updated_at": "2026-11-16T22:55:53Z"
+}
