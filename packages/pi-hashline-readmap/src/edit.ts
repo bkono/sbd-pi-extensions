@@ -474,7 +474,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               Number("replace" in e) +
               Number("replace_symbol" in e);
             if (variantCount !== 1) {
-              const message = `edits[${i}] must contain exactly one of: 'set_line', 'replace_lines', 'insert_after', 'replace', 'replace_symbol'. Got: [${Object.keys(e).join(", ")}].`;
+              const message = `edits[${i}] must contain exactly one of: 'set_line', 'replace_lines', 'insert_after', 'replace'. Got: [${Object.keys(e).join(", ")}].`;
               return buildEditError(absolutePath, "invalid-edit-variant", message);
             }
           }
@@ -736,13 +736,15 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             }
             const rep = replaceText(result, r.replace.old_text, r.replace.new_text, {
               all: r.replace.all ?? false,
-              fuzzy: r.replace.fuzzy ?? false,
+              // Programmatic-only: Pi no longer coerces it, so only a real true (or "true") counts.
+              fuzzy:
+                (r.replace.fuzzy as unknown) === true || (r.replace.fuzzy as unknown) === "true",
             });
             if (!rep.count) {
               const message = `Could not find exact text to replace in ${path}.`;
               const hint =
                 "Re-read the file and prefer set_line/replace_lines/insert_after for hash-verified edits. " +
-                "The replace variant is exact-only by default because fuzzy fallback is unverified.";
+                "replace matches exact text only.";
               return buildEditError(absolutePath, "text-not-found", message, hint);
             }
             if (options.anchors && rep.spans) {

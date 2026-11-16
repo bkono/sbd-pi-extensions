@@ -7,7 +7,7 @@
 
 Upgrade pi's local coding workflow with hash-anchored text reads and edits, stock-pi-compatible image reads, structural file maps, symbol-aware navigation, structural search, agent-friendly file exploration, and compressed `bash` output.
 
-`@solvedbydev/pi-hashline-readmap` is a drop-in [pi](https://github.com/earendil-works/pi) extension. It replaces the stock `read`, `edit`, `grep`, `ls`, and `find` tools, provides an enhanced `ast_search` tool, registers `write`, and post-processes `bash` output so more context budget goes to signal instead of noise.
+`@solvedbydev/pi-hashline-readmap` is a drop-in [pi](https://github.com/earendil-works/pi) extension. It replaces the stock `read`, `edit`, `grep`, `ls`, and `find` tools, builds an `ast_search` executor for programmatic callers (not offered to the model), registers `write`, and post-processes `bash` output so more context budget goes to signal instead of noise.
 
 It also reduces extension conflict risk by replacing several overlapping tool packages with one coordinated implementation.
 
@@ -17,7 +17,6 @@ It also reduces extension conflict risk by replacing several overlapping tool pa
 - Navigate large files with structural maps and direct symbol reads.
 - Read supported images and screenshots through pi-compatible image attachments instead of ad hoc OCR/tooling.
 - Turn search results into edit anchors without an extra read step.
-- Search code structurally with `ast_search` when text search is too brittle.
 - Keep readmap subprocesses safe for paths containing shell metacharacters such as `"` and `$`.
 - Read pending write/edit diffs without color thanks to textual `+`/`-`/space gutter markers.
 - Explore files with agent-oriented `ls` and `find` tools.
@@ -123,13 +122,13 @@ edit({
 })
 ```
 
-`read`, `grep`, `ast_search`, and `write` all return hashlined output that can feed follow-up edits.
+`read`, `grep`, `write`, and `edit` all return hashlined output that can feed follow-up edits.
 
 ### Editing notes
 
 - `new_text` is plain file content — never include `LINE:HASH|`, hash-only (`a1b|`), or `+` diff prefixes. `edit` strips them defensively when they dominate the replacement, but you should omit them.
 - Set `new_text` to `""` to delete the anchored line(s); use `"\n"` for an intentionally blank line.
-- `replace` is exact-only by default. `fuzzy: true` only normalizes whitespace and confusable Unicode after an exact match fails — it is not approximate or semantic matching.
+- `replace` is exact-only. Programmatic callers may pass `fuzzy: true`, which only normalizes whitespace and confusable Unicode after an exact match fails — it is not approximate or semantic matching.
 
 ### Create a new file with `write`
 
@@ -167,6 +166,8 @@ Supported images (`jpg`, `jpeg`, `png`, `gif`, and `webp`) are delegated to pi's
 
 ### Search and patch
 
+> Programmatic callers only: not in the model-facing schema (sbdpi-rnw).
+
 ```text
 grep({ pattern: "createDemoDirectory", path: "tests/fixtures", literal: true })
 grep({ pattern: "createDemoDirectory", path: "tests/fixtures", literal: true, scope: "symbol" })
@@ -176,6 +177,8 @@ grep({ pattern: "createDemoDirectory", path: "tests/fixtures", literal: true, sc
 `grep` returns anchored matches, supports literal and regex search, can summarize matches with `summary: true`, and can scope output to enclosing symbols. Use `scopeContext: 0` for only matching lines inside the resolved symbol block.
 
 ### Replace a whole symbol
+
+> Programmatic callers only: not in the model-facing schema (sbdpi-rnw).
 
 Use `replace_symbol` inside `edit` to swap an entire function, method, or class declaration by name — no anchors needed:
 
@@ -208,6 +211,8 @@ The new body is automatically re-indented to match the original symbol's leading
 Set the mode with `PI_HASHLINE_SYNTAX_VALIDATE=block|warn|off`. See [prompts/edit.md](prompts/edit.md) for the full `replace_symbol` contract, supported-language scope, `Class.method@line` disambiguation rules, and error-precedence ordering. See [prompts/read.md](prompts/read.md) for the broader `read symbol:"..."` lookup contract.
 
 ### Search code structurally
+
+> Programmatic callers only: not in the model-facing schema (sbdpi-rnw).
 
 ```text
 ast_search({ pattern: "console.log($$$ARGS)", lang: "typescript", path: "src" })

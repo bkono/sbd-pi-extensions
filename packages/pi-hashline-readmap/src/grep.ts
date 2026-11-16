@@ -290,7 +290,6 @@ function escapeForRegex(s: string): string {
 }
 
 interface GrepToolOptions {
-  astSearchGuideline?: string;
   /** Called per file with the LINE:HASH anchors the result showed for it. */
   onFileAnchored?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
@@ -312,12 +311,15 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
     parameters: grepSchema,
     ptc,
     promptSnippet: GREP_PROMPT_METADATA.promptSnippet,
-    promptGuidelines: options.astSearchGuideline
-      ? [GREP_PROMPT_METADATA.promptGuidelines[0], options.astSearchGuideline]
-      : GREP_PROMPT_METADATA.promptGuidelines,
+    promptGuidelines: GREP_PROMPT_METADATA.promptGuidelines,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       await ensureHashInit();
-      const rawParams = params as GrepParams;
+      // scope / scopeContext are programmatic-only and skip Pi's coercion: null means absent.
+      const rawParams = {
+        ...(params as GrepParams),
+        scope: (params as GrepParams).scope ?? undefined,
+        scopeContext: (params as GrepParams).scopeContext ?? undefined,
+      } as GrepParams;
       const context = coerceObviousBase10Int(rawParams.context, "context");
       if (!context.ok) {
         return {

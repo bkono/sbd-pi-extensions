@@ -370,6 +370,14 @@ export function registerFindTool(pi: ExtensionAPI) {
       _onUpdate: any,
       ctx: any,
     ) {
+      // Programmatic-only fields skip Pi's schema coercion: take null as absent, booleans strictly.
+      params = {
+        ...params,
+        regex: (params.regex as unknown) === true || (params.regex as unknown) === "true",
+        modifiedSince: params.modifiedSince ?? undefined,
+        minSize: params.minSize ?? undefined,
+        maxSize: params.maxSize ?? undefined,
+      };
       const cwd: string = ctx?.cwd ?? process.cwd();
       const searchPath = params.path ? resolveToCwd(params.path, cwd) : cwd;
       const limit = params.limit ?? DEFAULT_LIMIT;

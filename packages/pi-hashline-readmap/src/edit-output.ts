@@ -89,7 +89,7 @@ function formatReplaceHint(edits: unknown[] | undefined, noopEdits: unknown[]): 
   const counts = countEditTypes(edits);
   if (counts.replace === 0) return undefined;
   if (counts.replace !== counts.total) return undefined;
-  return "[info: this edit used replace (unverified). For safer future edits, prefer set_line/replace_lines with an anchor from read/grep/ast_search.]";
+  return "[info: this edit used replace (unverified). For safer future edits, prefer set_line/replace_lines with an anchor from read or grep.]";
 }
 export function buildEditOutput(input: BuildEditOutputInput): EditOutputResult {
   const summary = `Updated ${input.displayPath}`;

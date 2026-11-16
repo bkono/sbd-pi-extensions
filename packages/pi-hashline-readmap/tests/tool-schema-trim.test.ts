@@ -1,4 +1,7 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: registered tool definitions are dynamic. */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import init from "../index.js";
@@ -89,6 +92,45 @@ describe("trimmed tool schemas", () => {
       expect(() => validate(tools.edit, { path: "a.ts", edits: [item] })).toThrow(
         /Validation failed/,
       );
+    }
+  });
+
+  it("treats null and string booleans in programmatic-only fields as absent or false", async () => {
+    const tools = registered();
+    const dir = mkdtempSync(join(tmpdir(), "trim-coerce-"));
+    try {
+      writeFileSync(join(dir, "a.ts"), "const  x = 1;\n");
+      const run = (name: string, args: Record<string, unknown>) =>
+        tools[name].execute(
+          name,
+          validate(tools[name], args),
+          new AbortController().signal,
+          () => {},
+          {
+            cwd: dir,
+          },
+        );
+      const find = await run("find", {
+        pattern: "*.ts",
+        regex: "false",
+        modifiedSince: null,
+        minSize: null,
+        maxSize: null,
+      });
+      expect(find.isError).not.toBe(true);
+      expect(find.content[0].text).toContain("a.ts");
+      const grep = await run("grep", { pattern: "x", path: dir, scope: null, scopeContext: null });
+      expect(grep.isError).not.toBe(true);
+      await run("read", { path: join(dir, "a.ts") });
+      const edit = await run("edit", {
+        path: join(dir, "a.ts"),
+        edits: [
+          { replace: { old_text: "const x = 1;", new_text: "const x = 2;", fuzzy: "false" } },
+        ],
+      });
+      expect(edit.details.ptcValue.error.code).toBe("text-not-found");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

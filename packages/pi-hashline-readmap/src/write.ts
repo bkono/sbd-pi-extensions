@@ -393,7 +393,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
           result = await executeWrite({
             path: absolutePath,
             content: params.content,
-            map: params.map,
+            map: (params.map as unknown) === true || (params.map as unknown) === "true",
             cwd,
           });
         } catch (err: any) {
