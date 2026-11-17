@@ -47,7 +47,7 @@ A failed call falls through to the next model. With none available, OM turns its
 ## Visibility
 
 - **Footer.** Shows `OM 12.3k/30k · mem 8.1k/40k`, plus `observing…`, `reflecting…` or `⏳ …` while something blocks.
-- **Transcript.** Each activation or reflection renders a one-line `◆ memory` / `◆ reflection` entry. Expand it to see the observations.
+- **Transcript.** Activation shows `✓ Activated 3 observations: -26.9k msg tokens, +1.4k obs tokens` for three chunks; reflection shows `◆ reflection`. Expand either entry to see the observations.
 - **`/om`.** Status, models, cache TTL, and recent events with durations. `/om observations` prints active memory.
 
 ## Upstream sync

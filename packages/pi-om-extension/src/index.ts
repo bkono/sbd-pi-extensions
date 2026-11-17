@@ -1,12 +1,17 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { type ExtensionAPI, type ExtensionContext, VERSION } from "@earendil-works/pi-coding-agent";
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  type SessionBoundaryDraft,
+  VERSION,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { resolveConfig } from "./config.js";
 import type { ModelAccess } from "./models.js";
 import { recallRange, recallSearch } from "./recall.js";
 import { type Host, PREFIX_SIGNAL_CHANNEL, SessionOM } from "./runtime.js";
-import { type ChunkData, renderActiveObservations } from "./state.js";
+import { type ChunkData, OM_CHUNK, renderActiveObservations } from "./state.js";
 import { formatStatusReport, registerRenderers } from "./ui.js";
 
 export { resolveConfig } from "./config.js";
@@ -82,10 +87,17 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
     };
   }
 
-  function indexChunks(ctx: ExtensionContext): void {
+  function indexChunks(ctx: ExtensionContext, drafts: readonly SessionBoundaryDraft[] = []): void {
+    chunkIndex.clear();
     for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry.type === "custom" && entry.customType === "om.chunk") {
+      if (entry.type === "custom" && entry.customType === OM_CHUNK) {
         const data = entry.data as ChunkData | undefined;
+        if (data?.id) chunkIndex.set(data.id, data);
+      }
+    }
+    for (const draft of drafts) {
+      if (draft.type === "custom" && draft.customType === OM_CHUNK) {
+        const data = draft.data as ChunkData | undefined;
         if (data?.id) chunkIndex.set(data.id, data);
       }
     }
@@ -130,7 +142,7 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
       { contextEntries: event.context.contextEntries },
       host(ctx),
     );
-    indexChunks(ctx);
+    indexChunks(ctx, drafts);
     if (drafts.length === 0) return undefined;
     return { entries: [...event.entries, ...drafts] };
   });
@@ -140,6 +152,7 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
       { contextEntries: event.context.contextEntries },
       host(ctx),
     );
+    indexChunks(ctx, drafts);
     if (drafts.length === 0) return undefined;
     return { entries: [...event.entries, ...drafts] };
   });
