@@ -2,7 +2,7 @@
 
 - `checkReturnEligibility` in src/returns/eligibility.ts (R1, R4, R7).
 - `quoteReturn` in src/returns/quote.ts (R2, R3 as amended, R5, R6).
-- `OrderService.requestReturn` in src/orders/service.ts; `InventoryStore.writeOff` (R8).
+- `OrderService.requestReturn` and `OrderService.returnsFor` in src/orders/service.ts; `InventoryStore.writeOff` (R8).
 - `summarizeReturns` in src/reports/summary.ts; `returnQuoteToCsvRow` in src/returns/csv.ts.
 
 Endpoint: `POST /orders/:id/returns` with `{ sku, qty, reason, condition }`; responds with

@@ -161,7 +161,33 @@ test("hidden S5: split refunds add up to exactly what the line charged (R2 incid
     let sum2 = 0;
     for (let i = 0; i < 3; i++) sum2 += viaRefundUnits.service.refundUnits(viaRefundUnits.id, sku, 1);
     assert.equal(sum2, charged, `${sku} via refundUnits`);
+    const mixed = shippedService([[sku, 3]]);
+    const first = mixed.service.requestReturn(mixed.id, req(sku, 1, "defective")).refundCents;
+    const rest = mixed.service.refundUnits(mixed.id, sku, 2);
+    assert.equal(first + rest, charged, `${sku} via requestReturn then refundUnits`);
+    assert.notEqual(code(() => mixed.service.refundUnits(mixed.id, sku, 1)), "no error", "no unit refunds twice");
   }
+});
+
+test("hidden S11: GET /orders/:id/returns lists accepted returns in order", () => {
+  const { service, id } = shippedService([["STA-1801", 3]]);
+  route(service, { method: "POST", path: `/orders/${id}/returns`, body: req("STA-1801", 1) });
+  route(service, { method: "POST", path: `/orders/${id}/returns`, body: req("STA-1801", 9, "defective") });
+  route(service, { method: "POST", path: `/orders/${id}/returns`, body: req("STA-1801", 1, "wrong_item") });
+  const list = route(service, { method: "GET", path: `/orders/${id}/returns` });
+  assert.equal(list.status, 200);
+  const body = list.body as any[];
+  assert.equal(body.length, 2, "the rejected OVER_RETURN is not listed");
+  assert.deepEqual(body[0], {
+    sku: "STA-1801",
+    qty: 1,
+    refund_cents: 370,
+    handling_fee_cents: 51,
+    shipping_refund_cents: 0,
+    net_refund_cents: 319,
+  });
+  assert.equal(body[1].shipping_refund_cents, 2137);
+  assert.equal((service as any).returnsFor(id).length, 2);
 });
 
 test("hidden S6: bulk partial returns refund at the tier the line was charged", () => {

@@ -82,7 +82,7 @@ ${e.slice(end)}`,
     dir,
     svc,
     "  private readonly couponUses = new Map<string, number>();",
-    "  private readonly couponUses = new Map<string, number>();\n  private readonly shippingRefunded = new Set<string>();",
+    "  private readonly couponUses = new Map<string, number>();\n  private readonly shippingRefunded = new Set<string>();\n  private readonly returnQuotes = new Map<string, ReturnQuote[]>();",
   );
   sub(
     dir,
@@ -125,7 +125,13 @@ ${e.slice(end)}`,
     else this.deps.inventory.acceptReturn(request.sku, request.qty);
     this.record(orderId, "returned", \`\${request.qty} x \${request.sku} (\${request.reason})\`, quote.netRefundCents);
     if (returned.every((n, i) => n === order.lines[i].qty)) this.move(order, "refunded");
+    this.returnQuotes.set(orderId, [...(this.returnQuotes.get(orderId) ?? []), quote]);
     return quote;
+  }
+
+  returnsFor(orderId: string): ReturnQuote[] {
+    this.require(orderId);
+    return structuredClone(this.returnQuotes.get(orderId) ?? []);
   }
 
   /** What one more unit of \`sku\` would add to a draft, before tax and shipping. */`,
@@ -174,13 +180,24 @@ ${e.slice(end)}`,
     dir,
     api,
     'import { breakdownToJson, orderFromJson, orderToJson, ParseError } from "./serialize.ts";',
-    'import { breakdownToJson, orderFromJson, orderToJson, ParseError } from "./serialize.ts";\nimport { RETURN_REJECTIONS, type ReturnRequest } from "../returns/types.ts";',
+    'import { breakdownToJson, orderFromJson, orderToJson, ParseError } from "./serialize.ts";\nimport { RETURN_REJECTIONS, type ReturnQuote, type ReturnRequest } from "../returns/types.ts";',
   );
   sub(
     dir,
     api,
     "export function toErrorResponse(",
-    `export function handleReturn(service: OrderService, orderId: string, body: unknown): Response {
+    `function returnQuoteToJson(q: ReturnQuote) {
+  return {
+    sku: q.sku,
+    qty: q.qty,
+    refund_cents: q.refundCents,
+    handling_fee_cents: q.handlingFeeCents,
+    shipping_refund_cents: q.shippingRefundCents,
+    net_refund_cents: q.netRefundCents,
+  };
+}
+
+export function handleReturn(service: OrderService, orderId: string, body: unknown): Response {
   const sku = bodyField(body, "sku");
   const qty = bodyField(body, "qty");
   const reason = bodyField(body, "reason");
@@ -196,15 +213,7 @@ ${e.slice(end)}`,
     return fail(400, "BAD_BODY", "expected { sku, qty, reason, condition }");
   }
   try {
-    const q = service.requestReturn(orderId, { sku, qty, reason, condition } as ReturnRequest);
-    return ok({
-      sku: q.sku,
-      qty: q.qty,
-      refund_cents: q.refundCents,
-      handling_fee_cents: q.handlingFeeCents,
-      shipping_refund_cents: q.shippingRefundCents,
-      net_refund_cents: q.netRefundCents,
-    });
+    return ok(returnQuoteToJson(service.requestReturn(orderId, { sku, qty, reason, condition } as ReturnRequest)));
   } catch (error) {
     if (error instanceof OrderError && (RETURN_REJECTIONS as readonly string[]).includes(error.code)) {
       return fail(422, error.code, error.message);
@@ -219,7 +228,7 @@ export function toErrorResponse(`,
     dir,
     api,
     '      if (req.method === "POST" && parts[2] === "cancel")',
-    '      if (req.method === "POST" && parts[2] === "returns") return handleReturn(service, id, req.body);\n      if (req.method === "POST" && parts[2] === "cancel")',
+    '      if (req.method === "POST" && parts[2] === "returns") return handleReturn(service, id, req.body);\n      if (req.method === "GET" && parts[2] === "returns") return ok(service.returnsFor(id).map(returnQuoteToJson));\n      if (req.method === "POST" && parts[2] === "cancel")',
   );
 
   const rep = "src/reports/summary.ts";
