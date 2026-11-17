@@ -102,7 +102,7 @@ function pendingWritePreviewParts(
 
 const WRITE_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/write.md", import.meta.url),
-  promptSnippet: "Create or overwrite a complete file and return edit anchors",
+  promptSnippet: "Create or overwrite a complete file",
   promptGuidelines: [
     "Use write to create new files or intentionally replace whole files.",
     "Use edit instead of write for small changes or appends to existing files.",
@@ -292,7 +292,7 @@ export async function executeWrite(opts: {
   const ptcLines: PtcLine[] = rawLines.map((raw, i) => buildPtcLine(i + 1, raw));
   const shownPath = cwd ? relative(cwd, filePath) || filePath : filePath;
   const lineCount = content.endsWith("\n") ? rawLines.length - 1 : rawLines.length;
-  let text = `${existedBeforeWrite ? "Overwrote" : "Created"} ${shownPath} (${lineCount} ${lineCount === 1 ? "line" : "lines"}). Read it for LINE:HASH anchors before an anchored edit.`;
+  let text = `${existedBeforeWrite ? "Overwrote" : "Created"} ${shownPath} (${lineCount} ${lineCount === 1 ? "line" : "lines"}).`;
 
   // Optional structural map
   let mapAppended = false;

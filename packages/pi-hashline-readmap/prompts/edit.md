@@ -1,6 +1,6 @@
-Surgically edit existing text files. Prefer hash-verified anchored edits from fresh `read`, `grep`, `write`, or `edit` output; copy `LINE:HASH` anchors exactly.
+Surgically edit existing text files. Prefer hash-verified anchored edits from fresh `read`, `grep`, or `edit` output; copy `LINE:HASH` anchors exactly.
 
-`edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `read`, `grep`, or `write` first.
+`edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `read` or `grep` first.
 
 Anchors survive your own edits. After an edit, an anchor you already hold for an unchanged line still works exactly as you copied it, even if the line moved; the result also shows fresh anchors for the lines around each change. Anchors of lines the edit replaced or deleted stop working. You need a new read only for lines you have not seen since they changed, or after the file changed outside `edit` (a command, a formatter, another tool).
 

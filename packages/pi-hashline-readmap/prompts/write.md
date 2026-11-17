@@ -1,4 +1,4 @@
-Write full file content. Creates new files and parent directories, overwrites existing files, and returns a one-line summary. `read` the file for `LINE:HASH` anchors before an anchored `edit`; a text `replace` needs no read.
+Write full file content. Creates new files and parent directories, overwrites existing files, and returns a one-line summary (`Created <path> (N lines).`). `read` the file for `LINE:HASH` anchors before an anchored `edit`; a text `replace` needs no read.
 
 ## Use / avoid
 

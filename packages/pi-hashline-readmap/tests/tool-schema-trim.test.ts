@@ -71,6 +71,14 @@ describe("trimmed tool schemas", () => {
     expect(schema).not.toContain("fuzzy");
   });
 
+  it("never tells the model that write returns anchors", () => {
+    const tools = registered();
+    const modelFacing = Object.values(tools)
+      .flatMap((t: any) => [t.description, t.promptSnippet, ...(t.promptGuidelines ?? [])])
+      .join("\n");
+    expect(modelFacing).not.toMatch(/write[^\n]*anchor|anchors? from [^\n]*write/i);
+  });
+
   it("still lets Pi accept extra keys the model adds, without additionalProperties", () => {
     const tools = registered();
     expect(() =>
