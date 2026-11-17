@@ -40,13 +40,26 @@ export function editItemProblem(item: unknown, index: number): string | undefine
   const op = flat
     ? (raw.op as string)
     : Object.keys(OP_FIELDS).find((k) => raw[k] && typeof raw[k] === "object");
-  if (!op || !OP_FIELDS[op]) return undefined;
+  if (!op || !Object.hasOwn(OP_FIELDS, op)) return undefined;
   const body = (flat ? raw : raw[op]) as Record<string, unknown>;
   const fields = OP_FIELDS[op];
   const own = new Set(["op", ...fields.required, ...fields.optional]);
-  const stray = Object.keys(body).filter((k) => EDIT_FIELDS.has(k) && !own.has(k));
+  // A null or undefined value is an unset field (models fill unused ones with null), not a conflict.
+  const stray = Object.keys(body).filter(
+    (k) => EDIT_FIELDS.has(k) && !own.has(k) && body[k] !== null && body[k] !== undefined,
+  );
   if (stray.length) {
-    return `edits[${index}] (op "${op}") has ${stray.join(", ")}, which belong${stray.length === 1 ? "s" : ""} to another op; nothing was written. One edit per object: use op "replace_lines" with start_anchor/end_anchor for a range, op "replace" for old_text.`;
+    const owner = (k: string) =>
+      Object.keys(OP_FIELDS).find((o) =>
+        [...OP_FIELDS[o].required, ...OP_FIELDS[o].optional].includes(k),
+      );
+    const hints = [
+      ...new Set(stray.map((k) => owner(k)).filter((o): o is string => !!o && o !== op)),
+    ];
+    const hint = hints.length
+      ? ` ${stray.join(", ")} belong${stray.length === 1 ? "s" : ""} to op ${hints.map((o) => `"${o}"`).join(" or ")}; send that as its own edit.`
+      : "";
+    return `edits[${index}] (op "${op}") has ${stray.join(", ")}, which belong${stray.length === 1 ? "s" : ""} to another op; nothing was written.${hint}`;
   }
   const missing = fields.required.filter(
     (k) => typeof body[k] !== "string" && !(k === "new_text" && typeof body.text === "string"),

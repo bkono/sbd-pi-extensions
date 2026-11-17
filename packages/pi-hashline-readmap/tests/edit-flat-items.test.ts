@@ -144,4 +144,26 @@ describe("flat {op, ...} edit items", () => {
     expect(junk.isError).not.toBe(true);
     expect(linesOf(file)).toEqual(["ONE"]);
   });
+
+  it("treats a null stray field as unset, and names the op a stray field belongs to", async () => {
+    const file = join(dir, "n.ts");
+    writeFileSync(file, "one\ntwo\n");
+    await call("read", { path: file });
+    const nulled = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(1, "one"), new_text: "ONE", end_anchor: null }],
+    });
+    expect(nulled.isError).not.toBe(true);
+    const stray = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(2, "two"), new_text: "x", old_text: "two" }],
+    });
+    expect(stray.content[0].text).toContain('belongs to op "replace"');
+    const proto = await call("edit", {
+      path: file,
+      edits: [{ op: "toString", anchor: a(2, "two"), new_text: "x" }],
+    });
+    expect(proto.details.ptcValue.error.code).toBe("invalid-edit-variant");
+    expect(linesOf(file)).toEqual(["ONE", "two"]);
+  });
 });
