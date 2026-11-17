@@ -34,7 +34,6 @@ const GREP_PROMPT_METADATA = defineToolPromptMetadata({
   promptGuidelines: [
     "Use grep for text search across files instead of bash grep or rg.",
     "Use grep summary mode when you only need matching files or counts.",
-    "Use ast_search instead of grep when the query depends on code structure.",
   ],
 });
 
@@ -57,17 +56,7 @@ const grepSchema = Type.Object({
     ]),
   ),
   summary: Type.Optional(Type.Boolean({ description: "Return per-file counts" })),
-  scope: Type.Optional(
-    Type.Literal("symbol", {
-      description: "Scope matches to symbols",
-    }),
-  ),
-  scopeContext: Type.Optional(
-    Type.Union([
-      Type.Number({ description: "Symbol context lines" }),
-      Type.String({ description: "Symbol context lines" }),
-    ]),
-  ),
+  // scope / scopeContext stay supported in execute() for programmatic callers (sbdpi-rnw).
 });
 
 interface GrepParams {
@@ -301,7 +290,6 @@ function escapeForRegex(s: string): string {
 }
 
 interface GrepToolOptions {
-  astSearchGuideline?: string;
   /** Called per file with the LINE:HASH anchors the result showed for it. */
   onFileAnchored?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
@@ -323,12 +311,15 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
     parameters: grepSchema,
     ptc,
     promptSnippet: GREP_PROMPT_METADATA.promptSnippet,
-    promptGuidelines: options.astSearchGuideline
-      ? [GREP_PROMPT_METADATA.promptGuidelines[0], options.astSearchGuideline]
-      : GREP_PROMPT_METADATA.promptGuidelines,
+    promptGuidelines: GREP_PROMPT_METADATA.promptGuidelines,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       await ensureHashInit();
-      const rawParams = params as GrepParams;
+      // scope / scopeContext are programmatic-only and skip Pi's coercion: null means absent.
+      const rawParams = {
+        ...(params as GrepParams),
+        scope: (params as GrepParams).scope ?? undefined,
+        scopeContext: (params as GrepParams).scopeContext ?? undefined,
+      } as GrepParams;
       const context = coerceObviousBase10Int(rawParams.context, "context");
       if (!context.ok) {
         return {

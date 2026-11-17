@@ -91,7 +91,7 @@ describe("repro 177 — core edit input correctness edge cases", () => {
     expect(writeResult.details?.ptcValue?.lines).toEqual([]);
   });
 
-  it("schema permits common edits[] old_text/new_text mistake so custom guidance can run", async () => {
+  it("schema rejects the edits[] old_text/new_text mistake; execute() still guides programmatic callers", async () => {
     const dir = mkdtempSync(resolve(tmpdir(), "pi-repro-177-shape-"));
     const filePath = resolve(dir, "shape.txt");
     const writeTool = captureTool(registerWriteTool);
@@ -109,12 +109,8 @@ describe("repro 177 — core edit input correctness edge cases", () => {
       { cwd: process.cwd() },
     );
 
-    expect(Check(editTool.parameters, commonMistake)).toBe(true);
-    // #199: the bare member stays valid (so the guard runs) but is now annotated to reduce exposure.
-    const bareMember = (editTool.parameters as any).properties?.edits?.items?.anyOf?.find(
-      (m: any) => m.properties?.old_text && m.properties?.new_text && !m.properties?.replace,
-    );
-    expect(bareMember?.description).toEqual(expect.any(String));
+    // The bare member left the model schema (13 calls in 7 months, all rejected; sbdpi-rnw).
+    expect(Check(editTool.parameters, commonMistake)).toBe(false);
     const result = await editTool.execute(
       "edit",
       commonMistake,

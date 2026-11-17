@@ -10,7 +10,7 @@ Existing files are overwritten without confirmation. Binary-looking content is w
 
 - `path` — relative or absolute file path.
 - `content` — complete file contents.
-- `map` — optional; append a structural map when possible. Map append is best-effort and write still succeeds if map generation fails.
+- `map` — programmatic callers only; optional; append a structural map when possible. Map append is best-effort and write still succeeds if map generation fails.
 
 ## Output
 

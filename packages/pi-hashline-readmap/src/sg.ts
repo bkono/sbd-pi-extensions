@@ -161,6 +161,8 @@ export function isSgAvailable(): boolean {
 }
 
 interface SgToolOptions {
+  /** false: build the tool for programmatic callers without registering it with the model. */
+  exposeToModel?: boolean;
   /** Called per file with the LINE:HASH anchors the result showed for it. */
   onFileAnchored?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
@@ -483,6 +485,8 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
     },
   } satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof ptc };
 
-  pi.registerTool(tool);
+  // The tool stays callable programmatically (PTC) either way; exposeToModel: false keeps its
+  // definition out of every request (6 calls across 1,050 sessions, sbdpi-rnw).
+  if (options.exposeToModel !== false) pi.registerTool(tool);
   return tool;
 }

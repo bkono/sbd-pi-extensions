@@ -67,7 +67,7 @@ describe("edit gate — ast_search anchors", () => {
       );
 
       const tools = await captureTools();
-      const searchResult = await tools.ast_search.execute(
+      const searchResult = await (globalThis as any).__hashlineToolExecutors.ast_search.execute(
         "sg-call",
         { pattern: "const $NAME = $_", lang: "typescript", path: filePath },
         new AbortController().signal,

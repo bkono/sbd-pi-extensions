@@ -41,7 +41,7 @@ describe("find core", () => {
     expect(schema.properties.maxDepth).toBeDefined();
     // pattern is required, others optional
     expect(schema.required).toContain("pattern");
-    expect(Object.keys(schema.properties)).toHaveLength(11);
+    expect(Object.keys(schema.properties)).toHaveLength(7);
   });
 
   it("finds files matching glob pattern with fallback, sorted and relative", async () => {

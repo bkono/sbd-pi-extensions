@@ -44,7 +44,7 @@ import {
   selectBashOriginalOutput,
 } from "./rtk/bash-original-output.js";
 import { buildRtkCompaction } from "./rtk/rtk-compaction.js";
-import { isSgAvailable, registerSgTool } from "./sg.js";
+import { registerSgTool } from "./sg.js";
 import { PREFIX_SIGNAL_CHANNEL, StaleMaskGate } from "./stale-mask-gate.js";
 import { registerWriteTool } from "./write.js";
 
@@ -213,13 +213,9 @@ export default function piHashlineReadmapExtension(pi: ExtensionAPI): void {
 
   const readTool = registerReadTool(pi, { onSuccessfulRead: noteRead });
   const editTool = registerEditTool(pi, { anchors });
-  const sgAvailable = isSgAvailable();
-  const astSearchGuideline = sgAvailable
-    ? "Use grep summary for counts; use ast_search for structural code patterns."
-    : "Use grep summary for counts; install ast-grep to enable ast_search.";
-
-  const grepTool = registerGrepTool(pi, { astSearchGuideline, onFileAnchored: noteRead });
-  const sgTool = registerSgTool(pi, { onFileAnchored: noteRead });
+  const grepTool = registerGrepTool(pi, { onFileAnchored: noteRead });
+  // ast_search stays available to programmatic callers, not to the model (sbdpi-rnw).
+  const sgTool = registerSgTool(pi, { onFileAnchored: noteRead, exposeToModel: false });
   const writeTool = registerWriteTool(pi, { onFileAnchored: noteRead });
   const lsTool = registerLsTool(pi);
   const findTool = registerFindTool(pi);

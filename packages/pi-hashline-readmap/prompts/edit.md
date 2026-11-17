@@ -1,6 +1,6 @@
-Surgically edit existing text files. Prefer hash-verified anchored edits from fresh `read`, `grep`, `ast_search`, or `write` output; copy `LINE:HASH` anchors exactly.
+Surgically edit existing text files. Prefer hash-verified anchored edits from fresh `read`, `grep`, `write`, or `edit` output; copy `LINE:HASH` anchors exactly.
 
-`edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `read`, `grep`, `ast_search`, or `write` first.
+`edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `read`, `grep`, or `write` first.
 
 Anchors survive your own edits. After an edit, an anchor you already hold for an unchanged line still works exactly as you copied it, even if the line moved; the result also shows fresh anchors for the lines around each change. Anchors of lines the edit replaced or deleted stop working. You need a new read only for lines you have not seen since they changed, or after the file changed outside `edit` (a command, a formatter, another tool).
 
@@ -11,13 +11,12 @@ Anchors survive your own edits. After an edit, an anchor you already hold for an
 | `set_line` | Replace/delete one line | 1 |
 | `replace_lines` | Replace/delete a contiguous range | 2 |
 | `insert_after` | Insert after an existing line | 1 |
-| `replace_symbol` | Replace one function/class/method/etc. | 0 (`symbol`) |
 | `replace` | String replacement escape hatch; one match by default, all with `all: true` | 0 |
 
 Set `new_text` (or `replace_lines` `new_text`) to `""` to delete the anchored line(s). For an intentionally blank line, use `"\n"` or whitespace content, not `""`.
 Prefer `set_line`, `replace_lines`, and `insert_after`: they verify the file still matches the anchored content. Use `replace` only when anchors are impractical, such as repeated text across many unrelated lines.
 
-`replace` is exact-only by default: missing `old_text` fails with `text-not-found`. Wrap old_text/new_text in {replace: ...} — a bare top-level `{old_text, new_text}` inside `edits[]` is rejected with guidance. `fuzzy: true` is a narrow fallback that only normalizes whitespace and confusable Unicode (e.g. smart hyphens) after exact matching fails; it is **not approximate or Levenshtein/semantic matching** and will not find renamed or reworded text. When fuzzy matching is used, the response warns that exact text was not found.
+`replace` is exact-only by default: missing `old_text` fails with `text-not-found`. Wrap old_text/new_text in {replace: ...} — a bare top-level `{old_text, new_text}` inside `edits[]` is rejected with guidance.
 
 ## Input shape
 
@@ -28,7 +27,6 @@ Prefer `set_line`, `replace_lines`, and `insert_after`: they verify the file sti
     { "set_line": { "anchor": "42:ab1", "new_text": "const x = 2;" } },
     { "replace_lines": { "start_anchor": "50:c3d", "end_anchor": "55:e4f", "new_text": "const y = 3;\nreturn y;" } },
     { "insert_after": { "anchor": "60:f5a", "new_text": "// TODO\n" } },
-    { "replace_symbol": { "symbol": "add", "new_body": "export function add(a, b) {\n  return a + b;\n}" } },
     { "replace": { "old_text": "value", "new_text": "result", "all": true } }
   ]
 }
@@ -43,6 +41,8 @@ Use only the variant(s) needed for the task; the example shows all shapes togeth
 When enabled, `edit` first runs the normal validation and write path. Only after the write succeeds, it reads the file back from disk and compares the persisted content to the exact intended content, including BOM restoration and original line-ending restoration. This is not syntax validation; syntax validation is the separate pre-write `syntaxValidate` / `PI_HASHLINE_SYNTAX_VALIDATE` guard described below.
 
 ## `replace_symbol`
+
+Programmatic callers only: not in the model-facing schema (sbdpi-rnw). Programmatic callers may also pass `replace.fuzzy: true`.
 
 Use `replace_symbol` to replace one function, class, method, interface, type, enum, or similar symbol. Query symbols like `read symbol:`: `Name`, `Class.method`, or `Name@<line>`.
 

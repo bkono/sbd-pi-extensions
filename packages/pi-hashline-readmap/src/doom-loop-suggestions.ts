@@ -10,7 +10,6 @@ export const SUGGESTIONS: Record<string, readonly string[]> = {
     "try ignoreCase: true",
     "try literal: true if pattern has special characters",
     "try a narrower glob or path",
-    "switch to ast_search for structural patterns",
     "try summary: true to scope broader",
   ],
   read: [
@@ -21,7 +20,7 @@ export const SUGGESTIONS: Record<string, readonly string[]> = {
   edit: [
     "if hash-mismatch keeps firing, re-read the file",
     "if no-op keeps firing, your new_text equals current content",
-    "verify the anchor came from the most recent read/grep/ast_search",
+    "verify the anchor came from a read, grep or edit result",
   ],
   ast_search: [
     'check the lang parameter matches file type (e.g. lang: "tsx" for JSX)',

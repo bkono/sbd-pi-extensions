@@ -26,10 +26,9 @@ describe("find regex schema", () => {
     _testable.isFdAvailable = _originalIsFdAvailable;
   });
 
-  it("schema exposes a 'regex' boolean parameter", async () => {
+  it("keeps 'regex' off the model schema; execute() still honors it", async () => {
     const tool = await getFindTool();
-    expect(tool.parameters.properties.regex).toBeDefined();
-    expect(tool.parameters.properties.regex.type).toBe("boolean");
+    expect(tool.parameters.properties.regex).toBeUndefined();
   });
 
   it("passing regex: false (or omitting) preserves current glob behavior", async () => {
@@ -132,14 +131,10 @@ describe("find modifiedSince/minSize/maxSize schema", () => {
     _testable.isFdAvailable = _originalIsFdAvailable;
   });
 
-  it("schema exposes modifiedSince (string), minSize and maxSize (number|string)", async () => {
+  it("keeps modifiedSince, minSize and maxSize off the model schema", async () => {
     const tool = await getFindTool();
-    expect(tool.parameters.properties.modifiedSince).toBeDefined();
-    expect(tool.parameters.properties.modifiedSince.type).toBe("string");
-    expect(tool.parameters.properties.minSize).toBeDefined();
-    expect(tool.parameters.properties.maxSize).toBeDefined();
-    const minSer = JSON.stringify(tool.parameters.properties.minSize);
-    expect(minSer).toContain("number");
-    expect(minSer).toContain("string");
+    expect(tool.parameters.properties.modifiedSince).toBeUndefined();
+    expect(tool.parameters.properties.minSize).toBeUndefined();
+    expect(tool.parameters.properties.maxSize).toBeUndefined();
   });
 });
