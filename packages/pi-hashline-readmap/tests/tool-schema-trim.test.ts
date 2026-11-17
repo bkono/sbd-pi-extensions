@@ -146,8 +146,13 @@ describe("trimmed tool schemas", () => {
 
   it("tells the model to trust edit results and held anchors", () => {
     const guidelines = registered().edit.promptGuidelines.join("\n");
-    expect(guidelines).toContain("long regions abridged with ...), so do not re-read to verify");
-    expect(guidelines).toContain("Anchors you hold for lines your edit did not replace or delete");
-    expect(guidelines).toContain("A stale anchor is refused with nothing written");
+    expect(guidelines).toContain("so do not re-read to verify an edit");
+    expect(guidelines).toContain(
+      "says when it leaves one out; read only for anchors it did not show",
+    );
+    expect(guidelines).toContain("did not replace or delete usually keep working");
+    expect(guidelines).toContain(
+      "no longer matches exactly one line is refused with nothing written",
+    );
   });
 });
