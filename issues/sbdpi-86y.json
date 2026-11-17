@@ -22,11 +22,15 @@
     {
       "text": "Expanded fix pushed at b5dfa1e587ed29337f8cb360b360f8d9cf96665b. PR30 title/description now cover complete25-skill catalog and its cross-references; still draft while fresh review/verifier run. Inventory-derived regression was red on59 additional missing document-to-skill routes at prior narrow head, now green. All25 inventory files and117 linked routes to22 distinct skills return exact bytes through actual Mastra skill_read; the3 remaining catalog entries have no incoming Markdown routes and are covered by inventory reads. Live Pi probes pass router-\u003eno-comments-\u003ecomment-sicko and nested architect-\u003ehow/arena/why without skill-path errors. Full383 tests+1 baseline skip and all typechecks pass. Test count drops6 because8 example cases were replaced by2 broader invariants. Mirrored agent brief equality canonicalizes actual destinations while preserving words. Nested no-comments brief asset path corrected too. Fresh pack review/verifier detached at current SHA pending. Writer timed out after edits; lead confirmed its process ended and audited/verified the resulting diff. No live install changes.",
       "timestamp": "2026-11-17T01:16:53Z"
+    },
+    {
+      "text": "Fresh Terra verifier recorded PASS+NOTES for b5dfa1e587ed29337f8cb360b360f8d9cf96665b; sbd-verdict check HEAD confirms it. /tmp/sbd-routing-catalog-verdict.md. Independently reran all gates, strict script typecheck, all25 inventory/117 linked reads, and baseline fa28ec6 red with59 missing source-to-skill pairs. Fresh reviewer still pending; PR remains draft. Two Pi scenarios are routing samples, not statistical or full-host workflow proof. Author worktree and centralized install remain clean.",
+      "timestamp": "2026-11-17T01:21:07Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T01:16:53Z"
+  "updated_at": "2026-11-17T01:21:07Z"
 }
