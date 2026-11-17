@@ -6,9 +6,15 @@
   "description": "Trace screenshot ENOENT for installed skills/how and skills/architect versus actual skills/sbd/references/skills. Use isolated branch/worktree. Done when first-read paths resolve, regression coverage and quality checks pass, independent review and SHA-bound verifier pass.",
   "id": "sbdpi-86y",
   "labels": [],
+  "comments": [
+    {
+      "text": "Owning repo is sbd-mastra-factory. Isolated worktree /private/tmp/sbd-mastra-factory-skill-routing, branch fix/bundled-skill-routing, commit 6836733a395dc4caa9e1972f713e88c25acb587c. Installed source files match and Pi loader has correct paths. Original session received generic nested-path rule but guessed sibling how/architect. Fix attaches direct relative links at invocation sites; no installer, aliases, retries, or Pi extension changes. Eight structural route regressions fail on base and pass at HEAD. Full gates pass: 389 tests plus one existing skip, typecheck, app check, lint exit 0 with pre-existing useTemplate INFO. Live Pi Feature trace /tmp/sbd-routing-after-feature.jsonl first reads Feature, nested how, nested architect without searching or skill errors. Independent reviewer/verifier in detached worktrees running. Resume plan /tmp/sbd-skill-routing-plan.md. Do not update live install before merge.",
+      "timestamp": "2026-11-17T00:44:44Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T00:33:02Z"
+  "updated_at": "2026-11-17T00:44:44Z"
 }
