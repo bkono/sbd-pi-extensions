@@ -17,7 +17,10 @@ const opt = (name, fallback) => {
   return i === -1 ? fallback : argv[i + 1];
 };
 const spec = JSON.parse(readFileSync(path.join(evalRoot, "tasks.json"), "utf8"));
-const tasks = opt("tasks", Object.keys(spec.tasks).join(",")).split(",");
+// Tasks marked optIn (long, expensive) run only when named in --tasks.
+const defaultTasks = Object.keys(spec.tasks).filter((t) => !spec.tasks[t].optIn);
+const tasks = opt("tasks", defaultTasks.join(",")).split(",");
+for (const t of tasks) if (!spec.tasks[t]) throw new Error(`unknown task "${t}"`);
 const arms = opt("arms", "mc,sbd-om-hashline,sbd-om").split(",");
 const reps = Number(opt("reps", "2"));
 const concurrency = Number(opt("concurrency", "6"));
@@ -47,6 +50,9 @@ function prepare(job) {
   if (existsSync(path.join(dir, "grade.json"))) return null;
   mkdirSync(dir, { recursive: true });
   cpSync(path.join(evalRoot, "fixture"), work, { recursive: true });
+  // A task overlay adds task-only files (docs, logs) on top of the shared fixture.
+  const overlay = spec.tasks[job.task].overlay;
+  if (overlay) cpSync(path.join(evalRoot, overlay), work, { recursive: true });
   git(work, "init", "-q");
   git(work, "add", "-A");
   git(work, "-c", "user.email=eval@local", "-c", "user.name=eval", "commit", "-qm", "baseline");
