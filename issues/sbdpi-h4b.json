@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-17T03:00:15Z",
+  "description": "Verifier note at a86b3d3 (scratchpad verify-a86b3d3, probe tool.mjs 'empty file two insert_after 1'): applyHashlineEdits' empty-file branch (content === '' \u0026\u0026 after.line === 1 \u0026\u0026 anchor === '') runs per insert and each replaces line 1, so A1,A2 + B1,B2 gives A1,A2,B2. Same class on main. Fix: combine all line-1 inserts on an empty file (request order) into one splice. Done: test red then green, gates, verifier.",
+  "id": "sbdpi-h4b",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "hashline: empty file + 2+ insert_after on line 1 loses lines",
+  "type": "bug",
+  "updated_at": "2026-11-17T03:00:15Z"
+}
