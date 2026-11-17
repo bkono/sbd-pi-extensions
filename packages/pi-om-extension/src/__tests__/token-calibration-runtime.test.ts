@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { SessionOM } from "../runtime.js";
-import { replayState } from "../state.js";
+import { OM_CHUNK, replayState } from "../state.js";
+import { countTokens } from "../tokens.js";
 import {
   append,
   assistantText,
@@ -139,16 +140,71 @@ describe("candidate main-model threshold calibration", () => {
         await om.settled();
       }
       expect(om.events.some((event) => event.kind === "activate")).toBe(false);
+      append(session, assistantText("switching", { provider: "anthropic" }));
       const pending = om.snapshot(host).status.pendingTokens;
       host.model = fakeModel("anthropic", "claude-opus-5-5");
       expect(om.snapshot(host).status.pendingTokens).toBe(pending);
       om.startRun(host);
       await om.onContext(host);
       expect(om.events.find((event) => event.kind === "activate")?.detail).toContain(
-        "threshold 21429",
+        "· threshold ·",
       );
       host.model = fakeModel("openai-codex", "gpt-6.1-sol");
       expect(om.snapshot(host).status.threshold).toBe(30_000);
+    } finally {
+      om.dispose();
+    }
+  });
+
+  it("blocks synchronously above the calibrated limit", async () => {
+    const session = newSession();
+    const host = makeHost(session, fakeRegistry(), {
+      model: fakeModel("anthropic", "claude-opus-5-5"),
+    });
+    const om = new SessionOM(session.getSessionId(), config());
+    append(session, user("fix auth"));
+    append(session, assistantText(textOf(48_000), { provider: "anthropic" }));
+    append(session, user("continue"));
+    om.startRun(host);
+    try {
+      const pending = om.snapshot(host).status.pendingTokens;
+      expect(pending).toBeGreaterThan(42_857);
+      expect(pending).toBeLessThan(60_000);
+      await om.onContext(host);
+      expect(om.events.some((event) => event.kind === "block")).toBe(true);
+    } finally {
+      om.dispose();
+    }
+  });
+
+  it("activates the third buffered chunk at the calibrated retention floor", async () => {
+    const session = newSession();
+    const host = makeHost(session, fakeRegistry(), {
+      model: fakeModel("anthropic", "claude-opus-5-5"),
+    });
+    const om = new SessionOM(session.getSessionId(), config());
+    append(session, user("fix auth"));
+    for (const [index, size] of [10_000, 10_000, 500].entries()) {
+      const text = textOf(size);
+      const entryId = append(session, assistantText(text, { provider: "anthropic" }));
+      session.appendCustomEntry(OM_CHUNK, {
+        v: 1,
+        id: `chunk-${index}`,
+        observations: "observation",
+        observationTokens: 1,
+        messageTokens: countTokens(text),
+        entryIds: [entryId],
+        range: `${entryId}:${entryId}`,
+        createdAt: Date.now(),
+        model: "observer",
+      });
+    }
+    append(session, assistantText(textOf(1_300), { provider: "anthropic" }));
+    append(session, user("continue"));
+    om.startRun(host);
+    try {
+      await om.onContext(host);
+      expect(om.snapshot(host).state.activated).toEqual(["chunk-0", "chunk-1", "chunk-2"]);
     } finally {
       om.dispose();
     }

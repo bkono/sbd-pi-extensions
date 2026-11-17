@@ -8,7 +8,7 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
-import type { ResolvedOMConfig } from "./config.js";
+import { type ResolvedOMConfig, thresholdsFor } from "./config.js";
 import { buildOMSection, CONTINUATION_REMINDER, OM_SECTION } from "./context.js";
 import {
   activatableChunks,
@@ -238,6 +238,11 @@ export class SessionOM {
   // Lifecycle hooks
   // ---------------------------------------------------------------------------
 
+  onModelSelect(host: Host): void {
+    this.lastHost = host;
+    this.refreshStatus();
+  }
+
   startRun(_host: Host): void {
     this.firstRequestOfRun = true;
   }
@@ -362,7 +367,7 @@ export class SessionOM {
 
     let state = this.state(host);
     const units = this.units(input.contextEntries);
-    let status = computeStatus(units, state, this.config);
+    let status = computeStatus(units, state, thresholdsFor(this.config, host.model));
 
     // Mastra: in the threshold→blockAfter band with a chunk ready, activate instead of buffering.
     const activateBeforeBuffering = status.inBand && status.canActivate;
@@ -371,12 +376,12 @@ export class SessionOM {
     if (status.shouldObserve && status.canActivate) {
       this.activate(state, units, status.pendingTokens, "threshold", host);
       state = this.state(host);
-      status = computeStatus(units, state, this.config);
+      status = computeStatus(units, state, thresholdsFor(this.config, host.model));
     }
 
     if (status.mustBlock && !this.backedOff("block", host)) {
       await this.blockingObserve(input.contextEntries, host, candidates, "block");
-      status = computeStatus(units, this.state(host), this.config);
+      status = computeStatus(units, this.state(host), thresholdsFor(this.config, host.model));
     }
 
     await this.maybeReflect(host, candidates);
@@ -391,7 +396,11 @@ export class SessionOM {
     this.lastHost = host;
     const startedAt = host.now();
     const state = this.state(host);
-    const status = computeStatus(this.units(input.contextEntries), state, this.config);
+    const status = computeStatus(
+      this.units(input.contextEntries),
+      state,
+      thresholdsFor(this.config, host.model),
+    );
     this.maybeStartBuffer(status, state, host, this.models(host));
     this.updateStatus(host, input.contextEntries, state);
     this.record("settle", startedAt, host);
@@ -500,7 +509,11 @@ export class SessionOM {
     const state = this.state(host);
     return {
       state,
-      status: computeStatus(this.units(host.projection()), state, this.config),
+      status: computeStatus(
+        this.units(host.projection()),
+        state,
+        thresholdsFor(this.config, host.model),
+      ),
       bufferInFlight: Boolean(this.bufferOp),
       reflectionInFlight: Boolean(this.reflectionOp),
       bufferedReflectionTokens: this.bufferedReflection?.observationTokens,
@@ -608,7 +621,7 @@ export class SessionOM {
   ): Promise<void> {
     const state = this.state(host);
     const units = this.units(projection);
-    const status = computeStatus(units, state, this.config);
+    const status = computeStatus(units, state, thresholdsFor(this.config, host.model));
     const trigger = this.runStartTrigger(status, host);
     if (trigger && status.canActivate) {
       this.activate(state, units, status.pendingTokens, trigger, host);
@@ -616,7 +629,7 @@ export class SessionOM {
 
     await this.maybeReflect(host, candidates);
 
-    const after = computeStatus(units, this.state(host), this.config);
+    const after = computeStatus(units, this.state(host), thresholdsFor(this.config, host.model));
     if (after.mustBlock && !this.backedOff("block", host)) {
       await this.blockingObserve(projection, host, candidates, "block");
     } else {
@@ -670,7 +683,11 @@ export class SessionOM {
     const count =
       trigger === "block"
         ? ready.length
-        : selectActivationCount(ready, pendingTokens, this.config.retentionFloor);
+        : selectActivationCount(
+            ready,
+            pendingTokens,
+            thresholdsFor(this.config, host.model).retentionFloor,
+          );
     const chunks = ready.slice(0, count);
     if (chunks.length === 0) return 0;
     const messageTokens = chunks.reduce((total, chunk) => total + chunk.messageTokens, 0);
@@ -691,7 +708,7 @@ export class SessionOM {
       "activate",
       host.now(),
       host,
-      `${chunks.length} chunks · ${trigger} · −${formatK(messageTokens)}`,
+      `${chunks.length} chunks · ${trigger} · −${formatK(messageTokens)} · threshold ${thresholdsFor(this.config, host.model).messageTokens}`,
     );
     return chunks.length;
   }
@@ -703,7 +720,7 @@ export class SessionOM {
     candidates: Model<Api>[],
   ): void {
     if (candidates.length === 0 || this.bufferOp || this.backedOff("buffer", host)) return;
-    if (!shouldBuffer(status, this.config)) return;
+    if (!shouldBuffer(status, thresholdsFor(this.config, host.model))) return;
     const slice = selectSafePrefix(status.unbuffered);
     if (slice.length === 0) return;
     const startedAt = host.now();
@@ -829,20 +846,21 @@ export class SessionOM {
       await withTimeout(this.bufferOp, this.config.bufferWaitMs);
       let state = this.state(host);
       const units = this.units(entries);
-      let status = computeStatus(units, state, this.config);
+      let status = computeStatus(units, state, thresholdsFor(this.config, host.model));
       this.activate(state, units, status.pendingTokens, trigger, host);
       state = this.state(host);
-      status = computeStatus(units, state, this.config);
+      status = computeStatus(units, state, thresholdsFor(this.config, host.model));
       if (trigger === "block" && !status.mustBlock) return;
       if (candidates.length === 0 || signal?.aborted) return;
 
       let remaining = status.unbuffered.filter((unit) => unit.read);
-      if (trigger === "compaction") remaining = this.withoutRetainedTail(remaining);
+      if (trigger === "compaction")
+        remaining = this.withoutRetainedTail(remaining, thresholdsFor(this.config, host.model));
       const safe = selectSafePrefix(remaining);
       if (safe.length === 0) return;
       this.blocking = `observing ${formatK(safe.reduce((total, unit) => total + unit.tokens, 0))}`;
       this.refreshStatus();
-      const batches = this.batches(safe);
+      const batches = this.batches(safe, thresholdsFor(this.config, host.model));
       const chunks: ChunkData[] = new Array(batches.length);
       let next = 0;
       const worker = async () => {
@@ -862,7 +880,7 @@ export class SessionOM {
       const titled = chunks.filter((chunk) => chunk.threadTitle).at(-1);
       if (titled) this.maybeApplyTitle(host, titled);
       state = this.state(host);
-      status = computeStatus(units, state, this.config);
+      status = computeStatus(units, state, thresholdsFor(this.config, host.model));
       this.activate(state, units, status.pendingTokens, trigger, host);
       this.backoff.delete("block");
       this.record("block", startedAt, host, `${batches.length} batches`);
@@ -878,10 +896,13 @@ export class SessionOM {
   }
 
   /** Drops the newest units holding the retention floor, so compaction keeps a raw tail. */
-  private withoutRetainedTail(units: readonly ContextUnit[]): ContextUnit[] {
+  private withoutRetainedTail(
+    units: readonly ContextUnit[],
+    config: ResolvedOMConfig,
+  ): ContextUnit[] {
     let kept = 0;
     let cut = units.length;
-    while (cut > 0 && kept < this.config.retentionFloor) {
+    while (cut > 0 && kept < config.retentionFloor) {
       cut -= 1;
       kept += units[cut]!.tokens;
     }
@@ -889,8 +910,8 @@ export class SessionOM {
   }
 
   /** Split at safe boundaries into batches near twice the buffer interval. */
-  private batches(units: readonly ContextUnit[]): ContextUnit[][] {
-    const limit = this.config.bufferTokens * BLOCKING_BATCH_FACTOR;
+  private batches(units: readonly ContextUnit[], config: ResolvedOMConfig): ContextUnit[][] {
+    const limit = config.bufferTokens * BLOCKING_BATCH_FACTOR;
     const batches: ContextUnit[][] = [];
     let current: ContextUnit[] = [];
     let tokens = 0;
@@ -1190,7 +1211,11 @@ export class SessionOM {
     entries: readonly ProjectedSessionEntry[],
     state: OMState,
   ): void {
-    const status = computeStatus(this.units(entries), state, this.config);
+    const status = computeStatus(
+      this.units(entries),
+      state,
+      thresholdsFor(this.config, host.model),
+    );
     const parts = [
       `OM ${formatK(status.pendingTokens)}/${formatK(status.threshold)}`,
       `mem ${formatK(state.observationTokens)}/${formatK(this.config.reflectionTokens)}`,

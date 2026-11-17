@@ -1,5 +1,21 @@
 # OM threshold parity for Anthropic models
 
+## Current implementation and acceptance, November 17, 2026
+
+This section supersedes the measurement-only closure and fixed-factor rejection below. Bryan requested representative native Pi runs, a tested ratio constant, and confirmation that the constant changes activation as intended. He subsequently set a hard floor of 25,000 overhead-adjusted sent provider-input tokens, preferably at least 27,000. Late activation caused by observer readiness or lack of a safe swap point is acceptable. There is no hard upper acceptance bound. Gating stays unchanged.
+
+The earlier repetitive synthetic fixture did not represent normal Pi work. The new calibration uses genuine Opus 5.5 pricing-maintenance and activation-UI tasks with natural tools and unchanged prompts. The independent returns-policy task is held out. Native Pi supplies transport, authentication, session usage, and OM traces. The abandoned transport and compression driver is not part of this change.
+
+Factor 1.55 produced a premature native UI activation at 20,903 adjusted sent tokens. Factor 1.40 produced pricing activations at 32,597 and 36,406, and UI activations at 37,350, 37,522, and 40,061. Same-run initial input is the overhead proxy, not an exact count of system and tool definitions. Unsent tokens remain separate. An audit of the awaited native context lifecycle resolves the same-millisecond pricing boundary. The five measurements support a conservative factor below the historical provider-growth ratios rather than an exact tokenizer conversion.
+
+Factor 1.40 was frozen before held-out evaluation. The freeze record and native artifacts are under `/tmp/om-native-calibration.mYBL7l/`. All six held-out adjusted sent-input boundaries were audited at 30,680, 35,216, 39,297, 40,528, 44,278, and 44,133. Each subtracts the 4,725-token initial-request proxy. Unsent o200k counts are 2,360, 4,266, 1,529, 1,476, 368, and 4,321. Following gross inputs are 12,818, 16,183, 16,364, 19,541, 23,470, and 29,911. Frozen source and expected model roles were verified. Readiness timing does not prove that no earlier subset could activate.
+
+The held-out run hit its predeclared 140-model-request cap after 11/17 prompts, during the twelfth, with exit 70. It is censored and incomplete, not a task pass. Natural tests passed 133/135 and the reference grader passed 143/157 on the partial checkout. Bryan accepted the six activation observations as sufficient evidence. No further provider calls, continuation, cap increase, tuning, or task repairs are needed or authorized. Native Sol controls completed with baseline and candidate adjusted activation inputs of 29,384 and 30,670. Their natural tests passed 58/58 and 44/44, while both separate reference graders failed on the unrequested `discountCapBpsFor` export. Opus 4.6 remains prohibited in every role and unchanged in configuration.
+
+The implementation divides only message, buffer, retention, and blocking thresholds for exact known Opus 5.5 routes. Stored counts remain o200k. Tokenx failed the original Sol spread gate and is not adopted. Other models, observer budgets, reflection budgets, and activation gating retain their current behavior. Completion requires live held-out and Sol evidence, behavioral regressions, root lint, tests, typecheck, independent review, and a passing commit-bound verifier check. A documentation-only closure does not satisfy the goal.
+
+The following sections preserve superseded decisions and experiment history.
+
 ## Measurement-only outcome, November 17, 2026
 
 The measurement phase closes without a runtime change. The retained requests support a content-dependent provider-to-o200k difference plus unequal request overhead. All 50 matched historical activation triggers were `threshold`, not `block`. Tokenx fails the approved sol spread gate, so o200k remains unchanged. The proposed Opus 5.5 factor 1.55 fails live acceptance and is rejected.

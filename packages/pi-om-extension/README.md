@@ -15,6 +15,8 @@ Long sessions stay small and continuous. Background observer calls compress the 
 | Background reflection | from 20k observation tokens, swapped in at 40k, blocking only at 44k |
 | Compaction | OM replaces Pi's summarizer; the native one runs only if OM is off |
 
+The table gives the base thresholds in o200k counter units. Known Opus 5.5 routes divide the four message thresholds by 1.40. Their activation threshold is 21,429, buffer interval is 4,286, retained tail is 1,429, and blocking backstop is 42,857. Provider usage uses different token units. Other models and observation budgets are unchanged. See [Opus 5.5 threshold calibration](docs/token-calibration.md) for measurements and limits.
+
 The model sees memory as the `observational-memory` section of the system prompt. It can page raw history behind any observation group with the `om_recall` tool, instead of re-reading files.
 
 ## State
@@ -46,7 +48,7 @@ A failed call falls through to the next model. With none available, OM turns its
 
 ## Visibility
 
-- **Footer.** Shows `OM 12.3k/30k · mem 8.1k/40k`, plus `observing…`, `reflecting…` or `⏳ …` while something blocks.
+- **Footer.** Shows `OM 12.3k/30k · mem 8.1k/40k`, plus `observing…`, `reflecting…` or `⏳ …` while something blocks. The denominator follows the current model's effective threshold, such as `21.4k` for Opus 5.5.
 - **Transcript.** Activation shows `✓ Activated 3 observations: -26.9k msg tokens, +1.4k obs tokens` for three chunks; reflection shows `◆ reflection`. Expand either entry to see the observations.
 - **`/om`.** Status, models, cache TTL, and recent events with durations. `/om observations` prints active memory.
 
