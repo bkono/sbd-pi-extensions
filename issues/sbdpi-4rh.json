@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-17T01:57:12Z",
+  "description": "Follow-up from bkono/sbd-mastra-factory PR30 review N2. Routing now resolves, but skills/sbd/references/playbooks/multi-phase-plan.md expects an owner lifecycle, stack rule, blocking rule and merge/handoff rule from a single execution playbook. Autonomous run defines an exit-condition loop and Shipping defines verification/handoff, so neither supplies that entire lifecycle. Pre-existing content gap, not a missing-file failure. Read /tmp/sbd-routing-complete-review.md or the review evidence in the parent session. First investigate and recommend a composition of existing Program/Autonomous run/Shipping rules. Do not invent merge permissions or redesign operator workflow without Bryan intent. Current routing fix deliberately does not add new execution playbooks.",
+  "id": "sbdpi-4rh",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "Align multi-phase lifecycle references with shipped execution playbooks",
+  "type": "task",
+  "updated_at": "2026-11-17T01:57:12Z"
+}
