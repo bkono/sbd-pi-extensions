@@ -14,11 +14,15 @@
     {
       "text": "Current work supersedes the rejected synthetic-fixture outcome. Bryan requested native Pi real-provider runs without transport changes, and set a 25k adjusted sent-input floor, preferably 27k; late readiness/safe-swap delays are acceptable. Native pricing/UI calibration rejected 1.55 after a 20,903-token activation. Frozen 1.40 produced pricing 32,597/36,406 and UI 37,350/37,522/40,061, with unsent tokens separate. Native Sol baseline/candidate completed at 29,384/30,670 with natural tests 58/58 and 44/44; reference graders fail on an unrequested helper export. Held-out returns-policy is still running; no acceptance claim yet. Runtime/index match frozen sources; config differs only in comments and equivalent 1.40/1.4 spelling. Fresh independent review approved mechanics; exact-copy root lint, 2,332 tests and typecheck passed. Repro commit 6a6d515 precedes pending fix commit. Final held-out audit and commit-bound verdict remain required. Evidence /tmp/om-native-calibration.mYBL7l and tracked calibration plan. Opus 4.6 prohibited in every role. Abandoned eval transport/compression code moved out of repo and will not ship.",
       "timestamp": "2026-11-17T22:56:37Z"
+    },
+    {
+      "text": "Native Pi evidence audited with no additional calls. Frozen 1.40 held-out adjusted sent inputs: 30680, 35216, 39297, 40528, 44278, 44133; all exceed preferred 27000 floor. Initial request 4725 is an overhead proxy, not exact system/tool count. Separate unsent o200k and following gross usage are recorded in package docs and /tmp/om-native-calibration.mYBL7l/all-boundaries.json. Source hashes and expected main/observer routes verified; no 4.6 calls. Run hit predeclared 140-request cap after 11/17 prompts, exit 70 REQUEST_LIMIT; censored/incomplete, not a task pass. Partial natural 133/135 and reference 143/157. Bryan accepts six observed activations as sufficient. Sol baseline/candidate 29384/30670; natural suites 58/58 and 44/44. No more runs, continuation, tuning, padding or cap increase. Final root lint, 2332 tests and typecheck passed; final commit and SHA-bound review/verdict pending.",
+      "timestamp": "2026-11-17T23:09:33Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Measure OM activation gap before Claude calibration",
   "type": "bug",
-  "updated_at": "2026-11-17T22:56:37Z"
+  "updated_at": "2026-11-17T23:09:33Z"
 }
