@@ -1,6 +1,6 @@
 // Runs the task matrix: every task x arm x rep in a fresh fixture copy, then grades each run with
 // the hidden tests. Usage:
-//   node run-eval.mjs <outDir> [--tasks t1-explore,t2-bugfix] [--arms mc,pi-hashline,pi-stock]
+//   node run-eval.mjs <outDir> [--tasks t1-explore,t2-bugfix] [--arms mc,sbd-om-hashline,sbd-om]
 //                     [--reps 2] [--concurrency 6] [--model sol|opus]
 // --model picks the same model for every arm; run each model into its own outDir.
 import { execFileSync, spawn } from "node:child_process";
@@ -18,7 +18,7 @@ const opt = (name, fallback) => {
 };
 const spec = JSON.parse(readFileSync(path.join(evalRoot, "tasks.json"), "utf8"));
 const tasks = opt("tasks", Object.keys(spec.tasks).join(",")).split(",");
-const arms = opt("arms", "mc,pi-hashline,pi-stock").split(",");
+const arms = opt("arms", "mc,sbd-om-hashline,sbd-om").split(",");
 const reps = Number(opt("reps", "2"));
 const concurrency = Number(opt("concurrency", "6"));
 const MODELS = {

@@ -16,9 +16,11 @@ const EXT_ROOT =
   process.env.EVAL_PI_EXT_ROOT ??
   path.join(process.env.HOME, "src/github.com/bkono/sbd-pi-extensions");
 const ARMS = {
-  "pi-hashline": { om: true, hashline: true },
-  "pi-stock": { om: true, hashline: false },
-  "pi-hashline-noom": { om: false, hashline: true },
+  // Every arm loads the rest of the sbd set, so none is stock Pi; "bare" is the closest.
+  "sbd-om-hashline": { om: true, hashline: true },
+  "sbd-om": { om: true, hashline: false },
+  "sbd-hashline": { om: false, hashline: true },
+  "sbd-bare": { om: false, hashline: false },
 };
 const armConfig = ARMS[arm];
 if (!armConfig)
