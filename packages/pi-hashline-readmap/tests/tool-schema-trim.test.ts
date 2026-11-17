@@ -143,4 +143,16 @@ describe("trimmed tool schemas", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("tells the model to trust edit results and held anchors", () => {
+    const guidelines = registered().edit.promptGuidelines.join("\n");
+    expect(guidelines).toContain("so do not re-read to verify an edit");
+    expect(guidelines).toContain(
+      "says when it leaves one out; read only for anchors it did not show",
+    );
+    expect(guidelines).toContain("did not replace or delete usually keep working");
+    expect(guidelines).toContain(
+      "no longer matches exactly one line is refused with nothing written",
+    );
+  });
 });

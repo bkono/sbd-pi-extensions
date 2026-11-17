@@ -42,6 +42,11 @@ describe("edit semantic surfacing", () => {
     expect(result.isError).not.toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe("    const value = 1;\n");
     expect(result.details.ptcValue.semanticSummary.classification).toBe("whitespace-only");
+    const text = result.content[0].text;
+    // States what changed, not that behavior is unchanged: in YAML or Python, indentation is behavior.
+    expect(text).toContain("only indentation or spacing changed");
+    expect(text).not.toMatch(/did not make|no behavior change/);
+    expect(text).not.toContain("re-read");
   });
   it("does not warn when every new_text is whitespace-only", async () => {
     const filePath = makeFixture("  \n");

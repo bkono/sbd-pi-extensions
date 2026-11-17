@@ -76,7 +76,7 @@ function formatWhitespaceOnlyWarning(
 ): string | undefined {
   if (semanticSummary?.classification !== "whitespace-only") return undefined;
   if (!extractNewTextValues(edits).some((text) => /\S/.test(text))) return undefined;
-  return "⚠ Edit classified as whitespace-only — if you intended a behavior change, re-read to verify.";
+  return "⚠ Edit classified as whitespace-only: only indentation or spacing changed. If you meant to change more than that, check new_text.";
 }
 function formatSemanticSuffix(semanticSummary: SemanticSummary | undefined): string {
   const movedBlocks = semanticSummary?.movedBlocks ?? 0;
