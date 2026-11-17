@@ -12,11 +12,15 @@
     {
       "text": "Implemented in b119660b2283556a8d11bb904a17977481352886. Exact Pi 1.5.2 TUI row and ctrl+o expansion verified. Root lint and typecheck passed. Full tests passed on rerun after one existing timing-sensitive failure. Independent review approved. Verifier recorded PASS+NOTES for the commit.",
       "timestamp": "2026-11-17T00:58:43Z"
+    },
+    {
+      "text": "Rebased unchanged patch onto origin/main. Current head is c6d0bd5d1a2a1c43a3301c23a7da7655750a56fc. sbd-verdict carries PASS+NOTES from b119660 by identical stable patch-id. Root lint, 2,226 tests, and typecheck pass at c6d0bd5.",
+      "timestamp": "2026-11-17T01:00:48Z"
     }
   ],
   "priority": 3,
   "status": "closed",
   "title": "Render Mastra-style OM activation line",
   "type": "task",
-  "updated_at": "2026-11-17T00:58:43Z"
+  "updated_at": "2026-11-17T01:00:48Z"
 }
