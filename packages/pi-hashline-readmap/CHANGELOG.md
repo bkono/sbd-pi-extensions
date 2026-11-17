@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Anchored edits are written exactly as sent. The engine's vendored repair rules are removed: range-boundary echo stripping (dropped a last or first `new_text` line that matched the next or previous file line, ignoring whitespace), insert-anchor echo stripping, wrapped-line restoration, single-line merge expansion, and indent restoration. A replay of about 470 edits from the hashline eval found 6 firings, every one harmful: five dropped a closing line the code needed (`    }` before `  }`, `    });` before `  });`), leaving broken code the model only found through a test failure, and one removed a deliberate blank line. Copied `LINE:HASH|` prefixes and `+` diff markers are still stripped.
+
 ### Changed
 - `write` returns a one-line summary (`Created <path> (N lines).`) instead of echoing the whole file as `LINE:HASH|` lines. The model wrote the content, so the echo cost about 1.15x the file size in context on every later request. It issues no anchors: an anchored `edit` after `write` needs a `read`, a text `replace` does not. `ptcValue.lines` still carries every anchor for programmatic callers.
 
