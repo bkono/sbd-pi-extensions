@@ -16,11 +16,15 @@
     {
       "text": "Rebased unchanged patch onto origin/main. Current head is c6d0bd5d1a2a1c43a3301c23a7da7655750a56fc. sbd-verdict carries PASS+NOTES from b119660 by identical stable patch-id. Root lint, 2,226 tests, and typecheck pass at c6d0bd5.",
       "timestamp": "2026-11-17T01:00:48Z"
+    },
+    {
+      "text": "PR opened ready for review: https://github.com/bkono/sbd-pi-extensions/pull/15",
+      "timestamp": "2026-11-17T01:01:31Z"
     }
   ],
   "priority": 3,
   "status": "closed",
   "title": "Render Mastra-style OM activation line",
   "type": "task",
-  "updated_at": "2026-11-17T01:00:48Z"
+  "updated_at": "2026-11-17T01:01:31Z"
 }
