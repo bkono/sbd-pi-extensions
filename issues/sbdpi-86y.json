@@ -14,6 +14,10 @@
     {
       "text": "Delivered in https://github.com/bkono/sbd-mastra-factory/pull/30, open and ready on fix/bundled-skill-routing at fa28ec65595aeb620c3c4499dce9ec8e955d3439. Fresh reviewer APPROVE (/tmp/sbd-routing-review-final.md). Independent Terra verifier recorded PASS+NOTES, confirmed by sbd-verdict check HEAD (/tmp/sbd-routing-verdict-final.md). 389 tests pass, one baseline host-contract skip; lint exits 0 with baseline INFO, package/app typechecks and strict script test typecheck pass. Eight structural cases fail at base, pass at head. Final live Pi trace /tmp/sbd-routing-final-feature.jsonl first reads Feature, nested how, nested architect successfully without skill search. Actual Mastra core 1.83 skill_read accepts all 13 normalized routes; model compliance on Mastra/Factory not measured. Review correction added containing-file link resolution and root-relative normalization, plus explicit test type guard. No installer or Pi extension changes. Live centralized install remains clean at 3bb1bc2 until human merge and sbd-install; no merge or install performed. Resume plan /tmp/sbd-skill-routing-plan.md. Optional future root-containment guard is not needed to fix this observed issue.",
       "timestamp": "2026-11-17T00:55:11Z"
+    },
+    {
+      "text": "User clarified screenshots were examples, not a scope boundary. Reopened to fix the entire bundled-skill routing class across router, playbooks, and nested skill instructions. Prior two-skill scope was an intake miss. Continue on existing isolated branch/worktree and PR #30. Replace hand-picked regression cases with inventory-derived coverage for all nested skill references, verify all routes at the actual read boundary, and get fresh review/verdict before completion.",
+      "timestamp": "2026-11-17T01:00:20Z"
     }
   ],
   "priority": 2,
