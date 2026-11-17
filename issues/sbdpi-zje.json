@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-17T00:26:31Z",
+  "description": "Render each observational-memory activation as a concise TUI transcript line with activated observation count and message/observation token deltas. Reuse persisted OM activation state and do not add model-visible session content.",
+  "id": "sbdpi-zje",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "Render Mastra-style OM activation line",
+  "type": "task",
+  "updated_at": "2026-11-17T00:26:31Z"
+}
