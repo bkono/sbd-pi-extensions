@@ -14,6 +14,12 @@ function k(tokens: number): string {
   return tokens < 1_000 ? `${tokens}` : `${(tokens / 1_000).toFixed(1)}k`;
 }
 
+function activationTokens(tokens: number): string {
+  if (tokens === 0) return "0";
+  const thousands = tokens / 1_000;
+  return thousands % 1 === 0 ? `${thousands}k` : `${thousands.toFixed(1)}k`;
+}
+
 const COLLAPSED_LINES = 10;
 
 /**
@@ -32,7 +38,12 @@ export function registerRenderers(
       .map(lookupChunk)
       .filter((chunk): chunk is ChunkData => Boolean(chunk));
     const observed = chunks.reduce((total, chunk) => total + chunk.observationTokens, 0);
-    const header = `${theme.fg("warning", "◆ memory")} ${theme.fg("dim", `${data.trigger} · ${chunks.length} chunk${chunks.length === 1 ? "" : "s"} · ${k(data.messageTokens)} msgs → ${k(observed)} obs`)}`;
+    const label =
+      data.chunkIds.length > 1 ? `${data.chunkIds.length} observations` : "observations";
+    const header = theme.fg(
+      "success",
+      `✓ Activated ${label}: -${activationTokens(data.messageTokens)} msg tokens, +${activationTokens(observed)} obs tokens`,
+    );
     if (!expanded) return new Text(header, 0, 0);
     const body = chunks.map((chunk) => chunk.observations).join("\n\n");
     return new Text(`${header}\n${theme.fg("dim", body)}`, 0, 0);
