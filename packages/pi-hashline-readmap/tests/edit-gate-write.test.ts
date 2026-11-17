@@ -23,33 +23,32 @@ function getTextContent(result: any): string {
 }
 
 describe("edit gate — write anchors", () => {
-  it("accepts a fresh write anchor without an intermediate read", async () => {
+  it("shows no anchors; an anchored edit after write needs a read, a text replace does not", async () => {
     const tools = captureTools();
-    const dir = mkdtempSync(join(tmpdir(), "pi-edit-write-anchor-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-write-summary-"));
     const filePath = resolve(dir, "written.ts");
-
+    const run = (name: string, params: unknown) =>
+      tools[name].execute(`${name}-call`, params, new AbortController().signal, () => {}, {
+        cwd: process.cwd(),
+      });
     try {
-      const writeResult = await tools.write.execute(
-        "write-call",
-        { path: filePath, content: "export const x = 1;\n" },
-        new AbortController().signal,
-        () => {},
-        { cwd: process.cwd() },
-      );
-
+      const writeResult = await run("write", { path: filePath, content: "export const x = 1;\n" });
       const writeText = getTextContent(writeResult);
-      const anchor = writeText.match(/^(\d+:[0-9a-f]{3})\|/m)?.[1];
-      expect(anchor).toBeDefined();
+      expect(writeText).toMatch(/^Created .*written\.ts \(1 line\)\./);
+      expect(writeText).not.toMatch(/^\d+:[0-9a-f]{3}\|/m);
 
-      const editResult = await tools.edit.execute(
-        "edit-call",
-        { path: filePath, edits: [{ set_line: { anchor, new_text: "export const x = 2;" } }] },
-        new AbortController().signal,
-        () => {},
-        { cwd: process.cwd() },
-      );
+      const anchor = writeResult.details.ptcValue.lines[0].anchor;
+      const blind = await run("edit", {
+        path: filePath,
+        edits: [{ set_line: { anchor, new_text: "export const x = 2;" } }],
+      });
+      expect(blind.details.ptcValue.error.code).toBe("stale-anchor");
 
-      expect(editResult.isError).toBeFalsy();
+      const replaced = await run("edit", {
+        path: filePath,
+        edits: [{ replace: { old_text: "x = 1", new_text: "x = 2" } }],
+      });
+      expect(replaced.isError).toBeFalsy();
       expect(readFileSync(filePath, "utf8")).toContain("export const x = 2;");
     } finally {
       await rm(dir, { recursive: true, force: true });

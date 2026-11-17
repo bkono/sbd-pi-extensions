@@ -5,11 +5,11 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
   "read.md":
     "Read text files/images by path; text has LINE:HASH anchors, images return attachments.",
   "edit.md":
-    "Edit existing text files using LINE:HASH anchors from read, grep, write, or edit. Anchors for unchanged lines stay valid across your own edits.",
+    "Edit existing text files using LINE:HASH anchors from read, grep, or edit. Anchors for unchanged lines stay valid across your own edits.",
   "grep.md": "Search file contents; non-summary results include LINE:HASH anchors for edits.",
   "find.md": "Find files by glob, respecting .gitignore.",
   "ls.md": "List one directory.",
-  "write.md": "Create or overwrite a file and return anchors.",
+  "write.md": "Create or overwrite a file.",
   "sg.md": "Search code by AST pattern and return anchored matches.",
 };
 

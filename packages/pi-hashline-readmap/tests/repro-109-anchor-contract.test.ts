@@ -85,37 +85,39 @@ describe("repro 109 — anchor contract", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("allows write anchors to be edited without an intermediate read", async () => {
+  it("shows no anchors; an anchored edit after write needs a read, a text replace does not", async () => {
     const tools = captureTools();
-    const dir = mkdtempSync(join(tmpdir(), "pi-repro-109-write-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-write-summary-"));
     const filePath = resolve(dir, "written.ts");
+    const run = (name: string, params: unknown) =>
+      tools[name].execute(`${name}-call`, params, new AbortController().signal, () => {}, {
+        cwd: process.cwd(),
+      });
+    try {
+      const writeResult = await run("write", { path: filePath, content: "export const x = 1;\n" });
+      const writeText = getTextContent(writeResult);
+      expect(writeText).toMatch(/^Created .*written\.ts \(1 line\)\./);
+      expect(writeText).not.toMatch(/^\d+:[0-9a-f]{3}\|/m);
 
-    const writeResult = await tools.write.execute(
-      "write-call",
-      { path: filePath, content: "export const x = 1;\n" },
-      new AbortController().signal,
-      () => {},
-      { cwd: process.cwd() },
-    );
-    const writeText = getTextContent(writeResult);
-    const anchor = writeText.match(/^(\d+:[0-9a-f]{3})\|/m)?.[1];
-    expect(anchor).toBeDefined();
+      const anchor = writeResult.details.ptcValue.lines[0].anchor;
+      const blind = await run("edit", {
+        path: filePath,
+        edits: [{ set_line: { anchor, new_text: "export const x = 2;" } }],
+      });
+      expect(blind.details.ptcValue.error.code).toBe("stale-anchor");
 
-    const editResult = await tools.edit.execute(
-      "edit-call",
-      { path: filePath, edits: [{ set_line: { anchor, new_text: "export const x = 2;" } }] },
-      new AbortController().signal,
-      () => {},
-      { cwd: process.cwd() },
-    );
-
-    expect(editResult.isError).toBeFalsy();
-    expect(readFileSync(filePath, "utf8")).toContain("export const x = 2;");
-
-    await rm(dir, { recursive: true, force: true });
+      const replaced = await run("edit", {
+        path: filePath,
+        edits: [{ replace: { old_text: "x = 1", new_text: "x = 2" } }],
+      });
+      expect(replaced.isError).toBeFalsy();
+      expect(readFileSync(filePath, "utf8")).toContain("export const x = 2;");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
-  it("mentions ptcValue in the visible write truncation notice", async () => {
+  it("keeps every written line's anchor in ptcValue for programmatic callers", async () => {
     const tools = captureTools();
     const dir = mkdtempSync(join(tmpdir(), "pi-repro-109-trunc-"));
     const filePath = resolve(dir, "long.txt");

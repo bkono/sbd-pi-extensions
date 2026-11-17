@@ -32,10 +32,13 @@ describe("enhanced write tool", () => {
     // File should exist on disk
     expect(readFileSync(filePath, "utf-8")).toBe(content);
 
-    // Output should have hashlined format
-    expect(result.text).toMatch(/^1:[0-9a-f]{3}\|line one$/m);
-    expect(result.text).toMatch(/^2:[0-9a-f]{3}\|line two$/m);
-    expect(result.text).toMatch(/^3:[0-9a-f]{3}\|line three$/m);
+    // The model sees a summary; programmatic callers get every line's anchor.
+    expect(result.text).toMatch(/^Created .*test\.ts \(3 lines\)\./);
+    expect(result.ptcValue.lines.map((l) => l.anchor)).toEqual([
+      expect.stringMatching(/^1:[0-9a-f]{3}$/),
+      expect.stringMatching(/^2:[0-9a-f]{3}$/),
+      expect.stringMatching(/^3:[0-9a-f]{3}$/),
+    ]);
   });
 
   it("returned anchors work directly in applyHashlineEdits", async () => {
@@ -76,9 +79,9 @@ describe("enhanced write tool", () => {
     const { executeWrite } = await import("../src/write.js");
     const result = await executeWrite({ path: filePath, content });
 
-    // Control char should be escaped
-    expect(result.text).toContain("\\u0001");
+    // Control chars never reach the summary; ptcValue's display form escapes them.
     expect(result.text).not.toContain("\x01");
+    expect(result.ptcValue.lines[1].display).toContain("\\u0001");
   });
 
   it("creates parent directories when needed", async () => {

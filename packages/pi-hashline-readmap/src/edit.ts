@@ -146,7 +146,7 @@ type EditItemInput =
 
 const EDIT_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/edit.md", import.meta.url),
-  promptSnippet: "Edit files using hash-verified anchors from read/grep/write/edit",
+  promptSnippet: "Edit files using hash-verified anchors from read/grep/edit",
   promptGuidelines: [
     "Use edit for changes to existing files; read or search first and copy fresh LINE:HASH anchors.",
     "Prefer edit anchored set_line, replace_lines, and insert_after over shell rewrites.",
@@ -405,14 +405,14 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           if (!observed) {
             const message = [
               `You must get fresh anchors for ${absolutePath} before editing it.`,
-              `Call read(${JSON.stringify(rawPath)}) first, or use grep or write to produce fresh anchors for this file.`,
-              "edit requires LINE:HASH anchors from read, grep, write, or edit so the hashes match the current file contents.",
+              `Call read(${JSON.stringify(rawPath)}) first, or use grep to produce fresh anchors for this file.`,
+              "edit requires LINE:HASH anchors from read, grep, or edit so the hashes match the current file contents.",
             ].join(" ");
             return buildEditError(
               absolutePath,
               "file-not-read",
               message,
-              `Call read(${JSON.stringify(rawPath)}) first, or use grep or write to produce fresh anchors for this file.`,
+              `Call read(${JSON.stringify(rawPath)}) first, or use grep to produce fresh anchors for this file.`,
             );
           }
           const legacyOldText =

@@ -122,7 +122,7 @@ edit({
 })
 ```
 
-`read`, `grep`, `write`, and `edit` all return hashlined output that can feed follow-up edits.
+`read`, `grep`, and `edit` return hashlined output that can feed follow-up edits.
 
 ### Editing notes
 
@@ -136,7 +136,7 @@ edit({
 write({ path: "src/new-module.ts", content: "export const demo = 1;\n" })
 ```
 
-`write` creates parent directories automatically and returns hashlined output for immediate refinement.
+`write` creates parent directories automatically and returns a one-line summary; read the file for anchors before an anchored edit.
 
 ### Navigate a large file
 

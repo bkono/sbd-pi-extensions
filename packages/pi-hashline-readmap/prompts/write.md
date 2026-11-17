@@ -1,4 +1,4 @@
-Write full file content. Creates new files and parent directories, overwrites existing files, and returns `LINE:HASH` anchors for immediate `edit` use.
+Write full file content. Creates new files and parent directories, overwrites existing files, and returns a one-line summary. `read` the file for `LINE:HASH` anchors before an anchored `edit`; a text `replace` needs no read.
 
 ## Use / avoid
 
@@ -14,7 +14,7 @@ Existing files are overwritten without confirmation. Binary-looking content is w
 
 ## Output
 
-Successful text writes return `LINE:HASH|content`; display hashlines escape control characters for safe rendering. Visible output is capped at 2000 lines or 50 KB, but full anchors remain available in `ptcValue`.
+Successful text writes return `Created <path> (N lines).` or `Overwrote …`: the model wrote the content, so echoing it back only costs context. Programmatic callers still get every line's anchor in `ptcValue.lines` (display forms escape control characters).
 
 ## Diff data contract
 
