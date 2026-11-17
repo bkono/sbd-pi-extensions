@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- `edit` guidelines tell the model to trust the edit result (it shows the changed lines exactly as written) and the anchors it already holds (a stale one is refused with nothing written). Opus eval, t3 and t6, 5 runs per arm against flat main: reads after an edit to the same file fell from 13.2 to 9.4 per t6 run (−29%; ranges overlap, n=5) and total t6 reads from 113 to 88; cache-weighted cost −2% (t3) and −5.5% (t6), within run-to-run spread; every run passed all hidden tests, and stale-anchor refusals were 5 in each arm.
 - `edit` items are flat: `{ "op": "set_line", "anchor": "…", "new_text": "…" }` (also `replace_lines`, `insert_after`, `replace`) instead of `{ "set_line": { … } }`. The nested shape put two closing braces at the end of every call; Opus dropped one in 4 of 10 eval runs when `new_text` contained braces (`});`), so Pi could not parse the call. Flat items had 0 in 10 runs. Programmatic callers may still pass the nested shape; the TUI preview and edit counts read both.
 
 ### Fixed
