@@ -23,8 +23,8 @@ const COMPACT_GUIDELINES: Record<string, string[]> = {
     "Use edit replace only when anchored edits are impractical.",
     // Trust guidance: Opus re-read regions it held valid anchors for, and read back edits the
     // result had already shown (63 post-edit re-reads in the eval vs 4 on stock tools).
-    "Trust the edit result: it shows the changed lines exactly as written to disk, so do not re-read to verify an edit.",
-    "Anchors you already hold stay valid after your own edits. A stale anchor is refused with nothing written and the current lines shown, so edit without re-reading first.",
+    "Trust the edit result: the file holds exactly what you sent, and the result shows each changed region (long regions abridged with ...), so do not re-read to verify an edit.",
+    "Anchors you hold for lines your edit did not replace or delete stay valid. A stale anchor is refused with nothing written, so edit without re-reading first.",
   ],
   "grep.md": [
     "Use grep for text search and edit-ready matching anchors.",

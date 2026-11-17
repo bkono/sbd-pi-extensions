@@ -42,6 +42,9 @@ describe("edit semantic surfacing", () => {
     expect(result.isError).not.toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe("    const value = 1;\n");
     expect(result.details.ptcValue.semanticSummary.classification).toBe("whitespace-only");
+    const text = result.content[0].text;
+    expect(text).toContain("your new_text did not make one");
+    expect(text).not.toContain("re-read");
   });
   it("does not warn when every new_text is whitespace-only", async () => {
     const filePath = makeFixture("  \n");

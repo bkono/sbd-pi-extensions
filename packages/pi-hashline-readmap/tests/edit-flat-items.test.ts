@@ -145,6 +145,35 @@ describe("flat {op, ...} edit items", () => {
     expect(linesOf(file)).toEqual(["ONE"]);
   });
 
+  // Pins the behavior the edit trust guidelines (tool-prompt-metadata.ts) promise the model.
+  it("keeps the promises the edit trust guidelines make", async () => {
+    const file = join(dir, "t.ts");
+    const original = Array.from({ length: 30 }, (_, i) => `line${i + 1}`);
+    writeFileSync(file, `${original.join("\n")}\n`);
+    await call("read", { path: file });
+    const long = Array.from({ length: 20 }, (_, i) => `new${i + 1}`).join("\n");
+    const edited = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(5, "line5"), new_text: long }],
+    });
+    expect(edited.isError).not.toBe(true);
+    expect(linesOf(file).slice(4, 24)).toEqual(long.split("\n"));
+    expect(edited.content[0].text).toMatch(/^\.\.\.$/m);
+    const held = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(30, "line30"), new_text: "LAST" }],
+    });
+    expect(held.isError).not.toBe(true);
+    const before = readFileSync(file, "utf8");
+    const stale = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(5, "line5"), new_text: "x" }],
+    });
+    expect(stale.isError).toBe(true);
+    expect(stale.content[0].text).toContain("nothing was written");
+    expect(readFileSync(file, "utf8")).toBe(before);
+  });
+
   it("treats a null stray field as unset, and names the op a stray field belongs to", async () => {
     const file = join(dir, "n.ts");
     writeFileSync(file, "one\ntwo\n");
