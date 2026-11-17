@@ -37,7 +37,8 @@ describe("write contextHygiene metadata", () => {
       path: filePath,
       warnings: [],
     });
-    expect(result.text).toMatch(/^1:[0-9a-f]{3}\|const value = 1;$/m);
+    expect(result.text).toContain("(1 line)");
+    expect(result.ptcValue.lines[0].anchor).toMatch(/^1:[0-9a-f]{3}$/);
   });
 
   it("executeWrite returns mutation metadata for binary writes without changing ptcValue", async () => {

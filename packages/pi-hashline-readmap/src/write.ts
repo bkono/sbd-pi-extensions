@@ -13,7 +13,7 @@ import {
 } from "./context-hygiene.js";
 import { buildDiffData, type DiffData } from "./diff-data.js";
 import { generateCompactOrFullDiff, hasBareCarriageReturn, normalizeToLF } from "./edit-diff.js";
-import { ensureHashInit, formatHashlineDisplay } from "./hashline.js";
+import { ensureHashInit } from "./hashline.js";
 import { getOrGenerateMap } from "./map-cache.js";
 import { resolveToCwd } from "./path-utils.js";
 import {
@@ -100,11 +100,9 @@ function pendingWritePreviewParts(
   return { lines: [summary, headerLine], diffData: expanded ? diffData : undefined };
 }
 
-const MAX_LINES = 2000;
-const MAX_BYTES = 50 * 1024;
 const WRITE_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/write.md", import.meta.url),
-  promptSnippet: "Create or overwrite a complete file and return edit anchors",
+  promptSnippet: "Create or overwrite a complete file",
   promptGuidelines: [
     "Use write to create new files or intentionally replace whole files.",
     "Use edit instead of write for small changes or appends to existing files.",
@@ -288,28 +286,13 @@ export async function executeWrite(opts: {
     };
   }
 
-  // Compute hashlines
+  // The model wrote this content, so echoing it back only costs context: the text is a summary.
+  // Programmatic callers still get every line's anchor in ptcValue.
   const rawLines = content.split("\n");
-  const ptcLines: PtcLine[] = [];
-  const displayLines: string[] = [];
-
-  for (let i = 0; i < rawLines.length; i++) {
-    const lineNum = i + 1;
-    const ptcLine = buildPtcLine(lineNum, rawLines[i]);
-    ptcLines.push(ptcLine);
-    displayLines.push(formatHashlineDisplay(lineNum, rawLines[i]));
-  }
-
-  let text = displayLines.join("\n");
-  if (rawLines.length > MAX_LINES) {
-    text = displayLines.slice(0, MAX_LINES).join("\n");
-    text += `\n[… ${rawLines.length - MAX_LINES} more lines not shown — full anchors in ptcValue]`;
-  }
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_BYTES) {
-    text = Buffer.from(text, "utf8").subarray(0, MAX_BYTES).toString("utf8");
-    text += "\n[… output truncated at 50 KB — full anchors in ptcValue]";
-  }
+  const ptcLines: PtcLine[] = rawLines.map((raw, i) => buildPtcLine(i + 1, raw));
+  const shownPath = cwd ? relative(cwd, filePath) || filePath : filePath;
+  const lineCount = content.endsWith("\n") ? rawLines.length - 1 : rawLines.length;
+  let text = `${existedBeforeWrite ? "Overwrote" : "Created"} ${shownPath} (${lineCount} ${lineCount === 1 ? "line" : "lines"}).`;
 
   // Optional structural map
   let mapAppended = false;
@@ -420,12 +403,9 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
           };
         }
 
-        if (result.ptcValue.lines.length > 0) {
-          options.onFileAnchored?.(
-            absolutePath,
-            result.ptcValue.lines.map((l) => ({ line: l.line, hash: l.hash })),
-          );
-        }
+        // The result shows no anchors, so none are issued; the file counts as observed, so a
+        // text replace works and an anchored edit asks for a read first.
+        if (result.ptcValue.lines.length > 0) options.onFileAnchored?.(absolutePath, []);
 
         // Lift binary-content signal into a fatal ptcValue.error envelope so
         // downstream consumers get the same taxonomy shape as every other tool.

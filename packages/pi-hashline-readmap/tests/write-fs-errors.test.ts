@@ -162,7 +162,7 @@ describe("write fs-error mapping", () => {
         { cwd: process.cwd() },
       );
       expect(result.isError).toBeFalsy();
-      expect(text(result)).toMatch(/^1:[0-9a-f]{3}\|hello$/m);
+      expect(text(result)).toMatch(/^Created .*ok\.txt \(2 lines\)\./);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- `write` returns a one-line summary (`Created <path> (N lines).`) instead of echoing the whole file as `LINE:HASH|` lines. The model wrote the content, so the echo cost about 1.15x the file size in context on every later request. It issues no anchors: an anchored `edit` after `write` needs a `read`, a text `replace` does not. `ptcValue.lines` still carries every anchor for programmatic callers.
+
 ### Removed (model-facing schema)
 Cut from the tool definitions sent on every request, from usage across 1,050 hashline sessions (2026-04 to 2026-11): about 1,812 → 1,408 tokens per request. `execute()` still accepts each for programmatic (PTC) callers.
 - `ast_search` is no longer offered to the model (6 calls in 7 months); its executor stays in `__hashlineToolExecutors`.

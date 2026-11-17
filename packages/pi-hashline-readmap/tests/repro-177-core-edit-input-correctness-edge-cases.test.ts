@@ -46,7 +46,7 @@ describe("repro 177 — core edit input correctness edge cases", () => {
       () => {},
       { cwd: process.cwd() },
     );
-    expect(textOf(writeResult)).toBe("1:d05|");
+    expect((writeResult.details as any).ptcValue.lines[0].anchor).toBe("1:d05");
 
     const preview = await buildPendingEditPreviewData(
       {
