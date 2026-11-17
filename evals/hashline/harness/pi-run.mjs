@@ -1,7 +1,8 @@
 // One Pi RPC session over a list of prompts. Every event (minus streaming deltas) goes to
 // <out>/events.jsonl. Usage: node pi-run.mjs <cwd> <out> <arm> <promptsJsonFile>
-// arm: "pi-hashline" | "pi-stock". Both load the same sbd-pi-extensions set via -e; stock omits
-// pi-hashline-readmap, so Pi's default built-ins (read, edit, write, bash) stay in place.
+// arm (see ARMS): every arm loads the same sbd-pi-extensions set via -e, differing only in
+// pi-om-extension and pi-hashline-readmap. Without hashline, Pi's default built-ins (read, edit,
+// write, bash) stay in place.
 // EVAL_PI_EXT_ROOT picks the extensions checkout (default: the live main checkout); its git SHA
 // and dirty state are recorded in the trace so a run is tied to the code it loaded.
 import { execFileSync, spawn } from "node:child_process";
@@ -14,15 +15,23 @@ const THINKING = process.env.EVAL_THINKING ?? "medium";
 const EXT_ROOT =
   process.env.EVAL_PI_EXT_ROOT ??
   path.join(process.env.HOME, "src/github.com/bkono/sbd-pi-extensions");
+const ARMS = {
+  "pi-hashline": { om: true, hashline: true },
+  "pi-stock": { om: true, hashline: false },
+  "pi-hashline-noom": { om: false, hashline: true },
+};
+const armConfig = ARMS[arm];
+if (!armConfig)
+  throw new Error(`unknown arm "${arm}"; expected one of ${Object.keys(ARMS).join(", ")}`);
 const prompts = JSON.parse(readFileSync(promptsFile, "utf8"));
 const exts = [
-  "pi-om-extension",
+  ...(armConfig.om ? ["pi-om-extension"] : []),
   "pi-files-extension",
   "pi-answer-extension",
   "pi-exa-extension",
   "pi-minions",
   "pi-sbd-workflow",
-  ...(arm === "pi-hashline" ? ["pi-hashline-readmap"] : []),
+  ...(armConfig.hashline ? ["pi-hashline-readmap"] : []),
 ];
 mkdirSync(out, { recursive: true });
 const log = path.join(out, "events.jsonl");
