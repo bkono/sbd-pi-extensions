@@ -469,7 +469,9 @@ function analyzeRun(dir, task, arm) {
     curPrompt.toolCalls += 1;
     m.byKind[kind] = (m.byKind[kind] ?? 0) + 1;
     m.byTool[it.name] = (m.byTool[it.name] ?? 0) + 1;
-    const bucket = (m.toolOut[outputCategory(it, kind)] ??= { calls: 0, chars: 0, lines: 0 });
+    const category = outputCategory(it, kind);
+    m.toolOut[category] ??= { calls: 0, chars: 0, lines: 0 };
+    const bucket = m.toolOut[category];
     bucket.calls += 1;
     bucket.chars += it.text.length;
     if (kind === "read") bucket.lines += linesOfRead(it).nums.length;
@@ -772,7 +774,8 @@ for (const r of runs) {
   const a = byArm.get(r.arm) ?? { runs: 0, out: {} };
   a.runs += 1;
   for (const [b, v] of Object.entries(r.toolOut ?? {})) {
-    const t = (a.out[b] ??= { calls: 0, chars: 0, lines: 0 });
+    a.out[b] ??= { calls: 0, chars: 0, lines: 0 };
+    const t = a.out[b];
     t.calls += v.calls;
     t.chars += v.chars;
     t.lines += v.lines;
