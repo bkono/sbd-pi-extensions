@@ -27,11 +27,18 @@ interface HashMismatch {
 
 export class HashlineMismatchError extends Error {
   readonly updatedAnchors: PtcLine[];
+  /** Every LINE:HASH the message shows, each naming that line of the content edited. */
+  readonly shownAnchors: Array<{ line: number; hash: string }>;
 
-  constructor(message: string, updatedAnchors: PtcLine[]) {
+  constructor(
+    message: string,
+    updatedAnchors: PtcLine[],
+    shownAnchors: Array<{ line: number; hash: string }> = [],
+  ) {
     super(message);
     this.name = "HashlineMismatchError";
     this.updatedAnchors = updatedAnchors;
+    this.shownAnchors = shownAnchors;
   }
 }
 
@@ -167,7 +174,7 @@ function findSimilarLines(
   fileLines: string[],
   hintLine: number,
   maxSuggestions: number = 3,
-): string[] {
+): Array<{ line: number; hash: string; text: string }> {
   const SCAN_WINDOW = 50;
   const MIN_SIMILARITY = 0.3;
   const start = Math.max(0, hintLine - 1 - SCAN_WINDOW);
@@ -186,14 +193,23 @@ function findSimilarLines(
   candidates.sort((a, b) => b.score - a.score);
   return candidates.slice(0, maxSuggestions).map((c) => {
     const hash = computeLineHash(c.line, c.content);
-    return `  ${c.line}:${hash}|${escapeControlCharsForDisplay(c.content)}`;
+    return {
+      line: c.line,
+      hash,
+      text: `  ${c.line}:${hash}|${escapeControlCharsForDisplay(c.content)}`,
+    };
   });
 }
 function formatMismatchError(
   mismatches: HashMismatch[],
   fileLines: string[],
   relocationWindow: number,
-): { message: string; updatedAnchors: PtcLine[] } {
+): {
+  message: string;
+  updatedAnchors: PtcLine[];
+  shownAnchors: Array<{ line: number; hash: string }>;
+} {
+  const shownAnchors: Array<{ line: number; hash: string }> = [];
   const mismatchSet = new Map<number, HashMismatch>();
   for (const m of mismatches) mismatchSet.set(m.line, m);
   const updatedAnchors: PtcLine[] = mismatches.map((m) => {
@@ -225,6 +241,7 @@ function formatMismatchError(
     prev = num;
     const content = fileLines[num - 1];
     const hash = computeLineHash(num, content);
+    shownAnchors.push({ line: num, hash });
     const prefix = `${num}:${hash}`;
     out.push(
       mismatchSet.has(num)
@@ -239,12 +256,13 @@ function formatMismatchError(
       if (suggestions.length > 0) {
         out.push("");
         out.push("Did you mean one of these nearby lines?");
-        out.push(...suggestions);
+        out.push(...suggestions.map((c) => c.text));
+        shownAnchors.push(...suggestions.map(({ line, hash }) => ({ line, hash })));
       }
     }
   }
 
-  return { message: out.join("\n"), updatedAnchors };
+  return { message: out.join("\n"), updatedAnchors, shownAnchors };
 }
 
 // ─── DST preprocessing helpers ──────────────────────────────────────────
@@ -426,6 +444,12 @@ export function applyHashlineEdits(
   content: string,
   edits: HashlineEditItem[],
   signal?: AbortSignal,
+  /**
+   * relocate: false refuses a mismatched anchor instead of moving it to a nearby hash match.
+   * origin: one entry per line of `content` (the original line it came from, or 0); every splice
+   * the engine makes is mirrored into it, and a line an edit replaced or inserted becomes 0.
+   */
+  options: { relocate?: boolean; origin?: number[] } = {},
 ): {
   content: string;
   firstChangedLine: number | undefined;
@@ -443,6 +467,13 @@ export function applyHashlineEdits(
 
   const fileLines = content.split("\n");
   const origLines = [...fileLines];
+  if (options.origin && options.origin.length !== fileLines.length) {
+    throw new Error("origin must have one entry per line of content");
+  }
+  const spliceLines = (start: number, deleteCount: number, items: string[]) => {
+    fileLines.splice(start, deleteCount, ...items);
+    options.origin?.splice(start, deleteCount, ...items.map(() => 0));
+  };
   let firstChanged: number | undefined;
   const noopEdits: NoopEdit[] = [];
 
@@ -506,6 +537,10 @@ export function applyHashlineEdits(
     const originalLine = ref.line;
     const actual = lineHashes[originalLine - 1];
     if (actual === expected) return true;
+    if (options.relocate === false) {
+      mismatches.push({ line: originalLine, expected: ref.hash, actual });
+      return false;
+    }
     const relocated = findRelocationLine(expected, originalLine, relocationWindow);
     if (relocated !== undefined) {
       ref.line = relocated;
@@ -591,7 +626,11 @@ export function applyHashlineEdits(
   }
   if (mismatches.length) {
     const formatted = formatMismatchError(mismatches, fileLines, relocationWindow);
-    throw new HashlineMismatchError(formatted.message, formatted.updatedAnchors);
+    throw new HashlineMismatchError(
+      formatted.message,
+      formatted.updatedAnchors,
+      formatted.shownAnchors,
+    );
   }
 
   // Recompute after potential relocation
@@ -749,7 +788,7 @@ export function applyHashlineEdits(
           });
           continue;
         }
-        fileLines.splice(merged.startLine - 1, merged.deleteCount, ...newL);
+        spliceLines(merged.startLine - 1, merged.deleteCount, newL);
         track(merged.startLine);
         continue;
       }
@@ -772,7 +811,7 @@ export function applyHashlineEdits(
         });
         continue;
       }
-      fileLines.splice(spec.ref.line - 1, 1, ...newL);
+      spliceLines(spec.ref.line - 1, 1, newL);
       track(spec.ref.line);
     } else if (spec.kind === "range") {
       const count = spec.end.line - spec.start.line + 1;
@@ -794,7 +833,7 @@ export function applyHashlineEdits(
         });
         continue;
       }
-      fileLines.splice(spec.start.line - 1, count, ...newL);
+      spliceLines(spec.start.line - 1, count, newL);
       track(spec.start.line);
     } else {
       const anchor = origLines[spec.after.line - 1];
@@ -808,25 +847,16 @@ export function applyHashlineEdits(
         continue;
       }
       if (content === "" && spec.after.line === 1 && anchor === "") {
-        fileLines.splice(0, 1, ...inserted);
+        spliceLines(0, 1, inserted);
         track(1);
         continue;
       }
-      fileLines.splice(spec.after.line, 0, ...inserted);
+      spliceLines(spec.after.line, 0, inserted);
       track(spec.after.line + 1);
     }
   }
 
   const warnings: string[] = [...relocationNotes, ...duplicateTargetWarnings];
-  let diff = Math.abs(fileLines.length - origLines.length);
-  for (let i = 0; i < Math.min(fileLines.length, origLines.length); i++) {
-    if (fileLines[i] !== origLines[i]) diff++;
-  }
-  if (diff > edits.length * 4) {
-    warnings.push(
-      `Edit changed ${diff} lines across ${edits.length} operations — verify no unintended reformatting.`,
-    );
-  }
 
   return {
     content: fileLines.join("\n"),

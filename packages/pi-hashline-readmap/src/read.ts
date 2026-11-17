@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { type IssuedAnchor, type Stamp, stampOf } from "./anchor-ledger.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildReadRehydrateDescriptor } from "./context-hygiene.js";
@@ -62,7 +63,8 @@ interface ReadParams {
 }
 
 interface ReadToolOptions {
-  onSuccessfulRead?: (absolutePath: string) => void;
+  /** Called with the LINE:HASH anchors a successful read showed. */
+  onSuccessfulRead?: (absolutePath: string, anchors: IssuedAnchor[], stamp?: Stamp) => void;
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -115,6 +117,27 @@ function isSupportedImageBuffer(buffer: Buffer): boolean {
   if (startsWithBytes(buffer, PNG_SIGNATURE)) return isPng(buffer) && !isAnimatedPng(buffer);
   if (startsWithAscii(buffer, 0, "GIF")) return true;
   return startsWithAscii(buffer, 0, "RIFF") && startsWithAscii(buffer, 8, "WEBP");
+}
+
+/**
+ * The anchors a read result carries, from its structured value (every selected line, past the
+ * text's truncation, and bundle support lines), never parsed back from its text.
+ */
+function readAnchors(details: unknown): IssuedAnchor[] {
+  const ptc = (details as { ptcValue?: any } | undefined)?.ptcValue;
+  const anchors: IssuedAnchor[] = [];
+  for (const l of Array.isArray(ptc?.lines) ? ptc.lines : []) {
+    if (typeof l?.line === "number" && typeof l?.hash === "string") {
+      anchors.push({ line: l.line, hash: l.hash });
+    }
+  }
+  for (const support of Array.isArray(ptc?.bundle?.localSupport) ? ptc.bundle.localSupport : []) {
+    for (const anchor of Array.isArray(support?.lineAnchors) ? support.lineAnchors : []) {
+      const m = /^(\d+):([0-9a-f]{3})$/.exec(String(anchor));
+      if (m) anchors.push({ line: Number(m[1]), hash: m[2] });
+    }
+  }
+  return anchors;
 }
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
@@ -245,10 +268,11 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       }
       const rawPath = p.path.replace(/^@/, "");
       const absolutePath = resolveToCwd(rawPath, ctx.cwd);
+      let readStamp: Stamp;
       const succeed = <T extends AgentToolResult<any>>(result: T): T => {
         const isError = (result as { isError?: boolean }).isError;
         if (!isError) {
-          options.onSuccessfulRead?.(absolutePath);
+          options.onSuccessfulRead?.(absolutePath, readAnchors(result.details), readStamp);
         }
         return result;
       };
@@ -326,6 +350,8 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
       throwIfAborted(signal);
       let rawBuffer: Buffer;
       try {
+        // Stamp before reading: a write that lands after the read makes these anchors stale.
+        readStamp = stampOf(absolutePath);
         rawBuffer = await fsReadFile(absolutePath);
       } catch (err: any) {
         const code = err?.code;

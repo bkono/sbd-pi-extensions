@@ -1,0 +1,610 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import init from "../index.js";
+import {
+  AnchorLedger,
+  anchorsInText,
+  freshAnchorWindows,
+  lineMapFromOrigin,
+} from "../src/anchor-ledger.js";
+import { applyHashlineEdits, computeLineHash, ensureHashInit } from "../src/hashline.js";
+
+const a = (line: number, text: string) => `${line}:${computeLineHash(line, text)}`;
+const textOf = (result: any): string =>
+  (result.content ?? []).map((c: any) => (c.type === "text" ? c.text : "")).join("\n");
+
+let dir: string;
+let tools: Record<string, any>;
+
+function harness() {
+  const registered: Record<string, any> = {};
+  init({
+    registerTool(def: any) {
+      registered[def.name] = def;
+    },
+    on() {},
+    events: { emit() {}, on() {} },
+  } as any);
+  return registered;
+}
+
+const call = (name: string, params: any) =>
+  tools[name].execute(`${name}-call`, params, new AbortController().signal, () => {}, {
+    cwd: dir,
+  });
+
+function fixture(name: string, lines: string[]): string {
+  const filePath = join(dir, name);
+  writeFileSync(filePath, `${lines.join("\n")}\n`, "utf8");
+  return filePath;
+}
+const linesOf = (filePath: string) => readFileSync(filePath, "utf8").split("\n").slice(0, -1);
+
+beforeAll(async () => {
+  await ensureHashInit();
+});
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "anchor-ledger-"));
+  tools = harness();
+});
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+  delete (globalThis as any).__hashlineToolExecutors;
+});
+
+describe("anchor ledger through the edit tool", () => {
+  it("carries an earlier read's anchor through a shifting edit to the same physical line", async () => {
+    const file = fixture("shift.ts", ["first", "", "keep1", "keep2", "", "last"]);
+    await call("read", { path: file });
+
+    const deleteFirst = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(1, "first"), new_text: "" } }],
+    });
+    expect(deleteFirst.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "", "last"]);
+
+    // 5:<blank> from the first read now names line 4; line 5 is "last".
+    const second = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(5, ""), new_text: "MOVED" } }],
+    });
+    expect(second.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "MOVED", "last"]);
+  });
+
+  it("refuses a hash match on a line never shown; a renumbered shown line lands on that line", async () => {
+    const file = fixture("forged.ts", ["first", "", "keep1", "keep2", "", "last", "x", "", "y"]);
+    await call("read", { path: file, limit: 6 });
+    await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(1, "first"), new_text: "" } }],
+    });
+    // Line 7 is now the blank that was line 8, never shown: a hash match alone does not pass.
+    const forged = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(7, ""), new_text: "WRONG" } }],
+    });
+    expect(forged.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(textOf(forged)).toContain(`${a(7, "")} was not issued`);
+    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "", "last", "x", "", "y"]);
+
+    // 4:<blank> renumbers the shown 5:<blank> (now line 4): it edits that same physical line.
+    const renumbered = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(4, ""), new_text: "RIGHT" } }],
+    });
+    expect(renumbered.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["", "keep1", "keep2", "RIGHT", "last", "x", "", "y"]);
+  });
+
+  it("accepts a second edit from the same read without a re-read", async () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`);
+    const file = fixture("two-edits.ts", lines);
+    await call("read", { path: file });
+
+    const first = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(3, "line 3"), new_text: "added A\nadded B" } }],
+    });
+    expect(first.isError).not.toBe(true);
+    const second = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(30, "line 30"), new_text: "line 30 changed" } }],
+    });
+    expect(second.isError).not.toBe(true);
+    expect(linesOf(file)[31]).toBe("line 30 changed");
+  });
+
+  it("returns fresh anchors for the changed region, and they are accepted", async () => {
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+    const file = fixture("fresh.ts", lines);
+    await call("read", { path: file });
+    const result = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(10, "line 10"), new_text: "new 11\nnew 12" } }],
+    });
+    const text = textOf(result);
+    expect(text).toContain(
+      "Fresh anchors (anchors you already hold for unchanged lines still work):",
+    );
+    expect(anchorsInText(text).map((x) => x.line)).toEqual([9, 10, 11, 12, 13, 14]);
+    expect(text).toContain(`${a(12, "new 12")}|new 12`);
+
+    const followUp = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(12, "new 12"), new_text: "new 12 fixed" } }],
+    });
+    expect(followUp.isError).not.toBe(true);
+    expect(linesOf(file)[11]).toBe("new 12 fixed");
+  });
+
+  it("refuses anchors after the file changed outside the edit tool", async () => {
+    const file = fixture("outside.ts", ["a", "b", "c"]);
+    await call("read", { path: file });
+    writeFileSync(file, "inserted\na\nb\nc\n", "utf8");
+
+    const stale = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(2, "b"), new_text: "B" } }],
+    });
+    expect(stale.isError).toBe(true);
+    expect(stale.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(textOf(stale)).toContain("changed since its anchors were issued");
+    expect(readFileSync(file, "utf8")).toBe("inserted\na\nb\nc\n");
+  });
+
+  it("refuses an ambiguous key once, naming the moved line; each anchor then means one line", async () => {
+    const file = fixture("ambiguous.ts", ["x", "}", "y", "}", "z"]);
+    await call("read", { path: file });
+    // Old 4:} moves to 6; the result shows the new line 4 (old 2:}) as 4:} too.
+    const insert = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "x"), new_text: "p\nq" } }],
+    });
+    expect(anchorsInText(textOf(insert))).toContainEqual({
+      line: 4,
+      hash: computeLineHash(4, "}"),
+    });
+
+    const ambiguous = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // held" } }],
+    });
+    expect(ambiguous.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(textOf(ambiguous)).toContain(
+      `${a(4, "}")} is ambiguous: an anchor you held from before an edit moved to line 6 (now ${a(6, "}")})`,
+    );
+    expect(linesOf(file)).toEqual(["x", "p", "q", "}", "y", "}", "z"]);
+
+    // The moved line is reachable under its new anchor; the old key now means line 4.
+    const moved = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(6, "}"), new_text: "} // held" } }],
+    });
+    expect(moved.isError).not.toBe(true);
+    const own = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // four" } }],
+    });
+    expect(own.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["x", "p", "q", "} // four", "y", "} // held", "z"]);
+  });
+
+  const nested = [
+    "function f() {",
+    "  if (a) {",
+    "    g();",
+    "  }",
+    "  if (b) {",
+    "    h();",
+    "  }",
+    "}",
+  ];
+  const shiftThree = () => ({
+    insert_after: { anchor: a(1, "function f() {"), new_text: "  n1();\n  n2();\n  n3();" },
+  });
+
+  it("a later view never retargets a held anchor: refusal display, then grep context", async () => {
+    // After the shift, line 7 is if(a)'s brace; the held 7:} meant if(b)'s brace, now line 10.
+    const file = fixture("held.ts", nested);
+    await call("read", { path: file });
+    await call("edit", { path: file, edits: [shiftThree()] });
+    const refused = await call("edit", {
+      path: file,
+      edits: [
+        { set_line: { anchor: a(7, "  }"), new_text: "  } // end b" } },
+        { set_line: { anchor: a(8, "    g();"), new_text: "    g(1);" } },
+      ],
+    });
+    // 7:} is held for if(b)'s brace (now 10) and also renumbers if(a)'s shown brace (now 7):
+    // the refusal names the moved line before anything can bind.
+    expect(refused.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(textOf(refused)).toContain(`moved to line 10 (now ${a(10, "  }")})`);
+    const meant = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(10, "  }"), new_text: "  } // end b" } }],
+    });
+    expect(meant.isError).not.toBe(true);
+    expect(linesOf(file)[9]).toBe("  } // end b");
+    expect(linesOf(file)[6]).toBe("  }");
+
+    const file2 = fixture("held2.ts", nested);
+    await call("read", { path: file2 });
+    await call("edit", { path: file2, edits: [shiftThree()] });
+    await call("grep", { pattern: "g\\(\\)", path: file2, context: 1 });
+    const viaGrep = await call("edit", {
+      path: file2,
+      edits: [{ set_line: { anchor: a(7, "  }"), new_text: "  } // end b" } }],
+    });
+    expect(viaGrep.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file2)[6]).toBe("  }");
+  });
+
+  it("a re-read does not loop: one refusal settles the key", async () => {
+    // Live t6 failure: a `});` anchor named two lines, and re-reads could not resolve it.
+    const file = fixture("loop.ts", ["a", "});", "b", "});", "c"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "a"), new_text: "n1\nn2" } }],
+    });
+    await call("read", { path: file, offset: 3, limit: 3 });
+    const edit = () =>
+      call("edit", {
+        path: file,
+        edits: [{ insert_after: { anchor: a(4, "});"), new_text: "after four" } }],
+      });
+    expect((await edit()).details.ptcValue.error.code).toBe("stale-anchor");
+    expect((await edit()).isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["a", "n1", "n2", "});", "after four", "b", "});", "c"]);
+  });
+
+  it("moves anchors exactly past a replace_symbol splice instead of relocating by hash", async () => {
+    const lines = [
+      "function a() {",
+      "  return 1;",
+      "}",
+      ...Array.from({ length: 5 }, (_, i) => `const f${i} = ${i};`),
+      "function b() {",
+      "  if (x) {",
+      "    y();",
+      "  }",
+      "  return 2;",
+      "}",
+    ];
+    const file = fixture("rs.ts", lines);
+    await call("read", { path: file });
+    const body = [
+      "function a() {",
+      "  if (q) {",
+      ...Array.from({ length: 15 }, (_, i) => `    s${i}();`),
+      "  }",
+      ...Array.from({ length: 25 }, (_, i) => `  t${i}();`),
+      "  return 1;",
+      "}",
+    ].join("\n");
+    const result = await call("edit", {
+      path: file,
+      edits: [
+        { replace_symbol: { symbol: "a", new_body: body } },
+        { set_line: { anchor: a(12, "  }"), new_text: "  } // MARK" } },
+      ],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(linesOf(file).findIndex((l) => l.includes("MARK")) + 1).toBe(12 + 42);
+  });
+
+  it("issues ptcValue anchors past the read text's truncation", async () => {
+    const lines = Array.from({ length: 2500 }, (_, i) => `row ${i + 1}`);
+    const file = fixture("long.ts", lines);
+    const read = await call("read", { path: file });
+    expect(textOf(read)).not.toContain(`${a(2400, "row 2400")}|`);
+    const result = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(2400, "row 2400"), new_text: "edited" } }],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(linesOf(file)[2399]).toBe("edited");
+  });
+
+  it("carries a held blank line past an inserted block that starts with a blank line", async () => {
+    // Verifier case C: a content diff slid the held blank onto the inserted one.
+    const file = fixture("slide.ts", [
+      "function a() {",
+      "  one();",
+      "}",
+      "",
+      "function b() {",
+      "  two();",
+      "}",
+      "tail",
+    ]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "function a() {"), new_text: "  zero();" } }],
+    });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(3, "}"), new_text: "\nfunction mid() {\n}" } }],
+    });
+    const held = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(4, ""), new_text: "// doc comment for b()" } }],
+    });
+    expect(held.isError).not.toBe(true);
+    const lines = linesOf(file);
+    expect(lines[lines.indexOf("function b() {") - 1]).toBe("// doc comment for b()");
+  });
+
+  it("refuses the anchor of a line it just replaced, even with an identical neighbour", async () => {
+    // Verifier case A.
+    const file = fixture("replaced.ts", ["a", "x", "x", "x", "b"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(2, "x"), new_text: "u1" } }],
+    });
+    const reuse = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(2, "x"), new_text: "NEW" } }],
+    });
+    expect(reuse.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file)).toEqual(["a", "u1", "x", "x", "b"]);
+  });
+
+  it("drops anchors of lines a text replace touched and carries the rest exactly", async () => {
+    const file = fixture("text.ts", ["start", "", "middle", "", "end"]);
+    await call("read", { path: file });
+    // Inserts a blank-led block in place of "middle"; the held blank at line 4 must stay itself.
+    await call("edit", {
+      path: file,
+      edits: [{ replace: { old_text: "middle", new_text: "\nmid A\nmid B" } }],
+    });
+    expect(linesOf(file)).toEqual(["start", "", "", "mid A", "mid B", "", "end"]);
+    const held = await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(4, ""), new_text: "before end" } }],
+    });
+    expect(held.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["start", "", "", "mid A", "mid B", "", "before end", "end"]);
+  });
+
+  it("issues the anchors a no-op error shows, so a retry with them is accepted", async () => {
+    // Verifier note: a carried anchor's no-op error printed a key the ledger had not issued.
+    const file = fixture("noop.ts", ["a", "b", "c", "}", "d", "e", "f", "}", "g"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "a"), new_text: "NEW1\nNEW2\nNEW3" } }],
+    });
+    const noop = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(8, "}"), new_text: "}" } }],
+    });
+    expect(noop.details.ptcValue.error.code).toBe("no-op");
+    expect(textOf(noop)).toContain(`${a(11, "}")}| }`);
+    const retry = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(11, "}"), new_text: "x" } }],
+    });
+    expect(retry.isError).not.toBe(true);
+    expect(linesOf(file)[10]).toBe("x");
+  });
+
+  it("never issues anchor-shaped file text shown by a diagnostic", async () => {
+    // Verifier 2a at 93ab20e: a no-op range printed raw lines, and `5:<hash>|x` became an anchor.
+    const forged = a(5, "secret-line-4");
+    const file = fixture("shaped.ts", ["top", `${forged}|x`, "mid", "}", "secret-line-4", "end"]);
+    await call("read", { path: file, limit: 3 });
+    const noop = await call("edit", {
+      path: file,
+      edits: [
+        {
+          replace_lines: {
+            start_anchor: a(1, "top"),
+            end_anchor: a(3, "mid"),
+            new_text: `top\n${forged}|x\nmid`,
+          },
+        },
+      ],
+    });
+    expect(noop.details.ptcValue.error.code).toBe("no-op");
+    expect(textOf(noop)).toContain(`\n${forged}|x`);
+    const attempt = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: forged, new_text: "Z" } }],
+    });
+    expect(attempt.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file)[4]).toBe("secret-line-4");
+  });
+
+  it("a key whose carried meaning the memory cap evicted is refused once before reuse", async () => {
+    // Codex P1 on #12: eviction dropped the carried line, then a read re-issued the key for
+    // another line and the edit was accepted there.
+    const lines = Array.from({ length: 40 }, (_, i) =>
+      i === 10 || i === 20 ? "}" : `line ${i + 1}`,
+    );
+    const file = fixture("evict.ts", lines);
+    for (let i = 0; i < 17; i++) {
+      await call("read", { path: file });
+      await call("edit", {
+        path: file,
+        edits: [{ insert_after: { anchor: a(1, "line 1"), new_text: `ins ${i}` } }],
+      });
+    }
+    await call("read", { path: file });
+    const before = readFileSync(file, "utf8");
+    const reuse = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(27, "}"), new_text: "} // which?" } }],
+    });
+    expect(reuse.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(readFileSync(file, "utf8")).toBe(before);
+  });
+
+  it("evicted keys stay refused-once through later edits and views, then resolve", () => {
+    const file = fixture("evict-unit.ts", ["a", "}", "b", "}"]);
+    const ledger = new AnchorLedger({ keysPerLine: 0, keySlack: 0 });
+    const hb = computeLineHash(2, "}");
+    ledger.issue(file, [
+      { line: 2, hash: hb },
+      { line: 4, hash: hb },
+    ]);
+    // Two lines inserted at the top: 2:} now names line 4, 4:} names line 6; the cap evicts both.
+    writeFileSync(file, "n1\nn2\na\n}\nb\n}\n");
+    ledger.recordEdit(file, lineMapFromOrigin([0, 0, 1, 2, 3, 4], 4), []);
+    const now = ["n1", "n2", "a", "}", "b", "}"];
+    ledger.issue(file, [{ line: 4, hash: hb }]);
+    const first = ledger.check(file, now, [{ line: 4, hash: hb }]);
+    expect(first).toMatchObject({ kind: "stale", refs: [{ evicted: true, candidates: [4] }] });
+    ledger.resolve(file, { line: 4, hash: hb });
+    expect(ledger.check(file, now, [{ line: 4, hash: hb }])).toEqual({ kind: "ok", lines: [4] });
+  });
+
+  it("issues every target line a normalized no-op shows, even with repeated anchors", async () => {
+    // Verifier note at 7b13bee: the cap counted duplicates, so the 4th and 5th shown were not issued.
+    const lines = Array.from({ length: 14 }, (_, i) => `line${i + 1}`);
+    const file = fixture("noop-dup.ts", lines);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "line1"), new_text: "N1\nN2\nN3\nN4\nN5\nN6" } }],
+    });
+    const targets = [8, 9, 10, 11];
+    const noop = await call("edit", {
+      path: file,
+      edits: [
+        ...targets.map((n) => ({
+          replace_lines: {
+            start_anchor: a(n, `line${n}`),
+            end_anchor: a(n, `line${n}`),
+            new_text: `QQ${n}`,
+          },
+        })),
+        ...targets.map((n) => ({ replace: { old_text: `QQ${n}\n`, new_text: `line${n}\n` } })),
+      ],
+    });
+    expect(noop.details.ptcValue.error.code).toBe("no-op");
+    expect(textOf(noop)).toContain(`${a(17, "line11")}|line11`);
+    const use = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(17, "line11"), new_text: "USED" } }],
+    });
+    expect(use.isError).not.toBe(true);
+    expect(linesOf(file)[16]).toBe("USED");
+  });
+
+  it("accepts an anchor the model renumbered itself after its own insert", async () => {
+    // Paired eval, t5/t6: the model read a region, inserted lines above it, then sent the shifted
+    // number (595:fbb for a line shown as 589:fbb). The old engine accepted it; so must the ledger.
+    const lines = Array.from({ length: 30 }, (_, i) => `const v${i + 1} = ${i + 1};`);
+    const file = fixture("renumber.ts", lines);
+    await call("read", { path: file, offset: 20, limit: 10 });
+    await call("read", { path: file, limit: 5 });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(2, "const v2 = 2;"), new_text: "a1();\na2();\na3();" } }],
+    });
+    const shifted = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(28, "const v25 = 25;"), new_text: "const v25 = 250;" } }],
+    });
+    expect(shifted.isError).not.toBe(true);
+    expect(linesOf(file)[27]).toBe("const v25 = 250;");
+  });
+
+  it("still refuses a renumbered brace once when the key also names a moved brace", async () => {
+    const file = fixture("renumber-brace.ts", ["x", "}", "y", "}", "z", "w"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ insert_after: { anchor: a(1, "x"), new_text: "p\nq" } }],
+    });
+    // 4:} was issued for the old line 4 (now 6); line 4 is now the old line 2, also shown.
+    const edit = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(4, "}"), new_text: "} // ?" } }],
+    });
+    expect(edit.details.ptcValue.error.code).toBe("stale-anchor");
+    expect(linesOf(file)).toEqual(["x", "p", "q", "}", "y", "}", "z", "w"]);
+  });
+
+  it("still refuses an edit to a file that was never read", async () => {
+    const file = fixture("unread.ts", ["a"]);
+    const result = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(1, "a"), new_text: "b" } }],
+    });
+    expect(result.details.ptcValue.error.code).toBe("file-not-read");
+  });
+
+  it("issues grep anchors", async () => {
+    const file = fixture("grep.ts", ["alpha", "needle here", "omega"]);
+    await call("grep", { pattern: "needle", path: file });
+    const result = await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(2, "needle here"), new_text: "found" } }],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["alpha", "found", "omega"]);
+  });
+
+  it("keeps replace edits working after the file's own earlier edit", async () => {
+    const file = fixture("replace.ts", ["const a = 1;", "const b = 2;"]);
+    await call("read", { path: file });
+    await call("edit", {
+      path: file,
+      edits: [{ set_line: { anchor: a(1, "const a = 1;"), new_text: "const a = 10;" } }],
+    });
+    const replace = await call("edit", {
+      path: file,
+      edits: [{ replace: { old_text: "const b = 2;", new_text: "const b = 20;" } }],
+    });
+    expect(replace.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["const a = 10;", "const b = 20;"]);
+  });
+});
+
+describe("lineMapFromOrigin", () => {
+  it("maps kept lines and reports inserted runs and pure deletions", () => {
+    // before: a b c d e; after: a X b d e (X inserted, c deleted)
+    const map = lineMapFromOrigin([1, 0, 2, 4, 5], 5);
+    expect([...map.oldToNew]).toEqual([1, 3, 0, 4, 5]);
+    expect(map.changed).toEqual([[2, 2]]);
+    expect(map.deletions).toEqual([4]);
+    expect(lineMapFromOrigin([1, 2], 4).deletions).toEqual([3]);
+  });
+});
+
+describe("freshAnchorWindows", () => {
+  it("shows the head and tail of a long region and stays within the total budget", () => {
+    const lines = Array.from({ length: 400 }, (_, i) => `l${i}`);
+    const changed: Array<[number, number]> = [
+      [10, 60],
+      [100, 101],
+      [200, 201],
+      [300, 301],
+      [350, 351],
+      [380, 381],
+    ];
+    const map = { oldToNew: new Int32Array(0), changed, deletions: [], newLength: 400 };
+    const { shown, omittedRegions } = freshAnchorWindows(lines, map);
+    expect(shown[0]).toEqual([8, 9, 10, 11, 12, 13, 57, 58, 59, 60, 61, 62]);
+    expect(shown.flat().length).toBeLessThanOrEqual(48);
+    expect(shown.length + omittedRegions).toBe(6);
+  });
+});
+
+describe("reformat warning", () => {
+  it("is gone: a mid-file insert_after returns no warning", () => {
+    const content = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+    const result = applyHashlineEdits(content, [
+      { insert_after: { anchor: a(5, "line 5"), new_text: "one\ntwo\nthree" } },
+    ]);
+    expect(result.warnings).toBeUndefined();
+  });
+});

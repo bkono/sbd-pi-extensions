@@ -4,6 +4,7 @@ import { dirname, relative } from "node:path";
 import { type ExtensionAPI, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { IssuedAnchor } from "./anchor-ledger.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import {
   buildContextHygieneMetadata,
@@ -162,7 +163,8 @@ function generateWriteDiff(
 }
 
 export interface WriteToolOptions {
-  onFileAnchored?: (absolutePath: string) => void;
+  /** Called with the LINE:HASH anchors of the written content. */
+  onFileAnchored?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
 
 type MappedFsError = {
@@ -420,7 +422,10 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
         }
 
         if (result.ptcValue.lines.length > 0) {
-          options.onFileAnchored?.(absolutePath);
+          options.onFileAnchored?.(
+            absolutePath,
+            result.ptcValue.lines.map((l) => ({ line: l.line, hash: l.hash })),
+          );
         }
 
         // Lift binary-content signal into a fatal ptcValue.error envelope so

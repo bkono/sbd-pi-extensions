@@ -114,9 +114,7 @@ describe("a stale read held unmasked for the cached prefix", () => {
         { cwd: process.cwd() },
       );
       expect(edit2.isError).toBe(true);
-      expect(edit2.content.find((c: any) => c.type === "text")?.text).toContain(
-        `You must get fresh anchors for ${filePath} before editing it.`,
-      );
+      expect(edit2.details.ptcValue.error.code).toBe("stale-anchor");
       expect(readFileSync(filePath, "utf-8")).toBe(
         `${["a", "b", "uniqueLineV2", "d", "e"].join("\n")}\n`,
       );

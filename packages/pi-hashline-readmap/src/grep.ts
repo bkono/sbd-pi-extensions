@@ -5,6 +5,7 @@ import type { ExtensionAPI, ToolRenderResultOptions } from "@earendil-works/pi-c
 import { createGrepTool } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { IssuedAnchor } from "./anchor-ledger.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { buildGrepRehydrateDescriptor } from "./context-hygiene.js";
@@ -301,7 +302,8 @@ function escapeForRegex(s: string): string {
 
 interface GrepToolOptions {
   astSearchGuideline?: string;
-  onFileAnchored?: (absolutePath: string) => void;
+  /** Called per file with the LINE:HASH anchors the result showed for it. */
+  onFileAnchored?: (absolutePath: string, anchors: IssuedAnchor[]) => void;
 }
 
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
@@ -709,9 +711,14 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
       });
 
       if (!summary && ptcRecords.length > 0) {
-        const anchoredPaths = new Set(ptcRecords.map((record) => record.path));
-        for (const absolutePath of anchoredPaths) {
-          options.onFileAnchored?.(absolutePath);
+        const byPath = new Map<string, IssuedAnchor[]>();
+        for (const record of ptcRecords) {
+          const anchors = byPath.get(record.path) ?? [];
+          anchors.push({ line: record.line, hash: record.hash });
+          byPath.set(record.path, anchors);
+        }
+        for (const [absolutePath, anchors] of byPath) {
+          options.onFileAnchored?.(absolutePath, anchors);
         }
       }
 

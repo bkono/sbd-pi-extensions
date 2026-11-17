@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import init from "../index.js";
-import { buildContextHygieneMetadata, buildFileResource } from "../src/context-hygiene.js";
 import { computeLineHash, ensureHashInit } from "../src/hashline.js";
 
 function createHarness() {
@@ -19,12 +18,12 @@ function createHarness() {
   return handlers;
 }
 
-describe("Windows-style readTurns stale expiry", () => {
+describe("Windows-style paths in the anchor ledger", () => {
   afterEach(() => {
     delete (globalThis as any).__hashlineToolExecutors;
   });
 
-  it("expires read-before-edit guard entries when stale keys are slash-normalized", async () => {
+  it("a bash mutation on a slash-normalized target forgets anchors the read issued", async () => {
     await ensureHashInit();
     const dir = mkdtempSync(join(tmpdir(), "readturns-win-"));
     try {
@@ -33,7 +32,6 @@ describe("Windows-style readTurns stale expiry", () => {
 
       const handlers = createHarness();
       const executors = (globalThis as any).__hashlineToolExecutors;
-
       const readResult = await executors.read.execute(
         "read-call",
         { path: filePath },
@@ -41,56 +39,34 @@ describe("Windows-style readTurns stale expiry", () => {
         () => {},
         { cwd: process.cwd() },
       );
+      expect(readResult.isError).not.toBe(true);
 
+      // The command never runs, so only the ledger's forget() can make the anchor stale.
       await handlers.tool_result(
         {
           type: "tool_result",
-          toolName: "read",
-          toolCallId: "read-call",
-          input: { path: filePath },
-          content: readResult.content,
+          toolName: "bash",
+          toolCallId: "bash-call",
+          input: { command: `printf 'x' > '${filePath}'` },
+          content: [{ type: "text", text: "" }],
           isError: false,
-          details: readResult.details,
+          details: {},
         },
         {},
       );
 
-      await handlers.tool_result(
-        {
-          type: "tool_result",
-          toolName: "edit",
-          toolCallId: "edit-call",
-          input: { path: filePath },
-          content: [{ type: "text", text: "edit succeeded" }],
-          isError: false,
-          details: {
-            contextHygiene: buildContextHygieneMetadata({
-              tool: "edit",
-              classification: "mutation",
-              resources: [buildFileResource(filePath)],
-            }),
-          },
-        },
-        {},
-      );
-
-      handlers.context({ type: "context", messages: [] }, {});
-
-      const original = readFileSync(filePath, "utf8").split("\n")[0];
-      const anchor = `1:${computeLineHash(1, original)}`;
+      const anchor = `1:${computeLineHash(1, "const value = 1;")}`;
       const editResult = await executors.edit.execute(
-        "second-edit",
-        {
-          path: filePath,
-          edits: [{ set_line: { anchor, new_text: "const value = 2;" } }],
-        },
+        "edit-call",
+        { path: filePath, edits: [{ set_line: { anchor, new_text: "const value = 2;" } }] },
         new AbortController().signal,
         () => {},
         { cwd: process.cwd() },
       );
 
       expect(editResult.isError).toBe(true);
-      expect(editResult.details?.ptcValue?.error?.code).toBe("file-not-read");
+      expect(editResult.details?.ptcValue?.error?.code).toBe("stale-anchor");
+      expect(readFileSync(filePath, "utf8")).toBe("const value = 1;\n");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
