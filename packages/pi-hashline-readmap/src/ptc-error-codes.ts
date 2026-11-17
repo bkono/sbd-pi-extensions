@@ -54,6 +54,10 @@ export const PTC_ERROR_CODES = {
     description: "edit anchors were not issued for the file's current content",
     trigger: "the anchor ledger has no single current line for an anchor in the request",
   },
+  "overlapping-edits": {
+    description: "anchored edits in one request target overlapping lines",
+    trigger: "applyHashlineEdits found intersecting spans (or an insert_after on a replaced line)",
+  },
   "no-op": {
     description: "edits produced identical content",
     trigger: "originalNormalized === result after applying edits",

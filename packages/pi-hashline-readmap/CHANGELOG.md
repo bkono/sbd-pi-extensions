@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Anchored edits are written exactly as sent. The engine's vendored repair rules are removed: range-boundary echo stripping (dropped a last or first `new_text` line that matched the next or previous file line, ignoring whitespace), insert-anchor echo stripping, wrapped-line restoration, single-line merge expansion, and indent restoration. A replay of about 470 edits from the hashline eval found 6 firings, every one harmful: five dropped a closing line the code needed (`    }` before `  }`, `    });` before `  });`), leaving broken code the model only found through a test failure, and one removed a deliberate blank line. A copied `LINE:HASH|` prefix is still stripped, but only when its hash matches the rest of its own line, so data like `10:45|standup` or `100|a2` is kept. Leading `+` is no longer stripped (Markdown lists, diff files).
+- Overlapping anchored edits in one request are refused with `overlapping-edits` instead of corrupting the file (for example `replace_lines 1-3` plus `set_line 2` used to delete line 4). Conflicting edits to one line are refused rather than "last wins". An `insert_after` on a replaced line goes right after that replacement's lines. Several `insert_after` edits on one line apply in request order (they came out reversed).
+- An unchanged line containing an en dash, em dash or minus sign is a no-op; it used to be rewritten with ASCII `-`.
+
 ### Changed
 - `write` returns a one-line summary (`Created <path> (N lines).`) instead of echoing the whole file as `LINE:HASH|` lines. The model wrote the content, so the echo cost about 1.15x the file size in context on every later request. It issues no anchors: an anchored `edit` after `write` needs a `read`, a text `replace` does not. `ptcValue.lines` still carries every anchor for programmatic callers.
 

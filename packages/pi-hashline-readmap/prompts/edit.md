@@ -63,7 +63,7 @@ An anchor you held from before an edit can share its `LINE:HASH` with a line sho
 ## Validation and warnings
 
 - All edits are checked before writing; if a hard validation fails, nothing is written.
-- Anchored edits are applied bottom-up so line numbers stay stable.
+- Anchored edits are applied bottom-up so line numbers stay stable, each exactly as sent. Edits whose lines overlap are refused with `overlapping-edits`; an `insert_after` on a line another edit replaces goes after that replacement.
 - `no-op` means the requested edit matched the current file already or produced identical content.
 - A whitespace-only warning means formatting changed but behavior probably did not.
 - A `replace`-only success may include a reminder to prefer anchored edits next time.
