@@ -33,7 +33,7 @@ import {
   restoreLineEndings,
   stripBom,
 } from "./edit-diff.js";
-import { unflattenEditItem, unflattenEditItems } from "./edit-items.js";
+import { editItemProblem, unflattenEditItem, unflattenEditItems } from "./edit-items.js";
 import { buildEditOutput } from "./edit-output.js";
 import { countEditTypes, formatEditCallText, formatEditResultText } from "./edit-render-helpers.js";
 import { validateSyntaxRegression } from "./edit-syntax-validate.js";
@@ -149,7 +149,6 @@ type HashlineParams = Static<typeof hashlineEditSchema>;
 type EditItemInput =
   | { set_line: { anchor: string; new_text: string } }
   | { replace_lines: { start_anchor: string; end_anchor: string; new_text: string } }
-  | { replace: { old_text: string; new_text: string; all?: boolean } }
   | { insert_after: { anchor: string; new_text: string; text?: string } }
   | { replace: { old_text: string; new_text: string; all?: boolean; fuzzy?: boolean } }
   | { replace_symbol: { symbol: string; new_body: string } };
@@ -460,11 +459,16 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               },
             ];
             legacyNormalizationWarning =
-              "Legacy top-level oldText/newText input was normalized to edits[0].replace. Prefer the edits[] format.";
+              'Top-level oldText/newText was treated as one replace edit. Prefer edits: [{ op: "replace", old_text, new_text }].';
           }
 
           if (!edits.length) {
             return buildEditError(absolutePath, "invalid-edit-variant", "No edits provided.");
+          }
+
+          for (let i = 0; i < (parsed.edits ?? []).length; i++) {
+            const problem = editItemProblem((parsed.edits ?? [])[i], i);
+            if (problem) return buildEditError(absolutePath, "invalid-edit-variant", problem);
           }
 
           // Validate edit variant keys

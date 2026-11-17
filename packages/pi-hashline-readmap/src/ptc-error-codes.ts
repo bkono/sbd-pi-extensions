@@ -71,8 +71,9 @@ export const PTC_ERROR_CODES = {
     trigger: "isBinaryBuffer detected NUL bytes",
   },
   "invalid-edit-variant": {
-    description: "edits[i] is not exactly one of set_line/replace_lines/insert_after/replace",
-    trigger: "exactly-one variant check failed",
+    description:
+      "edits[i] is not a valid edit: unknown op, a field from another op, or a missing field",
+    trigger: "op/variant or field check failed",
   },
 
   // grep

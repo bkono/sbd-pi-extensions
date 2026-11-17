@@ -103,4 +103,45 @@ describe("flat {op, ...} edit items", () => {
     expect(preview.type).toBe("ok");
     if (preview.type === "ok") expect(preview.data.nextContent).toBe("alpha\nBETA\n");
   });
+
+  it("refuses a field from another op instead of silently dropping it", async () => {
+    const file = join(dir, "s.ts");
+    writeFileSync(file, "one\ntwo\nthree\n");
+    await call("read", { path: file });
+    const ranged = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(1, "one"), end_anchor: a(3, "three"), new_text: "X" }],
+    });
+    expect(ranged.details.ptcValue.error.code).toBe("invalid-edit-variant");
+    expect(ranged.content[0].text).toContain("end_anchor, which belongs to another op");
+    const hybrid = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", set_line: { anchor: a(1, "one"), new_text: "X" } }],
+    });
+    expect(hybrid.details.ptcValue.error.code).toBe("invalid-edit-variant");
+    expect(linesOf(file)).toEqual(["one", "two", "three"]);
+  });
+
+  it("refuses a missing field with an error, not an exception, and ignores unknown keys", async () => {
+    const file = join(dir, "m.ts");
+    writeFileSync(file, "one\n");
+    await call("read", { path: file });
+    const missing = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(1, "one") }],
+    });
+    expect(missing.details.ptcValue.error.code).toBe("invalid-edit-variant");
+    expect(missing.content[0].text).toContain("missing new_text");
+    const nestedMissing = await call("edit", {
+      path: file,
+      edits: [{ replace: { new_text: "x" } }],
+    });
+    expect(nestedMissing.details.ptcValue.error.code).toBe("invalid-edit-variant");
+    const junk = await call("edit", {
+      path: file,
+      edits: [{ op: "set_line", anchor: a(1, "one"), new_text: "ONE", why: "rename" }],
+    });
+    expect(junk.isError).not.toBe(true);
+    expect(linesOf(file)).toEqual(["ONE"]);
+  });
 });
