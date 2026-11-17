@@ -38,11 +38,15 @@
     {
       "text": "Review feedback accepted for assessment: principle references inside nested skills have same first-read failure; Host row says this skill base directory ambiguously. Same branch/worktree, no cross-root principle links. Reproduce on native Pi, clarify that base is sbd router own directory, rerun matching scenario, then fresh review/verifier. Also assess absent remote local-verdict record and publish exact SHA-bound verification evidence in PR body.",
       "timestamp": "2026-11-17T04:47:05Z"
+    },
+    {
+      "text": "Principle feedback addressed at d50a3e7f58ce3c5b77da5e4a4c1bbcc901528558, same PR30 ready. One Host row now explicitly bases Pi/Claude principle reads at sbd router own directory even under nested callers; no cross-root links or runtime changes. Full386tests+1baseline skip, lint baselineINFO, package/app typechecks pass. Lead2baselines and verifier own parent run resolved correctly, so no independently reproduced red/green claim. Lead after native nested activation first-read separate-before..., model-domain and type-system leaves correctly; verifier independently drove parent/head Pi and head principle target catalog, all pass. Fresh Sol read-only fallback APPROVE (pack Opus reviewer hit429); separate Terra verifier recorded PASS+NOTES currentSHA, local check confirms. Reports /tmp/sbd-principle-review.md and /tmp/sbd-principle-verdict.md. Prior1d79 record also exists; store is machine-local keyed by real git-common-dir, shared across linked worktrees, not independent clones/machines. PR body now contains exact current SHA and real verifier role/model/result/time record extract, explicitly not CI. statusCheckRollup empty. No GitHub review comment posted, no store behavior changes, no merge/install/deploy.",
+      "timestamp": "2026-11-17T05:00:00Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T04:47:05Z"
+  "updated_at": "2026-11-17T05:00:00Z"
 }
