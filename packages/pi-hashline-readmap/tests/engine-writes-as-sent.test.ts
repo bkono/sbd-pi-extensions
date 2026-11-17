@@ -1,5 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { applyHashlineEdits, computeLineHash, ensureHashInit } from "../src/hashline.js";
+import {
+  applyHashlineEdits,
+  computeLineHash,
+  ensureHashInit,
+  HashlineOverlapError,
+} from "../src/hashline.js";
 
 const a = (line: number, text: string) => `${line}:${computeLineHash(line, text)}`;
 
@@ -74,5 +79,48 @@ describe("the engine writes anchored edits exactly as sent", () => {
       { set_line: { anchor: a(2, "two"), new_text: `2:${computeLineHash(2, "TWO")}|TWO` } },
     ]);
     expect(result.content).toBe("one\nTWO");
+  });
+
+  it("refuses overlapping anchored edits instead of corrupting the file", () => {
+    const content = ["l1", "l2", "l3", "l4"].join("\n");
+    expect(() =>
+      applyHashlineEdits(content, [
+        { replace_lines: { start_anchor: a(1, "l1"), end_anchor: a(3, "l3"), new_text: "R" } },
+        { set_line: { anchor: a(2, "l2"), new_text: "S" } },
+      ]),
+    ).toThrow(HashlineOverlapError);
+    expect(() =>
+      applyHashlineEdits(content, [
+        { replace_lines: { start_anchor: a(1, "l1"), end_anchor: a(3, "l3"), new_text: "R" } },
+        { insert_after: { anchor: a(2, "l2"), new_text: "INS" } },
+      ]),
+    ).toThrow(HashlineOverlapError);
+  });
+
+  it("puts an insert_after on a replaced line right after the replacement's lines", () => {
+    const content = ["l1", "l2", "l3"].join("\n");
+    const result = applyHashlineEdits(content, [
+      { set_line: { anchor: a(2, "l2"), new_text: "n1\nn2\nn3" } },
+      { insert_after: { anchor: a(2, "l2"), new_text: "INS" } },
+    ]);
+    expect(result.content.split("\n")).toEqual(["l1", "n1", "n2", "n3", "INS", "l3"]);
+  });
+
+  it("applies several insert_after edits on one line in request order", () => {
+    const content = ["a", "b"].join("\n");
+    const result = applyHashlineEdits(content, [
+      { insert_after: { anchor: a(1, "a"), new_text: "FIRST" } },
+      { insert_after: { anchor: a(1, "a"), new_text: "SECOND" } },
+    ]);
+    expect(result.content.split("\n")).toEqual(["a", "FIRST", "SECOND", "b"]);
+  });
+
+  it("reports an unchanged line with dashes as a no-op instead of rewriting its dashes", () => {
+    const content = ["// a — b", "x"].join("\n");
+    const result = applyHashlineEdits(content, [
+      { set_line: { anchor: a(1, "// a — b"), new_text: "// a — b" } },
+    ]);
+    expect(result.content).toBe(content);
+    expect(result.noopEdits).toHaveLength(1);
   });
 });

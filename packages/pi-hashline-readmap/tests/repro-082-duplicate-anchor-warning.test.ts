@@ -25,7 +25,7 @@ describe("issue #082 reproduction — duplicate anchors in one edit batch", () =
     await ensureHashInit();
   });
 
-  it("warns when multiple set_line operations target the same anchor in one batch", async () => {
+  it("refuses multiple conflicting set_line operations on the same anchor in one batch", async () => {
     const tool = captureEditTool();
     const dir = mkdtempSync(resolve(tmpdir(), "pi-repro-082-"));
     const filePath = resolve(dir, "sample.ts");
@@ -49,11 +49,10 @@ describe("issue #082 reproduction — duplicate anchors in one edit batch", () =
         { cwd: process.cwd() },
       );
 
-      expect(readFileSync(filePath, "utf8")).toContain("const c = 300;");
-      const warnings = result.details.ptcValue.warnings;
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain(anchor);
-      expect(getTextContent(result)).toContain(warnings[0]);
+      // Conflicting edits to one line are refused; nothing is written.
+      expect(result.details.ptcValue.error.code).toBe("overlapping-edits");
+      expect(getTextContent(result)).toContain("overlap");
+      expect(readFileSync(filePath, "utf8")).toBe(originalLines.join("\n"));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

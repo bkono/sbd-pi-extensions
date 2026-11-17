@@ -43,6 +43,7 @@ import {
   escapeControlCharsForDisplay,
   type HashlineEditItem,
   HashlineMismatchError,
+  HashlineOverlapError,
   parseLineRef,
 } from "./hashline.js";
 import { resolveEditDiffDisplay } from "./hashline-settings.js";
@@ -714,6 +715,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               ...(options.anchors ? { origin } : {}),
             });
           } catch (err) {
+            if (err instanceof HashlineOverlapError) {
+              return buildEditError(absolutePath, "overlapping-edits", err.message);
+            }
             if (err instanceof HashlineMismatchError) {
               // The lines it shows are computed from disk content unless replace_symbol ran first.
               if (options.anchors && rsProbeResults.length === 0) {
@@ -814,7 +818,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               }
               if (targetLines.length > 0) {
                 const preview = targetLines.join("\n");
-                diagnostic += `\nThe file currently contains:\n${preview}\nYour edits were normalized back to the original content. Ensure your replacement changes actual code, not just formatting.`;
+                diagnostic += `\nThe file currently contains:\n${preview}\nTogether, your edits leave the file unchanged (for example a later replace undid an earlier edit, or old_text equals new_text).`;
               }
             }
             // The anchors this shows name current disk lines: issue them so a retry can use them.

@@ -3,8 +3,7 @@
  * Hashline engine — hash-anchored line editing.
  *
  * Vendored & adapted from oh-my-pi (MIT, github.com/can1357/oh-my-pi).
- * Edits are applied exactly as sent: the vendored echo/merge/wrap/indent repairs were removed
- * (they corrupted current models' edits; see CHANGELOG).
+ * Edits are applied exactly as sent.
  */
 
 import xxhashWasm from "xxhash-wasm";
@@ -43,6 +42,14 @@ export class HashlineMismatchError extends Error {
   }
 }
 
+/** Anchored edits in one request whose spans overlap: applying them would write neither as sent. */
+export class HashlineOverlapError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HashlineOverlapError";
+  }
+}
+
 type ParsedRef = { line: number; hash: string; content?: string };
 
 type ParsedSpec =
@@ -68,10 +75,6 @@ const RADIX = 16;
 const HASH_MOD = RADIX ** HASH_LEN;
 const DICT = Array.from({ length: HASH_MOD }, (_, i) => i.toString(RADIX).padStart(HASH_LEN, "0"));
 
-const HASHLINE_PREFIX_RE = /^\d+:[0-9a-zA-Z]{1,16}\|/;
-const DIFF_PLUS_RE = /^\+(?!\+)/;
-const HASH_ONLY_PREFIX_RE = /^[0-9a-f]{3}\|/;
-const CONFUSABLE_HYPHENS_RE = /[\u2010\u2011\u2012\u2013\u2014\u2212\uFE63\uFF0D]/g;
 const HASH_RELOCATION_WINDOW_BASE = 20;
 const HASH_RELOCATION_WINDOW_CAP = 100;
 
@@ -274,43 +277,32 @@ function splitDst(dst: string): string[] {
   return normalized.split("\n");
 }
 
+/**
+ * Strip anchor prefixes a model copied from a view into new_text. A prefix counts only when its
+ * hash matches the rest of its own line, so content that merely looks like `10:45|x` survives.
+ * Diff `+` markers are not stripped: `+` starts real lines (Markdown lists, diff files).
+ */
 function stripNewLinePrefixes(lines: string[]): string[] {
-  let hashCount = 0;
-  let hashOnlyCount = 0;
-  let plusCount = 0;
-  let nonEmpty = 0;
-
-  for (const l of lines) {
-    if (!l.length) continue;
-    nonEmpty++;
-    if (HASHLINE_PREFIX_RE.test(l)) hashCount++;
-    else if (HASH_ONLY_PREFIX_RE.test(l)) hashOnlyCount++;
-    if (DIFF_PLUS_RE.test(l)) plusCount++;
+  const copied = (l: string, re: RegExp) => {
+    const m = re.exec(l);
+    return m !== null && computeLineHash(0, l.slice(m[0].length)) === m[1].toLowerCase();
+  };
+  const full = /^\d+:([0-9a-fA-F]{3})\|/;
+  const bare = /^([0-9a-f]{3})\|/;
+  const nonEmpty = lines.filter((l) => l.length > 0);
+  if (!nonEmpty.length) return lines;
+  const fullCount = nonEmpty.filter((l) => copied(l, full)).length;
+  if (fullCount > 0 && fullCount >= nonEmpty.length * 0.5) {
+    return lines.map((l) => (copied(l, full) ? l.replace(full, "") : l));
   }
-
-  if (!nonEmpty) return lines;
-  const stripHash = hashCount > 0 && hashCount >= nonEmpty * 0.5;
-  const stripHashOnly =
-    !stripHash && nonEmpty >= 2 && hashOnlyCount > 0 && hashOnlyCount >= nonEmpty * 0.5;
-  const stripPlus = !stripHash && !stripHashOnly && plusCount > 0 && plusCount >= nonEmpty * 0.5;
-  if (!stripHash && !stripHashOnly && !stripPlus) return lines;
-
-  return lines.map((l) =>
-    stripHash
-      ? l.replace(HASHLINE_PREFIX_RE, "")
-      : stripHashOnly
-        ? l.replace(HASH_ONLY_PREFIX_RE, "")
-        : stripPlus
-          ? l.replace(DIFF_PLUS_RE, "")
-          : l,
-  );
+  const bareCount = nonEmpty.filter((l) => copied(l, bare)).length;
+  if (nonEmpty.length >= 2 && bareCount >= nonEmpty.length * 0.5) {
+    return lines.map((l) => (copied(l, bare) ? l.replace(bare, "") : l));
+  }
+  return lines;
 }
 
 // ─── Whitespace / format helpers ────────────────────────────────────────
-
-function normalizeConfusableHyphensInLines(lines: string[]): string[] {
-  return lines.map((line) => line.replace(CONFUSABLE_HYPHENS_RE, "-"));
-}
 
 // ─── Edit parser ────────────────────────────────────────────────────────
 
@@ -525,11 +517,8 @@ export function applyHashlineEdits(
     );
   }
 
-  // Detect conflicting duplicate single-target edits and deduplicate identical edits.
+  // Collapse identical duplicate edits (conflicting ones are refused as overlaps below).
   // For single-target edits, keep the last identical occurrence so resolution remains last-wins.
-  const duplicateTargetWarnings: string[] = [];
-  const warnedSingleTargets = new Set<string>();
-  const seenSingleTargets = new Map<string, string>();
   const seenSingleEditByKey = new Map<string, number>();
   const seenNonSingleEditByKey = new Map<string, number>();
   const dupes = new Set<number>();
@@ -548,18 +537,6 @@ export function applyHashlineEdits(
       const previousIdx = seenSingleEditByKey.get(key);
       if (previousIdx !== undefined) dupes.add(previousIdx);
       seenSingleEditByKey.set(key, i);
-      const previousDstKey = seenSingleTargets.get(lk);
-      if (
-        previousDstKey !== undefined &&
-        previousDstKey !== dstKey &&
-        !warnedSingleTargets.has(lk)
-      ) {
-        duplicateTargetWarnings.push(
-          `Warning: multiple edits target the same anchor ${p.spec.ref.line}:${p.spec.ref.hash} — only the last will apply`,
-        );
-        warnedSingleTargets.add(lk);
-      }
-      seenSingleTargets.set(lk, dstKey);
       continue;
     }
     if (seenNonSingleEditByKey.has(key)) {
@@ -570,8 +547,45 @@ export function applyHashlineEdits(
   }
   const deduped = parsed.filter((_, i) => !dupes.has(i));
 
+  // An insert_after on the last line a replacement covers goes right after that replacement's
+  // lines ("change line N, then add lines after it"), in request order.
+  const merged = deduped.filter((p) => {
+    if (p.spec.kind !== "insertAfter") return true;
+    const after = p.spec.after.line;
+    const host = deduped.find(
+      (q) =>
+        (q.spec.kind === "single" && q.spec.ref.line === after) ||
+        (q.spec.kind === "range" && q.spec.end.line === after),
+    );
+    if (!host) return true;
+    host.dstLines = [...host.dstLines, ...p.dstLines];
+    return false;
+  });
+
+  // Overlapping spans cannot all be written as sent: refuse instead of guessing.
+  const spans = merged.map((p) =>
+    p.spec.kind === "single"
+      ? { idx: p.idx, from: p.spec.ref.line, to: p.spec.ref.line, insert: false }
+      : p.spec.kind === "range"
+        ? { idx: p.idx, from: p.spec.start.line, to: p.spec.end.line, insert: false }
+        : { idx: p.idx, from: p.spec.after.line, to: p.spec.after.line, insert: true },
+  );
+  for (let x = 0; x < spans.length; x++) {
+    for (let y = x + 1; y < spans.length; y++) {
+      const [a, b] = [spans[x], spans[y]];
+      if (a.insert && b.insert) continue;
+      if (a.from <= b.to && b.from <= a.to) {
+        const describe = (s: typeof a) =>
+          s.insert ? `insert_after line ${s.from}` : `lines ${s.from}-${s.to}`;
+        throw new HashlineOverlapError(
+          `Edit rejected — nothing was written. edits[${a.idx}] (${describe(a)}) and edits[${b.idx}] (${describe(b)}) overlap. Combine them into one replace_lines whose new_text holds the final lines.`,
+        );
+      }
+    }
+  }
+
   // Sort bottom-up for stable splice
-  const sorted = deduped
+  const sorted = merged
     .map((p) => {
       const sl =
         p.spec.kind === "single"
@@ -582,15 +596,14 @@ export function applyHashlineEdits(
       const pr = p.spec.kind === "insertAfter" ? 1 : 0;
       return { ...p, sl, pr };
     })
-    .sort((a, b) => b.sl - a.sl || a.pr - b.pr || a.idx - b.idx);
+    // Same-line inserts apply last-first, so they land in request order.
+    .sort((a, b) => b.sl - a.sl || a.pr - b.pr || (a.pr ? b.idx - a.idx : a.idx - b.idx));
 
   function track(line: number) {
     if (firstChanged === undefined || line < firstChanged) firstChanged = line;
   }
 
-  // Apply edits bottom-up. The engine writes exactly what the model sent: no echo stripping,
-  // wrapped-line or merge restoration, or indent repair (replay of ~470 eval edits: 6 firings,
-  // all harmful, e.g. a closing `}` dropped because the next line was `  }`).
+  // Apply edits bottom-up, each exactly as sent.
   const sameAsOrig = (orig: string[], next: string[]) =>
     orig.length === next.length && orig.join("\n") === next.join("\n");
   for (const { spec, dstLines, idx } of sorted) {
@@ -600,10 +613,7 @@ export function applyHashlineEdits(
       const count = spec.kind === "single" ? 1 : spec.end.line - spec.start.line + 1;
       const hash = spec.kind === "single" ? spec.ref.hash : spec.start.hash;
       const orig = origLines.slice(start - 1, start - 1 + count);
-      let newL = dstLines;
-      if (sameAsOrig(orig, newL) && orig.some((line) => CONFUSABLE_HYPHENS_RE.test(line))) {
-        newL = normalizeConfusableHyphensInLines(newL);
-      }
+      const newL = dstLines;
       if (sameAsOrig(orig, newL)) {
         noopEdits.push({
           editIndex: idx,
@@ -634,7 +644,7 @@ export function applyHashlineEdits(
     }
   }
 
-  const warnings: string[] = [...relocationNotes, ...duplicateTargetWarnings];
+  const warnings: string[] = [...relocationNotes];
 
   return {
     content: fileLines.join("\n"),
