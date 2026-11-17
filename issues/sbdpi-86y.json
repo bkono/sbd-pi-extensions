@@ -34,6 +34,10 @@
     {
       "text": "Full-scope fix complete at1d79aa0260525f65b432eac569fdbdc9efb5299d, PR https://github.com/bkono/sbd-mastra-factory/pull/30 ready again after fresh reviewer APPROVE and verifier PASS+NOTES confirmed by sbd-verdict check HEAD. Reports /tmp/sbd-routing-release-review.md and /tmp/sbd-routing-release-verdict.md. All386 tests+1baseline skip; lint baselineINFO, package/app/strict-script typechecks pass. Real Mastra reads25catalogfiles,116bundled skill links and15playbooks. Actual native Claude consumer-CWD failure4lookups becomes2successful first reads via plugin-root anchors. Actual native Pi neutral consumer first reads arena and architect references from exact HEAD snapshot, no devrepo fallback; it is bounded routing evidence, not full design/workflow completion. Standalone benchmark now declares sbd asset ownership, preserving named principle entrypoint links and avoiding invalid cross-root assets. Current guard red is independently proved with committed HEAD tests on d033635: only2benchmark asset links fail; older standalone-red.log was an intermediate stricter prototype, not the final guard. N2 pre-existing multi-phase lifecycle content mismatch tracked sbdpi-4rh and intentionally no workflow/merge-policy redesign. No install/merge/deploy performed; centralized checkout stays clean at3bb1bc2. Resume ledger /tmp/sbd-skill-routing-plan.md.",
       "timestamp": "2026-11-17T02:07:22Z"
+    },
+    {
+      "text": "Review feedback accepted for assessment: principle references inside nested skills have same first-read failure; Host row says this skill base directory ambiguously. Same branch/worktree, no cross-root principle links. Reproduce on native Pi, clarify that base is sbd router own directory, rerun matching scenario, then fresh review/verifier. Also assess absent remote local-verdict record and publish exact SHA-bound verification evidence in PR body.",
+      "timestamp": "2026-11-17T04:47:05Z"
     }
   ],
   "priority": 2,
