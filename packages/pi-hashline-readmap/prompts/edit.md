@@ -16,7 +16,7 @@ Anchors survive your own edits. After an edit, an anchor you already hold for an
 Set `new_text` (or `replace_lines` `new_text`) to `""` to delete the anchored line(s). For an intentionally blank line, use `"\n"` or whitespace content, not `""`.
 Prefer `set_line`, `replace_lines`, and `insert_after`: they verify the file still matches the anchored content. Use `replace` only when anchors are impractical, such as repeated text across many unrelated lines.
 
-`replace` is exact-only by default: missing `old_text` fails with `text-not-found`. Wrap old_text/new_text in {replace: ...} — a bare top-level `{old_text, new_text}` inside `edits[]` is rejected with guidance.
+`replace` is exact-only by default: missing `old_text` fails with `text-not-found`. Give it `op: "replace"` — an `{old_text, new_text}` entry without `op` is rejected with guidance.
 
 ## Input shape
 
@@ -24,15 +24,15 @@ Prefer `set_line`, `replace_lines`, and `insert_after`: they verify the file sti
 {
   "path": "src/foo.ts",
   "edits": [
-    { "set_line": { "anchor": "42:ab1", "new_text": "const x = 2;" } },
-    { "replace_lines": { "start_anchor": "50:c3d", "end_anchor": "55:e4f", "new_text": "const y = 3;\nreturn y;" } },
-    { "insert_after": { "anchor": "60:f5a", "new_text": "// TODO\n" } },
-    { "replace": { "old_text": "value", "new_text": "result", "all": true } }
+    { "op": "set_line", "anchor": "42:ab1", "new_text": "const x = 2;" },
+    { "op": "replace_lines", "start_anchor": "50:c3d", "end_anchor": "55:e4f", "new_text": "const y = 3;\nreturn y;" },
+    { "op": "insert_after", "anchor": "60:f5a", "new_text": "// TODO\n" },
+    { "op": "replace", "old_text": "value", "new_text": "result", "all": true }
   ]
 }
 ```
 
-Use only the variant(s) needed for the task; the example shows all shapes together for reference. Each `edits[]` entry must contain exactly one variant key. `new_text` / `new_body` is plain file content — no hash prefixes or diff markers.
+Use only the variant(s) needed for the task; the example shows all shapes together for reference. Each `edits[]` entry names its operation in `op`, with that operation's fields beside it (flat, one object per edit). Programmatic callers may still pass the nested `{ "set_line": { ... } }` shape. `new_text` / `new_body` is plain file content — no hash prefixes or diff markers.
 
 ## Optional post-edit verification
 

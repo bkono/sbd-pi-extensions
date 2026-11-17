@@ -95,10 +95,9 @@ edit({
   path: "tests/fixtures/small.ts",
   edits: [
     {
-      set_line: {
-        anchor: "45:4bf",
-        new_text: "export function buildDemoDirectory(): UserDirectory {"
-      }
+      op: "set_line",
+      anchor: "45:4bf",
+      new_text: "export function buildDemoDirectory(): UserDirectory {"
     }
   ]
 })
@@ -117,7 +116,7 @@ read({ path: "src/example.ts" })
 edit({
   path: "src/example.ts",
   edits: [
-    { set_line: { anchor: "12:abc", new_text: "const enabled = true;" } }
+    { op: "set_line", anchor: "12:abc", new_text: "const enabled = true;" }
   ]
 })
 ```

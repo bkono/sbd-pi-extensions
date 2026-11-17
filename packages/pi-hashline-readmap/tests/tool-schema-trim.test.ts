@@ -62,8 +62,8 @@ describe("trimmed tool schemas", () => {
     ]);
     expect(props("write")).toEqual(["content", "path"]);
     expect(props("edit")).toEqual(["edits", "path", "postEditVerify"]);
-    const variants = tools.edit.parameters.properties.edits.items.anyOf.map((b: any) =>
-      Object.keys(b.properties).join(","),
+    const variants = tools.edit.parameters.properties.edits.items.anyOf.map(
+      (b: any) => b.properties.op.const,
     );
     expect(variants).toEqual(["set_line", "replace_lines", "insert_after", "replace"]);
     const schema = JSON.stringify(tools.edit.parameters);
@@ -85,7 +85,7 @@ describe("trimmed tool schemas", () => {
       validate(tools.edit, {
         path: "a.ts",
         note: "extra top-level key",
-        edits: [{ set_line: { anchor: "1:abc", new_text: "x", why: "extra" }, junk: 1 }],
+        edits: [{ op: "set_line", anchor: "1:abc", new_text: "x", why: "extra" }],
       }),
     ).not.toThrow();
   });
@@ -95,7 +95,9 @@ describe("trimmed tool schemas", () => {
     for (const item of [
       { replace_symbol: { symbol: "a", new_body: "b" } },
       { old_text: "a", new_text: "b" },
-      { insert_after: { anchor: "1:abc", text: "x" } },
+      { op: "insert_after", anchor: "1:abc", text: "x" },
+      // The nested shape is programmatic-only now; the model gets flat items.
+      { set_line: { anchor: "1:abc", new_text: "x" } },
     ]) {
       expect(() => validate(tools.edit, { path: "a.ts", edits: [item] })).toThrow(
         /Validation failed/,
@@ -133,7 +135,7 @@ describe("trimmed tool schemas", () => {
       const edit = await run("edit", {
         path: join(dir, "a.ts"),
         edits: [
-          { replace: { old_text: "const x = 1;", new_text: "const x = 2;", fuzzy: "false" } },
+          { op: "replace", old_text: "const x = 1;", new_text: "const x = 2;", fuzzy: "false" },
         ],
       });
       expect(edit.details.ptcValue.error.code).toBe("text-not-found");

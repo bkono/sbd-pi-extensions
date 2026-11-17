@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { generateDiffString, normalizeToLF, replaceText } from "./edit-diff.js";
+import { unflattenEditItem } from "./edit-items.js";
 import { applyHashlineEdits, type HashlineEditItem } from "./hashline.js";
 import { replaceSymbol } from "./replace-symbol.js";
 
@@ -107,7 +108,7 @@ type PendingEditInput = {
 };
 
 function normalizeReplaceOnlyEdits(input: PendingEditInput): unknown[] {
-  if (Array.isArray(input.edits)) return input.edits;
+  if (Array.isArray(input.edits)) return input.edits.map(unflattenEditItem);
   const oldText =
     typeof input.oldText === "string"
       ? input.oldText
