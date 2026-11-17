@@ -1,6 +1,7 @@
-// Hidden grader for t7-sustained: checks the end state after all 14 prompts (addendum applied,
+// Hidden grader for t7-sustained: checks the end state after all 17 prompts (addendum applied,
 // restocking fee renamed to handling fee). Cases use undiscounted US-NY lines so every valid
-// implementation of the policy agrees on the cents.
+// implementation of the policy agrees on the cents, and ship after both policy effective dates
+// (v2 2026-04-01, addendum 2026-05-01) so date-gated implementations agree too.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -21,9 +22,9 @@ const order = (lines: Order["lines"], extra: Partial<Order> = {}): Order =>
     region: "US-NY",
     lines,
     loyaltyTier: "none",
-    createdAt: "2026-03-01",
+    createdAt: "2026-05-01",
     status: "shipped",
-    shippedAt: "2026-03-02",
+    shippedAt: "2026-05-04",
     ...extra,
   }) as Order;
 
@@ -35,7 +36,7 @@ const req = (sku: string, qty: number, reason = "changed_mind", condition = "res
 });
 
 function shippedService(skus: [string, number][], loyaltyTier: Order["loyaltyTier"] = "none") {
-  const clock = { today: "2026-03-01" };
+  const clock = { today: "2026-05-01" };
   const inventory = InventoryStore.withDefaultStock();
   const gateway = new FakeGateway();
   const service = new OrderService({ inventory, gateway, clock: () => clock.today });
@@ -44,9 +45,9 @@ function shippedService(skus: [string, number][], loyaltyTier: Order["loyaltyTie
   service.submit(o.id);
   service.pay(o.id);
   service.fulfil(o.id);
-  clock.today = "2026-03-02";
+  clock.today = "2026-05-04";
   service.ship(o.id);
-  clock.today = "2026-03-10";
+  clock.today = "2026-05-12";
   return { service, inventory, gateway, clock, id: o.id };
 }
 
@@ -61,7 +62,7 @@ const code = (fn: () => unknown) => {
 
 test("hidden S1: ship records shippedAt", () => {
   const { service, id } = shippedService([["STA-1801", 3]]);
-  assert.equal((service.get(id) as any).shippedAt, "2026-03-02");
+  assert.equal((service.get(id) as any).shippedAt, "2026-05-04");
 });
 
 test("hidden S2: eligibility rules and precedence (R1, R4, R7)", async () => {
@@ -71,21 +72,21 @@ test("hidden S2: eligibility rules and precedence (R1, R4, R7)", async () => {
     return v.ok ? "ok" : v.code;
   };
   const std = order([lineFor("STA-1801", 3)]);
-  assert.equal(verdict(std, req("STA-9999", 1), "2026-03-05"), "NO_LINE");
-  assert.equal(verdict(order([lineFor("STA-1801", 3)], { shippedAt: undefined }), req("STA-1801", 1), "2026-03-05"), "NOT_SHIPPED");
-  assert.equal(verdict(std, req("STA-1801", 1), "2026-04-01"), "ok");
-  assert.equal(verdict(std, req("STA-1801", 1), "2026-04-02"), "OUTSIDE_WINDOW");
+  assert.equal(verdict(std, req("STA-9999", 1), "2026-05-07"), "NO_LINE");
+  assert.equal(verdict(order([lineFor("STA-1801", 3)], { shippedAt: undefined }), req("STA-1801", 1), "2026-05-07"), "NOT_SHIPPED");
+  assert.equal(verdict(std, req("STA-1801", 1), "2026-06-03"), "ok");
+  assert.equal(verdict(std, req("STA-1801", 1), "2026-06-04"), "OUTSIDE_WINDOW");
   const per = order([lineFor("PER-1437", 2)]);
-  assert.equal(verdict(per, req("PER-1437", 1, "defective"), "2026-03-05"), "ok");
-  assert.equal(verdict(per, req("PER-1437", 1, "defective"), "2026-03-06"), "OUTSIDE_WINDOW");
+  assert.equal(verdict(per, req("PER-1437", 1, "defective"), "2026-05-07"), "ok");
+  assert.equal(verdict(per, req("PER-1437", 1, "defective"), "2026-05-08"), "OUTSIDE_WINDOW");
   const dig = order([lineFor("DIG-1761", 1)]);
-  assert.equal(verdict(dig, req("DIG-1761", 1, "changed_mind"), "2026-03-03"), "NOT_RETURNABLE");
-  assert.equal(verdict(dig, req("DIG-1761", 1, "defective"), "2026-03-16"), "ok");
-  assert.equal(verdict(dig, req("DIG-1761", 1, "defective"), "2026-03-17"), "OUTSIDE_WINDOW");
+  assert.equal(verdict(dig, req("DIG-1761", 1, "changed_mind"), "2026-05-05"), "NOT_RETURNABLE");
+  assert.equal(verdict(dig, req("DIG-1761", 1, "defective"), "2026-05-18"), "ok");
+  assert.equal(verdict(dig, req("DIG-1761", 1, "defective"), "2026-05-19"), "OUTSIDE_WINDOW");
   const haz = order([lineFor("HAZ-1166", 1)]);
-  assert.equal(verdict(haz, req("HAZ-1166", 1, "defective"), "2026-03-03"), "FINAL_SALE");
-  assert.equal(verdict(haz, req("HAZ-1166", 1, "defective"), "2026-06-01"), "FINAL_SALE");
-  assert.equal(verdict(order([lineFor("HAZ-1166", 1)], { shippedAt: undefined }), req("HAZ-1166", 1), "2026-03-03"), "NOT_SHIPPED");
+  assert.equal(verdict(haz, req("HAZ-1166", 1, "defective"), "2026-05-05"), "FINAL_SALE");
+  assert.equal(verdict(haz, req("HAZ-1166", 1, "defective"), "2026-08-01"), "FINAL_SALE");
+  assert.equal(verdict(order([lineFor("HAZ-1166", 1)], { shippedAt: undefined }), req("HAZ-1166", 1), "2026-05-05"), "NOT_SHIPPED");
 });
 
 test("hidden S3: quotes follow R2, R3 (addendum rate and cap), R5, R6", async () => {
@@ -142,7 +143,7 @@ test("hidden S4: service returns: stock, write-offs, over-returns, shipping once
   service.requestReturn(id, req("STA-1801", 1, "defective"));
   assert.equal(service.get(id).status, "refunded");
   const late = shippedService([["STA-1801", 1]]);
-  late.clock.today = "2026-04-02";
+  late.clock.today = "2026-06-04";
   assert.equal(code(() => late.service.requestReturn(late.id, req("STA-1801", 1))), "OUTSIDE_WINDOW");
   const haz = shippedService([["HAZ-1166", 1]]);
   assert.equal(code(() => haz.service.requestReturn(haz.id, req("HAZ-1166", 1, "defective"))), "FINAL_SALE");
