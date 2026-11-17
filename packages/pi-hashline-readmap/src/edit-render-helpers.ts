@@ -1,3 +1,5 @@
+import { unflattenEditItem } from "./edit-items.js";
+
 const VARIANT_KEYS = ["set_line", "replace_lines", "insert_after", "replace"] as const;
 
 export type EditTypeCounts = {
@@ -17,7 +19,7 @@ export function countEditTypes(edits: unknown[] | undefined): EditTypeCounts {
     total: 0,
   };
   if (!edits) return counts;
-  for (const edit of edits) {
+  for (const edit of edits.map(unflattenEditItem)) {
     counts.total++;
     if (edit && typeof edit === "object") {
       for (const key of VARIANT_KEYS) {

@@ -33,6 +33,7 @@ import {
   restoreLineEndings,
   stripBom,
 } from "./edit-diff.js";
+import { unflattenEditItem, unflattenEditItems } from "./edit-items.js";
 import { buildEditOutput } from "./edit-output.js";
 import { countEditTypes, formatEditCallText, formatEditResultText } from "./edit-render-helpers.js";
 import { validateSyntaxRegression } from "./edit-syntax-validate.js";
@@ -108,22 +109,28 @@ export function isBinaryBuffer(buf: Buffer): boolean {
 // Model-facing variants only. execute() still accepts the legacy item shape (with a guided
 // error), insert_after.text, replace.fuzzy and replace_symbol from programmatic callers; Pi's
 // validator rejects them from the model. Unused across 1,050 sessions (sbdpi-rnw).
+// Flat items, `{op, ...fields}`: one level less JSON nesting than `{set_line: {...}}`. With the
+// nested shape Opus closed calls with `}]}` instead of `}}]}` when new_text held braces (4 of 10
+// runs), so Pi could not parse the call at all; flat items had 0 in 10. execute() also accepts
+// the nested shape from programmatic callers.
 const hashlineEditItemSchema = Type.Union([
-  Type.Object({ set_line: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }),
+  Type.Object({ op: Type.Literal("set_line"), anchor: Type.String(), new_text: Type.String() }),
   Type.Object({
-    replace_lines: Type.Object({
-      start_anchor: Type.String(),
-      end_anchor: Type.String(),
-      new_text: Type.String(),
-    }),
+    op: Type.Literal("replace_lines"),
+    start_anchor: Type.String(),
+    end_anchor: Type.String(),
+    new_text: Type.String(),
   }),
-  Type.Object({ insert_after: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }),
   Type.Object({
-    replace: Type.Object({
-      old_text: Type.String(),
-      new_text: Type.String(),
-      all: Type.Optional(Type.Boolean()),
-    }),
+    op: Type.Literal("insert_after"),
+    anchor: Type.String(),
+    new_text: Type.String(),
+  }),
+  Type.Object({
+    op: Type.Literal("replace"),
+    old_text: Type.String(),
+    new_text: Type.String(),
+    all: Type.Optional(Type.Boolean()),
   }),
 ]);
 
@@ -140,7 +147,9 @@ const hashlineEditSchema = Type.Object({
 type HashlineParams = Static<typeof hashlineEditSchema>;
 /** What execute() accepts: the model schema plus the programmatic-only variants. */
 type EditItemInput =
-  | Static<typeof hashlineEditItemSchema>
+  | { set_line: { anchor: string; new_text: string } }
+  | { replace_lines: { start_anchor: string; end_anchor: string; new_text: string } }
+  | { replace: { old_text: string; new_text: string; all?: boolean } }
   | { insert_after: { anchor: string; new_text: string; text?: string } }
   | { replace: { old_text: string; new_text: string; all?: boolean; fuzzy?: boolean } }
   | { replace_symbol: { symbol: string; new_body: string } };
@@ -431,7 +440,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           const hasLegacyInput = legacyOldText !== undefined || legacyNewText !== undefined;
           const hasEditsInput = Array.isArray(parsed.edits);
 
-          let edits: EditItemInput[] = (parsed.edits ?? []) as EditItemInput[];
+          let edits: EditItemInput[] = (parsed.edits ?? []).map(
+            unflattenEditItem,
+          ) as EditItemInput[];
           let legacyNormalizationWarning: string | undefined;
           if (!hasEditsInput && hasLegacyInput) {
             if (legacyOldText === undefined || legacyNewText === undefined) {
@@ -461,11 +472,11 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             throwIfAborted(signal);
             const e = edits[i] as Record<string, unknown>;
             if (("old_text" in e || "new_text" in e) && !("replace" in e)) {
-              const message = `edits[${i}] has top-level 'old_text'/'new_text'. Use {replace: {old_text, new_text}} or {set_line}, {replace_lines}, {insert_after}.`;
+              const message = `edits[${i}] has 'old_text'/'new_text' but no op. Use {op: "replace", old_text, new_text}, or op "set_line", "replace_lines" or "insert_after".`;
               return buildEditError(absolutePath, "invalid-edit-variant", message);
             }
             if ("diff" in e) {
-              const message = `edits[${i}] contains 'diff' from patch mode. Hashline edit expects one of: {set_line}, {replace_lines}, {insert_after}, {replace}.`;
+              const message = `edits[${i}] contains 'diff' from patch mode. Each edit is {op, ...}: op "set_line", "replace_lines", "insert_after" or "replace".`;
               return buildEditError(absolutePath, "invalid-edit-variant", message);
             }
             const variantCount =
@@ -475,7 +486,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               Number("replace" in e) +
               Number("replace_symbol" in e);
             if (variantCount !== 1) {
-              const message = `edits[${i}] must contain exactly one of: 'set_line', 'replace_lines', 'insert_after', 'replace'. Got: [${Object.keys(e).join(", ")}].`;
+              const message = `edits[${i}] needs op "set_line", "replace_lines", "insert_after" or "replace". Got: [${Object.keys(e).join(", ")}].`;
               return buildEditError(absolutePath, "invalid-edit-variant", message);
             }
           }
@@ -1034,7 +1045,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
       let text = theme.fg("toolTitle", theme.bold("edit"));
       if (filePath) text += ` ${linkToolPath(theme.fg("accent", filePath), filePath, cwd)}`;
       else text += ` ${theme.fg("toolOutput", "...")}`;
-      const counts = Array.isArray(args?.edits) ? countEditTypes(args.edits) : undefined;
+      const counts = Array.isArray(args?.edits)
+        ? countEditTypes(unflattenEditItems(args.edits))
+        : undefined;
       if (counts && counts.total > 0) {
         text += ` ${theme.fg("dim", `(${counts.total} ${counts.total === 1 ? "edit" : "edits"})`)}`;
       } else if (suffix) {
