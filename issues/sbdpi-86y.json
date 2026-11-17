@@ -1,8 +1,7 @@
 {
-  "assignee": "unknown",
+  "assignee": "",
   "blocked_by": [],
   "blocks": [],
-  "closed_at": "2026-11-17T02:07:22Z",
   "created": "2026-11-17T00:32:31Z",
   "description": "Trace screenshot ENOENT for installed skills/how and skills/architect versus actual skills/sbd/references/skills. Use isolated branch/worktree. Done when first-read paths resolve, regression coverage and quality checks pass, independent review and SHA-bound verifier pass.",
   "id": "sbdpi-86y",
@@ -38,8 +37,8 @@
     }
   ],
   "priority": 2,
-  "status": "closed",
+  "status": "open",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T02:07:22Z"
+  "updated_at": "2026-11-17T04:47:04Z"
 }
