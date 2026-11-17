@@ -30,11 +30,15 @@
     {
       "text": "Release candidate 1d79aa0260525f65b432eac569fdbdc9efb5299d pushed. Broader review d033 approved, then its nonblocking standalone benchmark finding was fixed too: playbook owner is explicitly sbd, with a file-reader base, and new guard forbids cross-root unnamed assets while preserving named principle entrypoints. All386 tests+1baseline skip and typechecks pass. Inline stale playbooks now resolve to existing Autonomous run/Shipping/Prototype; no invented aliases. Actual native Claude consumer-CWD run reproduced4failed lookups before and2successful first reads after plugin-root anchors. Fresh neutral-CWD Pi native architect first reads arena and local refs from current snapshot, not dev-repo fallback; bounded routing probe, no full design-workflow claim. New final review/verifier at1d79 pending. N2 multi-phase lifecycle content mismatch tracked separately as sbdpi-4rh; no new merge/workflow permissions added. PR30 draft with full-scope description. Live install untouched.",
       "timestamp": "2026-11-17T02:02:09Z"
+    },
+    {
+      "text": "Full-scope fix complete at1d79aa0260525f65b432eac569fdbdc9efb5299d, PR https://github.com/bkono/sbd-mastra-factory/pull/30 ready again after fresh reviewer APPROVE and verifier PASS+NOTES confirmed by sbd-verdict check HEAD. Reports /tmp/sbd-routing-release-review.md and /tmp/sbd-routing-release-verdict.md. All386 tests+1baseline skip; lint baselineINFO, package/app/strict-script typechecks pass. Real Mastra reads25catalogfiles,116bundled skill links and15playbooks. Actual native Claude consumer-CWD failure4lookups becomes2successful first reads via plugin-root anchors. Actual native Pi neutral consumer first reads arena and architect references from exact HEAD snapshot, no devrepo fallback; it is bounded routing evidence, not full design/workflow completion. Standalone benchmark now declares sbd asset ownership, preserving named principle entrypoint links and avoiding invalid cross-root assets. Current guard red is independently proved with committed HEAD tests on d033635: only2benchmark asset links fail; older standalone-red.log was an intermediate stricter prototype, not the final guard. N2 pre-existing multi-phase lifecycle content mismatch tracked sbdpi-4rh and intentionally no workflow/merge-policy redesign. No install/merge/deploy performed; centralized checkout stays clean at3bb1bc2. Resume ledger /tmp/sbd-skill-routing-plan.md.",
+      "timestamp": "2026-11-17T02:07:22Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T02:02:09Z"
+  "updated_at": "2026-11-17T02:07:22Z"
 }
