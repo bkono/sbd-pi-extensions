@@ -81,14 +81,42 @@ function extension() {
     modelRegistry: registry,
     model: fakeModel("openai-codex", "gpt-6.1-sol"),
     isIdle: () => false,
-    ui: { setStatus: () => {} },
+    ui: { setStatus: vi.fn() },
   } as unknown as ExtensionContext;
   const fire = async (name: string, event: unknown): Promise<unknown> =>
     hooks.get(name)?.(event, ctx);
-  return { session, registry, fire, renderer: () => renderer! };
+  return { session, registry, fire, ctx, renderer: () => renderer! };
 }
 
 describe("activation transcript", () => {
+  it("refreshes the idle footer immediately on model selection in both directions", async () => {
+    const { fire, ctx, session } = extension();
+    ctx.isIdle = () => true;
+    await fire("session_start", {});
+    await fire("agent_before_settle", {
+      context: { contextEntries: session.buildSessionProjection().entries },
+      entries: [],
+    });
+    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("om", expect.stringContaining("/30.0k"));
+    for (const [provider, id, threshold] of [
+      ["anthropic", "claude-opus-5-5", "/21.4k"],
+      ["anthropic", "claude-opus-4-6", "/30.0k"],
+      ["anthropic", "claude-opus-5-5", "/21.4k"],
+      ["openai-codex", "gpt-6.1-sol", "/30.0k"],
+    ] as const) {
+      const previousModel = ctx.model;
+      ctx.model = fakeModel(provider, id);
+      await fire("model_select", {
+        type: "model_select",
+        model: ctx.model,
+        previousModel,
+        source: "set",
+      });
+      expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("om", expect.stringContaining(threshold));
+    }
+    await fire("session_shutdown", {});
+  });
+
   it("renders MastraCode activation copy and keeps expanded observation text", () => {
     const chunks = new Map([
       ["a", chunk("a", 700)],

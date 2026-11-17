@@ -117,6 +117,10 @@ export default function piObservationalMemory(pi: ExtensionAPI): void {
     sessions.delete(om.sessionId);
   });
 
+  pi.on("model_select", (_event, ctx) => {
+    session(ctx).onModelSelect(host(ctx));
+  });
+
   pi.on("agent_start", (_event, ctx) => {
     session(ctx).startRun(host(ctx));
   });

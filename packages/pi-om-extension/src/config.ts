@@ -1,3 +1,5 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+
 import {
   resolveBlockAfter,
   resolveBufferTokens,
@@ -77,5 +79,40 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedOMC
     modelOverride: env.PI_OM_MODEL?.trim() || undefined,
     disabled: env.PI_OM_DISABLE === "1",
     tracePath: env.PI_OM_TRACE?.trim() || undefined,
+  };
+}
+
+const OPUS_5_5_THRESHOLD_DIVISOR = 1.4;
+const MODEL_CALIBRATIONS = new Map<string, number>([
+  ["amazon-bedrock/anthropic.claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["amazon-bedrock/au.anthropic.claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["amazon-bedrock/eu.anthropic.claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["amazon-bedrock/global.anthropic.claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["amazon-bedrock/jp.anthropic.claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["amazon-bedrock/us.anthropic.claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["anthropic/claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["cloudflare-ai-gateway/claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["github-copilot/claude-opus-5.5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["opencode/claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["openrouter/anthropic/claude-opus-5.5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["openrouter/anthropic/claude-opus-5.5:batch", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["radius/claude-opus-5-5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["vercel-ai-gateway/anthropic/claude-opus-5.5", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["vercel-ai-gateway/anthropic/claude-opus-5.5-batch", OPUS_5_5_THRESHOLD_DIVISOR],
+  ["vercel-ai-gateway/anthropic/claude-opus-5.5-fast", OPUS_5_5_THRESHOLD_DIVISOR],
+]);
+
+export function thresholdsFor(
+  config: ResolvedOMConfig,
+  model: Pick<Model<Api>, "provider" | "id"> | undefined,
+): ResolvedOMConfig {
+  const factor = model && MODEL_CALIBRATIONS.get(`${model.provider}/${model.id}`);
+  if (factor === undefined) return config;
+  return {
+    ...config,
+    messageTokens: Math.round(config.messageTokens / factor),
+    bufferTokens: Math.round(config.bufferTokens / factor),
+    retentionFloor: Math.round(config.retentionFloor / factor),
+    observationBlockAfter: Math.round(config.observationBlockAfter / factor),
   };
 }
