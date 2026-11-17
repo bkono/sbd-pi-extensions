@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-11-17T19:26:20Z",
+  "description": "Approved plan .mastracode/plans/om-anthropic-token-calibration.md. Compare o200k and tokenx against real Claude/non-Claude provider usage; attribute reported 59k versus 30k activation to tokenizer, gating or request overhead. Runtime changes gated on measurement. Independent review and commit-bound verifier required.",
+  "id": "sbdpi-sps",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Measure OM activation gap before Claude calibration",
+  "type": "bug",
+  "updated_at": "2026-11-17T19:26:20Z"
+}
