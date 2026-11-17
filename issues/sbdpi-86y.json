@@ -10,11 +10,15 @@
     {
       "text": "Owning repo is sbd-mastra-factory. Isolated worktree /private/tmp/sbd-mastra-factory-skill-routing, branch fix/bundled-skill-routing, commit 6836733a395dc4caa9e1972f713e88c25acb587c. Installed source files match and Pi loader has correct paths. Original session received generic nested-path rule but guessed sibling how/architect. Fix attaches direct relative links at invocation sites; no installer, aliases, retries, or Pi extension changes. Eight structural route regressions fail on base and pass at HEAD. Full gates pass: 389 tests plus one existing skip, typecheck, app check, lint exit 0 with pre-existing useTemplate INFO. Live Pi Feature trace /tmp/sbd-routing-after-feature.jsonl first reads Feature, nested how, nested architect without searching or skill errors. Independent reviewer/verifier in detached worktrees running. Resume plan /tmp/sbd-skill-routing-plan.md. Do not update live install before merge.",
       "timestamp": "2026-11-17T00:44:44Z"
+    },
+    {
+      "text": "Delivered in https://github.com/bkono/sbd-mastra-factory/pull/30, open and ready on fix/bundled-skill-routing at fa28ec65595aeb620c3c4499dce9ec8e955d3439. Fresh reviewer APPROVE (/tmp/sbd-routing-review-final.md). Independent Terra verifier recorded PASS+NOTES, confirmed by sbd-verdict check HEAD (/tmp/sbd-routing-verdict-final.md). 389 tests pass, one baseline host-contract skip; lint exits 0 with baseline INFO, package/app typechecks and strict script test typecheck pass. Eight structural cases fail at base, pass at head. Final live Pi trace /tmp/sbd-routing-final-feature.jsonl first reads Feature, nested how, nested architect successfully without skill search. Actual Mastra core 1.83 skill_read accepts all 13 normalized routes; model compliance on Mastra/Factory not measured. Review correction added containing-file link resolution and root-relative normalization, plus explicit test type guard. No installer or Pi extension changes. Live centralized install remains clean at 3bb1bc2 until human merge and sbd-install; no merge or install performed. Resume plan /tmp/sbd-skill-routing-plan.md. Optional future root-containment guard is not needed to fix this observed issue.",
+      "timestamp": "2026-11-17T00:55:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T00:44:44Z"
+  "updated_at": "2026-11-17T00:55:11Z"
 }
