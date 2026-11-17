@@ -26,11 +26,15 @@
     {
       "text": "Fresh Terra verifier recorded PASS+NOTES for b5dfa1e587ed29337f8cb360b360f8d9cf96665b; sbd-verdict check HEAD confirms it. /tmp/sbd-routing-catalog-verdict.md. Independently reran all gates, strict script typecheck, all25 inventory/117 linked reads, and baseline fa28ec6 red with59 missing source-to-skill pairs. Fresh reviewer still pending; PR remains draft. Two Pi scenarios are routing samples, not statistical or full-host workflow proof. Author worktree and centralized install remain clean.",
       "timestamp": "2026-11-17T01:21:07Z"
+    },
+    {
+      "text": "Release candidate 1d79aa0260525f65b432eac569fdbdc9efb5299d pushed. Broader review d033 approved, then its nonblocking standalone benchmark finding was fixed too: playbook owner is explicitly sbd, with a file-reader base, and new guard forbids cross-root unnamed assets while preserving named principle entrypoints. All386 tests+1baseline skip and typechecks pass. Inline stale playbooks now resolve to existing Autonomous run/Shipping/Prototype; no invented aliases. Actual native Claude consumer-CWD run reproduced4failed lookups before and2successful first reads after plugin-root anchors. Fresh neutral-CWD Pi native architect first reads arena and local refs from current snapshot, not dev-repo fallback; bounded routing probe, no full design-workflow claim. New final review/verifier at1d79 pending. N2 multi-phase lifecycle content mismatch tracked separately as sbdpi-4rh; no new merge/workflow permissions added. PR30 draft with full-scope description. Live install untouched.",
+      "timestamp": "2026-11-17T02:02:09Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve bundled sbd workflow skills on first read",
   "type": "bug",
-  "updated_at": "2026-11-17T01:21:07Z"
+  "updated_at": "2026-11-17T02:02:09Z"
 }
