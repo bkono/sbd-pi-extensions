@@ -10,11 +10,15 @@
     {
       "text": "Implemented in PR #12 (branch claude/hashline-fresh-anchors, verified PASS+NOTES at 7b13bee): anchor ledger, exact carry through the edit's own splices, fresh anchors in edit results, stale-anchor refusals, contested-key refuse-once. Remaining for Done: the 3-rep eval rerun (t3/t5/t6), planned with the two-provider eval after the trim decision (sbdpi-rnw).",
       "timestamp": "2026-11-16T22:55:53Z"
+    },
+    {
+      "text": "PR #12 head 60d4de4 (PASS+NOTES). Paired eval vs main, 3 reps: input tokens -32%/-20%/-4% (t3/t5/t6), all hidden tests pass; renumbered-anchor refusals found there are fixed in 60d4de4. Two-provider eval still to run after #12/#13 land.",
+      "timestamp": "2026-11-17T00:39:50Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "hashline: edit returns fresh anchors for the changed region",
   "type": "task",
-  "updated_at": "2026-11-16T22:55:53Z"
+  "updated_at": "2026-11-17T00:39:50Z"
 }
