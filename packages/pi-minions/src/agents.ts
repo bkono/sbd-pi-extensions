@@ -56,6 +56,12 @@ export type AgentLayerEntry = Omit<AgentConfig, "description" | "systemPrompt"> 
   systemPrompt?: string;
 };
 
+/** Mirrors pi's extractFrontmatter, which returns `{}` for both an empty fence and no fence. */
+function hasFrontmatterFence(content: string): boolean {
+  const normalized = content.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+  return normalized.startsWith("---") && normalized.indexOf("\n---", 3) !== -1;
+}
+
 function loadAgentFromFile(
   filePath: string,
   source: AgentSource,
@@ -70,8 +76,12 @@ function loadAgentFromFile(
 
   const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
 
-  // No frontmatter means not an agent file, even when its name matches one.
-  if (Object.keys(frontmatter).length === 0) return null;
+  // A file without a frontmatter fence is not an agent file, even when its name matches one. An
+  // empty fence (`---\n---`) is: it overrides only the body. YAML that is not a mapping is malformed.
+  if (!hasFrontmatterFence(content)) return null;
+  if (typeof frontmatter !== "object" || frontmatter === null || Array.isArray(frontmatter)) {
+    return null;
+  }
 
   const name = frontmatter.name ?? defaultName;
 
@@ -168,14 +178,16 @@ export function loadAgentsFromDir(dir: string, source: AgentSource): AgentLayerE
     return [];
   }
 
-  const agentMap = new Map<string, AgentLayerEntry>();
+  // `<name>/MINION.md` comes first so a same-named `<name>.md` layers over it field by field.
+  const fileAgents = new Map<string, AgentLayerEntry>();
+  const minionAgents = new Map<string, AgentLayerEntry>();
 
   for (const entry of entries) {
     if (!entry.name.endsWith(".md")) continue;
     if (!entry.isFile() && !entry.isSymbolicLink()) continue;
 
     const agent = loadAgentFromFile(join(dir, entry.name), source, entry.name.replace(/\.md$/, ""));
-    if (agent) agentMap.set(agent.name, agent);
+    if (agent) fileAgents.set(agent.name, agent);
   }
 
   for (const entry of entries) {
@@ -191,10 +203,10 @@ export function loadAgentsFromDir(dir: string, source: AgentSource): AgentLayerE
     if (!isFile) continue;
 
     const agent = loadAgentFromFile(filePath, source, entry.name);
-    if (agent && !agentMap.has(agent.name)) agentMap.set(agent.name, agent);
+    if (agent && !minionAgents.has(agent.name)) minionAgents.set(agent.name, agent);
   }
 
-  return Array.from(agentMap.values());
+  return [...minionAgents.values(), ...fileAgents.values()];
 }
 
 function findProjectDir(cwd: string, ...subpath: string[]): string | null {

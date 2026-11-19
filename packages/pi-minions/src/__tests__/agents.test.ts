@@ -418,6 +418,67 @@ describe("agent field inheritance across layers", () => {
     });
   });
 
+  it("a partial <name>.md layers over its sibling <name>/MINION.md in the same directory", () => {
+    const dir = tempDir();
+    writeRaw(dir, "rev.md", "---\nmodel: openai/gpt-6.1-sol\n---\n");
+    writeRaw(
+      join(dir, "rev"),
+      "MINION.md",
+      "---\ndescription: Full rev\nmode: plan\n---\nRev body.\n",
+    );
+    const merged = mergeAgentLayers(loadAgentsFromDir(dir, "project"));
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        name: "rev",
+        description: "Full rev",
+        mode: "plan",
+        model: "openai/gpt-6.1-sol",
+        systemPrompt: "Rev body.",
+        filePath: join(dir, "rev.md"),
+      }),
+    ]);
+  });
+
+  it("rejects frontmatter that is not a mapping", () => {
+    const merged = overlay("---\njust text\n---\nScalar body.\n");
+    expect(merged).toEqual(packageReviewer);
+  });
+
+  it("an empty frontmatter fence is a body-only override", () => {
+    const merged = overlay("---\n---\nFenced body.\n");
+    expect(merged).toEqual({
+      ...packageReviewer,
+      systemPrompt: "Fenced body.",
+      source: "project",
+      filePath: expect.stringMatching(/reviewer\.md$/),
+    });
+  });
+
+  it("parses numeric 0/1 booleans", () => {
+    const merged = overlay("---\npackModel: 0\nindependent: 1\n---\n");
+    expect(merged).not.toHaveProperty("packModel");
+    expect(merged?.independent).toBe(true);
+  });
+
+  it("chains two directories within the user layer in discovery order", () => {
+    const home = tempDir();
+    const agentDir = tempDir();
+    const cwd = tempDir();
+    mkdirSync(join(cwd, ".git"));
+    writeRaw(join(agentDir, "agents"), "worker.md", "---\nsteps: 9\n---\n\nPi worker prompt.\n");
+    writeRaw(join(home, ".agents", "minions"), "worker.md", "---\nthinking: low\n---\n");
+    const found = findAgent("worker", cwd, { agentDir, homeDir: home });
+
+    expect(found).toMatchObject({
+      steps: 9,
+      thinking: "low",
+      mode: "build",
+      systemPrompt: "Pi worker prompt.",
+      filePath: join(home, ".agents", "minions", "worker.md"),
+    });
+  });
+
   it("chains inheritance through user then project layers", () => {
     const home = tempDir();
     const agentDir = tempDir();
