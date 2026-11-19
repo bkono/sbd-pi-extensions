@@ -56,6 +56,28 @@ export type AgentLayerEntry = Omit<AgentConfig, "description" | "systemPrompt"> 
   systemPrompt?: string;
 };
 
+/** YAML types frontmatter values; a string field given a list or number counts as omitted. */
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function positiveInt(value: unknown): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" ? parseInt(value, 10) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
+/** `read, bash`, `[read, bash]` (YAML flow list or quoted string), or a block list. */
+function parseTools(value: unknown): string[] | undefined {
+  const items = Array.isArray(value)
+    ? value.filter((t): t is string => typeof t === "string")
+    : typeof value === "string"
+      ? value.replace(/^\s*\[|\]\s*$/gu, "").split(",")
+      : [];
+  const tools = items.map((t) => t.trim().replace(/^["']|["']$/gu, "")).filter(Boolean);
+  return tools.length > 0 ? tools : undefined;
+}
+
 /** Mirrors pi's extractFrontmatter, which returns `{}` for both an empty fence and no fence. */
 function hasFrontmatterFence(content: string): boolean {
   const normalized = content.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
@@ -74,7 +96,18 @@ function loadAgentFromFile(
     return null;
   }
 
-  const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
+  let parsed: { frontmatter: Record<string, unknown>; body: string };
+  try {
+    parsed = parseFrontmatter<Record<string, unknown>>(content);
+  } catch (error) {
+    // One malformed file must not take down discovery for every agent.
+    logger.warn("agents", "invalid frontmatter", {
+      filePath,
+      error: error instanceof Error ? error.message.split("\n")[0] : String(error),
+    });
+    return null;
+  }
+  const { frontmatter, body } = parsed;
 
   // A file without a frontmatter fence is not an agent file, even when its name matches one. An
   // empty fence (`---\n---`) is: it overrides only the body. YAML that is not a mapping is malformed.
@@ -83,23 +116,18 @@ function loadAgentFromFile(
     return null;
   }
 
-  const name = frontmatter.name ?? defaultName;
+  const name = str(frontmatter.name) ?? defaultName;
+  const displayName = str(frontmatter.displayName);
+  const description = str(frontmatter.description);
+  const model = str(frontmatter.model);
+  const tools = parseTools(frontmatter.tools);
 
-  const tools = frontmatter.tools
-    ?.split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const thinking = THINKING_LEVELS.has(frontmatter.thinking as ThinkingLevel)
+    ? (frontmatter.thinking as ThinkingLevel)
+    : undefined;
 
-  const thinking =
-    frontmatter.thinking && THINKING_LEVELS.has(frontmatter.thinking as ThinkingLevel)
-      ? (frontmatter.thinking as ThinkingLevel)
-      : undefined;
-
-  const steps =
-    frontmatter.steps || frontmatter.max_turns
-      ? parseInt(frontmatter.steps, 10) || parseInt(frontmatter.max_turns, 10) || undefined
-      : undefined;
-  const timeout = frontmatter.timeout ? parseInt(frontmatter.timeout, 10) || undefined : undefined;
+  const steps = positiveInt(frontmatter.steps) ?? positiveInt(frontmatter.max_turns);
+  const timeout = positiveInt(frontmatter.timeout);
   const completionNudge = parseCompletionNudge(frontmatter.completion_nudge);
   const mode = parseMode(frontmatter.mode);
   const packModel = parseBool(frontmatter.packModel ?? frontmatter.pack_model);
@@ -114,10 +142,10 @@ function loadAgentFromFile(
 
   return {
     name,
-    ...(frontmatter.displayName ? { displayName: frontmatter.displayName } : {}),
-    ...(frontmatter.description ? { description: frontmatter.description } : {}),
-    ...(tools && tools.length > 0 ? { tools } : {}),
-    ...(frontmatter.model ? { model: frontmatter.model } : {}),
+    ...(displayName ? { displayName } : {}),
+    ...(description ? { description } : {}),
+    ...(tools ? { tools } : {}),
+    ...(model ? { model } : {}),
     ...(mode ? { mode } : {}),
     ...(packModel !== undefined ? { packModel } : {}),
     ...(independent !== undefined ? { independent } : {}),
@@ -178,35 +206,32 @@ export function loadAgentsFromDir(dir: string, source: AgentSource): AgentLayerE
     return [];
   }
 
-  // `<name>/MINION.md` comes first so a same-named `<name>.md` layers over it field by field.
-  const fileAgents = new Map<string, AgentLayerEntry>();
-  const minionAgents = new Map<string, AgentLayerEntry>();
+  // Every entry is kept, `<name>/MINION.md` first and then `*.md`, each sorted, so same-named
+  // entries layer field by field in mergeAgentLayers instead of one silently replacing another.
+  const sorted = [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const minionAgents: AgentLayerEntry[] = [];
+  const fileAgents: AgentLayerEntry[] = [];
 
-  for (const entry of entries) {
-    if (!entry.name.endsWith(".md")) continue;
-    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-
-    const agent = loadAgentFromFile(join(dir, entry.name), source, entry.name.replace(/\.md$/, ""));
-    if (agent) fileAgents.set(agent.name, agent);
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const filePath = join(dir, entry.name, "MINION.md");
-    let isFile = false;
-    try {
-      isFile = existsSync(filePath) && statSync(filePath).isFile();
-    } catch {
+  for (const entry of sorted) {
+    if (entry.isDirectory()) {
+      const filePath = join(dir, entry.name, "MINION.md");
+      let isFile = false;
+      try {
+        isFile = existsSync(filePath) && statSync(filePath).isFile();
+      } catch {
+        continue;
+      }
+      const agent = isFile ? loadAgentFromFile(filePath, source, entry.name) : null;
+      if (agent) minionAgents.push(agent);
       continue;
     }
-    if (!isFile) continue;
-
-    const agent = loadAgentFromFile(filePath, source, entry.name);
-    if (agent && !minionAgents.has(agent.name)) minionAgents.set(agent.name, agent);
+    if (!entry.name.endsWith(".md")) continue;
+    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+    const agent = loadAgentFromFile(join(dir, entry.name), source, entry.name.replace(/\.md$/, ""));
+    if (agent) fileAgents.push(agent);
   }
 
-  return [...minionAgents.values(), ...fileAgents.values()];
+  return [...minionAgents, ...fileAgents];
 }
 
 function findProjectDir(cwd: string, ...subpath: string[]): string | null {

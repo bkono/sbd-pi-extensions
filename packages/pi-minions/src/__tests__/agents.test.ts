@@ -440,6 +440,23 @@ describe("agent field inheritance across layers", () => {
     ]);
   });
 
+  it("two same-named .md files in one directory layer in sorted order", () => {
+    const dir = tempDir();
+    writeRaw(dir, "b.md", "---\nname: custom\nmodel: openai/gpt-6.1-sol\n---\n");
+    writeRaw(dir, "a.md", "---\nname: custom\ndescription: Custom\n---\nCustom body.\n");
+    const merged = mergeAgentLayers(loadAgentsFromDir(dir, "project"));
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        name: "custom",
+        description: "Custom",
+        model: "openai/gpt-6.1-sol",
+        systemPrompt: "Custom body.",
+        filePath: join(dir, "b.md"),
+      }),
+    ]);
+  });
+
   it("rejects frontmatter that is not a mapping", () => {
     const merged = overlay("---\njust text\n---\nScalar body.\n");
     expect(merged).toEqual(packageReviewer);
@@ -501,5 +518,71 @@ describe("agent field inheritance across layers", () => {
       systemPrompt: "User worker prompt.",
       source: "project",
     });
+  });
+});
+
+describe("agent frontmatter robustness", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "pi-minions-yaml-"));
+    dirs.push(dir);
+    return dir;
+  }
+
+  it.each([
+    ["a YAML list", "tools: [read, bash]"],
+    ["a block list", "tools:\n  - read\n  - bash"],
+    ["a quoted bracket string", 'tools: "[read, bash]"'],
+    ["a comma string", "tools: read, bash"],
+  ])("parses tools written as %s", (_label, line) => {
+    const dir = tempDir();
+    writeAgentMarkdown(dir, "lister.md", `description: Lister\n${line}`);
+    const [agent] = loadAgentsFromDir(dir, "project");
+    expect(agent?.tools).toEqual(["read", "bash"]);
+  });
+
+  it("skips a file with invalid YAML, warns, and keeps its siblings", () => {
+    const dir = tempDir();
+    writeAgentMarkdown(dir, "bad.md", "description: [unclosed");
+    writeAgentMarkdown(dir, "good.md", "description: Good");
+    const warn = vi.spyOn(logger, "warn");
+
+    const agents = loadAgentsFromDir(dir, "project");
+
+    expect(agents.map((a) => a.name)).toEqual(["good"]);
+    expect(warn).toHaveBeenCalledWith(
+      "agents",
+      "invalid frontmatter",
+      expect.objectContaining({ filePath: join(dir, "bad.md") }),
+    );
+  });
+
+  it("an invalid higher-layer file leaves discovery working and the lower agent in place", () => {
+    const home = tempDir();
+    const agentDir = tempDir();
+    const cwd = tempDir();
+    mkdirSync(join(cwd, ".git"));
+    mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+    writeAgentMarkdown(join(cwd, ".pi", "agents"), "worker.md", "model: [oops");
+    vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    const found = findAgent("worker", cwd, { agentDir, homeDir: home });
+
+    expect(found?.source).toBe("builtin");
+  });
+
+  it("ignores non-string values for string fields", () => {
+    const dir = tempDir();
+    writeAgentMarkdown(dir, "typed.md", "description: Typed\nmodel: [a, b]\ndisplayName: 7");
+    const [agent] = loadAgentsFromDir(dir, "project");
+    expect(agent).toMatchObject({ name: "typed", description: "Typed" });
+    expect(agent).not.toHaveProperty("model");
+    expect(agent).not.toHaveProperty("displayName");
   });
 });
