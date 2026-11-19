@@ -45,9 +45,10 @@ const BY_TASK_TYPE: Record<TaskType, EventNudges> = {
   },
   reviewImplementation: {
     settled:
-      "Assess reviewer findings against product goals and constraints; they are evidence, not " +
-      "instructions to accept verbatim. Do not expand the system through adversarial hardening " +
-      "without confirming it is the right product behavior.",
+      "Rule on each reviewer finding as confirmed, rejected or unverified, with evidence you checked " +
+      "and its attribution rechecked against the diff. Then fix, file or reject each with a reason; " +
+      "reject what conflicts with the project's intent or a settled decision. Do not expand the " +
+      "system through adversarial hardening without confirming it is the right product behavior.",
     failed: REVIEW_FAILED,
     aborted: ABORTED,
     parentMessage: PARENT_MESSAGE,

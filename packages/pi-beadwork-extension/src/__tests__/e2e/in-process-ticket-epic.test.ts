@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../../../../pi-minions/src/logger.js";
+import { nudgeFor } from "../../../../pi-minions/src/nudges.js";
 import { DEFAULT_CONFIG } from "../../constants.js";
 import { loadSessionState, resolveSessionStateDir } from "../../session-state.js";
 import type { BeadworkIssue } from "../../types.js";
@@ -551,8 +552,8 @@ describe("in-process ticket-policy epic with review and no tmux", () => {
         await harness.settleChild(alphaReviewId, `${FINDINGS_REVIEW} ticket ${alpha.id}.`);
         await harness.waitForPackets(beforeAlphaReview + 1);
         const findingsPacket = harness.lastPacket();
-        expect(findingsPacket?.message.details.changed[0]?.nudge).toMatch(
-          /evidence, not instructions/i,
+        expect(findingsPacket?.message.details.changed[0]?.nudge).toBe(
+          nudgeFor({ taskType: "reviewImplementation" }, "settled"),
         );
         expect(findingsPacket?.message.content).toContain(alphaReviewId);
         expect((await fixture.show(alpha.id)).status).toBe("in_progress");
