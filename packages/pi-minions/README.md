@@ -106,6 +106,21 @@ The package always supplies `worker` (routine scoped implementation, medium thin
 and `investigate` (evidence-first investigation, high thinking, `plan` mode). Neither pins a
 provider or model. Project `worker` overrides user `worker`, which overrides the built-in.
 
+A later definition overrides field by field. Every field it omits, including the prompt body when
+the body is empty and `description`, comes from the same-named earlier definition. To run the
+reviewer on another model, `.agents/minions/reviewer.md` needs only this:
+
+```md
+---
+model: openai/gpt-6.1-sol
+packModel: false
+---
+```
+
+An explicit `false` (`packModel`, `independent`) overrides an inherited `true`. A file with no
+frontmatter is not an agent file. A new agent with no same-named earlier definition must set
+`description`.
+
 Agent frontmatter beyond the basics:
 
 | Field | Meaning |

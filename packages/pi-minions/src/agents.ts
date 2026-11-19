@@ -30,8 +30,14 @@ function parseCompletionNudge(raw: unknown): string | undefined {
     : trimmed;
 }
 
-function flag(value: unknown): boolean {
-  return value === true || value === "true";
+/** Tri-state so an explicit `false` can override an inherited `true`. */
+function parseBool(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1 ? true : value === 0 ? false : undefined;
+  if (typeof value !== "string") return undefined;
+  if (/^(true|yes|1)$/iu.test(value)) return true;
+  if (/^(false|no|0)$/iu.test(value)) return false;
+  return undefined;
 }
 
 function parseMode(value: unknown): AgentMode | undefined {
@@ -40,11 +46,21 @@ function parseMode(value: unknown): AgentMode | undefined {
     : undefined;
 }
 
+/**
+ * One agent file as written: only the fields it sets. `description` and `systemPrompt` may be
+ * absent because a same-named lower-layer agent supplies them; `mergeAgentLayers` resolves the
+ * rest. A complete file is already a valid AgentConfig.
+ */
+export type AgentLayerEntry = Omit<AgentConfig, "description" | "systemPrompt"> & {
+  description?: string;
+  systemPrompt?: string;
+};
+
 function loadAgentFromFile(
   filePath: string,
   source: AgentSource,
   defaultName: string,
-): AgentConfig | null {
+): AgentLayerEntry | null {
   let content: string;
   try {
     content = readFileSync(filePath, "utf-8");
@@ -54,7 +70,8 @@ function loadAgentFromFile(
 
   const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
 
-  if (!frontmatter.description) return null;
+  // No frontmatter means not an agent file, even when its name matches one.
+  if (Object.keys(frontmatter).length === 0) return null;
 
   const name = frontmatter.name ?? defaultName;
 
@@ -75,8 +92,9 @@ function loadAgentFromFile(
   const timeout = frontmatter.timeout ? parseInt(frontmatter.timeout, 10) || undefined : undefined;
   const completionNudge = parseCompletionNudge(frontmatter.completion_nudge);
   const mode = parseMode(frontmatter.mode);
-  const packModel = flag(frontmatter.packModel) || flag(frontmatter.pack_model);
-  const independent = flag(frontmatter.independent);
+  const packModel = parseBool(frontmatter.packModel ?? frontmatter.pack_model);
+  const independent = parseBool(frontmatter.independent);
+  const systemPrompt = body.trim();
 
   logger.debug("agents", "loaded", {
     name,
@@ -86,24 +104,61 @@ function loadAgentFromFile(
 
   return {
     name,
-    displayName: frontmatter.displayName,
-    description: frontmatter.description,
-    tools: tools && tools.length > 0 ? tools : undefined,
-    model: frontmatter.model,
+    ...(frontmatter.displayName ? { displayName: frontmatter.displayName } : {}),
+    ...(frontmatter.description ? { description: frontmatter.description } : {}),
+    ...(tools && tools.length > 0 ? { tools } : {}),
+    ...(frontmatter.model ? { model: frontmatter.model } : {}),
     ...(mode ? { mode } : {}),
-    ...(packModel ? { packModel } : {}),
-    ...(independent ? { independent } : {}),
-    thinking,
-    steps,
-    timeout,
-    systemPrompt: body.trim(),
+    ...(packModel !== undefined ? { packModel } : {}),
+    ...(independent !== undefined ? { independent } : {}),
+    ...(thinking ? { thinking } : {}),
+    ...(steps ? { steps } : {}),
+    ...(timeout ? { timeout } : {}),
+    ...(systemPrompt ? { systemPrompt } : {}),
     source,
     filePath,
     ...(completionNudge !== undefined ? { completionNudge } : {}),
   };
 }
 
-export function loadAgentsFromDir(dir: string, source: AgentSource): AgentConfig[] {
+/**
+ * Resolve a file against the same-named lower-precedence agent. Every field the file omits falls
+ * back to `base`, and an empty body keeps the base prompt. Returns undefined when no description
+ * results: a new agent must set one.
+ */
+function resolveAgentEntry(entry: AgentLayerEntry, base?: AgentConfig): AgentConfig | undefined {
+  const description = entry.description ?? base?.description;
+  if (!description) return undefined;
+  const displayName = entry.displayName ?? base?.displayName;
+  const tools = entry.tools ?? base?.tools;
+  const model = entry.model ?? base?.model;
+  const mode = entry.mode ?? base?.mode;
+  const packModel = entry.packModel ?? base?.packModel;
+  const independent = entry.independent ?? base?.independent;
+  const thinking = entry.thinking ?? base?.thinking;
+  const steps = entry.steps ?? base?.steps;
+  const timeout = entry.timeout ?? base?.timeout;
+  const completionNudge = entry.completionNudge ?? base?.completionNudge;
+  return {
+    name: entry.name,
+    ...(displayName ? { displayName } : {}),
+    description,
+    ...(tools ? { tools } : {}),
+    ...(model ? { model } : {}),
+    ...(mode ? { mode } : {}),
+    ...(packModel ? { packModel } : {}),
+    ...(independent ? { independent } : {}),
+    ...(thinking ? { thinking } : {}),
+    ...(steps ? { steps } : {}),
+    ...(timeout ? { timeout } : {}),
+    systemPrompt: entry.systemPrompt || base?.systemPrompt || "",
+    source: entry.source,
+    filePath: entry.filePath,
+    ...(completionNudge !== undefined ? { completionNudge } : {}),
+  };
+}
+
+export function loadAgentsFromDir(dir: string, source: AgentSource): AgentLayerEntry[] {
   if (!existsSync(dir)) return [];
 
   let entries: import("node:fs").Dirent[];
@@ -113,7 +168,7 @@ export function loadAgentsFromDir(dir: string, source: AgentSource): AgentConfig
     return [];
   }
 
-  const agentMap = new Map<string, AgentConfig>();
+  const agentMap = new Map<string, AgentLayerEntry>();
 
   for (const entry of entries) {
     if (!entry.name.endsWith(".md")) continue;
@@ -157,11 +212,33 @@ function findProjectDir(cwd: string, ...subpath: string[]): string | null {
   }
 }
 
-/** Later layers win. Discovery order is builtin < package < user < project. */
-export function mergeAgentLayers(...layers: AgentConfig[][]): AgentConfig[] {
+/**
+ * Later layers win field by field. Discovery order is builtin < package < user < project, and
+ * entries within a layer apply in order. A same-named entry inherits every field it omits from
+ * the agent merged so far, so a project file that sets only `model` keeps the rest.
+ */
+export function mergeAgentLayers(...layers: AgentLayerEntry[][]): AgentConfig[] {
   const agentMap = new Map<string, AgentConfig>();
   for (const layer of layers) {
-    for (const agent of layer) agentMap.set(agent.name, agent);
+    for (const entry of layer) {
+      const base = agentMap.get(entry.name);
+      const agent = resolveAgentEntry(entry, base);
+      if (!agent) {
+        logger.debug("agents", "skipped: no description and nothing to inherit", {
+          name: entry.name,
+          filePath: entry.filePath,
+        });
+        continue;
+      }
+      if (base) {
+        logger.debug("agents", "inherited", {
+          name: agent.name,
+          from: base.source,
+          source: agent.source,
+        });
+      }
+      agentMap.set(agent.name, agent);
+    }
   }
   return Array.from(agentMap.values());
 }
@@ -243,7 +320,7 @@ export function discoverAgents(
       ? contributedAgentDirs().flatMap((dir) => loadAgentsFromDir(dir, "package"))
       : [];
 
-  const projectAgents: AgentConfig[] = [];
+  const projectAgents: AgentLayerEntry[] = [];
   if (scope !== "user") {
     if (piProjectDir) projectAgents.push(...loadAgentsFromDir(piProjectDir, "project"));
     if (piMinionsProjectDir)
