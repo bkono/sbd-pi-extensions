@@ -120,8 +120,9 @@ packModel: false
 An explicit `false` (`packModel`, `independent`) overrides an inherited `true`. Omitting a field
 cannot clear an inherited value: an override of the reviewer that sets `model` but not
 `packModel: false` still runs on the pack model. A file with no frontmatter fence is not an agent
-file; an empty fence (`---` then `---`) overrides only the body. In one directory, `<name>.md`
-layers over `<name>/MINION.md` the same way. A new agent with no same-named earlier definition
+file; an empty fence (`---` then `---`) overrides only the body. In one directory, same-named
+files layer the same way: `<name>/MINION.md` first, then `*.md` in filename order, with a warning
+that names the files. A file whose frontmatter is not valid YAML is skipped with a warning. A new agent with no same-named earlier definition
 must set `description`.
 
 Agent frontmatter beyond the basics:

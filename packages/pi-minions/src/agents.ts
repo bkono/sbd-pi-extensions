@@ -56,14 +56,24 @@ export type AgentLayerEntry = Omit<AgentConfig, "description" | "systemPrompt"> 
   systemPrompt?: string;
 };
 
-/** YAML types frontmatter values; a string field given a list or number counts as omitted. */
+/** YAML types frontmatter values. Scalars read as text; a list or mapping counts as omitted. */
 function str(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
+  const text =
+    typeof value === "string"
+      ? value
+      : (typeof value === "number" && Number.isFinite(value)) || typeof value === "boolean"
+        ? String(value)
+        : undefined;
+  return text?.trim() ? text : undefined;
 }
 
 function positiveInt(value: unknown): number | undefined {
   const n =
-    typeof value === "number" ? value : typeof value === "string" ? parseInt(value, 10) : NaN;
+    typeof value === "number"
+      ? Math.trunc(value)
+      : typeof value === "string"
+        ? parseInt(value, 10)
+        : NaN;
   return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
@@ -231,7 +241,22 @@ export function loadAgentsFromDir(dir: string, source: AgentSource): AgentLayerE
     if (agent) fileAgents.push(agent);
   }
 
-  return [...minionAgents, ...fileAgents];
+  const ordered = [...minionAgents, ...fileAgents];
+  warnSameNameCollisions(dir, ordered);
+  return ordered;
+}
+
+/** Same-named files in one directory layer in order; say so, since a duplicate may be accidental. */
+function warnSameNameCollisions(dir: string, entries: AgentLayerEntry[]): void {
+  const files = new Map<string, string[]>();
+  for (const entry of entries) {
+    files.set(entry.name, [...(files.get(entry.name) ?? []), entry.filePath]);
+  }
+  for (const [name, paths] of files) {
+    if (paths.length > 1) {
+      logger.warn("agents", "same agent name in one directory", { name, dir, files: paths });
+    }
+  }
 }
 
 function findProjectDir(cwd: string, ...subpath: string[]): string | null {

@@ -577,9 +577,41 @@ describe("agent frontmatter robustness", () => {
     expect(found?.source).toBe("builtin");
   });
 
+  it("coerces scalar values in string fields to strings", () => {
+    const dir = tempDir();
+    writeAgentMarkdown(dir, "year.md", "name: 2024\ndescription: 2024\ndisplayName: true");
+    const [agent] = loadAgentsFromDir(dir, "project");
+    expect(agent).toMatchObject({ name: "2024", description: "2024", displayName: "true" });
+  });
+
+  it("truncates numeric steps and timeout like parseInt", () => {
+    const dir = tempDir();
+    writeAgentMarkdown(dir, "nums.md", "description: Nums\nsteps: 10.7\ntimeout: 2.5");
+    const [agent] = loadAgentsFromDir(dir, "project");
+    expect(agent).toMatchObject({ steps: 10, timeout: 2 });
+  });
+
+  it("warns when two files in one directory define the same agent name", () => {
+    const dir = tempDir();
+    writeAgentMarkdown(dir, "a.md", "name: custom\ndescription: From a");
+    writeAgentMarkdown(dir, "b.md", "name: custom\ndescription: From b");
+    mkdirSync(join(dir, "custom"));
+    writeAgentMarkdown(join(dir, "custom"), "MINION.md", "description: From minion");
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    const [agent] = mergeAgentLayers(loadAgentsFromDir(dir, "project"));
+
+    expect(agent?.description).toBe("From b");
+    expect(warn).toHaveBeenCalledWith("agents", "same agent name in one directory", {
+      name: "custom",
+      dir,
+      files: [join(dir, "custom", "MINION.md"), join(dir, "a.md"), join(dir, "b.md")],
+    });
+  });
+
   it("ignores non-string values for string fields", () => {
     const dir = tempDir();
-    writeAgentMarkdown(dir, "typed.md", "description: Typed\nmodel: [a, b]\ndisplayName: 7");
+    writeAgentMarkdown(dir, "typed.md", "description: Typed\nmodel: [a, b]\ndisplayName: {x: 1}");
     const [agent] = loadAgentsFromDir(dir, "project");
     expect(agent).toMatchObject({ name: "typed", description: "Typed" });
     expect(agent).not.toHaveProperty("model");
