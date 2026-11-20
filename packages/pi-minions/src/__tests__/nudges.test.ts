@@ -53,7 +53,10 @@ describe("nudgeFor selection", () => {
   it("fits every built-in nudge in the packet's nudge cap, so none reaches the parent cut off", () => {
     for (const taskType of [...TASK_TYPES, undefined]) {
       for (const event of [...NUDGE_EVENTS, "unknown-event"]) {
-        expect(nudgeFor({ taskType }, event).length).toBeLessThanOrEqual(PACKET_NUDGE_CHAR_CAP);
+        // The packet bounds the nudge in UTF-8 bytes, not characters.
+        expect(Buffer.byteLength(nudgeFor({ taskType }, event), "utf8")).toBeLessThanOrEqual(
+          PACKET_NUDGE_CHAR_CAP,
+        );
       }
     }
   });
