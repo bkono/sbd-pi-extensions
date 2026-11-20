@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nudgeFor } from "../nudges.js";
+import { PACKET_NUDGE_CHAR_CAP } from "../orchestration/packets.js";
 import { NUDGE_EVENTS, TASK_TYPES } from "../task-types.js";
 
 const AGENT_NUDGE = "agent-nudge-sentinel";
@@ -47,5 +48,13 @@ describe("nudgeFor selection", () => {
     expect(unknownEvent.length).toBeGreaterThan(0);
     expect(nudgeFor({ taskType: hostileTaskType }, "unknown-event")).toBe(unknownEvent);
     expect(nudgeFor({ taskType: { malformed: true } }, null)).toBe(unknownEvent);
+  });
+
+  it("fits every built-in nudge in the packet's nudge cap, so none reaches the parent cut off", () => {
+    for (const taskType of [...TASK_TYPES, undefined]) {
+      for (const event of [...NUDGE_EVENTS, "unknown-event"]) {
+        expect(nudgeFor({ taskType }, event).length).toBeLessThanOrEqual(PACKET_NUDGE_CHAR_CAP);
+      }
+    }
   });
 });
