@@ -24,7 +24,7 @@ export const LIFECYCLE_PACKET_CUSTOM_TYPE = "minion-lifecycle";
 /** Per-field caps remain defense in depth; aggregate budgets below are authoritative. */
 export const CHILD_OUTPUT_CHAR_CAP = 2000;
 export const PACKET_FIELD_CHAR_CAP = 96;
-export const PACKET_NUDGE_CHAR_CAP = 400;
+export const PACKET_NUDGE_CHAR_CAP = 600;
 export const MAX_CHANGED_CHILDREN = 8;
 export const MAX_STILL_RUNNING_CHILDREN = 16;
 export const MAX_PACKET_OVERLAPS = 4;
