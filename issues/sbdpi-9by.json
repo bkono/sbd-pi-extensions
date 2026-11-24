@@ -14,11 +14,15 @@
     {
       "text": "Fork pin moved to 9266051ed44b87fcb03df6e518413f3868d5ceff (bkono/pi-interactive-shell branch sbd/multi-session-host): #96 + #97 + stale-delivery guard + error classification. Note: pi remove of a git pin removes every pin of the same repo; install the new pin after removing the old one.",
       "timestamp": "2026-11-24T22:14:31Z"
+    },
+    {
+      "text": "Done at c02139b9fb18a9665e5c7006b5419c6d5fe3e076, draft PR https://github.com/bkono/sbd-pi-extensions/pull/24. Verifier: PASS c02139b. Review: round 1 findings addressed; round 2 minor (fork tests) fixed in fork 33afe38. Merge waits on Bryan. The rollout constraint above still applies.",
+      "timestamp": "2026-11-24T22:35:44Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "pi-minions: emit session_shutdown before disposing a child session",
   "type": "bug",
-  "updated_at": "2026-11-24T22:14:31Z"
+  "updated_at": "2026-11-24T22:35:44Z"
 }
