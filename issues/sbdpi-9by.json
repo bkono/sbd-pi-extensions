@@ -2,6 +2,7 @@
   "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-11-24T22:35:44Z",
   "created": "2026-11-24T22:02:04Z",
   "description": "Children are disposed with session.dispose() only. Extensions loaded in the child never get session_shutdown, so resources they own (interactive_shell PTYs, monitors) outlive the child, and their ExtensionAPI goes stale while still bound. Match pi's AgentSessionRuntime.dispose(): emit session_shutdown(reason quit), then dispose. Bounded so a hung handler cannot block teardown. Requires pi-interactive-shell with per-session coordinators (fork bkono/pi-interactive-shell@ca050c6, upstream PRs #96/#97); on npm 0.18.0 a child shutdown kills every shell in the process.\n\nDone predicate: a real in-process child AgentSession disposed via the minion runtime emits session_shutdown(quit) to its extensions while its API is still active, then disposes; a hung handler does not block dispose past the bound; a throwing handler does not prevent dispose. Lint, tests, typecheck pass.",
   "id": "sbdpi-9by",
@@ -21,7 +22,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "pi-minions: emit session_shutdown before disposing a child session",
   "type": "bug",
   "updated_at": "2026-11-24T22:35:44Z"
