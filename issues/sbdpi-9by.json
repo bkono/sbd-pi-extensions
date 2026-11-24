@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "unknown",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-11-24T22:02:04Z",
@@ -7,7 +7,7 @@
   "id": "sbdpi-9by",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "pi-minions: emit session_shutdown before disposing a child session",
   "type": "bug",
   "updated_at": "2026-11-24T22:02:04Z"
