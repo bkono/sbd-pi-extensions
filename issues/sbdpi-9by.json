@@ -10,11 +10,15 @@
     {
       "text": "Rollout constraint: every machine that pulls this commit must first run pi-interactive-shell from git:github.com/bkono/pi-interactive-shell@ca050c62724e718dc2ea6edfff4df1a291e1e8f7 (or upstream once #96/#97 ship). On npm 0.18.0, a child session_shutdown runs sessionManager.killAll() and kills the parent's shells. This was measured with /tmp/is-repro/repro2.mjs scenario D on 0.18.0. Switch with: pi install git:github.com/bkono/pi-interactive-shell@ca050c6... \u0026\u0026 pi remove npm:pi-interactive-shell.",
       "timestamp": "2026-11-24T22:06:46Z"
+    },
+    {
+      "text": "Fork pin moved to 9266051ed44b87fcb03df6e518413f3868d5ceff (bkono/pi-interactive-shell branch sbd/multi-session-host): #96 + #97 + stale-delivery guard + error classification. Note: pi remove of a git pin removes every pin of the same repo; install the new pin after removing the old one.",
+      "timestamp": "2026-11-24T22:14:31Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "pi-minions: emit session_shutdown before disposing a child session",
   "type": "bug",
-  "updated_at": "2026-11-24T22:06:46Z"
+  "updated_at": "2026-11-24T22:14:31Z"
 }
