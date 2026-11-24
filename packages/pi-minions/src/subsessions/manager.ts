@@ -147,34 +147,54 @@ export function applyChildToolAllowlist(
 export const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 /**
- * Tear a child session down the way pi's AgentSessionRuntime.dispose() does: emit
+ * Tear a child session down the way pi's AgentSessionRuntime.dispose() does: abort, emit
  * session_shutdown(quit) while the child's extension API is still active, then dispose.
  * dispose() alone invalidates the API without telling extensions, so resources they own
  * (PTYs, monitors, timers) outlive the child and later calls through the stale API throw.
+ *
+ * The bound limits how long teardown waits, not how long handlers run. pi's runner awaits
+ * handlers in order, so a handler that never settles also starves the handlers after it.
+ * Those extensions then lose their cleanup; the timeout is logged so that is visible.
  */
 export async function disposeChildAgentSession(
-  session: Pick<AgentSession, "abortBash" | "extensionRunner" | "dispose">,
-  shutdownTimeoutMs = CHILD_SHUTDOWN_TIMEOUT_MS,
+  session: Pick<AgentSession, "abort" | "abortBash" | "extensionRunner" | "dispose">,
+  options: { shutdownTimeoutMs?: number; childId?: string } = {},
 ): Promise<void> {
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? CHILD_SHUTDOWN_TIMEOUT_MS;
   try {
     session.abortBash();
   } catch {
     // Unmanaged processes cannot be guaranteed.
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, shutdownTimeoutMs);
-      }),
-    ]);
-  } catch {
+  const shutdown = (async () => {
+    await session.abort();
+    await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+  })().then(
+    () => "done" as const,
     // The runner reports handler errors itself; a failed shutdown must not leak the session.
-  } finally {
-    clearTimeout(timer);
+    () => "failed" as const,
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), shutdownTimeoutMs);
+  });
+  const outcome = await Promise.race([shutdown, timeout]);
+  clearTimeout(timer);
+  if (outcome === "timeout") {
+    logger.warn("subsession", "child-shutdown-timeout", {
+      childId: options.childId,
+      timeoutMs: shutdownTimeoutMs,
+    });
   }
   session.dispose();
+}
+
+/** The ChildRuntime handed to SubsessionManager for a real in-process AgentSession. */
+export function createChildRuntimeHandle(session: AgentSession, childId?: string): ChildRuntime {
+  return {
+    session: session as unknown as ChildSession,
+    dispose: () => disposeChildAgentSession(session, { childId }),
+  };
 }
 
 async function defaultCreateChildRuntime(
@@ -220,10 +240,7 @@ async function defaultCreateChildRuntime(
 
   return {
     sessionPath: actualPath,
-    runtime: {
-      session: session as unknown as ChildSession,
-      dispose: () => disposeChildAgentSession(session),
-    },
+    runtime: createChildRuntimeHandle(session, input.id),
   };
 }
 
@@ -567,10 +584,10 @@ export class SubsessionManager {
   async disposeAll(): Promise<void> {
     this.shutdown = true;
     const ids = [...this.children.keys()];
-    for (const id of ids) {
-      this.abortChild(id);
-      await this.disposeChild(id);
-    }
+    // Abort every child before awaiting any teardown: disposal now waits on each child's
+    // session_shutdown handlers, and siblings must not keep running behind a slow one.
+    for (const id of ids) this.abortChild(id);
+    await Promise.all(ids.map((id) => this.disposeChild(id)));
   }
 
   abortSession(id: string): boolean {
