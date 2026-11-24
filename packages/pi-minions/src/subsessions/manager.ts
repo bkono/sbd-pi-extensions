@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+  type AgentSession,
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
@@ -142,6 +143,40 @@ export function applyChildToolAllowlist(
   return session.getActiveToolNames();
 }
 
+/** Upper bound on a child's session_shutdown handlers. A hung extension must not block minion teardown. */
+export const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+/**
+ * Tear a child session down the way pi's AgentSessionRuntime.dispose() does: emit
+ * session_shutdown(quit) while the child's extension API is still active, then dispose.
+ * dispose() alone invalidates the API without telling extensions, so resources they own
+ * (PTYs, monitors, timers) outlive the child and later calls through the stale API throw.
+ */
+export async function disposeChildAgentSession(
+  session: Pick<AgentSession, "abortBash" | "extensionRunner" | "dispose">,
+  shutdownTimeoutMs = CHILD_SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
+  try {
+    session.abortBash();
+  } catch {
+    // Unmanaged processes cannot be guaranteed.
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, shutdownTimeoutMs);
+      }),
+    ]);
+  } catch {
+    // The runner reports handler errors itself; a failed shutdown must not leak the session.
+  } finally {
+    clearTimeout(timer);
+  }
+  session.dispose();
+}
+
 async function defaultCreateChildRuntime(
   input: Parameters<CreateChildRuntime>[0],
 ): Promise<{ runtime: ChildRuntime; sessionPath: string }> {
@@ -187,14 +222,7 @@ async function defaultCreateChildRuntime(
     sessionPath: actualPath,
     runtime: {
       session: session as unknown as ChildSession,
-      dispose: () => {
-        try {
-          session.abortBash();
-        } catch {
-          // Unmanaged processes cannot be guaranteed.
-        }
-        session.dispose();
-      },
+      dispose: () => disposeChildAgentSession(session),
     },
   };
 }
