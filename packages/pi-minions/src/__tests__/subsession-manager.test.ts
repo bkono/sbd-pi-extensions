@@ -601,6 +601,43 @@ describe("SubsessionManager start/wait lifecycle", () => {
     );
   });
 
+  it("aborts every child before awaiting a slow child's teardown on disposeAll", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
+    const slow = new FakeChildSession();
+    const fast = new FakeChildSession();
+    const slowTeardown = createDeferred<void>();
+    const sessions = [slow, fast];
+    const manager = new SubsessionManager(cwd, join(cwd, "parent.jsonl"), undefined, {
+      createChildRuntime: async () => {
+        const session = sessions.shift() as FakeChildSession;
+        return {
+          runtime: {
+            session,
+            dispose: async () => {
+              if (session === slow) await slowTeardown.promise;
+              session.dispose();
+            },
+          },
+          sessionPath: join(cwd, `${session === slow ? "slow" : "fast"}.jsonl`),
+        };
+      },
+    });
+    await manager.startChild(startOptions("child-slow", cwd));
+    await manager.startChild(startOptions("child-fast", cwd));
+
+    const disposing = manager.disposeAll();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(slow.aborted).toBe(true);
+    expect(fast.aborted).toBe(true);
+    expect(fast.disposed).toBe(true);
+    expect(slow.disposed).toBe(false);
+
+    slowTeardown.resolve();
+    await disposing;
+    expect(slow.disposed).toBe(true);
+  });
+
   it("includes beadwork_show and excludes beadwork mutations, including after late register", async () => {
     spyLogger();
     const cwd = mkdtempSync(join(tmpdir(), "pi-minions-manager-"));
